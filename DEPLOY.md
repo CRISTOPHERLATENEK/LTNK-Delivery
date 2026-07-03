@@ -45,6 +45,24 @@ No painel do app, adicione as variáveis (copie os nomes do `.env.example`). As 
 
 > **Nunca** coloque esses valores no código nem no GitHub — só nas variáveis de ambiente do painel.
 
+### Primeiro login (servidor novo = banco vazio)
+
+Um deploy novo sobe com o banco **vazio** — nenhuma loja, nenhum usuário. Não existe
+cadastro público (por segurança), então em hospedagens gerenciadas (sem terminal/SSH
+pra rodar `npm run seed` manualmente) adicione temporariamente:
+
+- `SEED_ON_START=1`
+
+Isso roda o seed de demonstração automaticamente no boot (é idempotente — seguro mesmo
+que fique ligado por engano depois). Ele cria, entre outras, a conta:
+
+- `admin@demo.com` / `admin123` — **super admin** (painel `/painel-admin`)
+- `lojista@demo.com` / `lojista123` — loja de demonstração
+
+**Depois do primeiro login**: troque a senha do super admin (ou crie o seu e apague o
+de demo pelo próprio painel), e **remova a variável `SEED_ON_START`** — ela não precisa
+ficar ligada permanentemente.
+
 ## 4. HTTPS (obrigatório)
 
 Ative o **SSL** no domínio (Let's Encrypt, grátis). É obrigatório porque:

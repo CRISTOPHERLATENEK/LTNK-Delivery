@@ -19,6 +19,18 @@ import { ErroHttp, lojaAbertaPorAgenda, agoraUTC } from './util';
 import db, { comTenant } from './db';
 import { resolverPorHost, tenantPadrao, listarTenants } from './tenants';
 
+/**
+ * Bootstrap opcional: em hospedagens gerenciadas (sem terminal/SSH para rodar
+ * `npm run seed` manualmente), defina SEED_ON_START=1 nas variáveis de
+ * ambiente pra rodar o seed automaticamente no primeiro boot. `seed.ts` é
+ * idempotente (não duplica nada) — seguro mesmo que fique ligado por engano
+ * em boots seguintes. Recomendado remover a variável depois do 1º login.
+ */
+if (process.env.SEED_ON_START === '1') {
+  console.log('🌱 SEED_ON_START=1 — rodando seed inicial (idempotente)...');
+  require('./seed');
+}
+
 const app = express();
 app.disable('x-powered-by');
 if (process.env.CONFIA_PROXY === '1') app.set('trust proxy', 1);
