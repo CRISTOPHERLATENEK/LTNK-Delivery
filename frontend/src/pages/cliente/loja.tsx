@@ -1,0 +1,635 @@
+import { useState, useEffect } from 'react';
+import { useParams, Link, useSearchParams } from 'react-router-dom';
+import { useTema } from '@/lib/tema';
+import { useQuery } from '@tanstack/react-query';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2 } from 'lucide-react';
+import { api } from '@/lib/api';
+import { brl } from '@/lib/format';
+import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useToast } from '@/components/ui/toast';
+import { adicionarAoCarrinho, useCarrinho, mudarQuantidade } from '@/lib/carrinho';
+import { ModalProduto } from './modal-produto';
+import { BannerCarousel } from '@/components/banner-carousel';
+import type { Loja, Produto, Banner } from '@/types';
+
+interface CategoriaMeta { nome: string; icone: string; ordem: number; imagem?: string }
+interface RespostaCardapio {
+  loja: Loja & { categoria_estilo?: 'cards' | 'chips' };
+  cardapio: Record<string, Produto[]>;
+  categorias_meta?: CategoriaMeta[];
+  banners: Banner[];
+}
+
+type ProdutoComCat = Produto & { _cat: string };
+
+export function PaginaLoja() {
+  const { id } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [produtoAberto, setProdutoAberto] = useState<Produto | null>(null);
+  const [catAtiva, setCatAtiva] = useState<string | null>(null);
+  const [subCatAtiva, setSubCatAtiva] = useState<string | null>(null);
+  const [busca, setBusca] = useState('');
+  const { aplicarCorPrimaria, resetarCorPrimaria, marca } = useTema();
+  const { mostrar } = useToast();
+
+  const consulta = useQuery({
+    queryKey: ['cardapio', id],
+    queryFn: () => api<RespostaCardapio>('GET', `/api/lojas/${id}`),
+    enabled: !!id,
+  });
+
+  useEffect(() => {
+    const cor = consulta.data?.loja.cor_marca;
+    if (cor) aplicarCorPrimaria(cor);
+    return () => { resetarCorPrimaria(); };
+  }, [consulta.data?.loja.cor_marca, aplicarCorPrimaria, resetarCorPrimaria]);
+
+  // Deep link: ?produto=ID
+  useEffect(() => {
+    const produtoIdParam = searchParams.get('produto');
+    if (!produtoIdParam || !consulta.data) return;
+    const pid = Number(produtoIdParam);
+    const todos = Object.values(consulta.data.cardapio).flat();
+    const encontrado = todos.find(p => p.id === pid);
+    if (encontrado) {
+      setProdutoAberto(encontrado);
+      setSearchParams(p => { p.delete('produto'); return p; }, { replace: true });
+    }
+  }, [searchParams, consulta.data, setSearchParams]);
+
+  if (consulta.isLoading) return <Skeleton_Loja />;
+  if (!consulta.data) return null;
+
+  const { loja, cardapio, banners } = consulta.data;
+  const modoWhiteLabel = marca.loja_id > 0;
+  const estiloCat: 'cards' | 'chips' = loja.categoria_estilo === 'chips' ? 'chips' : 'cards';
+  const metaCat: CategoriaMeta[] = consulta.data.categorias_meta?.length
+    ? consulta.data.categorias_meta
+    : Object.keys(cardapio).map((nome, i) => ({ nome, icone: '', ordem: i }));
+  const categorias = metaCat.map(c => c.nome);
+
+  // Achata todos os produtos com sua categoria
+  const todosComCat: ProdutoComCat[] = Object.entries(cardapio).flatMap(
+    ([cat, prods]) => prods.map(p => ({ ...p, _cat: cat }))
+  );
+
+  // Subcategorias disponíveis para a categoria ativa
+  const subcategorias: string[] = catAtiva
+    ? [...new Set(
+        (cardapio[catAtiva] ?? [])
+          .map(p => p.subcategoria)
+          .filter((s): s is string => !!s)
+      )]
+    : [];
+
+  function selecionarCat(cat: string | null) {
+    setCatAtiva(cat);
+    setSubCatAtiva(null);
+  }
+
+  // Aplica filtros
+  const buscaLower = busca.toLowerCase();
+  const filtrados = todosComCat.filter(p => {
+    const matchCat = !catAtiva || p._cat === catAtiva;
+    const matchSubCat = !subCatAtiva || p.subcategoria === subCatAtiva;
+    const matchBusca = !busca ||
+      p.nome.toLowerCase().includes(buscaLower) ||
+      (p.descricao?.toLowerCase().includes(buscaLower) ?? false);
+    return matchCat && matchSubCat && matchBusca;
+  });
+
+  // Modo sem filtro: agrupa por categoria (com subcategorias dentro)
+  const semFiltro = !catAtiva && !busca;
+  // Categoria selecionada sem subcategoria: agrupa por subcategoria dentro da cat
+  const catSemSubfiltro = !!catAtiva && !subCatAtiva && !busca && subcategorias.length > 0;
+  const categoriasFiltradas = semFiltro ? categorias : [];
+
+  function handleClickProduto(p: Produto) {
+    if (!loja.aberta) return;
+    const temGrupos = p.grupos && p.grupos.length > 0;
+    if (!temGrupos) {
+      const precoBase = p.preco_promocional_centavos && p.preco_promocional_centavos > 0
+        ? p.preco_promocional_centavos : p.preco_centavos;
+      const ok = adicionarAoCarrinho(loja, {
+        produto_id: p.id, nome: p.nome, preco_centavos: precoBase, quantidade: 1, opcoes: [], opcoes_texto: '', foto_url: p.foto_url,
+      });
+      if (ok) mostrar({ tipo: 'sucesso', titulo: `${p.nome} adicionado!` });
+      return;
+    }
+    setProdutoAberto(p);
+  }
+
+  return (
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_330px] lg:gap-6 lg:items-start">
+    <div className="-mx-4 lg:mx-0 min-w-0">
+      {/* ── HERO ── */}
+      <div className="relative lg:rounded-3xl lg:overflow-hidden">
+        <div className="relative h-44 sm:h-52 overflow-hidden bg-gradient-to-br from-primary/30 via-primary/10 to-muted">
+          {loja.capa_url && (
+            <img src={loja.capa_url} alt="" className="absolute inset-0 size-full object-cover" />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+
+          {!modoWhiteLabel && (
+            <Link
+              to="/"
+              className="absolute top-4 left-4 flex size-9 items-center justify-center rounded-full bg-black/40 text-white backdrop-blur-sm"
+            >
+              <ArrowLeft className="size-4" />
+            </Link>
+          )}
+
+          <div className="absolute top-4 right-4">
+            <Badge variant={loja.aberta ? 'success' : 'secondary'} className="shadow text-xs">
+              {loja.aberta ? '● Aberta' : '● Fechada'}
+            </Badge>
+          </div>
+
+          {/* Info sobreposta ao hero */}
+          <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 flex items-end gap-3">
+            <div className="shrink-0 size-16 sm:size-20 rounded-2xl overflow-hidden border-[3px] border-white/90 shadow-xl bg-white">
+              {loja.logo_url
+                ? <img src={loja.logo_url} alt={loja.nome} className="size-full object-cover" />
+                : <div className="flex size-full items-center justify-center text-2xl bg-gradient-to-br from-primary/20 to-accent">🍕</div>
+              }
+            </div>
+            <div className="pb-0.5 min-w-0">
+              <h1 className="text-xl sm:text-2xl font-extrabold text-white leading-tight drop-shadow">{loja.nome}</h1>
+              <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-1">
+                {!!loja.nota_qtd && loja.nota_qtd > 0 && (
+                  <span className="flex items-center gap-1 text-xs font-bold text-amber-300 drop-shadow">
+                    <Star className="size-3 fill-amber-300 text-amber-300" />
+                    {loja.nota_media?.toFixed(1)}
+                    <span className="font-normal text-white/70">({loja.nota_qtd})</span>
+                  </span>
+                )}
+                <span className="flex items-center gap-1 text-xs font-semibold text-white/80 drop-shadow">
+                  <Bike className="size-3" />
+                  {loja.taxa_entrega_centavos === 0
+                    ? <span className="text-green-300 font-bold">Grátis</span>
+                    : brl(loja.taxa_entrega_centavos)
+                  }
+                </span>
+                <span className="flex items-center gap-1 text-xs font-semibold text-white/80 drop-shadow">
+                  <Clock className="size-3" />
+                  {loja.tempo_estimado_min} min
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 pt-4 space-y-4">
+        {/* Aviso fechada */}
+        {!loja.aberta && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+            Loja fechada — você pode ver o cardápio mas não fazer pedidos.
+          </div>
+        )}
+
+        {/* Banners */}
+        {banners && banners.length > 0 && (
+          <BannerCarousel
+            banners={banners}
+            onProdutoClick={pid => {
+              const p = todosComCat.find(x => x.id === pid);
+              if (p) setProdutoAberto(p);
+            }}
+          />
+        )}
+
+        {/* Busca */}
+        <div className="relative">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+          <input
+            type="search"
+            placeholder="Buscar no cardápio…"
+            value={busca}
+            onChange={e => { setBusca(e.target.value); selecionarCat(null); }}
+            className="w-full h-11 rounded-2xl border border-border bg-muted/50 pl-10 pr-10 text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+          />
+          {busca && (
+            <button onClick={() => setBusca('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              <X className="size-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Categorias — estilo "cards" (com ícone) ou "chips" (texto) */}
+        {estiloCat === 'cards' ? (
+          <div className="-mx-4 px-4 overflow-x-auto scrollbar-hide">
+            <div className="flex gap-2.5 pb-1">
+              <CardCategoria icone="🍽️" imagem="" label="Todos" ativo={!catAtiva} onClick={() => selecionarCat(null)} />
+              {metaCat.map(c => (
+                <CardCategoria
+                  key={c.nome}
+                  icone={c.icone}
+                  imagem={c.imagem}
+                  label={c.nome}
+                  ativo={catAtiva === c.nome}
+                  onClick={() => selecionarCat(catAtiva === c.nome ? null : c.nome)}
+                />
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="-mx-4 px-4 overflow-x-auto scrollbar-hide">
+            <div className="flex gap-2 pb-1">
+              <ChipCategoria label="Todos" ativo={!catAtiva} onClick={() => selecionarCat(null)} />
+              {categorias.map(cat => (
+                <ChipCategoria
+                  key={cat}
+                  label={cat}
+                  ativo={catAtiva === cat}
+                  onClick={() => selecionarCat(catAtiva === cat ? null : cat)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+        {/* Subcategorias — chips de filtro secundário, aparece só quando catAtiva tem subcats */}
+        {subcategorias.length > 0 && (
+          <div className="-mx-4 px-4 overflow-x-auto scrollbar-hide">
+            <div className="flex gap-2 pb-1">
+              <ChipSubcat label="Todos" ativo={!subCatAtiva} onClick={() => setSubCatAtiva(null)} />
+              {subcategorias.map(sub => (
+                <ChipSubcat
+                  key={sub}
+                  label={sub}
+                  ativo={subCatAtiva === sub}
+                  onClick={() => setSubCatAtiva(subCatAtiva === sub ? null : sub)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── GRID DE PRODUTOS ── */}
+      <div className="px-4 pb-10 mt-2">
+        {semFiltro ? (
+          /* Agrupado por categoria, e por subcategoria dentro de cada uma */
+          categorias.map(cat => {
+            const prods = cardapio[cat] ?? [];
+            const subs = [...new Set(prods.map(p => p.subcategoria).filter((s): s is string => !!s))];
+            const semSub = prods.filter(p => !p.subcategoria);
+            return (
+              <div key={cat} className="mb-8">
+                <h2 className="text-sm font-extrabold uppercase tracking-widest text-muted-foreground mb-3">{cat}</h2>
+                {subs.length > 0 ? (
+                  <>
+                    {semSub.length > 0 && (
+                      <GridProdutos produtos={semSub} podeAbrir={!!loja.aberta} onClick={handleClickProduto} />
+                    )}
+                    {subs.map(sub => (
+                      <div key={sub} className="mt-4">
+                        <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/60 mb-2 pl-0.5">{sub}</h3>
+                        <GridProdutos produtos={prods.filter(p => p.subcategoria === sub)} podeAbrir={!!loja.aberta} onClick={handleClickProduto} />
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <GridProdutos produtos={prods} podeAbrir={!!loja.aberta} onClick={handleClickProduto} />
+                )}
+              </div>
+            );
+          })
+        ) : catSemSubfiltro ? (
+          /* Categoria selecionada sem subcat ativa: agrupa por subcategoria */
+          <div>
+            {(() => {
+              const prods = cardapio[catAtiva!] ?? [];
+              const semSub = prods.filter(p => !p.subcategoria);
+              return (
+                <>
+                  {semSub.length > 0 && (
+                    <GridProdutos produtos={semSub} podeAbrir={!!loja.aberta} onClick={handleClickProduto} />
+                  )}
+                  {subcategorias.map(sub => (
+                    <div key={sub} className="mt-4">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/60 mb-2 pl-0.5">{sub}</h3>
+                      <GridProdutos produtos={prods.filter(p => p.subcategoria === sub)} podeAbrir={!!loja.aberta} onClick={handleClickProduto} />
+                    </div>
+                  ))}
+                </>
+              );
+            })()}
+          </div>
+        ) : filtrados.length > 0 ? (
+          /* Filtrado flat */
+          <AnimatePresence mode="popLayout">
+            <GridProdutos
+              produtos={filtrados}
+              podeAbrir={!!loja.aberta}
+              onClick={handleClickProduto}
+              animado
+            />
+          </AnimatePresence>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <span className="text-5xl mb-4">🔍</span>
+            <p className="font-semibold text-muted-foreground">Nenhum produto encontrado</p>
+            <button
+              onClick={() => { setBusca(''); selecionarCat(null); }}
+              className="mt-3 text-sm text-primary underline underline-offset-2"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+
+      {/* ── CARRINHO LATERAL (desktop) ── */}
+      <aside className="hidden lg:block">
+        <div className="sticky top-6">
+          <CarrinhoLateral loja={loja} />
+        </div>
+      </aside>
+
+      {produtoAberto && (
+        <ModalProduto
+          produto={produtoAberto}
+          loja={loja}
+          aberto={!!produtoAberto}
+          onFechar={() => setProdutoAberto(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Carrinho lateral fixo (estilo Food.Z, só desktop) ── */
+function CarrinhoLateral({ loja }: { loja: Loja }) {
+  const carrinho = useCarrinho();
+  const doMesmo = carrinho && carrinho.loja_id === loja.id ? carrinho : null;
+  const itens = doMesmo?.itens ?? [];
+  const subtotal = itens.reduce((s, i) => s + i.preco_centavos * i.quantidade, 0);
+  const taxa = doMesmo?.taxa_entrega_centavos ?? loja.taxa_entrega_centavos;
+  const total = subtotal + (itens.length ? taxa : 0);
+
+  return (
+    <div className="rounded-3xl border border-border/60 bg-card overflow-hidden">
+      <div className="flex items-center gap-2 px-5 py-4 border-b border-border/60">
+        <ShoppingBag className="size-5 text-primary" />
+        <span className="font-extrabold">Meu carrinho</span>
+        {itens.length > 0 && (
+          <span className="ml-auto rounded-full bg-primary/10 text-primary text-xs font-bold px-2 py-0.5">
+            {itens.reduce((s, i) => s + i.quantidade, 0)}
+          </span>
+        )}
+      </div>
+
+      {itens.length === 0 ? (
+        <div className="px-5 py-12 text-center text-muted-foreground">
+          <ShoppingBag className="size-9 mx-auto opacity-30 mb-2" />
+          <p className="text-sm">Seu carrinho está vazio.</p>
+          <p className="text-xs mt-1">Toque nos produtos para adicionar.</p>
+        </div>
+      ) : (
+        <>
+          <div className="max-h-[42vh] overflow-y-auto divide-y divide-border/50">
+            {itens.map(item => (
+              <div key={item.chave} className="flex items-center gap-3 px-5 py-3">
+                {item.foto_url ? (
+                  <img src={item.foto_url} alt="" className="size-9 shrink-0 rounded-xl object-cover" />
+                ) : (
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-100 to-rose-200 text-lg">🍽️</div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold leading-tight line-clamp-1">{item.nome}</div>
+                  {item.opcoes_texto && (
+                    <div className="text-[11px] text-muted-foreground line-clamp-1">{item.opcoes_texto}</div>
+                  )}
+                  <div className="text-sm font-bold text-primary mt-0.5">{brl(item.preco_centavos * item.quantidade)}</div>
+                </div>
+                <div className="flex items-center gap-1 rounded-full border border-border bg-background shrink-0">
+                  <button onClick={() => mudarQuantidade(item.chave, -1)} className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-foreground">
+                    {item.quantidade === 1 ? <Trash2 className="size-3.5" /> : <Minus className="size-3.5" />}
+                  </button>
+                  <span className="min-w-5 text-center text-sm font-bold tabular-nums">{item.quantidade}</span>
+                  <button onClick={() => mudarQuantidade(item.chave, 1)} className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-primary">
+                    <Plus className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="px-5 py-4 space-y-1.5 border-t border-border/60">
+            <div className="flex justify-between text-sm text-muted-foreground"><span>Subtotal</span><span className="tabular-nums">{brl(subtotal)}</span></div>
+            <div className="flex justify-between text-sm text-muted-foreground">
+              <span>Entrega</span>
+              <span className="tabular-nums">{taxa === 0 ? <span className="text-success font-semibold">Grátis</span> : brl(taxa)}</span>
+            </div>
+            <div className="flex justify-between font-extrabold text-lg pt-1"><span>Total</span><span className="tabular-nums text-primary">{brl(total)}</span></div>
+            <Link
+              to="/carrinho"
+              className="mt-2 flex items-center justify-center gap-2 rounded-full bg-primary py-3 text-sm font-bold text-primary-foreground shadow-sm shadow-primary/30 hover:opacity-90 transition-opacity"
+            >
+              Finalizar pedido
+            </Link>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── Card de categoria com foto (estilo iFood) ── */
+function CardCategoria({ icone, imagem, label, ativo, onClick }: { icone: string; imagem?: string; label: string; ativo: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'relative shrink-0 w-[96px] h-[96px] rounded-2xl overflow-hidden border-2 transition-all',
+        ativo ? 'border-primary ring-2 ring-primary/30' : 'border-transparent',
+      )}
+    >
+      {imagem ? (
+        <img src={imagem} alt="" className="absolute inset-0 size-full object-cover" />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/25 to-primary/5 text-3xl">
+          {icone || '🍽️'}
+        </div>
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
+      <span className="absolute inset-x-1 bottom-1.5 text-center text-[11px] font-bold text-white leading-tight line-clamp-2 drop-shadow">
+        {label}
+      </span>
+    </button>
+  );
+}
+
+/* ── Chip de categoria ── */
+function ChipCategoria({ label, ativo, onClick }: { label: string; ativo: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-all whitespace-nowrap',
+        ativo
+          ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/30'
+          : 'bg-muted text-muted-foreground hover:bg-muted/70',
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+/* ── Chip de subcategoria (menor que o de categoria) ── */
+function ChipSubcat({ label, ativo, onClick }: { label: string; ativo: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap border',
+        ativo
+          ? 'bg-primary/10 text-primary border-primary/30'
+          : 'bg-background text-muted-foreground border-border hover:border-primary/30 hover:text-foreground',
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+/* ── Grid de produtos ── */
+function GridProdutos({ produtos, podeAbrir, onClick, animado }: {
+  produtos: Produto[];
+  podeAbrir: boolean;
+  onClick: (p: Produto) => void;
+  animado?: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+      {produtos.map((p, i) =>
+        animado ? (
+          <motion.div
+            key={p.id}
+            layout
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            transition={{ duration: 0.18, delay: i * 0.03 }}
+          >
+            <CardProduto produto={p} podeAbrir={podeAbrir} onClick={() => onClick(p)} />
+          </motion.div>
+        ) : (
+          <CardProduto key={p.id} produto={p} podeAbrir={podeAbrir} onClick={() => onClick(p)} />
+        )
+      )}
+    </div>
+  );
+}
+
+/* ── Card de produto ── */
+function CardProduto({ produto, podeAbrir, onClick }: { produto: Produto; podeAbrir: boolean; onClick: () => void }) {
+  const temPromo = !!produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0;
+  const preco = temPromo ? produto.preco_promocional_centavos! : produto.preco_centavos;
+  const esgotado = !!produto.controla_estoque && (produto.estoque ?? 0) <= 0;
+  const poucas = !esgotado && !!produto.controla_estoque && (produto.estoque ?? 0) <= 5;
+  const abrivel = podeAbrir && !esgotado;
+
+  return (
+    <motion.div
+      whileTap={abrivel ? { scale: 0.96 } : {}}
+      onClick={abrivel ? onClick : undefined}
+      className={cn(
+        'group rounded-2xl bg-card border border-border/60 overflow-hidden shadow-sm transition-shadow',
+        abrivel && 'cursor-pointer hover:shadow-md',
+        esgotado && 'opacity-90',
+      )}
+    >
+      {/* Imagem */}
+      <div className="relative aspect-square overflow-hidden bg-gradient-to-br from-orange-100 to-rose-200">
+        {produto.foto_url
+          ? <img src={produto.foto_url} alt={produto.nome} className={cn('size-full object-cover transition-transform duration-300', abrivel && 'group-hover:scale-105', esgotado && 'grayscale')} />
+          : <div className="flex size-full items-center justify-center text-4xl">🍽️</div>
+        }
+        {/* Overlay esgotado */}
+        {esgotado && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/45">
+            <span className="rounded-full bg-white/95 px-3 py-1 text-xs font-extrabold text-neutral-800 shadow">
+              Esgotado
+            </span>
+          </div>
+        )}
+        {/* Badge destaque */}
+        {!!produto.destaque && !esgotado && (
+          <span className="absolute top-2 left-2 flex items-center gap-0.5 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-amber-900 shadow">
+            <Star className="size-2.5 fill-amber-900" /> Top
+          </span>
+        )}
+        {/* Badge promo */}
+        {temPromo && !esgotado && (
+          <span className="absolute top-2 right-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow">
+            PROMO
+          </span>
+        )}
+      </div>
+
+      {/* Info */}
+      <div className="p-3">
+        {produto.subcategoria && (
+          <span className="inline-block rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground mb-1">
+            {produto.subcategoria}
+          </span>
+        )}
+        <h3 className="font-bold text-[13px] sm:text-sm leading-snug line-clamp-2">{produto.nome}</h3>
+        {produto.descricao && (
+          <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5 leading-relaxed">{produto.descricao}</p>
+        )}
+        <div className="flex items-center justify-between mt-2 gap-1">
+          <div>
+            {temPromo && (
+              <span className="text-[10px] text-muted-foreground line-through block">{brl(produto.preco_centavos)}</span>
+            )}
+            <span className={cn('font-extrabold text-[14px]', temPromo ? 'text-primary' : 'text-foreground')}>
+              {brl(preco)}
+            </span>
+            {esgotado ? (
+              <span className="text-[10px] font-semibold text-muted-foreground block mt-0.5">Indisponível</span>
+            ) : poucas ? (
+              <span className="text-[10px] font-semibold text-amber-600 block mt-0.5">Últimas {produto.estoque} un.</span>
+            ) : produto.grupos && produto.grupos.length > 0 && (
+              <span className="text-[10px] text-muted-foreground block mt-0.5">Toque para personalizar</span>
+            )}
+          </div>
+          {abrivel && (
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onClick(); }}
+              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm shadow-primary/30 active:opacity-70 transition-opacity touch-manipulation"
+            >
+              <Plus className="size-4" />
+            </button>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+/* ── Skeleton de loading ── */
+function Skeleton_Loja() {
+  return (
+    <div className="-mx-4">
+      <Skeleton className="h-44 w-full rounded-none" />
+      <div className="px-4 pt-4 space-y-4">
+        <Skeleton className="h-11 rounded-2xl" />
+        <div className="flex gap-2">
+          {[1,2,3,4].map(i => <Skeleton key={i} className="h-9 w-20 rounded-full" />)}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {[1,2,3,4,5,6].map(i => <Skeleton key={i} className="aspect-square rounded-2xl" />)}
+        </div>
+      </div>
+    </div>
+  );
+}

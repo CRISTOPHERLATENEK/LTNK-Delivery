@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <rect width="256" height="256" rx="48" fill="#ea580c"/>
+  <!-- corpo da impressora -->
+  <rect x="48" y="96" width="160" height="88" rx="14" fill="#ffffff"/>
+  <!-- papel saindo por cima -->
+  <rect x="72" y="56" width="112" height="56" rx="6" fill="#ffffff"/>
+  <rect x="86" y="72" width="84" height="8" rx="4" fill="#ea580c"/>
+  <rect x="86" y="88" width="60" height="8" rx="4" fill="#ea580c"/>
+  <!-- painel/tela -->
+  <rect x="70" y="116" width="46" height="24" rx="5" fill="#ea580c"/>
+  <!-- botão -->
+  <circle cx="182" cy="128" r="10" fill="#ea580c"/>
+  <!-- cupom saindo por baixo -->
+  <rect x="80" y="176" width="96" height="52" rx="4" fill="#ffffff" stroke="#ea580c" stroke-width="4"/>
+  <rect x="94" y="190" width="68" height="6" rx="3" fill="#ea580c"/>
+  <rect x="94" y="202" width="68" height="6" rx="3" fill="#ea580c"/>
+  <rect x="94" y="214" width="44" height="6" rx="3" fill="#ea580c"/>
+</svg>

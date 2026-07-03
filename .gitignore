@@ -1,0 +1,32 @@
+# Dependências
+node_modules/
+
+# Dados sensíveis — NUNCA commitar (bancos SQLite por tenant + certificado A1 da NFC-e)
+dados/
+
+# Segredos / ambiente
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# Build do backend (regenerado por `npm run build`)
+dist/
+
+# Build gerado do frontend principal (regenerado por `npm run build`).
+# O admin (public/app/) e o manifest ficam versionados pois não são regerados por este build.
+public/index.html
+public/app-assets/
+public/js/
+public/uploads/
+
+# Empacotamento do Agente de Impressão (.exe/instalador — regeráveis com npm run dist)
+agente-impressao/dist/
+
+# Diversos
+*.tmp
+.DS_Store
+Thumbs.db

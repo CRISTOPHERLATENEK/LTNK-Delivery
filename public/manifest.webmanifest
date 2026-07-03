@@ -1,0 +1,36 @@
+{
+  "name": "Delivery Já",
+  "short_name": "Delivery Já",
+  "description": "Peça das melhores lojas da sua região com entrega rápida.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#dc2640",
+  "orientation": "portrait-primary",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["food", "shopping"],
+  "shortcuts": [
+    {
+      "name": "Meu Carrinho",
+      "short_name": "Carrinho",
+      "description": "Ver itens no carrinho",
+      "url": "/carrinho",
+      "icons": [{ "src": "/favicon.ico", "sizes": "any" }]
+    },
+    {
+      "name": "Meus Pedidos",
+      "short_name": "Pedidos",
+      "description": "Acompanhar pedidos",
+      "url": "/pedidos",
+      "icons": [{ "src": "/favicon.ico", "sizes": "any" }]
+    }
+  ]
+}

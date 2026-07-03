@@ -1,0 +1,126 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ====================================================================
+   Tokens de design — modo claro e escuro.
+   Cores em HSL para permitir opacidade (`hsl(var(--primary) / .5)`).
+   ==================================================================== */
+
+@layer base {
+  :root {
+    /* Superfícies */
+    --background: 0 0% 100%;
+    --foreground: 240 10% 8%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 8%;
+
+    /* Cor da marca — vermelho/coral elegante */
+    --primary: 354 78% 53%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
+
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+
+    --accent: 354 78% 96%;
+    --accent-foreground: 354 78% 30%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 142 71% 38%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 354 78% 53%;
+
+    --radius: 0.875rem;
+  }
+
+  .dark {
+    --background: 240 10% 6%;
+    --foreground: 0 0% 98%;
+    --card: 240 8% 9%;
+    --card-foreground: 0 0% 98%;
+
+    --primary: 354 78% 58%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 240 5% 14%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 240 5% 14%;
+    --muted-foreground: 240 4% 64%;
+
+    --accent: 354 30% 18%;
+    --accent-foreground: 354 80% 88%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 98%;
+
+    --success: 142 60% 45%;
+    --success-foreground: 0 0% 100%;
+
+    --border: 240 5% 16%;
+    --input: 240 5% 18%;
+    --ring: 354 78% 58%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: var(--fonte-marca, 'Inter', system-ui, -apple-system, sans-serif);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Foco visível e elegante */
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+
+  /* Esconde scrollbar mas mantém scroll (carrosséis) */
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Animação shimmer dos skeletons */
+  .shimmer {
+    background-image: linear-gradient(
+      90deg,
+      transparent 0%,
+      hsl(var(--muted-foreground) / 0.08) 50%,
+      transparent 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.6s infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+}
+
+/* iOS safe area inferior (bottom nav fica acima do home indicator) */
+.pb-safe {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+/* Pulso do pino de rastreamento do entregador (Leaflet divIcon) */
+@keyframes pino-pulso {
+  0%   { transform: scale(0.6); opacity: 0.7; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+/* Garante que os tiles e controles do Leaflet fiquem abaixo do header/nav fixos */
+.leaflet-container { font-family: inherit; background: hsl(var(--muted)); }
+.leaflet-control-attribution { font-size: 9px; }

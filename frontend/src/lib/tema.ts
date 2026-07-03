@@ -1,0 +1,273 @@
+/**
+ * Tema (white label) — carrega a identidade da plataforma e aplica em toda a
+ * interface via CSS variables, ANTES da primeira renderização.
+ *
+ * "Nível altíssimo": a partir da cor da marca o engine deriva uma paleta
+ * completa (foreground com contraste automático, accent suave, ring), aplica
+ * raio dos cantos, tipografia, cor da barra do navegador (theme-color) e
+ * metadados de SEO/Open Graph.
+ */
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import type { TemaMarca, RaioMarca, FonteMarca } from '@/types';
+
+const PADRAO: TemaMarca = {
+  nome: 'Delivery Já',
+  slogan: 'Peça das melhores lojas',
+  logo_url: '',
+  favicon_url: '',
+  cor_primaria: '#dc2640',
+  cor_secundaria: '',
+  raio: 'suave',
+  fonte: 'inter',
+  descricao: '',
+  og_image: '',
+  loja_id: 0,
+};
+
+/* ───────────────────────── tabelas de raio e fonte ───────────────────────── */
+
+export const RAIOS: Record<RaioMarca, string> = {
+  reto: '0.25rem',
+  suave: '0.875rem',
+  redondo: '1.5rem',
+};
+
+export const FONTES: Record<FonteMarca, { label: string; stack: string; google?: string }> = {
+  inter:      { label: 'Inter',      stack: "'Inter', system-ui, sans-serif", google: 'Inter:wght@400;500;600;700;800' },
+  poppins:    { label: 'Poppins',    stack: "'Poppins', system-ui, sans-serif", google: 'Poppins:wght@400;500;600;700;800' },
+  montserrat: { label: 'Montserrat', stack: "'Montserrat', system-ui, sans-serif", google: 'Montserrat:wght@400;500;600;700;800' },
+  roboto:     { label: 'Roboto',     stack: "'Roboto', system-ui, sans-serif", google: 'Roboto:wght@400;500;700;900' },
+  sistema:    { label: 'Sistema',    stack: "system-ui, -apple-system, 'Segoe UI', sans-serif" },
+};
+
+interface TemaCtx {
+  marca: TemaMarca;
+  aplicarCorPrimaria: (hex: string | undefined | null) => void;
+  resetarCorPrimaria: () => void;
+  /** Pré-visualiza uma marca inteira sem persistir (usado no painel admin). */
+  previsualizar: (parcial: Partial<TemaMarca>) => void;
+  recarregar: () => Promise<void>;
+}
+
+export const TemaContext = createContext<TemaCtx>({
+  marca: PADRAO,
+  aplicarCorPrimaria: () => {},
+  resetarCorPrimaria: () => {},
+  previsualizar: () => {},
+  recarregar: async () => {},
+});
+
+export function useTema() {
+  return useContext(TemaContext);
+}
+
+/* ───────────────────────── utilidades de cor ───────────────────────── */
+
+interface HSL { h: number; s: number; l: number }
+
+/** #RRGGBB → {h,s,l} (h em graus, s/l em 0–100). */
+export function hexParaHSLObj(hex: string): HSL | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const num = parseInt(m[1], 16);
+  const r = ((num >> 16) & 255) / 255;
+  const g = ((num >> 8) & 255) / 255;
+  const b = (num & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) * 60; break;
+      case g: h = ((b - r) / d + 2) * 60; break;
+      case b: h = ((r - g) / d + 4) * 60; break;
+    }
+  }
+  return { h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100) };
+}
+
+/** String "H S% L%" pronta para `hsl(var(--x))`. */
+export function hexParaHSL(hex: string): string | null {
+  const o = hexParaHSLObj(hex);
+  return o ? `${o.h} ${o.s}% ${o.l}%` : null;
+}
+
+const fmt = (o: HSL) => `${o.h} ${o.s}% ${o.l}%`;
+
+/**
+ * Luminância relativa (WCAG) a partir de #RRGGBB, para decidir se o texto
+ * sobre essa cor deve ser claro ou escuro.
+ */
+function luminancia(hex: string): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return 0;
+  const num = parseInt(m[1], 16);
+  const canal = (c: number) => {
+    c /= 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  const r = canal((num >> 16) & 255);
+  const g = canal((num >> 8) & 255);
+  const b = canal(num & 255);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** Foreground com contraste garantido: preto sobre cores claras, branco sobre escuras. */
+export function foregroundContraste(hex: string): string {
+  return luminancia(hex) > 0.55 ? '240 10% 8%' : '0 0% 100%';
+}
+
+/* ───────────────────────── aplicação do tema no DOM ───────────────────────── */
+
+function injetarFonte(fonte: FonteMarca) {
+  const cfg = FONTES[fonte] ?? FONTES.inter;
+  if (cfg.google) {
+    const id = 'fonte-marca';
+    let link = document.getElementById(id) as HTMLLinkElement | null;
+    const href = `https://fonts.googleapis.com/css2?family=${cfg.google}&display=swap`;
+    if (!link) {
+      link = document.createElement('link');
+      link.id = id;
+      link.rel = 'stylesheet';
+      document.head.appendChild(link);
+    }
+    if (link.href !== href) link.href = href;
+  }
+  document.documentElement.style.setProperty('--fonte-marca', cfg.stack);
+  document.body.style.fontFamily = cfg.stack;
+}
+
+function setMeta(seletor: string, criar: () => HTMLMetaElement, valor: string) {
+  let el = document.head.querySelector(seletor) as HTMLMetaElement | null;
+  if (!el) { el = criar(); document.head.appendChild(el); }
+  el.setAttribute('content', valor);
+}
+
+/**
+ * Última paleta aplicada — guardada para reaplicar quando o tema (claro/escuro)
+ * muda, já que parte das variáveis (--accent) depende do modo atual.
+ */
+let ultimaPaleta: { primaria: string; secundaria?: string } | null = null;
+
+/** Reaplica a paleta corrente recalculando as variáveis que dependem do tema. */
+export function reaplicarPaletaTema() {
+  if (ultimaPaleta) aplicarPaleta(ultimaPaleta.primaria, ultimaPaleta.secundaria);
+}
+
+/** Aplica a paleta derivada da cor primária (e secundária, se houver). */
+function aplicarPaleta(corPrimaria: string, corSecundaria?: string) {
+  const p = hexParaHSLObj(corPrimaria);
+  if (!p) return;
+  ultimaPaleta = { primaria: corPrimaria, secundaria: corSecundaria };
+  const raiz = document.documentElement.style;
+
+  raiz.setProperty('--primary', fmt(p));
+  raiz.setProperty('--ring', fmt(p));
+  raiz.setProperty('--primary-foreground', foregroundContraste(corPrimaria));
+
+  // Accent = tint suave da marca (fundo de chips, hovers)
+  const escuro = document.documentElement.classList.contains('dark');
+  raiz.setProperty('--accent', escuro ? `${p.h} 30% 18%` : `${p.h} ${Math.min(p.s, 80)}% 96%`);
+  raiz.setProperty('--accent-foreground', escuro ? `${p.h} 80% 85%` : `${p.h} ${p.s}% 30%`);
+
+  if (corSecundaria) {
+    const s = hexParaHSLObj(corSecundaria);
+    if (s) {
+      raiz.setProperty('--secondary', fmt(s));
+      raiz.setProperty('--secondary-foreground', foregroundContraste(corSecundaria));
+    }
+  } else {
+    raiz.removeProperty('--secondary');
+    raiz.removeProperty('--secondary-foreground');
+  }
+}
+
+/** Aplica a marca completa (cor, raio, fonte, theme-color, SEO/OG, favicon). */
+export function aplicarMarca(m: TemaMarca) {
+  aplicarPaleta(m.cor_primaria, m.cor_secundaria || undefined);
+
+  // Cantos
+  document.documentElement.style.setProperty('--radius', RAIOS[m.raio] ?? RAIOS.suave);
+
+  // Tipografia
+  injetarFonte(m.fonte ?? 'inter');
+
+  // Cor da barra do navegador no mobile
+  const hslPrim = hexParaHSL(m.cor_primaria);
+  if (hslPrim) {
+    setMeta("meta[name='theme-color']",
+      () => Object.assign(document.createElement('meta'), { name: 'theme-color' }),
+      m.cor_primaria);
+  }
+
+  // Título e SEO
+  document.title = m.slogan ? `${m.nome} — ${m.slogan}` : m.nome;
+  if (m.descricao) {
+    setMeta("meta[name='description']",
+      () => Object.assign(document.createElement('meta'), { name: 'description' }),
+      m.descricao);
+  }
+
+  // Open Graph (compartilhamento em redes)
+  const og = (prop: string, valor: string) => {
+    if (!valor) return;
+    setMeta(`meta[property='${prop}']`, () => {
+      const el = document.createElement('meta');
+      el.setAttribute('property', prop);
+      return el;
+    }, valor);
+  };
+  og('og:title', m.nome);
+  og('og:description', m.descricao);
+  og('og:image', m.og_image);
+  og('og:type', 'website');
+
+  // Favicon
+  if (m.favicon_url) {
+    let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null;
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    link.href = m.favicon_url;
+  }
+}
+
+/* ───────────────────────── hook do provider ───────────────────────── */
+
+export function useTemaProvider(): TemaCtx {
+  const [marca, setMarca] = useState<TemaMarca>(PADRAO);
+
+  const aplicarCorPrimaria = useCallback((hex: string | undefined | null) => {
+    if (!hex) return;
+    aplicarPaleta(hex);
+  }, []);
+
+  const resetarCorPrimaria = useCallback(() => {
+    if (marca.cor_primaria) aplicarPaleta(marca.cor_primaria, marca.cor_secundaria || undefined);
+  }, [marca.cor_primaria, marca.cor_secundaria]);
+
+  const previsualizar = useCallback((parcial: Partial<TemaMarca>) => {
+    aplicarMarca({ ...marca, ...parcial });
+  }, [marca]);
+
+  const recarregar = useCallback(async () => {
+    try {
+      const r = await fetch('/api/tema');
+      if (!r.ok) return;
+      const dados = (await r.json()) as Partial<TemaMarca>;
+      const tema: TemaMarca = { ...PADRAO, ...dados };
+      setMarca(tema);
+      aplicarMarca(tema);
+    } catch {
+      // Sem internet ou backend caiu: mantém o padrão
+    }
+  }, []);
+
+  useEffect(() => { recarregar(); }, [recarregar]);
+
+  return { marca, aplicarCorPrimaria, resetarCorPrimaria, previsualizar, recarregar };
+}

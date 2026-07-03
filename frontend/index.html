@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="pt-BR" class="">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#dc2640" />
+    <meta name="description" content="Peça das melhores lojas da sua região. Pizzas, burgers e muito mais com entrega rápida." />
+    <!-- PWA: app instalável (manifest dinâmico gerado pelo backend a partir da marca) -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Delivery Já" />
+    <link rel="apple-touch-icon" href="/favicon.ico" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <title>Delivery Já</title>
+    <script>
+      // Aplica modo claro/escuro antes do React montar (evita flash).
+      // A preferência é POR ÁREA (cliente/lojista/entregador/cozinha/admin) —
+      // não é compartilhada entre os painéis.
+      (() => {
+        const p = location.pathname;
+        const area = p.startsWith('/lojista') ? 'lojista'
+          : p.startsWith('/entregador') ? 'entregador'
+          : p.startsWith('/cozinha') ? 'cozinha'
+          : p.startsWith('/painel-admin') ? 'admin'
+          : 'cliente';
+        const tema = localStorage.getItem('tema:' + area);
+        const sistema = matchMedia('(prefers-color-scheme: dark)').matches;
+        if (tema === 'escuro' || (!tema && sistema)) document.documentElement.classList.add('dark');
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      // Registra o service worker (habilita instalação como app no celular)
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => {});
+        });
+      }
+    </script>
+  </body>
+</html>

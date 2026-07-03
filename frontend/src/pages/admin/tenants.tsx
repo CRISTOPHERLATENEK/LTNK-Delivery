@@ -1,0 +1,240 @@
+/**
+ * Gestão de TENANTS (clientes do SaaS) — só super admin do painel principal.
+ * Cada tenant tem seu próprio banco (.db) e domínio (multi-tenant SILO).
+ */
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database } from 'lucide-react';
+import { AdminLayout } from './layout';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useToast } from '@/components/ui/toast';
+import { api, ApiError } from '@/lib/api';
+import { cn } from '@/lib/utils';
+
+interface Tenant {
+  id: number;
+  nome: string;
+  slug: string;
+  dominio: string | null;
+  db_arquivo: string;
+  ativo: 0 | 1;
+  criado_em: string;
+  lojas: number;
+}
+
+function gerarSlug(nome: string): string {
+  return nome.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+}
+
+export function TelaTenants() {
+  const { mostrar } = useToast();
+  const consulta = useQuery({
+    queryKey: ['tenants'],
+    queryFn: () => api<{ tenants: Tenant[] }>('GET', '/api/admin/tenants').then(r => r.tenants),
+  });
+
+  const [form, setForm] = useState({ nome: '', slug: '', dominio: '' });
+  const [criando, setCriando] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+
+  async function criar(e: React.FormEvent) {
+    e.preventDefault();
+    setEnviando(true);
+    try {
+      await api('POST', '/api/admin/tenants', {
+        nome: form.nome,
+        slug: form.slug || gerarSlug(form.nome),
+        dominio: form.dominio,
+      });
+      mostrar({ tipo: 'sucesso', titulo: 'Cliente criado!', descricao: 'Banco provisionado e pronto.' });
+      setForm({ nome: '', slug: '', dominio: '' });
+      setCriando(false);
+      consulta.refetch();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  async function alternarAtivo(t: Tenant) {
+    try {
+      await api('PUT', `/api/admin/tenants/${t.id}`, { ativo: t.ativo ? 0 : 1 });
+      consulta.refetch();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+
+  async function salvarDominio(t: Tenant, dominio: string) {
+    try {
+      await api('PUT', `/api/admin/tenants/${t.id}`, { dominio });
+      mostrar({ tipo: 'sucesso', titulo: 'Domínio atualizado.' });
+      consulta.refetch();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+
+  const tenants = consulta.data ?? [];
+
+  return (
+    <AdminLayout titulo="Clientes">
+      <div className="max-w-4xl space-y-5">
+        {/* Cabeçalho */}
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h1 className="flex items-center gap-2 text-xl font-extrabold">
+              <Building2 className="size-5 text-primary" /> Clientes (Tenants)
+            </h1>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Cada cliente tem seu próprio banco isolado e domínio.
+            </p>
+          </div>
+          <Button onClick={() => setCriando(c => !c)}>
+            <Plus className="size-4" /> Novo cliente
+          </Button>
+        </div>
+
+        {/* Form de criação */}
+        {criando && (
+          <Card className="border-primary/40">
+            <CardContent className="p-5">
+              <form onSubmit={criar} className="grid gap-4 sm:grid-cols-2">
+                <div className="sm:col-span-2">
+                  <Label>Nome do cliente *</Label>
+                  <Input
+                    required autoFocus
+                    value={form.nome}
+                    onChange={e => setForm(f => ({ ...f, nome: e.target.value, slug: f.slug || gerarSlug(e.target.value) }))}
+                    placeholder="Ex.: Pizzaria do João"
+                  />
+                </div>
+                <div>
+                  <Label>Slug (identificador) *</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={form.slug}
+                      onChange={e => setForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
+                      placeholder="pizzaria-do-joao"
+                      className="font-mono text-sm"
+                    />
+                    <button type="button" title="Gerar do nome"
+                      onClick={() => setForm(f => ({ ...f, slug: gerarSlug(f.nome) }))}
+                      className="shrink-0 flex items-center px-3 rounded-lg border border-input bg-muted text-xs font-semibold hover:bg-muted/80">
+                      <Wand2 className="size-3.5" />
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">Vira o arquivo do banco: <span className="font-mono">tenants/{form.slug || 'slug'}.db</span></p>
+                </div>
+                <div>
+                  <Label>Domínio (opcional)</Label>
+                  <Input
+                    value={form.dominio}
+                    onChange={e => setForm(f => ({ ...f, dominio: e.target.value }))}
+                    placeholder="cliente.com.br"
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">Pode configurar depois. Aponte o DNS para o servidor.</p>
+                </div>
+                <div className="sm:col-span-2 flex gap-2">
+                  <Button type="submit" disabled={enviando || !form.nome.trim()}>
+                    {enviando ? 'Criando…' : 'Criar e provisionar'}
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setCriando(false)}>Cancelar</Button>
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Lista */}
+        {consulta.isLoading ? (
+          <div className="space-y-2">{[1, 2].map(i => <Skeleton key={i} className="h-24" />)}</div>
+        ) : tenants.length === 0 ? (
+          <Card><CardContent className="p-10 text-center text-muted-foreground">
+            Nenhum cliente ainda. Clique em "Novo cliente".
+          </CardContent></Card>
+        ) : (
+          <div className="space-y-3">
+            {tenants.map(t => (
+              <TenantCard key={t.id} t={t} onToggle={() => alternarAtivo(t)} onSalvarDominio={d => salvarDominio(t, d)} />
+            ))}
+          </div>
+        )}
+      </div>
+    </AdminLayout>
+  );
+}
+
+function TenantCard({ t, onToggle, onSalvarDominio }: {
+  t: Tenant; onToggle: () => void; onSalvarDominio: (d: string) => void;
+}) {
+  const [editandoDom, setEditandoDom] = useState(false);
+  const [dom, setDom] = useState(t.dominio || '');
+  const master = t.slug === 'padrao';
+
+  return (
+    <Card className={cn(!t.ativo && 'opacity-60')}>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="flex size-11 items-center justify-center rounded-xl bg-primary/10 text-primary shrink-0">
+            <Building2 className="size-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold">{t.nome}</span>
+              {master && <Badge variant="outline">principal</Badge>}
+              {t.ativo ? <Badge variant="success">ativo</Badge> : <Badge variant="secondary">suspenso</Badge>}
+            </div>
+            <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
+              <span className="font-mono">{t.slug}</span>
+              <span className="flex items-center gap-1"><Store className="size-3" /> {t.lojas} loja(s)</span>
+              <span className="flex items-center gap-1"><Database className="size-3" /> {t.db_arquivo.split('/').pop()}</span>
+            </div>
+          </div>
+          {!master && (
+            <Button variant="ghost" size="sm" onClick={onToggle} className="shrink-0">
+              <Power className="size-4" /> {t.ativo ? 'Suspender' : 'Ativar'}
+            </Button>
+          )}
+        </div>
+
+        {/* Domínio */}
+        <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
+          <Globe className="size-4 text-muted-foreground shrink-0" />
+          {editandoDom ? (
+            <>
+              <Input value={dom} onChange={e => setDom(e.target.value)} placeholder="cliente.com.br" className="h-8 font-mono text-sm flex-1" />
+              <Button size="sm" onClick={() => { onSalvarDominio(dom); setEditandoDom(false); }}>Salvar</Button>
+              <Button size="sm" variant="ghost" onClick={() => { setDom(t.dominio || ''); setEditandoDom(false); }}>Cancelar</Button>
+            </>
+          ) : (
+            <>
+              <span className="flex-1 text-sm font-mono truncate">
+                {t.dominio || <span className="text-muted-foreground not-italic">sem domínio</span>}
+              </span>
+              {t.dominio && (
+                <button onClick={() => window.open(`https://${t.dominio}`, '_blank')}
+                  className="text-muted-foreground hover:text-primary" title="Abrir site">
+                  <ExternalLink className="size-4" />
+                </button>
+              )}
+              {!master && (
+                <button onClick={() => setEditandoDom(true)} className="text-xs font-semibold text-primary hover:underline">
+                  {t.dominio ? 'editar' : 'definir'}
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}

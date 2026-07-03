@@ -1,0 +1,27 @@
+{
+  "name": "delivery-agente-impressao",
+  "version": "1.1.0",
+  "description": "Agente local de impressão térmica (ESC/POS) do Delivery.",
+  "main": "agente.js",
+  "bin": "agente.js",
+  "scripts": {
+    "start": "node agente.js",
+    "dist": "node aplicar-icone.js && npx pkg . --targets node18-win-x64 --output dist/AgenteImpressao.exe"
+  },
+  "pkg": {
+    "assets": [
+      "imprimir-raw.ps1"
+    ],
+    "scripts": [
+      "escpos.js",
+      "lib/*.js",
+      "paginas/*.js"
+    ]
+  },
+  "devDependencies": {
+    "png-to-ico": "^3.0.1",
+    "rcedit": "^5.0.2",
+    "resedit": "^3.0.2",
+    "sharp": "^0.35.3"
+  }
+}
