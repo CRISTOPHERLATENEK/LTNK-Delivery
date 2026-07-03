@@ -10,20 +10,25 @@
  */
 import https from 'https';
 import fs from 'fs';
+import path from 'path';
 import { CODIGO_UF } from './nfce';
 
 /**
  * Cadeia de CAs da ICP-Brasil (PEM) para validar o certificado do SERVIDOR da
  * SEFAZ. Sem isso o Node pode não confiar no emissor e recusar o handshake
- * ("unable to get local issuer certificate"). Aponte NFE_CA_BUNDLE para o .pem
- * com as ACs. NUNCA desabilitamos a verificação — apenas ensinamos a cadeia.
+ * ("unable to get local issuer certificate"). É uma cadeia PÚBLICA (não é
+ * segredo) — fica versionada em `certs/` na raiz do repo, pra existir em
+ * qualquer deploy sem precisar configurar nada. NFE_CA_BUNDLE, se definida,
+ * sobrescreve esse caminho padrão. NUNCA desabilitamos a verificação —
+ * apenas ensinamos a cadeia.
  */
+const CA_BUNDLE_PADRAO = path.join(__dirname, '..', '..', 'certs', 'icpbrasil-ca.pem');
 let caBundle: Buffer | undefined;
 function carregarCaBundle(): Buffer | undefined {
   if (caBundle !== undefined) return caBundle || undefined;
-  const caminho = process.env.NFE_CA_BUNDLE;
+  const caminho = process.env.NFE_CA_BUNDLE || CA_BUNDLE_PADRAO;
   try {
-    caBundle = caminho && fs.existsSync(caminho) ? fs.readFileSync(caminho) : Buffer.alloc(0);
+    caBundle = fs.existsSync(caminho) ? fs.readFileSync(caminho) : Buffer.alloc(0);
   } catch { caBundle = Buffer.alloc(0); }
   return caBundle.length ? caBundle : undefined;
 }
