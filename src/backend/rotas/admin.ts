@@ -3,7 +3,7 @@
  * gestão de usuários, comissão, repasses e banners do carrossel.
  */
 import { Router } from 'express';
-import db, { abrirBanco, arquivoTenantAtual } from '../db';
+import db, { abrirBanco, arquivoTenantAtual, comTenant } from '../db';
 import bcrypt from 'bcryptjs';
 import { autenticar, exigirPerfil, exigirSuperAdmin } from '../auth';
 import { textoLimpo, inteiroPositivo, erroHttp, agoraUTC, emailValido } from '../util';
@@ -825,24 +825,66 @@ router.get('/tenants', exigirSuperAdmin, (_req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Cria um cliente novo — provisiona o .db (schema criado ao abrir). */
+/**
+ * Cria um cliente novo — provisiona o .db (schema criado ao abrir) E JÁ CRIA
+ * o primeiro lojista responsável dentro desse banco novo. Sem isso, o tenant
+ * nascia vazio e ninguém conseguia entrar nele (mesmo problema de "ovo e
+ * galinha" que existe pro tenant padrão — aqui resolvido de vez, pra todo
+ * cliente novo, sem depender de script de seed).
+ */
 router.post('/tenants', exigirSuperAdmin, (req, res, next) => {
   try {
     exigirMaster();
     const nome = textoLimpo(req.body.nome, 120);
     const slug = textoLimpo(req.body.slug, 60).toLowerCase().replace(/[^a-z0-9-]/g, '');
     const dominio = textoLimpo(req.body.dominio || '', 120);
+    const nomeLoja = textoLimpo(req.body.nome_loja || nome, 120);
+    const categoria = textoLimpo(req.body.categoria || 'Outros', 50) || 'Outros';
+    const nomeDono = textoLimpo(req.body.dono_nome, 120);
+    const email = textoLimpo(req.body.email, 200).toLowerCase();
+    const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
+    const telefone = textoLimpo(req.body.telefone || '', 30);
     if (nome.length < 2) throw erroHttp(400, 'Informe o nome do cliente.');
     if (slug.length < 2) throw erroHttp(400, 'Informe um slug válido (mín. 2 caracteres).');
+    if (nomeDono.length < 2) throw erroHttp(400, 'Informe o nome do responsável pela loja.');
+    if (!emailValido(email)) throw erroHttp(400, 'E-mail do responsável inválido.');
+    if (senha.length < 6) throw erroHttp(400, 'Senha do responsável: mínimo 6 caracteres.');
+
     let tenant;
     try {
       tenant = criarTenant({ nome, slug, dominio: dominio || null });
     } catch (e) {
       throw erroHttp(409, 'Já existe um cliente com esse slug ou domínio.');
     }
-    // Provisiona o banco já com o schema (abrir cria + migra).
+
+    // Abre (cria + migra o schema) e já cadastra o 1º lojista DENTRO do banco
+    // deste tenant — não do banco atual (o do super admin).
     abrirBanco(tenant.db_arquivo);
-    res.status(201).json({ tenant });
+    let lojaId: number;
+    try {
+      lojaId = comTenant(tenant.db_arquivo, () => {
+        const hash = bcrypt.hashSync(senha, 10);
+        const criar = db.transaction(() => {
+          const u = db.prepare(
+            `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, criado_em)
+             VALUES (?, ?, ?, 'lojista', ?, NULL, ?)`
+          ).run(nomeDono, email, hash, telefone, agoraUTC());
+          const uid = Number(u.lastInsertRowid);
+          const l = db.prepare(
+            `INSERT INTO lojas (usuario_id, nome, descricao, categoria, endereco,
+                                taxa_entrega_centavos, tempo_estimado_min, horario_funcionamento,
+                                status_aprovacao, aberta, criado_em)
+             VALUES (?, ?, '', ?, '', 0, 40, '', 'aprovada', 0, ?)`
+          ).run(uid, nomeLoja, categoria, agoraUTC());
+          return Number(l.lastInsertRowid);
+        });
+        return criar();
+      });
+    } catch (e) {
+      throw erroHttp(500, 'Cliente provisionado, mas falhou ao criar o responsável. Contate o suporte.');
+    }
+
+    res.status(201).json({ tenant, loja_id: lojaId });
   } catch (e) { next(e); }
 });
 

@@ -39,7 +39,8 @@ export function TelaTenants() {
     queryFn: () => api<{ tenants: Tenant[] }>('GET', '/api/admin/tenants').then(r => r.tenants),
   });
 
-  const [form, setForm] = useState({ nome: '', slug: '', dominio: '' });
+  const vazio = { nome: '', slug: '', dominio: '', nome_loja: '', dono_nome: '', email: '', senha: '', telefone: '' };
+  const [form, setForm] = useState(vazio);
   const [criando, setCriando] = useState(false);
   const [enviando, setEnviando] = useState(false);
 
@@ -51,9 +52,18 @@ export function TelaTenants() {
         nome: form.nome,
         slug: form.slug || gerarSlug(form.nome),
         dominio: form.dominio,
+        nome_loja: form.nome_loja || form.nome,
+        dono_nome: form.dono_nome,
+        email: form.email,
+        senha: form.senha,
+        telefone: form.telefone,
       });
-      mostrar({ tipo: 'sucesso', titulo: 'Cliente criado!', descricao: 'Banco provisionado e pronto.' });
-      setForm({ nome: '', slug: '', dominio: '' });
+      mostrar({
+        tipo: 'sucesso',
+        titulo: 'Cliente criado!',
+        descricao: `Já pode entrar com ${form.email} — banco provisionado e pronto.`,
+      });
+      setForm(vazio);
       setCriando(false);
       consulta.refetch();
     } catch (err) {
@@ -141,10 +151,64 @@ export function TelaTenants() {
                     placeholder="cliente.com.br"
                     className="font-mono text-sm"
                   />
-                  <p className="text-[11px] text-muted-foreground mt-1">Pode configurar depois. Aponte o DNS para o servidor.</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Deixe em branco pra usar o subdomínio automático (<span className="font-mono">{form.slug || 'slug'}.seudominio.com</span>) —
+                    não precisa configurar DNS nenhum. Domínio próprio exige apontar o DNS do cliente pro servidor.
+                  </p>
                 </div>
+
+                <div className="sm:col-span-2 border-t pt-4 mt-1">
+                  <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">Loja e responsável (login inicial)</p>
+                </div>
+
+                <div>
+                  <Label>Nome da loja</Label>
+                  <Input
+                    value={form.nome_loja}
+                    onChange={e => setForm(f => ({ ...f, nome_loja: e.target.value }))}
+                    placeholder={form.nome || 'Ex.: Pizzaria do João'}
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">Vazio = usa o nome do cliente.</p>
+                </div>
+                <div>
+                  <Label>Nome do responsável *</Label>
+                  <Input
+                    required
+                    value={form.dono_nome}
+                    onChange={e => setForm(f => ({ ...f, dono_nome: e.target.value }))}
+                    placeholder="Ex.: João da Silva"
+                  />
+                </div>
+                <div>
+                  <Label>E-mail de acesso *</Label>
+                  <Input
+                    required type="email"
+                    value={form.email}
+                    onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                    placeholder="joao@exemplo.com"
+                  />
+                </div>
+                <div>
+                  <Label>Senha inicial *</Label>
+                  <Input
+                    required type="text" minLength={6}
+                    value={form.senha}
+                    onChange={e => setForm(f => ({ ...f, senha: e.target.value }))}
+                    placeholder="mín. 6 caracteres"
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">O cliente troca depois, na tela dele.</p>
+                </div>
+                <div>
+                  <Label>Telefone (opcional)</Label>
+                  <Input
+                    value={form.telefone}
+                    onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))}
+                    placeholder="(11) 99999-9999"
+                  />
+                </div>
+
                 <div className="sm:col-span-2 flex gap-2">
-                  <Button type="submit" disabled={enviando || !form.nome.trim()}>
+                  <Button type="submit" disabled={enviando || !form.nome.trim() || !form.dono_nome.trim() || !form.email.trim() || form.senha.length < 6}>
                     {enviando ? 'Criando…' : 'Criar e provisionar'}
                   </Button>
                   <Button type="button" variant="outline" onClick={() => setCriando(false)}>Cancelar</Button>
