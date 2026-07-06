@@ -4,7 +4,7 @@
   "description": "Sistema de delivery multi-lojas (estilo iFood) - backend Node.js/Express + SQLite, frontend mobile-first sem build",
   "main": "dist/backend/server.js",
   "scripts": {
-    "postinstall": "npm --prefix frontend install && npm run build",
+    "postinstall": "npm --prefix frontend install",
     "build": "tsc -p tsconfig.backend.json && cd frontend && npm run build",
     "build:backend": "tsc -p tsconfig.backend.json",
     "build:react": "cd frontend && npm run build",
