@@ -11,12 +11,33 @@ import { agoraUTC } from './util';
 
 const PUBLIC = process.env.VAPID_PUBLIC_KEY || '';
 const PRIVATE = process.env.VAPID_PRIVATE_KEY || '';
-const SUBJECT = process.env.VAPID_SUBJECT || 'mailto:contato@exemplo.com';
 
-export const pushHabilitado = !!(PUBLIC && PRIVATE);
+/**
+ * O `web-push` exige que o subject seja uma URL válida (http/https) OU um
+ * `mailto:`. Um valor mal formatado (ex.: e-mail cru sem "mailto:") faz o
+ * setVapidDetails LANÇAR — e como isso roda na carga do módulo, derrubava o
+ * servidor INTEIRO no boot. Aqui a gente normaliza (adiciona "mailto:" se
+ * vier só um e-mail) e, no pior caso, o push é desativado — NUNCA derruba o app.
+ */
+function normalizarSubject(bruto: string | undefined): string {
+  const s = (bruto || '').trim();
+  if (!s) return 'mailto:contato@exemplo.com';
+  if (/^(https?:|mailto:)/i.test(s)) return s;
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s)) return `mailto:${s}`; // e-mail cru → mailto:
+  return 'mailto:contato@exemplo.com'; // formato desconhecido → fallback seguro
+}
+
+const SUBJECT = normalizarSubject(process.env.VAPID_SUBJECT);
+
+export let pushHabilitado = !!(PUBLIC && PRIVATE);
 
 if (pushHabilitado) {
-  webpush.setVapidDetails(SUBJECT, PUBLIC, PRIVATE);
+  try {
+    webpush.setVapidDetails(SUBJECT, PUBLIC, PRIVATE);
+  } catch (e) {
+    pushHabilitado = false;
+    console.warn('[PUSH] VAPID inválido — push desativado (não derruba o servidor):', (e as Error).message);
+  }
 } else {
   console.warn('[PUSH] VAPID não configurado — notificações push desativadas.');
 }
