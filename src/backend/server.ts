@@ -146,9 +146,10 @@ setInterval(sincronizarHorarios, 60_000);
 
 const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, () => {
-  console.log(`✅ Delivery Multi-lojas em http://localhost:${PORT}`);
-  console.log('   Cliente:    http://localhost:' + PORT + '/');
-  console.log('   Lojista:    http://localhost:' + PORT + '/lojista');
-  console.log('   Entregador: http://localhost:' + PORT + '/entregador');
-  console.log('   Admin:      http://localhost:' + PORT + '/painel-admin');
+  // Esta mensagem é só informativa (endereço LOCAL do processo). Em produção,
+  // é a plataforma de hospedagem (ex.: Hostinger) que encaminha o SEU DOMÍNIO
+  // pra esta porta por trás dos panos — "localhost" aqui não significa que o
+  // app está preso à máquina local.
+  console.log(`✅ Delivery Multi-lojas ouvindo na porta ${PORT} (acesse pelo seu domínio em produção)`);
+  console.log('   Local p/ testes: http://localhost:' + PORT + '/');
 });
