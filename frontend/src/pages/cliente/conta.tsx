@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { LogIn, UserPlus, User, MapPin, Lock, Pencil, Plus, Trash2, Save, X, Check } from 'lucide-react';
+import { LogIn, UserPlus, User, MapPin, Lock, Pencil, Plus, Trash2, Save, X, Check, Loader2 } from 'lucide-react';
 import { api, ApiError, salvarSessao, sessaoUsuario, encerrarSessao } from '@/lib/api';
 import { useTema } from '@/lib/tema';
 import { Card, CardContent } from '@/components/ui/card';
@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useCarrinho } from '@/lib/carrinho';
+import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import type { UsuarioSessao, Endereco } from '@/types';
 
 export function PaginaConta() {
@@ -166,6 +167,17 @@ function EnderecosSecao() {
     setForm(f => f ? { ...f, [k]: v } : f);
   }
 
+  const [buscandoCep, setBuscandoCep] = useState(false);
+  async function aoDigitarCep(bruto: string) {
+    const cep = formatarCep(bruto);
+    setForm(f => f ? { ...f, cep } : f);
+    if (cepDigitos(cep).length !== 8) return;
+    setBuscandoCep(true);
+    const achado = await buscarCep(cep);
+    setBuscandoCep(false);
+    if (achado) setForm(f => f ? { ...f, cep, rua: achado.rua, bairro: achado.bairro, cidade: achado.cidade, uf: achado.uf } : f);
+  }
+
   return (
     <Card>
       <CardContent className="p-6 space-y-3">
@@ -196,7 +208,10 @@ function EnderecosSecao() {
           <form onSubmit={salvar} className="space-y-2 border-t pt-3">
             <div className="grid grid-cols-2 gap-2">
               <Input placeholder="Rótulo (Casa, Trabalho)" value={form.rotulo} onChange={ev => set('rotulo', ev.target.value)} />
-              <Input placeholder="CEP" value={form.cep} onChange={ev => set('cep', ev.target.value)} />
+              <div className="relative">
+                <Input placeholder="CEP" inputMode="numeric" value={form.cep} onChange={ev => aoDigitarCep(ev.target.value)} />
+                {buscandoCep && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 size-4 animate-spin text-muted-foreground" />}
+              </div>
             </div>
             <div className="grid grid-cols-3 gap-2">
               <Input className="col-span-2" placeholder="Rua" required value={form.rua} onChange={ev => set('rua', ev.target.value)} />

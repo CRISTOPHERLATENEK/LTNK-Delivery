@@ -9,6 +9,7 @@ import { Minus, Plus, ShoppingBag, MapPin, CreditCard, Ticket, X, AlertTriangle,
 import { useCarrinho, mudarQuantidade, limparCarrinho } from '@/lib/carrinho';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
 import { brl } from '@/lib/format';
+import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -556,8 +557,38 @@ function Checkout({
 
 function FormNovoEndereco({ valor, onMudar }: { valor: any; onMudar: (v: any) => void }) {
   const m = (campo: string, v: string) => onMudar({ ...valor, [campo]: v });
+  const [buscandoCep, setBuscandoCep] = useState(false);
+
+  async function aoDigitarCep(bruto: string) {
+    const cep = formatarCep(bruto);
+    // preenche o CEP já; se completou 8 dígitos, busca e autopreenche o resto.
+    if (cepDigitos(cep).length !== 8) { m('cep', cep); return; }
+    setBuscandoCep(true);
+    const achado = await buscarCep(cep);
+    setBuscandoCep(false);
+    onMudar({
+      ...valor, cep,
+      ...(achado ? { rua: achado.rua, bairro: achado.bairro, cidade: achado.cidade, uf: achado.uf } : {}),
+    });
+  }
+
   return (
     <div className="space-y-3 rounded-xl border border-dashed border-border p-4 bg-accent/30">
+      {/* CEP em primeiro: preenche rua/bairro/cidade/UF automaticamente */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <Label htmlFor="cep">CEP</Label>
+          <div className="relative">
+            <Input id="cep" inputMode="numeric" placeholder="00000-000" value={valor.cep}
+              onChange={e => aoDigitarCep(e.target.value)} />
+            {buscandoCep && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 size-4 animate-spin text-muted-foreground" />}
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="rotulo">Rótulo</Label>
+          <Input id="rotulo" placeholder="Casa, Trabalho…" value={valor.rotulo} onChange={e => m('rotulo', e.target.value)} />
+        </div>
+      </div>
       <div className="grid grid-cols-3 gap-3">
         <div className="col-span-2">
           <Label htmlFor="rua">Rua</Label>
@@ -586,16 +617,6 @@ function FormNovoEndereco({ valor, onMudar }: { valor: any; onMudar: (v: any) =>
         <div>
           <Label htmlFor="uf">UF</Label>
           <Input id="uf" maxLength={2} value={valor.uf} onChange={e => m('uf', e.target.value.toUpperCase())} />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label htmlFor="cep">CEP</Label>
-          <Input id="cep" value={valor.cep} onChange={e => m('cep', e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="rotulo">Rótulo</Label>
-          <Input id="rotulo" placeholder="Casa, Trabalho…" value={valor.rotulo} onChange={e => m('rotulo', e.target.value)} />
         </div>
       </div>
       <div>
