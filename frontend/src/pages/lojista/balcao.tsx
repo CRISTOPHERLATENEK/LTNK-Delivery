@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, sessaoUsuario } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { imprimirCupom, imprimirDanfe, montarHtmlDanfe, configImpressao, type LinhaCupom, type DadosDanfe } from '@/lib/impressao';
@@ -108,7 +108,11 @@ export function BalcaoLoja() {
       { rotulo: 'Pagamento', valor: formaTxt },
       ...(troco > 0 ? [{ rotulo: 'Troco', valor: brl(troco) }] : []),
     ];
-    imprimirCupom({ titulo: `VENDA BALCÃO #${pedidoId}`, linhas, totais, extras }, config);
+    imprimirCupom({
+      titulo: `VENDA BALCÃO #${pedidoId}`, linhas, totais, extras,
+      tipoVenda: 'Balcão', referencia: `#${pedidoId}`,
+      atendente: sessaoUsuario('lojista')?.nome,
+    }, config);
   }
 
   const disponiveis = (produtosQ.data ?? []).filter(p => p.disponivel);

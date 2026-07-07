@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, sessaoUsuario } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { imprimirCupom, imprimirDanfe, configImpressao, type ConfigImpressao, type DadosDanfe } from '@/lib/impressao';
 import type { Produto, Loja } from '@/types';
@@ -386,9 +386,12 @@ function imprimirComanda(mesaNumero: string, comandaId: number, itens: ItemComan
       nome: i.nome_produto,
       valor: brl(i.preco_unit_centavos * i.quantidade),
       detalhe: i.observacao ? `obs: ${i.observacao}` : undefined,
+      observacao: i.observacao || undefined,
       categoria: i.categoria || undefined,
     })),
     totais: [{ rotulo: 'TOTAL', valor: brl(total), forte: true }],
+    tipoVenda: `Mesa ${mesaNumero}`, referencia: `Comanda #${comandaId}`,
+    atendente: sessaoUsuario('lojista')?.nome,
   }, config);
 }
 

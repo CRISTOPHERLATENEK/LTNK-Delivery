@@ -21,7 +21,8 @@ export interface LinhaCupom {
   qtd: string;        // "2" ou "0,350 kg"
   nome: string;
   valor: string;      // "R$ 24,90"
-  detalhe?: string;   // ex.: "0,350 kg × R$ 39,90/kg" ou observação
+  detalhe?: string;   // ex.: "0,350 kg × R$ 39,90/kg" — vai só no cupom principal (pode ter preço)
+  observacao?: string; // observação de produção ("sem cebola") — realçada na comanda do setor
   categoria?: string; // categoria do produto — usada pra rotear pro setor de impressão (Cozinha, Bar...)
 }
 
@@ -30,6 +31,11 @@ export interface DadosCupom {
   linhas: LinhaCupom[];
   totais: { rotulo: string; valor: string; forte?: boolean }[];
   extras?: { rotulo: string; valor: string }[]; // ex.: Pagamento, Troco
+  // Contexto usado só na via de produção por setor (Cozinha/Bar):
+  tipoVenda?: string;   // "Balcão" | "Mesa 5" | "Delivery"
+  referencia?: string;  // "#12" (nº do pedido/comanda)
+  atendente?: string;   // quem lançou/atendeu
+  cliente?: string;     // nome do cliente (delivery)
 }
 
 /** Lê a config de impressão a partir do objeto da loja (com defaults seguros). */
@@ -187,18 +193,38 @@ async function buscarMapaSetores(): Promise<MapaSetores> {
   return cacheMapaSetores;
 }
 
-/** Blocos ESC/POS de uma via de produção (sem preços) pro setor. */
-function montarBlocosSetor(titulo: string, setorNome: string, linhas: LinhaCupom[]): BlocoImpressao[] {
+/**
+ * Blocos ESC/POS de uma via de PRODUÇÃO pro setor (Cozinha/Bar). SEM preços —
+ * é a comanda que o cozinheiro/barman lê. Traz nome do setor em fonte grande,
+ * identificação (tipo/mesa/nº), horário, atendente e cliente, e cada item com
+ * a quantidade em destaque e a OBSERVAÇÃO realçada (ex.: "SEM CEBOLA") — que é
+ * o mais crítico na produção.
+ */
+function montarBlocosSetor(dados: DadosCupom, setorNome: string, linhas: LinhaCupom[]): BlocoImpressao[] {
+  const agora = new Date();
+  const hora = agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const data = agora.toLocaleDateString('pt-BR');
+
+  // Cabeçalho da identificação: usa os campos estruturados, caindo no título se faltarem.
+  const idLinha = [dados.tipoVenda, dados.referencia].filter(Boolean).join(' ') || dados.titulo;
+
   const b: BlocoImpressao[] = [
-    { t: 'center', b: true, txt: setorNome.toUpperCase() },
-    { t: 'center', txt: titulo },
-    { t: 'center', txt: new Date().toLocaleString('pt-BR') },
-    { t: 'linha' },
+    { t: 'titulo', txt: setorNome.toUpperCase() },      // fonte grande (dupla)
+    { t: 'center', b: true, txt: idLinha },
+    { t: 'center', txt: `${data}  ${hora}` },
   ];
+  if (dados.atendente) b.push({ t: 'lr', l: 'Atendente', r: dados.atendente });
+  if (dados.cliente) b.push({ t: 'lr', l: 'Cliente', r: dados.cliente });
+  b.push({ t: 'linha' });
+
   for (const l of linhas) {
-    b.push({ t: 'texto', txt: `${l.qtd}× ${l.nome}` });
-    if (l.detalhe) b.push({ t: 'texto', txt: '  ' + l.detalhe });
+    b.push({ t: 'texto', txt: `${l.qtd}x  ${l.nome}` });
+    if (l.observacao) b.push({ t: 'center', b: true, txt: `>> ${l.observacao.toUpperCase()} <<` });
   }
+
+  const totalItens = linhas.reduce((s, l) => s + (parseInt(l.qtd, 10) || 1), 0);
+  b.push({ t: 'linha' });
+  b.push({ t: 'lr', b: true, l: 'Total de itens', r: String(totalItens) });
   b.push({ t: 'corte' });
   return b;
 }
@@ -228,7 +254,7 @@ async function imprimirViasPorSetor(dados: DadosCupom, config: ConfigImpressao):
     const impressora = impressoraSetor(setorId);
     if (!impressora) continue;
     const setorNome = nomeSetor.get(setorId) || 'Setor';
-    const blocos = montarBlocosSetor(dados.titulo, setorNome, linhas);
+    const blocos = montarBlocosSetor(dados, setorNome, linhas);
     imprimirViaAgente(blocos, larguraMm, impressora).catch(() => { /* setor best-effort */ });
   }
 }
