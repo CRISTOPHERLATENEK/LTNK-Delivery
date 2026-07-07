@@ -96,6 +96,7 @@ export function BalcaoLoja() {
       nome: i.produto.nome,
       valor: brl(i.precoUnit * i.quantidade),
       detalhe: i.detalhe,
+      categoria: i.produto.categoria,
     }));
     const totais = [
       { rotulo: 'Subtotal', valor: brl(subtotal) },

@@ -1493,6 +1493,64 @@ router.post('/nfce/inutilizar', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ----- Setores de produção (Cozinha, Bar...) — roteiam a impressão --------
+
+/** Lista os setores da loja, com a quantidade de categorias vinculadas. */
+router.get('/setores', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req);
+    const setores = db.prepare(
+      `SELECT s.id, s.nome,
+              (SELECT COUNT(*) FROM categorias c WHERE c.setor_id = s.id) AS categorias
+         FROM setores s WHERE s.loja_id = ? ORDER BY s.nome`
+    ).all(loja.id);
+    res.json({ setores });
+  } catch (e) { next(e); }
+});
+
+router.post('/setores', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req);
+    const nome = textoLimpo(req.body.nome, 50);
+    if (!nome) throw erroHttp(400, 'Informe o nome do setor.');
+    let id: number;
+    try {
+      const info = db.prepare(
+        'INSERT INTO setores (loja_id, nome, criado_em) VALUES (?, ?, ?)'
+      ).run(loja.id, nome, agoraUTC());
+      id = Number(info.lastInsertRowid);
+    } catch {
+      throw erroHttp(409, `Já existe um setor "${nome}".`);
+    }
+    res.status(201).json({ id, nome });
+  } catch (e) { next(e); }
+});
+
+router.put('/setores/:id', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req);
+    const nome = textoLimpo(req.body.nome, 50);
+    if (!nome) throw erroHttp(400, 'Informe o nome do setor.');
+    const r = db.prepare('UPDATE setores SET nome = ? WHERE id = ? AND loja_id = ?').run(nome, req.params.id, loja.id);
+    if (r.changes === 0) throw erroHttp(404, 'Setor não encontrado.');
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/** Exclui o setor; categorias vinculadas voltam a ficar sem setor (setor_id = NULL). */
+router.delete('/setores/:id', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req);
+    const excluir = db.transaction(() => {
+      db.prepare('UPDATE categorias SET setor_id = NULL WHERE setor_id = ? AND loja_id = ?').run(req.params.id, loja.id);
+      return db.prepare('DELETE FROM setores WHERE id = ? AND loja_id = ?').run(req.params.id, loja.id);
+    });
+    const r = excluir();
+    if (r.changes === 0) throw erroHttp(404, 'Setor não encontrado.');
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 // ----- Categorias do cardápio ---------------------------------------------
 
 /** Lista categorias (registro + as que existem só nos produtos) + estilo. */
@@ -1500,15 +1558,15 @@ router.get('/categorias', (req, res, next) => {
   try {
     const loja = minhaLoja(req) as any;
     const registro = db.prepare(
-      'SELECT nome, icone, ordem FROM categorias WHERE loja_id = ? ORDER BY ordem, nome'
-    ).all(loja.id) as Array<{ nome: string; icone: string; ordem: number }>;
+      'SELECT nome, icone, ordem, setor_id FROM categorias WHERE loja_id = ? ORDER BY ordem, nome'
+    ).all(loja.id) as Array<{ nome: string; icone: string; ordem: number; setor_id: number | null }>;
     const mapa = new Map(registro.map(r => [r.nome, r]));
     const doProduto = db.prepare(
       "SELECT DISTINCT categoria FROM produtos WHERE loja_id = ? AND excluido = 0 AND categoria != ''"
     ).all(loja.id) as Array<{ categoria: string }>;
     for (const { categoria } of doProduto) {
       if (!mapa.has(categoria)) {
-        const item = { nome: categoria, icone: '', ordem: 999 };
+        const item = { nome: categoria, icone: '', ordem: 999, setor_id: null };
         mapa.set(categoria, item);
         registro.push(item);
       }
@@ -1518,7 +1576,7 @@ router.get('/categorias', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Salva ícone/ordem/renome das categorias + o estilo de exibição. */
+/** Salva ícone/ordem/renome/setor das categorias + o estilo de exibição. */
 router.put('/categorias', (req, res, next) => {
   try {
     const loja = minhaLoja(req);
@@ -1526,8 +1584,8 @@ router.put('/categorias', (req, res, next) => {
     const itens: any[] = Array.isArray(req.body.itens) ? req.body.itens : [];
 
     const upsert = db.prepare(
-      `INSERT INTO categorias (loja_id, nome, icone, ordem, criado_em) VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(loja_id, nome) DO UPDATE SET icone = excluded.icone, ordem = excluded.ordem`
+      `INSERT INTO categorias (loja_id, nome, icone, ordem, setor_id, criado_em) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(loja_id, nome) DO UPDATE SET icone = excluded.icone, ordem = excluded.ordem, setor_id = excluded.setor_id`
     );
     const renomearProdutos = db.prepare('UPDATE produtos SET categoria = ? WHERE loja_id = ? AND categoria = ?');
     const apagarRegistro = db.prepare('DELETE FROM categorias WHERE loja_id = ? AND nome = ?');
@@ -1539,13 +1597,14 @@ router.put('/categorias', (req, res, next) => {
         if (!nome) return;
         const icone = textoLimpo(it.icone, 16);
         const ordem = Number.isFinite(Number(it.ordem)) ? Number(it.ordem) : i;
+        const setorId = it.setor_id ? Number(it.setor_id) : null;
         const novo = textoLimpo(it.renomear_para, 50);
         const nomeFinal = novo || nome;
         if (novo && novo !== nome) {
           renomearProdutos.run(nomeFinal, loja.id, nome);
           apagarRegistro.run(loja.id, nome);
         }
-        upsert.run(loja.id, nomeFinal, icone, ordem, agoraUTC());
+        upsert.run(loja.id, nomeFinal, icone, ordem, setorId, agoraUTC());
       });
     })();
     res.json({ ok: true });
@@ -1896,7 +1955,10 @@ router.get('/comandas/:id', (req, res, next) => {
     `).get(req.params.id, loja.id) as Record<string, unknown> | undefined;
     if (!comanda) throw erroHttp(404, 'Comanda não encontrada.');
     const itens = db.prepare(
-      'SELECT * FROM comanda_itens WHERE comanda_id = ? ORDER BY id'
+      `SELECT ci.*, p.categoria AS categoria
+         FROM comanda_itens ci
+         LEFT JOIN produtos p ON p.id = ci.produto_id
+        WHERE ci.comanda_id = ? ORDER BY ci.id`
     ).all(comanda.id as number);
     res.json({ comanda, itens });
   } catch (e) { next(e); }

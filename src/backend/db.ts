@@ -474,6 +474,22 @@ CREATE INDEX IF NOT EXISTS idx_categorias_loja ON categorias(loja_id);
 `);
 // Estilo de exibição das categorias na vitrine do cliente: 'cards' (com ícone) | 'chips'.
 garantirColuna('lojas', 'categoria_estilo', "categoria_estilo TEXT NOT NULL DEFAULT 'cards'");
+
+// Setores de produção (Cozinha, Bar...) — agrupam categorias pra rotear a
+// impressão do cupom: cada setor tem uma impressora própria (vínculo fica
+// LOCAL, no navegador/agente de cada PC — não faz sentido salvar no banco,
+// já que cada computador do caixa pode ter impressoras físicas diferentes).
+db.exec(`
+CREATE TABLE IF NOT EXISTS setores (
+  id        INTEGER PRIMARY KEY,
+  loja_id   INTEGER NOT NULL REFERENCES lojas(id),
+  nome      TEXT    NOT NULL,
+  criado_em TEXT    NOT NULL,
+  UNIQUE (loja_id, nome)
+);
+CREATE INDEX IF NOT EXISTS idx_setores_loja ON setores(loja_id);
+`);
+garantirColuna('categorias', 'setor_id', 'setor_id INTEGER REFERENCES setores(id)');
 // Token do Mercado Pago por loja (configurável pelo painel do lojista).
 // NULL = sem Pix online; usa env MERCADOPAGO_ACCESS_TOKEN como fallback global.
 garantirColuna('lojas', 'mercadopago_token', 'mercadopago_token TEXT');

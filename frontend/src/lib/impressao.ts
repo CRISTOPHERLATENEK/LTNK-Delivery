@@ -7,7 +7,8 @@
  *
  * O DANFE da NFC-e reaproveita o mesmo formato/coluna.
  */
-import { impressoraAgentePreferida, imprimirViaAgente, type BlocoImpressao, type ConfigFiscal } from './agente';
+import { impressoraAgentePreferida, imprimirViaAgente, agenteAtivo, impressoraSetor, type BlocoImpressao, type ConfigFiscal } from './agente';
+import { api } from './api';
 
 export interface ConfigImpressao {
   largura: '80' | '58';
@@ -21,6 +22,7 @@ export interface LinhaCupom {
   nome: string;
   valor: string;      // "R$ 24,90"
   detalhe?: string;   // ex.: "0,350 kg × R$ 39,90/kg" ou observação
+  categoria?: string; // categoria do produto — usada pra rotear pro setor de impressão (Cozinha, Bar...)
 }
 
 export interface DadosCupom {
@@ -158,9 +160,77 @@ export function montarBlocosCupom(dados: DadosCupom, config: ConfigImpressao): B
   return b;
 }
 
-/** Monta o cupom e imprime (agente → QZ → diálogo). */
+/** Monta o cupom e imprime (agente → QZ → diálogo). Também dispara as vias de produção por setor (Cozinha/Bar), se configuradas. */
 export function imprimirCupom(dados: DadosCupom, config: ConfigImpressao): void {
   despacharImpressao(montarHtmlCupom(dados, config), larguraMmDe(config.largura), montarBlocosCupom(dados, config));
+  imprimirViasPorSetor(dados, config).catch(() => { /* impressão por setor é best-effort */ });
+}
+
+/* ───────────────────────── Roteamento por setor ───────────────────────── */
+
+interface MapaSetores { porCategoria: Map<string, number>; nomeSetor: Map<number, string> }
+let cacheMapaSetores: MapaSetores | null = null;
+let cacheMapaSetoresTs = 0;
+
+async function buscarMapaSetores(): Promise<MapaSetores> {
+  if (cacheMapaSetores && Date.now() - cacheMapaSetoresTs < 60_000) return cacheMapaSetores;
+  const [catsR, setR] = await Promise.all([
+    api<{ categorias: { nome: string; setor_id: number | null }[] }>('GET', '/api/lojista/categorias'),
+    api<{ setores: { id: number; nome: string }[] }>('GET', '/api/lojista/setores'),
+  ]);
+  const porCategoria = new Map<string, number>();
+  catsR.categorias.forEach(c => { if (c.setor_id) porCategoria.set(c.nome, c.setor_id); });
+  const nomeSetor = new Map<number, string>();
+  setR.setores.forEach(s => nomeSetor.set(s.id, s.nome));
+  cacheMapaSetores = { porCategoria, nomeSetor };
+  cacheMapaSetoresTs = Date.now();
+  return cacheMapaSetores;
+}
+
+/** Blocos ESC/POS de uma via de produção (sem preços) pro setor. */
+function montarBlocosSetor(titulo: string, setorNome: string, linhas: LinhaCupom[]): BlocoImpressao[] {
+  const b: BlocoImpressao[] = [
+    { t: 'center', b: true, txt: setorNome.toUpperCase() },
+    { t: 'center', txt: titulo },
+    { t: 'center', txt: new Date().toLocaleString('pt-BR') },
+    { t: 'linha' },
+  ];
+  for (const l of linhas) {
+    b.push({ t: 'texto', txt: `${l.qtd}× ${l.nome}` });
+    if (l.detalhe) b.push({ t: 'texto', txt: '  ' + l.detalhe });
+  }
+  b.push({ t: 'corte' });
+  return b;
+}
+
+/**
+ * Agrupa as linhas do cupom pelo setor da categoria de cada produto e imprime
+ * uma via de produção (sem preço) em cada impressora vinculada ao setor NESTE
+ * PC (config local, feita na aba Impressão). Categorias sem setor, ou setores
+ * sem impressora vinculada, não geram via extra. Best-effort: nunca lança.
+ */
+async function imprimirViasPorSetor(dados: DadosCupom, config: ConfigImpressao): Promise<void> {
+  if (!dados.linhas.some(l => l.categoria)) return;
+  if (!(await agenteAtivo())) return;
+  const { porCategoria, nomeSetor } = await buscarMapaSetores();
+  if (porCategoria.size === 0) return;
+
+  const grupos = new Map<number, LinhaCupom[]>();
+  for (const l of dados.linhas) {
+    const setorId = l.categoria ? porCategoria.get(l.categoria) : undefined;
+    if (!setorId) continue;
+    if (!grupos.has(setorId)) grupos.set(setorId, []);
+    grupos.get(setorId)!.push(l);
+  }
+
+  const larguraMm = larguraMmDe(config.largura);
+  for (const [setorId, linhas] of grupos) {
+    const impressora = impressoraSetor(setorId);
+    if (!impressora) continue;
+    const setorNome = nomeSetor.get(setorId) || 'Setor';
+    const blocos = montarBlocosSetor(dados.titulo, setorNome, linhas);
+    imprimirViaAgente(blocos, larguraMm, impressora).catch(() => { /* setor best-effort */ });
+  }
 }
 
 /* ───────────────────────── DANFE NFC-e ───────────────────────── */

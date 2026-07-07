@@ -3,7 +3,7 @@
  * estilo de exibição na vitrine do cliente (cards com ícone ou chips de texto).
  */
 import { useEffect, useState } from 'react';
-import { Tag, Save, ChevronUp, ChevronDown, LayoutGrid, Type } from 'lucide-react';
+import { Tag, Save, ChevronUp, ChevronDown, LayoutGrid, Type, Printer, Plus, X, Pencil } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,7 +13,8 @@ import { useToast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-interface Cat { nome: string; icone: string; nomeEdit: string }
+interface Cat { nome: string; icone: string; nomeEdit: string; setorId: number | null }
+interface Setor { id: number; nome: string; categorias: number }
 
 const EMOJIS = ['🍕','🍔','🍟','🌭','🥤','🍰','🍦','🍣','🥗','🍜','🍗','🍖','☕','🍺','🧃','🥪','🌮','🍝','🥩','🍩','🍱','🧁'];
 
@@ -24,17 +25,58 @@ export function CategoriasLoja() {
   const [carregado, setCarregado] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [pickerAberto, setPickerAberto] = useState<number | null>(null);
+  const [setores, setSetores] = useState<Setor[]>([]);
+  const [novoSetor, setNovoSetor] = useState('');
+  const [renomeandoSetor, setRenomeandoSetor] = useState<number | null>(null);
+  const [nomeSetorEdit, setNomeSetorEdit] = useState('');
 
   function carregar() {
-    api<{ categorias: { nome: string; icone: string }[]; estilo: 'cards' | 'chips' }>('GET', '/api/lojista/categorias')
+    api<{ categorias: { nome: string; icone: string; setor_id: number | null }[]; estilo: 'cards' | 'chips' }>('GET', '/api/lojista/categorias')
       .then(r => {
-        setCats(r.categorias.map(c => ({ nome: c.nome, icone: c.icone, nomeEdit: c.nome })));
+        setCats(r.categorias.map(c => ({ nome: c.nome, icone: c.icone, nomeEdit: c.nome, setorId: c.setor_id })));
         setEstilo(r.estilo === 'chips' ? 'chips' : 'cards');
         setCarregado(true);
       })
       .catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar as categorias.' }));
   }
-  useEffect(() => { carregar(); }, []);
+  function carregarSetores() {
+    api<{ setores: Setor[] }>('GET', '/api/lojista/setores')
+      .then(r => setSetores(r.setores))
+      .catch(() => {});
+  }
+  useEffect(() => { carregar(); carregarSetores(); }, []);
+
+  async function criarSetor() {
+    const nome = novoSetor.trim();
+    if (!nome) return;
+    try {
+      await api('POST', '/api/lojista/setores', { nome });
+      setNovoSetor('');
+      carregarSetores();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+  async function renomearSetor(id: number) {
+    const nome = nomeSetorEdit.trim();
+    if (!nome) return;
+    try {
+      await api('PUT', `/api/lojista/setores/${id}`, { nome });
+      setRenomeandoSetor(null);
+      carregarSetores();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+  async function excluirSetor(id: number) {
+    try {
+      await api('DELETE', `/api/lojista/setores/${id}`);
+      carregarSetores();
+      setCats(c => c.map(x => x.setorId === id ? { ...x, setorId: null } : x));
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
 
   function mover(i: number, dir: -1 | 1) {
     const j = i + dir;
@@ -51,7 +93,7 @@ export function CategoriasLoja() {
       await api('PUT', '/api/lojista/categorias', {
         estilo,
         itens: cats.map((c, i) => ({
-          nome: c.nome, icone: c.icone, ordem: i,
+          nome: c.nome, icone: c.icone, ordem: i, setor_id: c.setorId,
           renomear_para: c.nomeEdit.trim() && c.nomeEdit.trim() !== c.nome ? c.nomeEdit.trim() : undefined,
         })),
       });
@@ -70,6 +112,48 @@ export function CategoriasLoja() {
         <Tag className="size-5 text-primary" />
         <h1 className="text-lg font-extrabold">Categorias</h1>
       </div>
+
+      {/* Setores de impressão */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <div>
+            <Label className="mb-0.5 flex items-center gap-1.5"><Printer className="size-3.5" /> Setores de impressão</Label>
+            <p className="text-[11px] text-muted-foreground">
+              Agrupe categorias em setores (ex.: Cozinha, Bar) pra imprimir cada um numa impressora diferente. A impressora de cada setor é configurada na aba Impressão, deste computador.
+            </p>
+          </div>
+          {setores.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {setores.map(s => (
+                <div key={s.id} className="flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-2.5 py-1.5">
+                  {renomeandoSetor === s.id ? (
+                    <>
+                      <Input autoFocus value={nomeSetorEdit} onChange={e => setNomeSetorEdit(e.target.value)}
+                        className="h-7 w-32 text-xs" onKeyDown={e => e.key === 'Enter' && renomearSetor(s.id)} />
+                      <button onClick={() => renomearSetor(s.id)} className="text-primary text-xs font-semibold">ok</button>
+                      <button onClick={() => setRenomeandoSetor(null)} className="text-muted-foreground"><X className="size-3.5" /></button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="text-sm font-semibold">{s.nome}</span>
+                      <span className="text-[10px] text-muted-foreground">({s.categorias})</span>
+                      <button onClick={() => { setRenomeandoSetor(s.id); setNomeSetorEdit(s.nome); }} className="text-muted-foreground hover:text-foreground"><Pencil className="size-3.5" /></button>
+                      <button onClick={() => excluirSetor(s.id)} className="text-muted-foreground hover:text-destructive"><X className="size-3.5" /></button>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Input value={novoSetor} onChange={e => setNovoSetor(e.target.value)} placeholder="Nome do setor (ex.: Cozinha)"
+              className="h-9 flex-1" onKeyDown={e => e.key === 'Enter' && criarSetor()} />
+            <Button type="button" variant="outline" size="sm" onClick={criarSetor} disabled={!novoSetor.trim()}>
+              <Plus className="size-4" /> Novo setor
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Estilo de exibição */}
       <Card>
@@ -120,6 +204,18 @@ export function CategoriasLoja() {
                     onChange={e => setCampo(i, { nomeEdit: e.target.value })}
                     className="flex-1"
                   />
+                  {/* Setor de impressão */}
+                  {setores.length > 0 && (
+                    <select
+                      value={c.setorId ?? ''}
+                      onChange={e => setCampo(i, { setorId: e.target.value ? Number(e.target.value) : null })}
+                      className="h-9 shrink-0 rounded-lg border border-input bg-background px-2 text-xs max-w-[110px]"
+                      title="Setor de impressão"
+                    >
+                      <option value="">Sem setor</option>
+                      {setores.map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                    </select>
+                  )}
                 </div>
                 {/* Picker de emoji */}
                 {pickerAberto === i && (

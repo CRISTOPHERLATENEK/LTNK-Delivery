@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
-import { agenteAtivo, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, URL_EDITOR_FISCAL } from '@/lib/agente';
+import { agenteAtivo, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -700,6 +700,14 @@ export function ImpressaoLoja() {
   const [agImpressoras, setAgImpressoras] = useState<string[]>([]);
   const [agSelecionada, setAgSelecionada] = useState(impressoraAgente());
   const [agEstado, setAgEstado] = useState<'idle' | 'buscando' | 'ok' | 'off'>('idle');
+  // Setores de impressão (Cozinha, Bar...) — vínculo setor→impressora é local deste PC.
+  const [setores, setSetores] = useState<{ id: number; nome: string; categorias: number }[]>([]);
+  const [setorImpressoras, setSetorImpressoras] = useState<Record<number, string>>({});
+
+  function escolherSetor(setorId: number, nome: string) {
+    definirImpressoraSetor(setorId, nome);
+    setSetorImpressoras(m => ({ ...m, [setorId]: nome }));
+  }
 
   async function conectarAgente() {
     setAgEstado('buscando');
@@ -729,6 +737,14 @@ export function ImpressaoLoja() {
       setRodape(r.loja.cupom_rodape || '');
     }).catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar a configuração.' }));
     conectarAgente(); // detecta o nosso agente automaticamente ao abrir
+    api<{ setores: { id: number; nome: string; categorias: number }[] }>('GET', '/api/lojista/setores')
+      .then(r => {
+        setSetores(r.setores);
+        const mapa: Record<number, string> = {};
+        r.setores.forEach(s => { mapa[s.id] = impressoraSetor(s.id); });
+        setSetorImpressoras(mapa);
+      })
+      .catch(() => {});
   }, []);
 
   async function salvar(e: React.FormEvent) {
@@ -889,6 +905,37 @@ export function ImpressaoLoja() {
           )}
         </CardContent>
       </Card>
+
+      {/* Setor de impressão → impressora (vínculo local, deste PC) */}
+      {agEstado === 'ok' && setores.length > 0 && (
+        <Card>
+          <CardContent className="p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <Printer className="size-4 text-primary" />
+              <span className="font-bold text-sm">Setores → impressora</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Escolha qual impressora deste computador recebe o cupom de cada setor. Sem escolha, o setor usa a impressora padrão acima.
+              Configure os setores e vincule categorias na aba Categorias.
+            </p>
+            <div className="grid gap-2.5">
+              {setores.map(s => (
+                <div key={s.id} className="flex items-center gap-2">
+                  <span className="w-28 shrink-0 text-sm font-semibold truncate">{s.nome}</span>
+                  <select
+                    value={setorImpressoras[s.id] || ''}
+                    onChange={e => escolherSetor(s.id, e.target.value)}
+                    className="h-9 flex-1 rounded-lg border border-input bg-background px-2 text-sm"
+                  >
+                    <option value="">Usar impressora padrão</option>
+                    {agImpressoras.map(nome => <option key={nome} value={nome}>{nome}</option>)}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
     </form>
   );

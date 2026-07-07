@@ -39,6 +39,7 @@ interface ItemComanda {
   quantidade: number;
   observacao: string;
   enviado_cozinha: 0 | 1;
+  categoria?: string | null;
 }
 
 interface Comanda {
@@ -385,6 +386,7 @@ function imprimirComanda(mesaNumero: string, comandaId: number, itens: ItemComan
       nome: i.nome_produto,
       valor: brl(i.preco_unit_centavos * i.quantidade),
       detalhe: i.observacao ? `obs: ${i.observacao}` : undefined,
+      categoria: i.categoria || undefined,
     })),
     totais: [{ rotulo: 'TOTAL', valor: brl(total), forte: true }],
   }, config);

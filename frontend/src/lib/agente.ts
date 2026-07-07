@@ -34,6 +34,19 @@ export function definirImpressoraAgente(nome: string): void {
   try { localStorage.setItem(CHAVE, nome); } catch { /* ignore */ }
 }
 
+const PREFIXO_SETOR = 'agente_impressora_setor_';
+
+/** Impressora vinculada a um setor (Cozinha, Bar...) NESTE PC. Vazio = usa a padrão. */
+export function impressoraSetor(setorId: number): string {
+  try { return localStorage.getItem(PREFIXO_SETOR + setorId) || ''; } catch { return ''; }
+}
+export function definirImpressoraSetor(setorId: number, nome: string): void {
+  try {
+    if (nome) localStorage.setItem(PREFIXO_SETOR + setorId, nome);
+    else localStorage.removeItem(PREFIXO_SETOR + setorId);
+  } catch { /* ignore */ }
+}
+
 /**
  * Impressora a usar pelo agente: a salva no localStorage, OU — se nenhuma foi
  * escolhida ainda mas o agente está rodando — auto-seleciona a térmica (e salva).
