@@ -11,7 +11,10 @@ const listeners = new Set<() => void>();
 // Snapshot cacheado: o getSnapshot do useSyncExternalStore PRECISA devolver a
 // mesma referência enquanto nada muda — senão o React 19 entra em loop infinito
 // (erro #185). Só reparseia quando a string do localStorage realmente muda.
-let cacheStr: string | null = null;
+// Sentinela de "cache invalidado" = undefined (NÃO null): localStorage.getItem
+// devolve null quando o carrinho foi esvaziado, então usar null como sentinela
+// faria o ler() devolver o valor ANTIGO em cache justamente ao limpar o carrinho.
+let cacheStr: string | null | undefined = undefined;
 let cacheVal: CarrinhoLocal | null = null;
 
 function ler(): CarrinhoLocal | null {
@@ -28,7 +31,7 @@ function gravar(carrinho: CarrinhoLocal | null) {
   if (carrinho) localStorage.setItem(CHAVE, JSON.stringify(carrinho));
   else localStorage.removeItem(CHAVE);
   // invalida o cache para o próximo ler() devolver uma nova referência
-  cacheStr = null;
+  cacheStr = undefined;
   listeners.forEach(l => l());
 }
 

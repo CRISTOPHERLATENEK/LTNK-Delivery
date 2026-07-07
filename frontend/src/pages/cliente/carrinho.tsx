@@ -25,6 +25,15 @@ export function PaginaCarrinho() {
 
   const [cupom, setCupom] = useState<{ codigo: string; tipo: 'percentual' | 'fixo'; valor: number } | null>(null);
   const [freteEfetivo, setFreteEfetivo] = useState<number | null>(null);
+  // Pix fica AQUI (não dentro do Checkout) pra sobreviver ao carrinho ser
+  // esvaziado assim que o pedido é criado — senão a tela do QR desmontaria.
+  const [pix, setPix] = useState<(PixData & { pedidoId: number }) | null>(null);
+
+  function concluirPedido(pedidoId: number) {
+    limparCarrinho();
+    mostrar({ tipo: 'sucesso', titulo: 'Pedido realizado! 🎉' });
+    navigate(`/pedido/${pedidoId}`);
+  }
 
   const infoLoja = useQuery({
     queryKey: ['loja-checkout', carrinho?.loja_id],
@@ -46,6 +55,20 @@ export function PaginaCarrinho() {
   const taxaEntrega = freteEfetivo ?? (carrinho?.taxa_entrega_centavos || 0);
   const total = subtotal - desconto + taxaEntrega;
   const abaixoMinimo = minimoPedido > 0 && subtotal < minimoPedido;
+
+  // Pedido Pix criado: o carrinho já foi esvaziado; mostra o QR pra pagar.
+  // Se cancelar/fechar, vai pro acompanhamento do pedido (que fica aguardando).
+  if (pix) {
+    return (
+      <div className="space-y-4 pb-4">
+        <PixPagamento
+          dados={pix}
+          onPago={() => concluirPedido(pix.pedidoId)}
+          onCancelar={() => navigate(`/pedido/${pix.pedidoId}`)}
+        />
+      </div>
+    );
+  }
 
   if (!carrinho) {
     return (
@@ -171,11 +194,8 @@ export function PaginaCarrinho() {
           bloqueado={abaixoMinimo}
           cupomCodigo={desconto > 0 ? cupom?.codigo : undefined}
           onFreteChange={setFreteEfetivo}
-          onPedido={pedidoId => {
-            limparCarrinho();
-            mostrar({ tipo: 'sucesso', titulo: 'Pedido realizado! 🎉' });
-            navigate(`/pedido/${pedidoId}`);
-          }}
+          onPedido={concluirPedido}
+          onPix={dados => { limparCarrinho(); setPix(dados); }}
         />
       )}
     </div>
@@ -344,10 +364,12 @@ function PixPagamento({
 }
 
 function Checkout({
-  subtotal: _subtotal, total, cupomCodigo, onPedido,
+  subtotal: _subtotal, total, cupomCodigo, onPedido, onPix,
   zonas, fretePadrao, bloqueado, onFreteChange,
 }: {
-  subtotal: number; total: number; cupomCodigo?: string; onPedido: (id: number) => void;
+  subtotal: number; total: number; cupomCodigo?: string;
+  onPedido: (id: number) => void;
+  onPix: (dados: PixData & { pedidoId: number }) => void;
   zonas: { bairro: string; taxa_centavos: number }[];
   fretePadrao: number;
   bloqueado: boolean;
@@ -366,7 +388,6 @@ function Checkout({
   const [troco, setTroco] = useState('');
   const [obs, setObs] = useState('');
   const [enviando, setEnviando] = useState(false);
-  const [pix, setPix] = useState<(PixData & { pedidoId: number }) | null>(null);
 
   const [novo, setNovo] = useState({
     rotulo: 'Casa', rua: '', numero: '', complemento: '',
@@ -404,18 +425,14 @@ function Checkout({
         observacoes: obs,
         cupom_codigo: cupomCodigo,
       });
-      // Pix online: abre a tela do QR e espera o pagamento. Senão, segue normal.
-      if (r.pix) setPix({ pedidoId: r.pedido_id, ...r.pix });
+      // Pix online: abre a tela do QR (o pai já esvazia o carrinho). Senão, conclui.
+      if (r.pix) onPix({ pedidoId: r.pedido_id, ...r.pix });
       else onPedido(r.pedido_id);
     } catch (e) {
       if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: 'Não foi possível', descricao: e.message });
     } finally {
       setEnviando(false);
     }
-  }
-
-  if (pix) {
-    return <PixPagamento dados={pix} onPago={() => onPedido(pix.pedidoId)} onCancelar={() => setPix(null)} />;
   }
 
   return (
