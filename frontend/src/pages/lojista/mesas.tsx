@@ -17,7 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
 import { brl } from '@/lib/format';
-import { imprimirCupom, imprimirDanfe, configImpressao, type ConfigImpressao, type DadosDanfe } from '@/lib/impressao';
+import { imprimirCupom, imprimirDanfe, imprimirComandasProducao, configImpressao, type ConfigImpressao, type DadosDanfe } from '@/lib/impressao';
 import type { Produto, Loja } from '@/types';
 
 interface Mesa {
@@ -430,10 +430,28 @@ function PainelComanda({
   const naoEnviados = itens.filter(i => !i.enviado_cozinha).length;
 
   async function enviarCozinha() {
+    // Os itens desta rodada (ainda não enviados) — é o que vai pra produção agora.
+    const rodada = itens.filter(i => !i.enviado_cozinha);
     try {
       const r = await api<{ itens_enviados: number }>('POST', `/api/lojista/comandas/${comandaId}/enviar-cozinha`);
-      mostrar({ tipo: 'sucesso', titulo: `${r.itens_enviados} item(ns) enviados à cozinha 🍳` });
+      mostrar({ tipo: 'sucesso', titulo: `${r.itens_enviados} item(ns) enviados para produção 🍳` });
       qc.invalidateQueries({ queryKey: ['comanda', comandaId] });
+      // Roteia a impressão: cada setor (cozinha/bar) recebe, na hora, só os seus itens.
+      if (rodada.length) {
+        imprimirComandasProducao({
+          titulo: `MESA ${mesaNumero} · COMANDA #${comandaId}`,
+          linhas: rodada.map(i => ({
+            qtd: String(i.quantidade),
+            nome: i.nome_produto,
+            valor: '',
+            observacao: i.observacao || undefined,
+            categoria: i.categoria || undefined,
+          })),
+          totais: [],
+          tipoVenda: `Mesa ${mesaNumero}`, referencia: `Comanda #${comandaId}`,
+          atendente: sessaoUsuario('lojista')?.nome,
+        }, configImpressao(lojaQ.data as unknown as Record<string, unknown>));
+      }
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     }
@@ -591,15 +609,15 @@ function PainelComanda({
           </div>
         )}
 
-        {/* Enviar para a cozinha (só os itens ainda não enviados) */}
+        {/* Enviar para produção (cozinha/bar) — só os itens ainda não enviados */}
         {itens.length > 0 && (
           naoEnviados > 0 ? (
             <Button variant="default" size="sm" className="w-full" onClick={enviarCozinha}>
-              <ChefHat className="size-4" /> Enviar {naoEnviados} item(ns) para a cozinha
+              <ChefHat className="size-4" /> Enviar {naoEnviados} item(ns) para produção
             </Button>
           ) : (
             <p className="flex items-center justify-center gap-1.5 text-xs text-green-600 dark:text-green-400 font-medium">
-              <Check className="size-3.5" /> Tudo já enviado para a cozinha
+              <Check className="size-3.5" /> Tudo já enviado para produção
             </p>
           )
         )}

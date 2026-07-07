@@ -172,6 +172,16 @@ export function imprimirCupom(dados: DadosCupom, config: ConfigImpressao): void 
   imprimirViasPorSetor(dados, config).catch(() => { /* impressão por setor é best-effort */ });
 }
 
+/**
+ * Dispara SÓ as vias de produção por setor (cozinha/bar) — sem o cupom do
+ * caixa. É o que roda quando o pedido é ENVIADO PRA PRODUÇÃO (não no
+ * fechamento): cada setor recebe, na hora, só os itens da rodada que são dele.
+ * Best-effort: se não houver setor/impressora configurados, não imprime nada.
+ */
+export function imprimirComandasProducao(dados: DadosCupom, config: ConfigImpressao): void {
+  imprimirViasPorSetor(dados, config).catch(() => { /* produção é best-effort */ });
+}
+
 /* ───────────────────────── Roteamento por setor ───────────────────────── */
 
 interface MapaSetores { porCategoria: Map<string, number>; nomeSetor: Map<number, string> }
