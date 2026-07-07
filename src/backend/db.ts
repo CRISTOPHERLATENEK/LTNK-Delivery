@@ -403,6 +403,10 @@ garantirColuna('pedidos', 'origem', "origem TEXT NOT NULL DEFAULT 'app'");
 garantirColuna('usuarios', 'super_admin', 'super_admin INTEGER NOT NULL DEFAULT 0');
 // Isolamento de clientes por loja (white label multi-tenant)
 garantirColuna('usuarios', 'loja_id', 'loja_id INTEGER REFERENCES lojas(id)');
+// CPF do cliente: identificador principal de login (11 dígitos, sem máscara).
+// Único por banco/tenant. Lojista/entregador continuam logando por e-mail.
+garantirColuna('usuarios', 'cpf', 'cpf TEXT');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_cpf ON usuarios(cpf) WHERE cpf IS NOT NULL');
 
 // White label da loja: cada lojista pode definir sua identidade visual.
 garantirColuna('lojas', 'logo_url', "logo_url TEXT NOT NULL DEFAULT ''");

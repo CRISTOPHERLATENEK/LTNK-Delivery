@@ -31,6 +31,8 @@ export interface Usuario {
   senha_hash: string;
   perfil: Perfil;
   telefone: string | null;
+  /** CPF do cliente (11 dígitos, sem máscara). Chave de login do cliente. */
+  cpf: string | null;
   bloqueado: NumeroBooleano;
   /** Apenas para perfil='admin': 1 = super admin (dono do SaaS, pode tudo). */
   super_admin: NumeroBooleano;

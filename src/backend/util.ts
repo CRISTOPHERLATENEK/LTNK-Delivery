@@ -40,6 +40,24 @@ export function emailValido(email: unknown): email is string {
     && email.length <= 200;
 }
 
+/** Só os 11 dígitos do CPF (remove máscara). */
+export function cpfDigitos(cpf: unknown): string {
+  return typeof cpf === 'string' ? cpf.replace(/\D/g, '').slice(0, 11) : '';
+}
+
+/** Valida CPF pelos dígitos verificadores (rejeita sequências iguais). */
+export function cpfValido(cpf: unknown): boolean {
+  const d = cpfDigitos(cpf);
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  const dig = (base: number) => {
+    let soma = 0;
+    for (let i = 0; i < base; i++) soma += parseInt(d[i], 10) * (base + 1 - i);
+    const r = 11 - (soma % 11);
+    return r >= 10 ? 0 : r;
+  };
+  return dig(9) === parseInt(d[9], 10) && dig(10) === parseInt(d[10], 10);
+}
+
 /** Erro de negócio com status HTTP. */
 export class ErroHttp extends Error {
   public readonly statusHttp: number;

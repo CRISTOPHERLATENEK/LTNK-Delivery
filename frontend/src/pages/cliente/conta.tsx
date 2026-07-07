@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useCarrinho } from '@/lib/carrinho';
 import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
+import { formatarCpf, cpfDigitos, cpfValido } from '@/lib/cpf';
 import type { UsuarioSessao, Endereco } from '@/types';
 
 export function PaginaConta() {
@@ -84,7 +85,10 @@ function PerfilSecao({ usuario }: { usuario: UsuarioSessao }) {
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-lg font-bold truncate">{usuario.nome}</h2>
-            <p className="text-sm text-muted-foreground truncate">{usuario.email}</p>
+            {usuario.cpf && <p className="text-sm text-muted-foreground truncate">CPF {formatarCpf(usuario.cpf)}</p>}
+            {usuario.email && !usuario.email.endsWith('@cliente.local') && (
+              <p className="text-xs text-muted-foreground truncate">{usuario.email}</p>
+            )}
             {usuario.telefone && <p className="text-xs text-muted-foreground">{usuario.telefone}</p>}
           </div>
           {!editando && (
@@ -285,7 +289,7 @@ function SenhaSecao() {
 }
 
 function FormLogin({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
-  const [email, setEmail] = useState('');
+  const [cpf, setCpf] = useState('');
   const [senha, setSenha] = useState('');
   const [enviando, setEnviando] = useState(false);
   const { mostrar } = useToast();
@@ -293,11 +297,12 @@ function FormLogin({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
+    if (!cpfValido(cpf)) { mostrar({ tipo: 'erro', titulo: 'CPF inválido.' }); return; }
     setEnviando(true);
     try {
       const r = await api<{ token: string; usuario: UsuarioSessao }>(
         'POST', '/api/auth/login',
-        { email, senha, loja_id: marca.loja_id || null },
+        { cpf: cpfDigitos(cpf), senha, loja_id: marca.loja_id || null },
       );
       salvarSessao(r.token, r.usuario);
       onLogar(r.usuario);
@@ -317,8 +322,9 @@ function FormLogin({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
         </h2>
         <form onSubmit={enviar} className="space-y-3">
           <div>
-            <Label htmlFor="login-email">E-mail</Label>
-            <Input id="login-email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} />
+            <Label htmlFor="login-cpf">CPF</Label>
+            <Input id="login-cpf" inputMode="numeric" autoComplete="username" placeholder="000.000.000-00"
+              required value={cpf} onChange={e => setCpf(formatarCpf(e.target.value))} />
           </div>
           <div>
             <Label htmlFor="login-senha">Senha</Label>
@@ -335,6 +341,7 @@ function FormLogin({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
 
 function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
   const [nome, setNome] = useState('');
+  const [cpf, setCpf] = useState('');
   const [email, setEmail] = useState('');
   const [telefone, setTelefone] = useState('');
   const [senha, setSenha] = useState('');
@@ -344,11 +351,12 @@ function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
+    if (!cpfValido(cpf)) { mostrar({ tipo: 'erro', titulo: 'Informe um CPF válido.' }); return; }
     setEnviando(true);
     try {
       const r = await api<{ token: string; usuario: UsuarioSessao }>(
         'POST', '/api/auth/registrar',
-        { nome, email, telefone, senha, perfil: 'cliente', loja_id: marca.loja_id || null },
+        { nome, cpf: cpfDigitos(cpf), email, telefone, senha, perfil: 'cliente', loja_id: marca.loja_id || null },
       );
       salvarSessao(r.token, r.usuario);
       mostrar({ tipo: 'sucesso', titulo: 'Conta criada com sucesso!' });
@@ -373,12 +381,17 @@ function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
             <Input id="cad-nome" autoComplete="name" required value={nome} onChange={e => setNome(e.target.value)} />
           </div>
           <div>
-            <Label htmlFor="cad-email">E-mail</Label>
-            <Input id="cad-email" type="email" autoComplete="email" required value={email} onChange={e => setEmail(e.target.value)} />
+            <Label htmlFor="cad-cpf">CPF</Label>
+            <Input id="cad-cpf" inputMode="numeric" placeholder="000.000.000-00" required
+              value={cpf} onChange={e => setCpf(formatarCpf(e.target.value))} />
           </div>
           <div>
             <Label htmlFor="cad-tel">Telefone/WhatsApp</Label>
             <Input id="cad-tel" type="tel" placeholder="(11) 99999-9999" value={telefone} onChange={e => setTelefone(e.target.value)} />
+          </div>
+          <div>
+            <Label htmlFor="cad-email">E-mail <span className="text-muted-foreground font-normal">(opcional)</span></Label>
+            <Input id="cad-email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} />
           </div>
           <div>
             <Label htmlFor="cad-senha">Senha (mínimo 6)</Label>

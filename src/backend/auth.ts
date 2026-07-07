@@ -16,7 +16,7 @@ if (!JWT_SECRET) {
 const JWT_EXPIRACAO = (process.env.JWT_EXPIRACAO || '12h') as SignOptions['expiresIn'];
 
 /** Dados do usuário autenticado que ficam disponíveis em req.usuario. */
-export type UsuarioAutenticado = Pick<Usuario, 'id' | 'nome' | 'email' | 'perfil' | 'telefone' | 'bloqueado' | 'super_admin'>;
+export type UsuarioAutenticado = Pick<Usuario, 'id' | 'nome' | 'email' | 'perfil' | 'telefone' | 'cpf' | 'bloqueado' | 'super_admin'>;
 
 /** Conta de cozinha autenticada (KDS) — pertence a uma loja específica. */
 export type CozinhaAutenticada = { id: number; nome: string; loja_id: number };
@@ -57,7 +57,7 @@ export const autenticar: RequestHandler = (req, _res, next) => {
   }
 
   const usuario = db.prepare(
-    'SELECT id, nome, email, perfil, telefone, bloqueado, super_admin FROM usuarios WHERE id = ?'
+    'SELECT id, nome, email, perfil, telefone, cpf, bloqueado, super_admin FROM usuarios WHERE id = ?'
   ).get(dados.sub) as UsuarioAutenticado | undefined;
 
   if (!usuario) return next(erroHttp(401, 'Usuário não encontrado.'));

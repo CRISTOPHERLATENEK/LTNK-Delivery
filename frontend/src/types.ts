@@ -19,6 +19,8 @@ export interface UsuarioSessao {
   /** 'cozinha' não é um perfil da plataforma — é uma conta de loja (KDS). */
   perfil: Perfil | 'cozinha';
   telefone?: string | null;
+  /** CPF do cliente (só dígitos) — chave de login do cliente. */
+  cpf?: string | null;
   /** Apenas para perfil='admin': 1 = super admin (dono do SaaS). */
   super_admin?: 0 | 1;
   /** Para contas de cozinha: a loja vinculada. */
