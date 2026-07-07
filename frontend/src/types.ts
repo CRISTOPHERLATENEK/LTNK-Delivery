@@ -138,6 +138,8 @@ export interface Endereco {
   uf: string;
   cep?: string;
   referencia?: string;
+  lat?: number | null;
+  lon?: number | null;
 }
 
 export interface ItemCarrinho {

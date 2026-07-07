@@ -408,6 +408,14 @@ garantirColuna('usuarios', 'loja_id', 'loja_id INTEGER REFERENCES lojas(id)');
 garantirColuna('usuarios', 'cpf', 'cpf TEXT');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_cpf ON usuarios(cpf) WHERE cpf IS NOT NULL');
 
+// Coordenadas do endereço (geocodificadas via OpenStreetMap/Nominatim ao salvar)
+// — deixam o mapa/navegação do entregador precisos (ponto exato, não só texto).
+garantirColuna('enderecos', 'lat', 'lat REAL');
+garantirColuna('enderecos', 'lon', 'lon REAL');
+// O pedido guarda o endereço como snapshot de texto; guarda também as coords.
+garantirColuna('pedidos', 'entrega_lat', 'entrega_lat REAL');
+garantirColuna('pedidos', 'entrega_lon', 'entrega_lon REAL');
+
 // White label da loja: cada lojista pode definir sua identidade visual.
 garantirColuna('lojas', 'logo_url', "logo_url TEXT NOT NULL DEFAULT ''");
 garantirColuna('lojas', 'capa_url', "capa_url TEXT NOT NULL DEFAULT ''");

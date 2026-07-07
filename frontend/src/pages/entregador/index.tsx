@@ -30,6 +30,8 @@ const ITENS_NAV = [
 interface Corrida {
   id: number;
   endereco_entrega: string;
+  entrega_lat?: number | null;
+  entrega_lon?: number | null;
   taxa_entrega_centavos: number;
   total_centavos: number;
   forma_pagamento: 'pix' | 'dinheiro' | 'cartao_entrega';
@@ -291,8 +293,12 @@ function EntregaAtiva() {
   }
 
   const p = consulta.data;
-  const mapa = (end: string) =>
-    `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(end)}`;
+  // Com coordenadas (geocodificadas via OpenStreetMap), o mapa abre no ponto
+  // EXATO. Sem elas, cai na busca por texto do endereço.
+  const mapa = (end: string, lat?: number | null, lon?: number | null) =>
+    lat != null && lon != null
+      ? `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(end)}`;
 
   return (
     <div className="space-y-4">
@@ -357,9 +363,9 @@ function EntregaAtiva() {
               </a>
             )}
             <div className="text-sm text-muted-foreground">{p.endereco_entrega}</div>
-            <a href={mapa(p.endereco_entrega)} target="_blank" rel="noopener noreferrer"
+            <a href={mapa(p.endereco_entrega, p.entrega_lat, p.entrega_lon)} target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-xs font-bold text-primary">
-              <ExternalLink className="size-3" /> Ver no mapa
+              <Navigation className="size-3" /> {p.entrega_lat != null ? 'Navegar até o local' : 'Ver no mapa'}
             </a>
           </div>
 

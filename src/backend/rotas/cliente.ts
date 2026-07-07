@@ -11,6 +11,7 @@ import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp } fr
 import { transicionarStatus } from '../fluxoPedido';
 import { notificarLojistaNovoPedido } from '../notificacoes';
 import { comissaoPercentualDaLoja } from '../comissao';
+import { geocodificar } from '../geo';
 import { criarPagamentoMercadoPago, pagamentoOnlineAtivo } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 
@@ -26,7 +27,7 @@ router.get('/enderecos', (req, res) => {
   res.json({ enderecos });
 });
 
-router.post('/enderecos', (req, res, next) => {
+router.post('/enderecos', async (req, res, next) => {
   try {
     const e = {
       rotulo: textoLimpo(req.body.rotulo, 40) || 'Casa',
@@ -42,15 +43,17 @@ router.post('/enderecos', (req, res, next) => {
     if (!e.rua || !e.numero || !e.bairro || !e.cidade || e.uf.length !== 2) {
       throw erroHttp(400, 'Preencha rua, número, bairro, cidade e UF.');
     }
+    const coord = await geocodificar(e); // best-effort: null se não achar
     const info = db.prepare(
-      `INSERT INTO enderecos (usuario_id, rotulo, rua, numero, complemento, bairro, cidade, uf, cep, referencia, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(req.usuario!.id, e.rotulo, e.rua, e.numero, e.complemento, e.bairro, e.cidade, e.uf, e.cep, e.referencia, agoraUTC());
-    res.status(201).json({ endereco: { id: Number(info.lastInsertRowid), ...e } });
+      `INSERT INTO enderecos (usuario_id, rotulo, rua, numero, complemento, bairro, cidade, uf, cep, referencia, lat, lon, criado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(req.usuario!.id, e.rotulo, e.rua, e.numero, e.complemento, e.bairro, e.cidade, e.uf, e.cep, e.referencia,
+          coord?.lat ?? null, coord?.lon ?? null, agoraUTC());
+    res.status(201).json({ endereco: { id: Number(info.lastInsertRowid), ...e, lat: coord?.lat ?? null, lon: coord?.lon ?? null } });
   } catch (err) { next(err); }
 });
 
-router.put('/enderecos/:id', (req, res, next) => {
+router.put('/enderecos/:id', async (req, res, next) => {
   try {
     const atual = db.prepare('SELECT id FROM enderecos WHERE id = ? AND usuario_id = ?')
       .get(req.params.id, req.usuario!.id) as { id: number } | undefined;
@@ -69,11 +72,13 @@ router.put('/enderecos/:id', (req, res, next) => {
     if (!e.rua || !e.numero || !e.bairro || !e.cidade || e.uf.length !== 2) {
       throw erroHttp(400, 'Preencha rua, número, bairro, cidade e UF.');
     }
+    const coord = await geocodificar(e); // re-geocodifica: o endereço pode ter mudado
     db.prepare(
-      `UPDATE enderecos SET rotulo=?, rua=?, numero=?, complemento=?, bairro=?, cidade=?, uf=?, cep=?, referencia=?
+      `UPDATE enderecos SET rotulo=?, rua=?, numero=?, complemento=?, bairro=?, cidade=?, uf=?, cep=?, referencia=?, lat=?, lon=?
         WHERE id = ?`
-    ).run(e.rotulo, e.rua, e.numero, e.complemento, e.bairro, e.cidade, e.uf, e.cep, e.referencia, atual.id);
-    res.json({ endereco: { id: atual.id, ...e } });
+    ).run(e.rotulo, e.rua, e.numero, e.complemento, e.bairro, e.cidade, e.uf, e.cep, e.referencia,
+          coord?.lat ?? null, coord?.lon ?? null, atual.id);
+    res.json({ endereco: { id: atual.id, ...e, lat: coord?.lat ?? null, lon: coord?.lon ?? null } });
   } catch (err) { next(err); }
 });
 
@@ -341,12 +346,13 @@ router.post('/pedidos', async (req, res, next) => {
     const agora = agoraUTC();
     const criar = db.transaction(() => {
       const info = db.prepare(
-        `INSERT INTO pedidos (cliente_id, loja_id, status, endereco_entrega, forma_pagamento,
+        `INSERT INTO pedidos (cliente_id, loja_id, status, endereco_entrega, entrega_lat, entrega_lon, forma_pagamento,
                               troco_para_centavos, observacoes, subtotal_centavos,
                               taxa_entrega_centavos, desconto_centavos, cupom_codigo, total_centavos,
                               comissao_percentual, comissao_centavos, pagamento_status, criado_em, atualizado_em)
-         VALUES (?, ?, 'pendente', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(req.usuario!.id, lojaId, formatarEndereco(endereco), formaPagamento,
+         VALUES (?, ?, 'pendente', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(req.usuario!.id, lojaId, formatarEndereco(endereco),
+            (endereco as any).lat ?? null, (endereco as any).lon ?? null, formaPagamento,
             trocoPara, observacoes, subtotal, taxaEntrega, descontoCupom, cupom?.codigo || '',
             total, comissaoPct, comissao, pixOnline ? 'aguardando' : 'na_entrega', agora, agora);
 

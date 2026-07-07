@@ -128,6 +128,9 @@ export interface Endereco {
   uf: string;
   cep: string;
   referencia: string;
+  /** Coordenadas geocodificadas (OpenStreetMap) — podem ser null se não achou. */
+  lat: number | null;
+  lon: number | null;
   criado_em: string;
 }
 

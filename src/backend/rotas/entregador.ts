@@ -14,7 +14,7 @@ router.use(autenticar, exigirPerfil('entregador'));
 
 router.get('/corridas', (_req, res) => {
   const corridas = db.prepare(
-    `SELECT p.id, p.endereco_entrega, p.taxa_entrega_centavos, p.total_centavos,
+    `SELECT p.id, p.endereco_entrega, p.entrega_lat, p.entrega_lon, p.taxa_entrega_centavos, p.total_centavos,
             p.forma_pagamento, p.troco_para_centavos, p.criado_em,
             l.nome AS loja_nome, l.endereco AS loja_endereco
        FROM pedidos p JOIN lojas l ON l.id = p.loja_id
@@ -56,7 +56,7 @@ router.post('/corridas/:id/aceitar', (req, res, next) => {
 
 router.get('/atual', (req, res) => {
   const pedido = db.prepare(
-    `SELECT p.id, p.endereco_entrega, p.taxa_entrega_centavos, p.total_centavos,
+    `SELECT p.id, p.endereco_entrega, p.entrega_lat, p.entrega_lon, p.taxa_entrega_centavos, p.total_centavos,
             p.forma_pagamento, p.troco_para_centavos, p.observacoes,
             l.nome AS loja_nome, l.endereco AS loja_endereco,
             u.nome AS cliente_nome, u.telefone AS cliente_telefone
