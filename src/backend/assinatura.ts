@@ -83,6 +83,32 @@ function pemCorpo(pem: string): string {
   return pem.replace(/-----(BEGIN|END) CERTIFICATE-----/g, '').replace(/\s+/g, '');
 }
 
+// Prefixo ASN.1 do DigestInfo de SHA-1 (RFC 3447). Usado pra montar o bloco
+// PKCS#1 v1.5 assinado com RSA cru.
+const PREFIXO_DIGESTINFO_SHA1 = Buffer.from(
+  [0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14],
+);
+
+/**
+ * Assinatura RSA-SHA1 via `privateEncrypt` do DigestInfo (RSA cru, PKCS#1 v1.5).
+ * Produz EXATAMENTE a mesma assinatura que `crypto.createSign('RSA-SHA1')`, mas
+ * NÃO passa pela checagem de digest do OpenSSL — que no OpenSSL 3 de servidores
+ * endurecidos (Hostinger) recusa SHA-1 com "invalid digest". A SEFAZ exige SHA-1,
+ * então esse é o caminho que funciona em qualquer configuração de OpenSSL.
+ */
+class RsaSha1Compat {
+  getSignature(signedInfo: crypto.BinaryLike, privateKey: crypto.KeyLike): string {
+    const hash = crypto.createHash('sha1').update(signedInfo).digest();
+    const digestInfo = Buffer.concat([PREFIXO_DIGESTINFO_SHA1, hash]);
+    const assinatura = crypto.privateEncrypt(
+      { key: privateKey as crypto.KeyLike, padding: crypto.constants.RSA_PKCS1_PADDING },
+      digestInfo,
+    );
+    return assinatura.toString('base64');
+  }
+  getAlgorithmName() { return 'http://www.w3.org/2000/09/xmldsig#rsa-sha1'; }
+}
+
 /**
  * Assina um elemento do XML pelo seu local-name (que deve ter atributo Id).
  * A <Signature> é inserida após o elemento indicado em `apos` (padrão: o próprio
@@ -97,6 +123,9 @@ export function assinarPorTag(xml: string, cert: CertificadoLido, localName: str
     signatureAlgorithm: 'http://www.w3.org/2000/09/xmldsig#rsa-sha1',
     canonicalizationAlgorithm: 'http://www.w3.org/TR/2001/REC-xml-c14n-20010315',
   });
+  // Troca o assinador RSA-SHA1 padrão pelo nosso (via privateEncrypt), que
+  // contorna o bloqueio de SHA-1 do OpenSSL 3 endurecido.
+  (sig.SignatureAlgorithms as Record<string, unknown>)['http://www.w3.org/2000/09/xmldsig#rsa-sha1'] = RsaSha1Compat;
 
   sig.addReference({
     xpath: alvo,
