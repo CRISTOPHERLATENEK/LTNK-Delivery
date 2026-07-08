@@ -6,8 +6,19 @@
  * Transforms enveloped + C14N, DigestMethod SHA1, SignatureMethod RSA-SHA1,
  * Canonicalization C14N (não exclusiva), e a <Signature> logo após infNFe.
  */
+import crypto from 'crypto';
 import forge from 'node-forge';
 import { SignedXml } from 'xml-crypto';
+
+/**
+ * Converte a chave privada RSA de PKCS#1 (o que o node-forge gera, "BEGIN RSA
+ * PRIVATE KEY") para PKCS#8 ("BEGIN PRIVATE KEY"). O OpenSSL 3 do Node 18
+ * (Linux/Hostinger) recusa assinar SHA-1 com chave PKCS#1 — erro
+ * "digital envelope routines::invalid digest". Reencodar em PKCS#8 resolve.
+ */
+function paraPkcs8(pemPkcs1: string): string {
+  return crypto.createPrivateKey(pemPkcs1).export({ type: 'pkcs8', format: 'pem' }).toString();
+}
 
 export interface CertificadoLido {
   chavePrivadaPem: string;
@@ -29,7 +40,8 @@ export function lerCertificadoPfx(pfx: Buffer, senha: string): CertificadoLido {
     if (bags.length && bags[0].key) { chavePrivada = bags[0].key as forge.pki.rsa.PrivateKey; break; }
   }
   if (!chavePrivada) throw new Error('Chave privada não encontrada no certificado.');
-  const chavePrivadaPem = forge.pki.privateKeyToPem(chavePrivada);
+  // PKCS#8 (não PKCS#1): compatível com o OpenSSL 3 do Node 18 na assinatura SHA-1.
+  const chavePrivadaPem = paraPkcs8(forge.pki.privateKeyToPem(chavePrivada));
 
   // Certificado do TITULAR = a folha, cuja chave pública casa com a chave privada.
   // (O .pfx traz a cadeia inteira; a raiz da ICP-Brasil tem validade mais longa,
