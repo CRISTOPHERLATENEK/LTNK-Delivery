@@ -527,7 +527,7 @@ function GerenciarCozinha() {
 
 function PersonalizacaoLoja() {
   const { mostrar } = useToast();
-  const { aplicarCorPrimaria, resetarCorPrimaria } = useTema();
+  const { aplicarCorPrimaria } = useTema();
   const [enviando, setEnviando] = useState(false);
   const [lojaId, setLojaId] = useState<number | null>(null);
   const [nomeLoja, setNomeLoja] = useState('Sua loja');
@@ -553,11 +553,14 @@ function PersonalizacaoLoja() {
     }).catch(() => setCarregado(true));
   }, []);
 
+  // SEM cleanup/reset aqui: o painel do lojista é sempre temado pela cor DA
+  // LOJA (ver PainelLojista acima), nunca pela cor padrão da plataforma. Um
+  // reset ao sair desta aba sobrescrevia o cache anti-flash do F5 com a cor
+  // padrão, causando o "pisca vermelho" — mesmo bug que já tínhamos corrigido
+  // uma vez, reintroduzido aqui pela edição da cor secundária.
   useEffect(() => {
     if (form.cor_marca) aplicarCorPrimaria(form.cor_marca, form.cor_secundaria || null);
-    return () => { resetarCorPrimaria(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.cor_marca, form.cor_secundaria]);
+  }, [form.cor_marca, form.cor_secundaria, aplicarCorPrimaria]);
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
