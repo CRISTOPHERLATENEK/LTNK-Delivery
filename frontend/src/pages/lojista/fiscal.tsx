@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   FileText, ShieldCheck, Upload, AlertTriangle, CheckCircle2, Save, FlaskConical,
-  Download, X, Package, ChevronDown, ChevronUp, Ban, RefreshCw, Receipt,
+  Download, X, Package, ChevronDown, ChevronUp, Ban, RefreshCw, Receipt, Loader2,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, tokenSessao } from '@/lib/api';
 import { imprimirDanfe, type DadosDanfe } from '@/lib/impressao';
+import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
 import { cn } from '@/lib/utils';
 
 interface FiscalConfig {
@@ -209,6 +210,33 @@ export function FiscalLoja() {
     setCfg(c => (c ? { ...c, [k]: v } : c));
   }
 
+  const [buscandoCnpj, setBuscandoCnpj] = useState(false);
+  async function aoDigitarCnpj(bruto: string) {
+    const digitos = cnpjDigitos(bruto);
+    campo('cnpj', digitos);
+    if (digitos.length !== 14) return;
+    setBuscandoCnpj(true);
+    const d = await buscarCnpj(digitos);
+    setBuscandoCnpj(false);
+    if (!d) { mostrar({ tipo: 'erro', titulo: 'CNPJ não encontrado.' }); return; }
+    // Preenche só os campos vazios? Não — sobrescreve com os dados oficiais,
+    // mantendo o que a Receita não fornece (IE) intacto.
+    setCfg(c => c ? {
+      ...c,
+      cnpj: digitos,
+      razao_social: d.razao_social || c.razao_social,
+      nome_fantasia: d.nome_fantasia || c.nome_fantasia,
+      uf: d.uf || c.uf,
+      cmun: d.cmun || c.cmun,
+      municipio: d.municipio || c.municipio,
+      logradouro: d.logradouro || c.logradouro,
+      numero: d.numero || c.numero,
+      bairro: d.bairro || c.bairro,
+      cep: d.cep || c.cep,
+    } : c);
+    mostrar({ tipo: 'sucesso', titulo: 'Dados do CNPJ preenchidos!' });
+  }
+
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     if (!cfg) return;
@@ -328,7 +356,12 @@ export function FiscalLoja() {
             </div>
             <div>
               <Label>CNPJ *</Label>
-              <Input value={cfg.cnpj} onChange={e => campo('cnpj', e.target.value.replace(/\D/g, ''))} placeholder="00000000000000" maxLength={14} className="font-mono" />
+              <div className="relative">
+                <Input value={formatarCnpj(cfg.cnpj)} onChange={e => aoDigitarCnpj(e.target.value)}
+                  placeholder="00.000.000/0000-00" maxLength={18} className="font-mono" inputMode="numeric" />
+                {buscandoCnpj && <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 size-4 animate-spin text-muted-foreground" />}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">Digite o CNPJ e os dados abaixo são preenchidos automaticamente.</p>
             </div>
             <div>
               <Label>Inscrição Estadual</Label>
