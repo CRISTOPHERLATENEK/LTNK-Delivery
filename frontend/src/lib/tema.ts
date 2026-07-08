@@ -168,9 +168,22 @@ function aplicarPaleta(corPrimaria: string, corSecundaria?: string) {
   raiz.setProperty('--primary-foreground', foregroundContraste(corPrimaria));
 
   // Accent = tint suave da marca (fundo de chips, hovers)
+  const accentLight = `${p.h} ${Math.min(p.s, 80)}% 96%`;
+  const accentDark = `${p.h} 30% 18%`;
+  const accentFgLight = `${p.h} ${p.s}% 30%`;
+  const accentFgDark = `${p.h} 80% 85%`;
   const escuro = document.documentElement.classList.contains('dark');
-  raiz.setProperty('--accent', escuro ? `${p.h} 30% 18%` : `${p.h} ${Math.min(p.s, 80)}% 96%`);
-  raiz.setProperty('--accent-foreground', escuro ? `${p.h} 80% 85%` : `${p.h} ${p.s}% 30%`);
+  raiz.setProperty('--accent', escuro ? accentDark : accentLight);
+  raiz.setProperty('--accent-foreground', escuro ? accentFgDark : accentFgLight);
+
+  // Cacheia os valores já calculados: o script inline do index.html reaplica
+  // ANTES do React montar, matando o flash da cor padrão (vermelho) no F5.
+  try {
+    localStorage.setItem('paleta-marca', JSON.stringify({
+      primary: fmt(p), ring: fmt(p), primaryFg: foregroundContraste(corPrimaria),
+      accentLight, accentDark, accentFgLight, accentFgDark,
+    }));
+  } catch { /* localStorage indisponível */ }
 
   if (corSecundaria) {
     const s = hexParaHSLObj(corSecundaria);

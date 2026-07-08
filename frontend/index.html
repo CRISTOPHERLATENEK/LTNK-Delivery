@@ -34,6 +34,21 @@
         const sistema = matchMedia('(prefers-color-scheme: dark)').matches;
         if (tema === 'escuro' || (!tema && sistema)) document.documentElement.classList.add('dark');
       })();
+      // Reaplica a cor da marca (cacheada no último acesso) ANTES do React montar,
+      // evitando o flash da cor padrão (vermelho) no F5.
+      (() => {
+        try {
+          const pal = JSON.parse(localStorage.getItem('paleta-marca') || 'null');
+          if (!pal) return;
+          const r = document.documentElement.style;
+          const dark = document.documentElement.classList.contains('dark');
+          r.setProperty('--primary', pal.primary);
+          r.setProperty('--ring', pal.ring);
+          r.setProperty('--primary-foreground', pal.primaryFg);
+          r.setProperty('--accent', dark ? pal.accentDark : pal.accentLight);
+          r.setProperty('--accent-foreground', dark ? pal.accentFgDark : pal.accentFgLight);
+        } catch (e) {}
+      })();
     </script>
   </head>
   <body>
