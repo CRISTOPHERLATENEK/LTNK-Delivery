@@ -15,6 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -81,6 +82,7 @@ export function ProdutosLoja() {
   const [busca, setBusca] = useState('');
   const [gerindoGrupos, setGerindoGrupos] = useState<Produto | null>(null);
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const qc = useQueryClient();
 
   const consulta = useQuery({
@@ -160,7 +162,7 @@ export function ProdutosLoja() {
   }
 
   async function excluir(id: number, nome: string) {
-    if (!confirm(`Remover "${nome}"?`)) return;
+    if (!(await confirmar({ titulo: `Remover "${nome}"?`, confirmar: 'Remover', destrutivo: true }))) return;
     try {
       await api('DELETE', `/api/lojista/produtos/${id}`);
       mostrar({ tipo: 'sucesso', titulo: 'Produto removido.' });
@@ -815,6 +817,7 @@ function CardProduto({
 /* ─────────────────────── modal de grupos de opções ──────────────────────── */
 function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => void }) {
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const qc = useQueryClient();
   const queryKey = ['lojista-grupos', produto.id];
   const [grupoFocoId, setGrupoFocoId] = useState<number | null>(null);
@@ -952,7 +955,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
   }
 
   async function excluirGrupo(grupoId: number) {
-    if (!confirm('Remover este grupo e todas as suas opções?')) return;
+    if (!(await confirmar({ titulo: 'Remover este grupo?', descricao: 'Todas as opções dele serão removidas também.', confirmar: 'Remover', destrutivo: true }))) return;
     try {
       await api('DELETE', `/api/lojista/grupos/${grupoId}`);
       qc.invalidateQueries({ queryKey });

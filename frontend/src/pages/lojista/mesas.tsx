@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
+import { useConfirm } from '@/components/ui/confirm';
 import { brl } from '@/lib/format';
 import { imprimirCupom, imprimirDanfe, imprimirComandasProducao, configImpressao, type ConfigImpressao, type DadosDanfe } from '@/lib/impressao';
 import type { Produto, Loja } from '@/types';
@@ -59,6 +60,7 @@ export function MesasLoja() {
   const [novoNumero, setNovoNumero] = useState('');
   const [mesaCriada, setMesaCriada] = useState<{ id: number; numero: string } | null>(null);
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const qc = useQueryClient();
 
   const mesasQ = useQuery({
@@ -87,7 +89,7 @@ export function MesasLoja() {
   }
 
   async function excluirMesa(id: number, numero: string) {
-    if (!confirm(`Excluir mesa ${numero}?`)) return;
+    if (!(await confirmar({ titulo: `Excluir mesa ${numero}?`, confirmar: 'Excluir', destrutivo: true }))) return;
     try {
       await api('DELETE', `/api/lojista/mesas/${id}`);
       mostrar({ tipo: 'sucesso', titulo: `Mesa ${numero} removida.` });
@@ -403,6 +405,7 @@ function PainelComanda({
   onFechar: () => void;
 }) {
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const qc = useQueryClient();
   const [adicionando, setAdicionando] = useState(false);
   const [fechando, setFechando] = useState(false);
@@ -516,7 +519,7 @@ function PainelComanda({
   }
 
   async function cancelarComanda() {
-    if (!confirm('Cancelar esta comanda? Os itens serão descartados.')) return;
+    if (!(await confirmar({ titulo: 'Cancelar esta comanda?', descricao: 'Todos os itens lançados serão descartados.', confirmar: 'Cancelar comanda', cancelar: 'Voltar', destrutivo: true }))) return;
     try {
       await api('POST', `/api/lojista/comandas/${comandaId}/cancelar`);
       mostrar({ tipo: 'sucesso', titulo: 'Comanda cancelada.' });

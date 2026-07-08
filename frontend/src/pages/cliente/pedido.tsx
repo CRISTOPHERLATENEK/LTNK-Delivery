@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge, ROTULOS_STATUS } from '@/components/ui/status-badge';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { tocarAlerta } from '@/lib/alerta-pedido';
 import { suportaPush, estadoPush, ativarPush, type EstadoPush } from '@/lib/push';
 import { cn } from '@/lib/utils';
@@ -61,6 +62,7 @@ export function PaginaPedido() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
 
   const consulta = useQuery({
     queryKey: ['pedido', id],
@@ -111,7 +113,7 @@ export function PaginaPedido() {
   const ehAtivo = !terminouMal && pedido.status !== 'entregue';
 
   async function cancelar() {
-    if (!window.confirm('Tem certeza que deseja cancelar este pedido?')) return;
+    if (!(await confirmar({ titulo: 'Cancelar este pedido?', descricao: 'Esta ação não pode ser desfeita.', confirmar: 'Cancelar pedido', cancelar: 'Voltar', destrutivo: true }))) return;
     try {
       await api('POST', `/api/cliente/pedidos/${id}/cancelar`);
       mostrar({ tipo: 'info', titulo: 'Pedido cancelado' });

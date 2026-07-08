@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError } from '@/lib/api';
 
 interface Entregador {
@@ -24,6 +25,7 @@ interface Entregador {
 
 export function TelaEntregadores() {
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const consulta = useQuery({
     queryKey: ['admin-entregadores'],
     queryFn: () => api<{ entregadores: Entregador[] }>('GET', '/api/admin/entregadores').then(r => r.entregadores),
@@ -33,7 +35,7 @@ export function TelaEntregadores() {
 
   async function alternarBloqueio(e: Entregador) {
     const acao = e.bloqueado ? 'desbloquear' : 'bloquear';
-    if (!confirm(`Deseja ${acao} ${e.nome}?`)) return;
+    if (!(await confirmar({ titulo: `${acao[0].toUpperCase() + acao.slice(1)} ${e.nome}?`, confirmar: acao[0].toUpperCase() + acao.slice(1), destrutivo: !e.bloqueado }))) return;
     try {
       await api('POST', `/api/admin/usuarios/${e.id}/bloquear-desbloquear`);
       mostrar({ tipo: 'sucesso', titulo: `Entregador ${e.bloqueado ? 'desbloqueado' : 'bloqueado'}.` });

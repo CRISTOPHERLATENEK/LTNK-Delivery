@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
 import { dataLocal } from '@/lib/format';
 
@@ -28,6 +29,7 @@ interface Admin {
 
 export function TelaAdmins() {
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const eu = sessaoUsuario();
 
   const consulta = useQuery({
@@ -54,7 +56,7 @@ export function TelaAdmins() {
   }
 
   async function remover(admin: Admin) {
-    if (!window.confirm(`Remover o admin ${admin.nome}? Ele perderá acesso imediatamente.`)) return;
+    if (!(await confirmar({ titulo: `Remover ${admin.nome}?`, descricao: 'Ele perderá o acesso imediatamente.', confirmar: 'Remover', destrutivo: true }))) return;
     try {
       await api('DELETE', `/api/admin/admins/${admin.id}`);
       mostrar({ tipo: 'info', titulo: 'Admin removido.' });

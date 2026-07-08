@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, sessaoUsuario, salvarSessao } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -244,6 +245,7 @@ function useCompartilharLocalizacao(pedidoId: number | undefined): EstadoGPS {
 
 function EntregaAtiva() {
   const { mostrar } = useToast();
+  const pedirConfirmacao = useConfirm();
 
   const consulta = useQuery({
     queryKey: ['entrega-ativa'],
@@ -257,7 +259,7 @@ function EntregaAtiva() {
   const [avisou, setAvisou] = useState(false);
 
   async function confirmar(id: number) {
-    if (!window.confirm('Confirmar que a entrega foi realizada?')) return;
+    if (!(await pedirConfirmacao({ titulo: 'Confirmar entrega?', descricao: 'Confirme que o pedido foi entregue ao cliente.', confirmar: 'Confirmar entrega' }))) return;
     try {
       await api('POST', `/api/entregador/corridas/${id}/entregar`);
       mostrar({ tipo: 'sucesso', titulo: 'Entrega confirmada! 💰 Bom trabalho!' });

@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -42,6 +43,7 @@ export function CuponsLoja() {
   const [form, setForm] = useState<FormCupom>(FORM_VAZIO);
   const [enviando, setEnviando] = useState(false);
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const qc = useQueryClient();
 
   const consulta = useQuery({
@@ -106,7 +108,7 @@ export function CuponsLoja() {
   }
 
   async function excluir(c: Cupom) {
-    if (!confirm(`Remover o cupom ${c.codigo}?`)) return;
+    if (!(await confirmar({ titulo: `Remover o cupom ${c.codigo}?`, confirmar: 'Remover', destrutivo: true }))) return;
     try {
       await api('DELETE', `/api/lojista/cupons/${c.id}`);
       mostrar({ tipo: 'sucesso', titulo: 'Cupom removido.' });

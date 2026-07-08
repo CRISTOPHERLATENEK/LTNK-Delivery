@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError } from '@/lib/api';
 
 interface Banner {
@@ -38,6 +39,7 @@ export function TelaBanners() {
   const [form, setForm] = useState(FORM_VAZIO);
   const [enviando, setEnviando] = useState(false);
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const qc = useQueryClient();
 
   const consulta = useQuery({
@@ -103,7 +105,7 @@ export function TelaBanners() {
   }
 
   async function excluir(id: number) {
-    if (!confirm('Excluir este banner?')) return;
+    if (!(await confirmar({ titulo: 'Excluir este banner?', confirmar: 'Excluir', destrutivo: true }))) return;
     try {
       await api('DELETE', `/api/admin/banners/${id}`);
       mostrar({ tipo: 'sucesso', titulo: 'Banner removido.' });

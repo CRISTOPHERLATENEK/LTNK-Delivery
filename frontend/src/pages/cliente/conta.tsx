@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { useCarrinho } from '@/lib/carrinho';
 import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import { formatarCpf, cpfDigitos, cpfValido } from '@/lib/cpf';
@@ -123,6 +124,7 @@ const ENDERECO_VAZIO = { rotulo: 'Casa', rua: '', numero: '', complemento: '', b
 
 function EnderecosSecao() {
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const qc = useQueryClient();
   const [form, setForm] = useState<typeof ENDERECO_VAZIO | null>(null);
   const [editId, setEditId] = useState<number | null>(null);
@@ -157,7 +159,7 @@ function EnderecosSecao() {
   }
 
   async function excluir(e: Endereco) {
-    if (!confirm(`Excluir o endereço "${e.rotulo}"?`)) return;
+    if (!(await confirmar({ titulo: `Excluir o endereço "${e.rotulo}"?`, confirmar: 'Excluir', destrutivo: true }))) return;
     try {
       await api('DELETE', `/api/cliente/enderecos/${e.id}`);
       mostrar({ tipo: 'sucesso', titulo: 'Endereço removido.' });

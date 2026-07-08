@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, ehSuperAdmin, tokenSessao } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -50,6 +51,7 @@ export function TelaLojas() {
   const [criando, setCriando] = useState(false);
   const [selecionada, setSelecionada] = useState<number | null>(null);
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const qc = useQueryClient();
   const superAdmin = ehSuperAdmin();
 
@@ -69,7 +71,7 @@ export function TelaLojas() {
   }
 
   async function suspender(id: number) {
-    if (!confirm('Suspender esta loja? Ela ficará invisível para clientes.')) return;
+    if (!(await confirmar({ titulo: 'Suspender esta loja?', descricao: 'Ela ficará invisível para os clientes até ser reativada.', confirmar: 'Suspender', destrutivo: true }))) return;
     try {
       await api('POST', `/api/admin/lojas/${id}/suspender`);
       mostrar({ tipo: 'sucesso', titulo: 'Loja suspensa.' });
@@ -80,7 +82,7 @@ export function TelaLojas() {
   }
 
   async function excluir(l: Loja) {
-    if (!confirm(`Excluir a loja "${l.nome}"? Esta ação é permanente.`)) return;
+    if (!(await confirmar({ titulo: `Excluir "${l.nome}"?`, descricao: 'Esta ação é permanente e não pode ser desfeita.', confirmar: 'Excluir', destrutivo: true }))) return;
     try {
       await api('DELETE', `/api/admin/lojas/${l.id}`);
       mostrar({ tipo: 'sucesso', titulo: 'Loja excluída.' });

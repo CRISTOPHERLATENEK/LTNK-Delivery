@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, sessaoUsuario, salvarSessao } from '@/lib/api';
 import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
@@ -386,6 +387,7 @@ interface ContaCozinha {
 
 function GerenciarCozinha() {
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const [criando, setCriando] = useState(false);
   const [form, setForm] = useState({ nome: '', email: '', senha: '' });
   const [enviando, setEnviando] = useState(false);
@@ -414,7 +416,7 @@ function GerenciarCozinha() {
   }
 
   async function excluir(c: ContaCozinha) {
-    if (!confirm(`Excluir o acesso de "${c.nome}"?`)) return;
+    if (!(await confirmar({ titulo: `Excluir o acesso de "${c.nome}"?`, confirmar: 'Excluir', destrutivo: true }))) return;
     try {
       await api('DELETE', `/api/lojista/cozinha-contas/${c.id}`);
       mostrar({ tipo: 'sucesso', titulo: 'Acesso removido.' });

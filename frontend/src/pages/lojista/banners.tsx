@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { api, ApiError } from '@/lib/api';
 
@@ -31,6 +32,7 @@ export function BannersLoja() {
   const [form, setForm] = useState(FORM_VAZIO);
   const [enviando, setEnviando] = useState(false);
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const qc = useQueryClient();
 
   const bannersQ = useQuery({
@@ -87,7 +89,7 @@ export function BannersLoja() {
   }
 
   async function excluir(id: number) {
-    if (!confirm('Excluir este banner?')) return;
+    if (!(await confirmar({ titulo: 'Excluir este banner?', confirmar: 'Excluir', destrutivo: true }))) return;
     try {
       await api('DELETE', `/api/lojista/banners/${id}`);
       mostrar({ tipo: 'sucesso', titulo: 'Banner removido.' });
