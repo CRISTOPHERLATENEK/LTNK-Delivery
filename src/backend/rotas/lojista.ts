@@ -1083,21 +1083,38 @@ function emitenteDaLoja(loja: any): EmitenteNfce {
   };
 }
 
-/** Assina o XML se houver certificado A1 instalado; senão devolve sem assinar. */
-function assinarSeTiver(loja: any, xml: string): { xml: string; assinado: boolean } {
+/**
+ * Assina o XML se houver certificado A1 instalado; senão devolve sem assinar,
+ * com o MOTIVO exato de cada etapa (pra dizer ao lojista por que não assinou).
+ */
+function assinarSeTiver(loja: any, xml: string): { xml: string; assinado: boolean; motivo?: string } {
   const pfxPath = caminhoCertificado(loja.id);
-  if (fs.existsSync(pfxPath) && loja.nfce_cert_senha) {
-    try {
-      const senha = descriptografar(loja.nfce_cert_senha);
-      const cert = lerCertificadoPfx(fs.readFileSync(pfxPath), senha);
-      return { xml: assinarXmlNfce(xml, cert), assinado: true };
-    } catch (e) {
-      // NÃO engole em silêncio: registra o motivo real (senha ilegível, .pfx
-      // corrompido, etc.) pra dar pra diagnosticar o "instalado mas não assina".
-      console.error('[NFC-e] Falha ao assinar (certificado instalado):', (e as Error).message);
-    }
+  if (!fs.existsSync(pfxPath) || !loja.nfce_cert_senha) {
+    return { xml, assinado: false, motivo: 'Certificado A1 ainda não instalado.' };
   }
-  return { xml, assinado: false };
+  // 1) Descriptografar a senha salva.
+  let senha: string;
+  try {
+    senha = descriptografar(loja.nfce_cert_senha);
+  } catch (e) {
+    console.error('[NFC-e] senha do certificado ilegível:', (e as Error).message);
+    return { xml, assinado: false, motivo: 'A senha salva do certificado não pôde ser lida (a chave de criptografia do servidor mudou). Reenvie o .pfx clicando em "Substituir".' };
+  }
+  // 2) Abrir o .pfx com a senha.
+  let cert;
+  try {
+    cert = lerCertificadoPfx(fs.readFileSync(pfxPath), senha);
+  } catch (e) {
+    console.error('[NFC-e] falha ao abrir o .pfx:', (e as Error).message);
+    return { xml, assinado: false, motivo: 'Não foi possível abrir o certificado com a senha salva. Reenvie o .pfx e confira a senha.' };
+  }
+  // 3) Assinar.
+  try {
+    return { xml: assinarXmlNfce(xml, cert), assinado: true };
+  } catch (e) {
+    console.error('[NFC-e] falha ao assinar o XML:', (e as Error).message);
+    return { xml, assinado: false, motivo: 'Erro ao assinar o XML: ' + (e as Error).message };
+  }
 }
 
 const TIPO_PAG_NFCE: Record<string, 'dinheiro' | 'pix' | 'cartao'> = {
@@ -1129,7 +1146,8 @@ async function respostaNfce(loja: any, emit: EmitenteNfce, venda: VendaNfce) {
   let qrPng = '';
   try { qrPng = await QRCode.toDataURL(qrUrl, { margin: 1, width: 240 }); } catch { /* sem QR */ }
   return {
-    chave, assinado: assinado.assinado, ambiente: emit.ambiente, xml: assinado.xml,
+    chave, assinado: assinado.assinado, motivo_nao_assinado: assinado.motivo,
+    ambiente: emit.ambiente, xml: assinado.xml,
     qr_url: qrUrl, qr_png: qrPng, danfe: montarDanfeDados(emit, venda),
   };
 }

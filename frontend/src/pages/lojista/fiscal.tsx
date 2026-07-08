@@ -77,7 +77,7 @@ export function FiscalLoja() {
   const [arquivo, setArquivo] = useState<File | null>(null);
   const [senhaCert, setSenhaCert] = useState('');
   const [subindoCert, setSubindoCert] = useState(false);
-  const [teste, setTeste] = useState<(DadosDanfe & { xml: string }) | null>(null);
+  const [teste, setTeste] = useState<(DadosDanfe & { xml: string; motivo_nao_assinado?: string }) | null>(null);
   const [gerandoTeste, setGerandoTeste] = useState(false);
   const [testandoSefaz, setTestandoSefaz] = useState(false);
   const [resultadoSefaz, setResultadoSefaz] = useState<ResultadoSefaz | null>(null);
@@ -138,7 +138,7 @@ export function FiscalLoja() {
   async function gerarTeste() {
     setGerandoTeste(true);
     try {
-      const r = await api<DadosDanfe & { xml: string }>('POST', '/api/lojista/nfce/teste');
+      const r = await api<DadosDanfe & { xml: string; motivo_nao_assinado?: string }>('POST', '/api/lojista/nfce/teste');
       setTeste(r);
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
@@ -728,9 +728,15 @@ export function FiscalLoja() {
                 <span className="rounded-full bg-muted px-2.5 py-1 font-mono">chave: {teste.chave}</span>
                 {teste.assinado
                   ? <span className="rounded-full bg-green-500/15 text-green-600 px-2.5 py-1 font-semibold">✓ assinado</span>
-                  : <span className="rounded-full bg-amber-500/15 text-amber-600 px-2.5 py-1 font-semibold">sem certificado (não assinado)</span>}
+                  : <span className="rounded-full bg-amber-500/15 text-amber-600 px-2.5 py-1 font-semibold">não assinado</span>}
                 <span className="rounded-full bg-muted px-2.5 py-1">{teste.ambiente === 1 ? 'Produção' : 'Homologação'}</span>
               </div>
+              {!teste.assinado && teste.motivo_nao_assinado && (
+                <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+                  <AlertTriangle className="size-4 mt-0.5 shrink-0" />
+                  <span>{teste.motivo_nao_assinado}</span>
+                </div>
+              )}
               <pre className="text-[10px] leading-tight bg-muted/50 rounded-lg p-3 overflow-auto whitespace-pre-wrap break-all max-h-[50vh]">{teste.xml}</pre>
             </div>
             <div className="border-t p-4 flex justify-end gap-2 flex-wrap">
