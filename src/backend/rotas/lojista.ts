@@ -13,7 +13,7 @@ import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, loj
 import { transicionarStatus } from '../fluxoPedido';
 import { enviarPush } from '../push';
 import { comissaoPercentualDaLoja } from '../comissao';
-import { validarCertificado, lerCertificadoPfx, assinarXmlNfce, assinarPorTag } from '../assinatura';
+import { validarCertificado, lerCertificadoPfx, assinarXmlNfce, assinarPorTag, type CertificadoLido } from '../assinatura';
 import QRCode from 'qrcode';
 import { montarXmlNfce, urlQrCode, CODIGO_UF, type EmitenteNfce, type VendaNfce } from '../nfce';
 import {
@@ -1200,13 +1200,21 @@ router.post('/nfce/gerar/:pedidoId', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Carrega o certificado A1 (buffer + senha) para o TLS mútuo; lança se faltar. */
-function certificadoParaTls(loja: any): { pfx: Buffer; senha: string } {
+/**
+ * Lê o certificado A1 já em PEM (chave + cert), usado tanto pra ASSINAR quanto
+ * pro TLS mútuo com a SEFAZ. Ler via node-forge (não passar o .pfx cru pro
+ * OpenSSL) é o que faz o A1 legado funcionar no Node 18+/OpenSSL 3 do servidor.
+ */
+function certificadoParaTls(loja: any): CertificadoLido {
   const pfxPath = caminhoCertificado(loja.id);
   if (!fs.existsSync(pfxPath) || !loja.nfce_cert_senha) {
     throw erroHttp(400, 'Instale o certificado A1 (.pfx) antes de emitir para a SEFAZ.');
   }
-  return { pfx: fs.readFileSync(pfxPath), senha: descriptografar(loja.nfce_cert_senha) };
+  try {
+    return lerCertificadoPfx(fs.readFileSync(pfxPath), descriptografar(loja.nfce_cert_senha));
+  } catch {
+    throw erroHttp(400, 'Não foi possível ler o certificado A1. Reenvie o .pfx e confira a senha.');
+  }
 }
 
 /** Reserva o próximo número da loja de forma atômica (evita números duplicados). */
@@ -1225,14 +1233,13 @@ function reservarNumero(lojaId: number): number {
  */
 async function emitirVendaNfce(loja: any, venda: VendaNfce, pedidoId: number | null) {
   const emit = emitenteDaLoja(loja);
-  const { pfx, senha } = certificadoParaTls(loja);
+  const certA1 = certificadoParaTls(loja);
   const { xml, chave } = montarXmlNfce(emit, venda);
 
   // Assinatura é obrigatória para transmitir.
   let xmlAssinado: string;
   try {
-    const cert = lerCertificadoPfx(pfx, senha);
-    xmlAssinado = assinarXmlNfce(xml, cert);
+    xmlAssinado = assinarXmlNfce(xml, certA1);
   } catch {
     throw erroHttp(400, 'Falha ao assinar a NFC-e. Verifique o certificado e a senha.');
   }
@@ -1242,7 +1249,9 @@ async function emitirVendaNfce(loja: any, venda: VendaNfce, pedidoId: number | n
 
   let resultado;
   try {
-    resultado = await transmitirNfce(xmlAssinado, { uf: emit.uf, ambiente: emit.ambiente, pfx, senha, chave });
+    resultado = await transmitirNfce(xmlAssinado, {
+      uf: emit.uf, ambiente: emit.ambiente, key: certA1.chavePrivadaPem, cert: certA1.certificadoPem, chave,
+    });
   } catch (e: any) {
     db.prepare(
       `INSERT INTO notas_fiscais (loja_id, pedido_id, modelo, serie, numero, chave, ambiente,
@@ -1417,7 +1426,7 @@ router.post('/nfce/notas/:id/cancelar', async (req, res, next) => {
     if (justificativa.length < 15) throw erroHttp(400, 'A justificativa deve ter ao menos 15 caracteres.');
 
     const emit = emitenteDaLoja(loja);
-    const { pfx, senha } = certificadoParaTls(loja);
+    const certA1 = certificadoParaTls(loja);
 
     const eventoXml = montarEventoCancelamento({
       uf: emit.uf, ambiente: nota.ambiente, cnpj: emit.cnpj,
@@ -1425,15 +1434,16 @@ router.post('/nfce/notas/:id/cancelar', async (req, res, next) => {
     });
     let eventoAssinado: string;
     try {
-      const cert = lerCertificadoPfx(pfx, senha);
-      eventoAssinado = assinarPorTag(eventoXml, cert, 'infEvento');
+      eventoAssinado = assinarPorTag(eventoXml, certA1, 'infEvento');
     } catch {
       throw erroHttp(400, 'Falha ao assinar o cancelamento. Verifique o certificado.');
     }
 
     let r;
     try {
-      r = await transmitirCancelamento(eventoAssinado, { uf: emit.uf, ambiente: nota.ambiente, pfx, senha });
+      r = await transmitirCancelamento(eventoAssinado, {
+        uf: emit.uf, ambiente: nota.ambiente, key: certA1.chavePrivadaPem, cert: certA1.certificadoPem,
+      });
     } catch (e: any) {
       throw erroHttp(502, 'Não foi possível falar com a SEFAZ para cancelar. Tente novamente.');
     }
@@ -1467,7 +1477,7 @@ router.post('/nfce/inutilizar', async (req, res, next) => {
     if (justificativa.length < 15) throw erroHttp(400, 'A justificativa deve ter ao menos 15 caracteres.');
 
     const emit = emitenteDaLoja(loja);
-    const { pfx, senha } = certificadoParaTls(loja);
+    const certA1 = certificadoParaTls(loja);
 
     const inutXml = montarInutilizacao({
       uf: emit.uf, ambiente: emit.ambiente, cnpj: emit.cnpj,
@@ -1475,15 +1485,16 @@ router.post('/nfce/inutilizar', async (req, res, next) => {
     });
     let inutAssinado: string;
     try {
-      const cert = lerCertificadoPfx(pfx, senha);
-      inutAssinado = assinarPorTag(inutXml, cert, 'infInut');
+      inutAssinado = assinarPorTag(inutXml, certA1, 'infInut');
     } catch {
       throw erroHttp(400, 'Falha ao assinar a inutilização. Verifique o certificado.');
     }
 
     let r;
     try {
-      r = await transmitirInutilizacao(inutAssinado, { uf: emit.uf, ambiente: emit.ambiente, pfx, senha });
+      r = await transmitirInutilizacao(inutAssinado, {
+        uf: emit.uf, ambiente: emit.ambiente, key: certA1.chavePrivadaPem, cert: certA1.certificadoPem,
+      });
     } catch (e: any) {
       throw erroHttp(502, 'Não foi possível falar com a SEFAZ para inutilizar. Tente novamente.');
     }

@@ -130,8 +130,16 @@ function envelopeAutorizacao(nFe: string, idLote: string): string {
     `</soap:Envelope>`;
 }
 
-/** POST SOAP 1.2 com TLS mútuo (certificado A1 no socket). */
-function postSoap(url: string, corpo: string, pfx: Buffer, senha: string): Promise<string> {
+/**
+ * Certificado A1 já convertido em PEM (chave + cert). Passamos `key`/`cert`
+ * PEM ao TLS — NÃO o .pfx cru — porque o OpenSSL 3 (Node 18+ em Linux) rejeita
+ * a criptografia legada de muitos .pfx A1 brasileiros com ERR_OSSL_UNSUPPORTED.
+ * O node-forge decifra o .pfx legado em JS e entrega o PEM já aberto ao OpenSSL.
+ */
+export interface CertTls { key: string; cert: string }
+
+/** POST SOAP 1.2 com TLS mútuo (certificado A1 no socket, em PEM). */
+function postSoap(url: string, corpo: string, tls: CertTls): Promise<string> {
   const u = new URL(url);
   const dados = Buffer.from(corpo, 'utf8');
   return new Promise((resolve, reject) => {
@@ -140,8 +148,8 @@ function postSoap(url: string, corpo: string, pfx: Buffer, senha: string): Promi
       port: u.port || 443,
       path: u.pathname + u.search,
       method: 'POST',
-      pfx,
-      passphrase: senha,
+      key: tls.key,
+      cert: tls.cert,
       // Cadeia ICP-Brasil para validar o SERVIDOR da SEFAZ (se configurada).
       ca: carregarCaBundle(),
       // A SEFAZ exige TLS 1.2+. minVersion evita handshake em protocolo velho.
@@ -170,15 +178,15 @@ function postSoap(url: string, corpo: string, pfx: Buffer, senha: string): Promi
  */
 export async function transmitirNfce(
   xmlAssinado: string,
-  opcoes: { uf: string; ambiente: number; pfx: Buffer; senha: string; chave: string },
+  opcoes: { uf: string; ambiente: number; key: string; cert: string; chave: string },
 ): Promise<ResultadoTransmissao> {
-  const { uf, ambiente, pfx, senha, chave } = opcoes;
+  const { uf, ambiente, key, cert, chave } = opcoes;
   if (!CODIGO_UF[uf.toUpperCase()]) throw new Error(`UF inválida para transmissão: ${uf}`);
 
   const nFe = soNFe(xmlAssinado);
   const url = urlAutorizacao(uf, ambiente);
   const envelope = envelopeAutorizacao(nFe, Date.now().toString().slice(-15));
-  const resposta = await postSoap(url, envelope, pfx, senha);
+  const resposta = await postSoap(url, envelope, { key, cert });
 
   // No lote síncrono, o protNFe/infProt traz o status real da nota.
   const protNFe = resposta.match(/<protNFe[\s\S]*?<\/protNFe>/)?.[0] ?? '';
@@ -327,9 +335,9 @@ function soEvento(xmlAssinado: string): string {
 /** Transmite o cancelamento (evento assinado) ao RecepcaoEvento4. */
 export async function transmitirCancelamento(
   eventoAssinado: string,
-  opcoes: { uf: string; ambiente: number; pfx: Buffer; senha: string },
+  opcoes: { uf: string; ambiente: number; key: string; cert: string },
 ): Promise<ResultadoEvento> {
-  const { uf, ambiente, pfx, senha } = opcoes;
+  const { uf, ambiente, key, cert } = opcoes;
   const evento = soEvento(eventoAssinado);
   const envEvento =
     `<envEvento versao="1.00" xmlns="http://www.portalfiscal.inf.br/nfe">` +
@@ -338,7 +346,7 @@ export async function transmitirCancelamento(
     `<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope"><soap:Body>` +
     `<nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeRecepcaoEvento4">${envEvento}</nfeDadosMsg>` +
     `</soap:Body></soap:Envelope>`;
-  const resposta = await postSoap(urlEvento(uf, ambiente), envelope, pfx, senha);
+  const resposta = await postSoap(urlEvento(uf, ambiente), envelope, { key, cert });
 
   const retEvento = resposta.match(/<retEvento[\s\S]*?<\/retEvento>/)?.[0] ?? resposta;
   const cStat = extrair(retEvento, 'cStat');
@@ -393,15 +401,15 @@ function soInut(xmlAssinado: string): string {
 /** Transmite a inutilização (assinada) ao NFeInutilizacao4. */
 export async function transmitirInutilizacao(
   inutAssinado: string,
-  opcoes: { uf: string; ambiente: number; pfx: Buffer; senha: string },
+  opcoes: { uf: string; ambiente: number; key: string; cert: string },
 ): Promise<ResultadoEvento> {
-  const { uf, ambiente, pfx, senha } = opcoes;
+  const { uf, ambiente, key, cert } = opcoes;
   const inut = soInut(inutAssinado);
   const envelope = `<?xml version="1.0" encoding="UTF-8"?>` +
     `<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope"><soap:Body>` +
     `<nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeInutilizacao4">${inut}</nfeDadosMsg>` +
     `</soap:Body></soap:Envelope>`;
-  const resposta = await postSoap(urlInutilizacao(uf, ambiente), envelope, pfx, senha);
+  const resposta = await postSoap(urlInutilizacao(uf, ambiente), envelope, { key, cert });
 
   const retInut = resposta.match(/<retInutNFe[\s\S]*?<\/retInutNFe>/)?.[0] ?? resposta;
   const cStat = extrair(retInut, 'cStat');
