@@ -151,7 +151,7 @@ router.put('/loja', (req, res, next) => {
     db.prepare(
       `UPDATE lojas SET nome = ?, descricao = ?, categoria = ?, endereco = ?,
               taxa_entrega_centavos = ?, tempo_estimado_min = ?, horario_funcionamento = ?,
-              logo_url = ?, capa_url = ?, cor_marca = ?, slug = ?,
+              logo_url = ?, capa_url = ?, favicon_url = ?, cor_marca = ?, cor_secundaria = ?, slug = ?,
               horario_json = ?, auto_horario = ?, minimo_pedido_centavos = ?,
               impressora_largura = ?, impressora_auto = ?, cupom_rodape = ?
         WHERE id = ?`
@@ -163,7 +163,9 @@ router.put('/loja', (req, res, next) => {
           req.body.horario_funcionamento !== undefined ? textoLimpo(req.body.horario_funcionamento, 100) : loja.horario_funcionamento,
           validarUrl('logo_url', lojaQualquer.logo_url || ''),
           validarUrl('capa_url', lojaQualquer.capa_url || ''),
+          validarUrl('favicon_url', lojaQualquer.favicon_url || ''),
           validarCor('cor_marca', lojaQualquer.cor_marca || ''),
+          validarCor('cor_secundaria', lojaQualquer.cor_secundaria || ''),
           slug, horarioJson, autoHorario, minimoPedido,
           impLargura, impAuto, cupomRodape,
           loja.id);

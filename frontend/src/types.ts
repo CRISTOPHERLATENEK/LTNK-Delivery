@@ -42,7 +42,9 @@ export interface Loja {
   /** Marca da loja (white label) — URLs e cor hex, opcionais */
   logo_url?: string;
   capa_url?: string;
+  favicon_url?: string;
   cor_marca?: string;
+  cor_secundaria?: string;
   /** Horário automático — agenda semanal em JSON e flags. */
   horario_json?: string;
   auto_horario?: 0 | 1;

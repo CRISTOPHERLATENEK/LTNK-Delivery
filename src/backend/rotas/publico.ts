@@ -27,13 +27,22 @@ router.get('/tema', (_req, res) => {
     const r = db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
     return r?.valor ?? padrao;
   };
+  const lojaId = Number(valor('loja_padrao_id', '0'));
+  // Favicon: se o admin não definiu um favicon próprio da plataforma e o
+  // domínio é white-label de uma loja, usa o favicon dessa loja (reforça a
+  // identidade de "site próprio" de quem paga white-label).
+  let favicon = valor('marca_favicon_url');
+  if (!favicon && lojaId > 0) {
+    const loja = db.prepare('SELECT favicon_url FROM lojas WHERE id = ?').get(lojaId) as { favicon_url: string } | undefined;
+    favicon = loja?.favicon_url || '';
+  }
   res.json({
     nome:          valor('marca_nome', 'Delivery Já'),
     slogan:        valor('marca_slogan', 'Peça das melhores lojas da sua região'),
     logo_url:      valor('marca_logo_url'),
-    favicon_url:   valor('marca_favicon_url'),
+    favicon_url:   favicon,
     cor_primaria:  valor('marca_cor_primaria', '#dc2640'),
-    loja_id:       Number(valor('loja_padrao_id', '0')),
+    loja_id:       lojaId,
   });
 });
 
@@ -137,7 +146,7 @@ router.get('/lojas/:id', (req, res, next) => {
     const loja = db.prepare(
       `SELECT id, nome, descricao, categoria, endereco,
               taxa_entrega_centavos, tempo_estimado_min, horario_funcionamento, aberta,
-              logo_url, capa_url, cor_marca, slug, categoria_estilo,
+              logo_url, capa_url, favicon_url, cor_marca, cor_secundaria, slug, categoria_estilo,
               horario_json, minimo_pedido_centavos, nota_media, nota_qtd
          FROM lojas
         WHERE ${porNumero ? 'id = ?' : 'slug = ?'} AND status_aprovacao = 'aprovada'`

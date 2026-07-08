@@ -420,6 +420,10 @@ garantirColuna('pedidos', 'entrega_lon', 'entrega_lon REAL');
 garantirColuna('lojas', 'logo_url', "logo_url TEXT NOT NULL DEFAULT ''");
 garantirColuna('lojas', 'capa_url', "capa_url TEXT NOT NULL DEFAULT ''");
 garantirColuna('lojas', 'cor_marca', "cor_marca TEXT NOT NULL DEFAULT ''");
+garantirColuna('lojas', 'cor_secundaria', "cor_secundaria TEXT NOT NULL DEFAULT ''");
+// Favicon próprio da loja: usado na página dela (marketplace) e, se o admin
+// não definir um favicon da plataforma, também no domínio white-label dela.
+garantirColuna('lojas', 'favicon_url', "favicon_url TEXT NOT NULL DEFAULT ''");
 
 // Horário de funcionamento automático: agenda semanal em JSON.
 // Formato: [{ dia:0..6, aberto:bool, abre:"HH:MM", fecha:"HH:MM" }, ...] (0=domingo)

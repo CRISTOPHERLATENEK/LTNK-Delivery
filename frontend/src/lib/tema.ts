@@ -42,8 +42,12 @@ export const FONTES: Record<FonteMarca, { label: string; stack: string; google?:
 
 interface TemaCtx {
   marca: TemaMarca;
-  aplicarCorPrimaria: (hex: string | undefined | null) => void;
+  aplicarCorPrimaria: (hex: string | undefined | null, corSecundaria?: string | null) => void;
   resetarCorPrimaria: () => void;
+  /** Sobrepõe o favicon (ex.: ao visitar a página de uma loja). */
+  aplicarFaviconLoja: (url: string | undefined | null) => void;
+  /** Volta o favicon para o da plataforma (ex.: ao sair da página da loja). */
+  resetarFavicon: () => void;
   /** Pré-visualiza uma marca inteira sem persistir (usado no painel admin). */
   previsualizar: (parcial: Partial<TemaMarca>) => void;
   recarregar: () => Promise<void>;
@@ -53,6 +57,8 @@ export const TemaContext = createContext<TemaCtx>({
   marca: PADRAO,
   aplicarCorPrimaria: () => {},
   resetarCorPrimaria: () => {},
+  aplicarFaviconLoja: () => {},
+  resetarFavicon: () => {},
   previsualizar: () => {},
   recarregar: async () => {},
 });
@@ -197,6 +203,18 @@ function aplicarPaleta(corPrimaria: string, corSecundaria?: string) {
   }
 }
 
+/** Troca o favicon da aba do navegador. Usado pela marca da plataforma e,
+ * ao visitar a página de uma loja, temporariamente pelo favicon dela. */
+export function aplicarFavicon(url: string) {
+  let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null;
+  if (!link) {
+    link = document.createElement('link');
+    link.rel = 'icon';
+    document.head.appendChild(link);
+  }
+  link.href = url;
+}
+
 /** Aplica a marca completa (cor, raio, fonte, theme-color, SEO/OG, favicon). */
 export function aplicarMarca(m: TemaMarca) {
   aplicarPaleta(m.cor_primaria, m.cor_secundaria || undefined);
@@ -237,16 +255,7 @@ export function aplicarMarca(m: TemaMarca) {
   og('og:image', m.og_image);
   og('og:type', 'website');
 
-  // Favicon
-  if (m.favicon_url) {
-    let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement | null;
-    if (!link) {
-      link = document.createElement('link');
-      link.rel = 'icon';
-      document.head.appendChild(link);
-    }
-    link.href = m.favicon_url;
-  }
+  if (m.favicon_url) aplicarFavicon(m.favicon_url);
 }
 
 /* ───────────────────────── hook do provider ───────────────────────── */
@@ -254,14 +263,22 @@ export function aplicarMarca(m: TemaMarca) {
 export function useTemaProvider(): TemaCtx {
   const [marca, setMarca] = useState<TemaMarca>(PADRAO);
 
-  const aplicarCorPrimaria = useCallback((hex: string | undefined | null) => {
+  const aplicarCorPrimaria = useCallback((hex: string | undefined | null, corSecundaria?: string | null) => {
     if (!hex) return;
-    aplicarPaleta(hex);
+    aplicarPaleta(hex, corSecundaria || undefined);
   }, []);
 
   const resetarCorPrimaria = useCallback(() => {
     if (marca.cor_primaria) aplicarPaleta(marca.cor_primaria, marca.cor_secundaria || undefined);
   }, [marca.cor_primaria, marca.cor_secundaria]);
+
+  const aplicarFaviconLoja = useCallback((url: string | undefined | null) => {
+    if (url) aplicarFavicon(url);
+  }, []);
+
+  const resetarFavicon = useCallback(() => {
+    if (marca.favicon_url) aplicarFavicon(marca.favicon_url);
+  }, [marca.favicon_url]);
 
   const previsualizar = useCallback((parcial: Partial<TemaMarca>) => {
     aplicarMarca({ ...marca, ...parcial });
@@ -282,5 +299,5 @@ export function useTemaProvider(): TemaCtx {
 
   useEffect(() => { recarregar(); }, [recarregar]);
 
-  return { marca, aplicarCorPrimaria, resetarCorPrimaria, previsualizar, recarregar };
+  return { marca, aplicarCorPrimaria, resetarCorPrimaria, aplicarFaviconLoja, resetarFavicon, previsualizar, recarregar };
 }

@@ -56,7 +56,9 @@ export interface Loja {
   /** White label da loja — URLs HTTPS e cor hex (#rrggbb), vazias = padrão */
   logo_url?: string;
   capa_url?: string;
+  favicon_url?: string;
   cor_marca?: string;
+  cor_secundaria?: string;
   criado_em: string;
 }
 

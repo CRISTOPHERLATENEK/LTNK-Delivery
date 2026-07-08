@@ -32,7 +32,7 @@ export function PaginaLoja() {
   const [subCatAtiva, setSubCatAtiva] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
   const [adicionado, setAdicionado] = useState<Produto | null>(null);
-  const { aplicarCorPrimaria, resetarCorPrimaria, marca } = useTema();
+  const { aplicarCorPrimaria, resetarCorPrimaria, aplicarFaviconLoja, resetarFavicon, marca } = useTema();
 
   const consulta = useQuery({
     queryKey: ['cardapio', id],
@@ -42,9 +42,17 @@ export function PaginaLoja() {
 
   useEffect(() => {
     const cor = consulta.data?.loja.cor_marca;
-    if (cor) aplicarCorPrimaria(cor);
+    if (cor) aplicarCorPrimaria(cor, consulta.data?.loja.cor_secundaria);
     return () => { resetarCorPrimaria(); };
-  }, [consulta.data?.loja.cor_marca, aplicarCorPrimaria, resetarCorPrimaria]);
+  }, [consulta.data?.loja.cor_marca, consulta.data?.loja.cor_secundaria, aplicarCorPrimaria, resetarCorPrimaria]);
+
+  // Favicon próprio da loja na aba do navegador enquanto o cliente navega
+  // nela — volta pro favicon da plataforma ao sair.
+  useEffect(() => {
+    const favicon = consulta.data?.loja.favicon_url;
+    if (favicon) aplicarFaviconLoja(favicon);
+    return () => { resetarFavicon(); };
+  }, [consulta.data?.loja.favicon_url, aplicarFaviconLoja, resetarFavicon]);
 
   // Deep link: ?produto=ID
   useEffect(() => {
