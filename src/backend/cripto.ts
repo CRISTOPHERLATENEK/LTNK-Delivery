@@ -32,14 +32,27 @@ function obterSegredo(): string {
 
 const SEGREDO = obterSegredo();
 
-function derivar(salt: Buffer): Buffer {
-  return crypto.scryptSync(SEGREDO, salt, 32);
+/**
+ * Segredos candidatos para DESCRIPTOGRAFAR (na ordem de preferência). Além do
+ * segredo atual, tenta o JWT_SECRET — assim um segredo cifrado ANTES de o
+ * APP_SECRET existir (quando caía no JWT_SECRET) continua legível depois que o
+ * APP_SECRET foi adicionado. Evita "certificado instalado mas não assina".
+ */
+function segredosCandidatos(): string[] {
+  const lista = [SEGREDO];
+  const jwt = process.env.JWT_SECRET;
+  if (jwt && !lista.includes(jwt)) lista.push(jwt);
+  return lista;
+}
+
+function derivar(salt: Buffer, segredo: string): Buffer {
+  return crypto.scryptSync(segredo, salt, 32);
 }
 
 export function criptografar(texto: string): string {
   const salt = crypto.randomBytes(16);
   const iv = crypto.randomBytes(12);
-  const chave = derivar(salt);
+  const chave = derivar(salt, SEGREDO);
   const cipher = crypto.createCipheriv('aes-256-gcm', chave, iv);
   const enc = Buffer.concat([cipher.update(texto, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
@@ -52,8 +65,13 @@ export function descriptografar(guardado: string): string {
   const iv = buf.subarray(16, 28);
   const tag = buf.subarray(28, 44);
   const enc = buf.subarray(44);
-  const chave = derivar(salt);
-  const decipher = crypto.createDecipheriv('aes-256-gcm', chave, iv);
-  decipher.setAuthTag(tag);
-  return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+  let ultimoErro: unknown;
+  for (const segredo of segredosCandidatos()) {
+    try {
+      const decipher = crypto.createDecipheriv('aes-256-gcm', derivar(salt, segredo), iv);
+      decipher.setAuthTag(tag);
+      return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+    } catch (e) { ultimoErro = e; /* tenta o próximo segredo */ }
+  }
+  throw ultimoErro instanceof Error ? ultimoErro : new Error('Falha ao descriptografar o segredo.');
 }

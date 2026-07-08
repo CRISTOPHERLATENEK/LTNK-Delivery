@@ -1091,7 +1091,11 @@ function assinarSeTiver(loja: any, xml: string): { xml: string; assinado: boolea
       const senha = descriptografar(loja.nfce_cert_senha);
       const cert = lerCertificadoPfx(fs.readFileSync(pfxPath), senha);
       return { xml: assinarXmlNfce(xml, cert), assinado: true };
-    } catch { /* segue sem assinar */ }
+    } catch (e) {
+      // NÃO engole em silêncio: registra o motivo real (senha ilegível, .pfx
+      // corrompido, etc.) pra dar pra diagnosticar o "instalado mas não assina".
+      console.error('[NFC-e] Falha ao assinar (certificado instalado):', (e as Error).message);
+    }
   }
   return { xml, assinado: false };
 }
