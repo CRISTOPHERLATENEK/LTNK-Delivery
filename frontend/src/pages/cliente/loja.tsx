@@ -3,13 +3,12 @@ import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useTema } from '@/lib/tema';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2 } from 'lucide-react';
+import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2, Check, ArrowRight, ShoppingCart } from 'lucide-react';
 import { api } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useToast } from '@/components/ui/toast';
 import { adicionarAoCarrinho, useCarrinho, mudarQuantidade } from '@/lib/carrinho';
 import { ModalProduto } from './modal-produto';
 import { BannerCarousel } from '@/components/banner-carousel';
@@ -32,8 +31,8 @@ export function PaginaLoja() {
   const [catAtiva, setCatAtiva] = useState<string | null>(null);
   const [subCatAtiva, setSubCatAtiva] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
+  const [adicionado, setAdicionado] = useState<Produto | null>(null);
   const { aplicarCorPrimaria, resetarCorPrimaria, marca } = useTema();
-  const { mostrar } = useToast();
 
   const consulta = useQuery({
     queryKey: ['cardapio', id],
@@ -116,7 +115,7 @@ export function PaginaLoja() {
       const ok = adicionarAoCarrinho(loja, {
         produto_id: p.id, nome: p.nome, preco_centavos: precoBase, quantidade: 1, opcoes: [], opcoes_texto: '', foto_url: p.foto_url,
       });
-      if (ok) mostrar({ tipo: 'sucesso', titulo: `${p.nome} adicionado!` });
+      if (ok) setAdicionado(p);
       return;
     }
     setProdutoAberto(p);
@@ -359,7 +358,72 @@ export function PaginaLoja() {
           onFechar={() => setProdutoAberto(null)}
         />
       )}
+
+      <ModalAdicionado produto={adicionado} onFechar={() => setAdicionado(null)} />
     </div>
+  );
+}
+
+/* ── Card flutuante "produto adicionado" (cor do tema, não bloqueia a navegação) ── */
+function ModalAdicionado({ produto, onFechar }: { produto: Produto | null; onFechar: () => void }) {
+  // Fecha sozinho depois de alguns segundos; reinicia o timer a cada novo produto.
+  useEffect(() => {
+    if (!produto) return;
+    const t = setTimeout(onFechar, 4000);
+    return () => clearTimeout(t);
+  }, [produto, onFechar]);
+
+  return (
+    <AnimatePresence>
+      {produto && (
+        <motion.div
+          key={produto.id}
+          initial={{ opacity: 0, y: 30, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 20, scale: 0.96 }}
+          transition={{ type: 'spring', damping: 24, stiffness: 320 }}
+          className="fixed z-50 inset-x-3 bottom-24 mx-auto max-w-md sm:inset-x-auto sm:right-6 sm:bottom-6 sm:w-[420px]"
+        >
+          <div className="relative overflow-hidden rounded-3xl border border-primary/30 bg-card shadow-2xl">
+            <div className="absolute left-0 top-0 h-full w-1.5 bg-primary" />
+            <button onClick={onFechar} className="absolute top-3.5 right-3.5 text-muted-foreground hover:text-foreground transition-colors">
+              <X className="size-5" />
+            </button>
+            <div className="flex items-center gap-3.5 p-4 pl-5">
+              <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                <Check className="size-6" strokeWidth={3} />
+              </div>
+              <div className="flex-1 min-w-0 pr-5">
+                <h3 className="text-base font-extrabold text-primary leading-tight">Produto adicionado!</h3>
+                <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">
+                  <span className="font-semibold text-foreground">{produto.nome}</span> foi adicionado ao seu pedido
+                </p>
+              </div>
+              {produto.foto_url ? (
+                <img src={produto.foto_url} alt="" className="size-14 shrink-0 rounded-2xl object-cover border border-border/60 bg-white" />
+              ) : (
+                <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-muted text-2xl">🍽️</div>
+              )}
+            </div>
+            <div className="flex items-center gap-2 border-t border-border/60 p-2.5">
+              <button
+                onClick={onFechar}
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-3 text-sm font-bold text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Continuar comprando <ArrowRight className="size-4" />
+              </button>
+              <Link
+                to="/carrinho"
+                onClick={onFechar}
+                className="flex-1 flex items-center justify-center gap-2 rounded-2xl bg-primary py-3 text-sm font-bold text-primary-foreground shadow-sm shadow-primary/30 hover:opacity-90 transition-opacity"
+              >
+                <ShoppingCart className="size-4" /> Ver carrinho
+              </Link>
+            </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -547,7 +611,7 @@ function CardProduto({ produto, podeAbrir, onClick }: { produto: Produto; podeAb
       )}
     >
       {/* Imagem */}
-      <div className="relative aspect-square overflow-hidden bg-gradient-to-br from-orange-100 to-rose-200">
+      <div className="relative aspect-square overflow-hidden bg-white">
         {produto.foto_url
           ? <img src={produto.foto_url} alt={produto.nome} className={cn('size-full object-cover transition-transform duration-300', abrivel && 'group-hover:scale-105', esgotado && 'grayscale')} />
           : <div className="flex size-full items-center justify-center text-4xl">🍽️</div>
