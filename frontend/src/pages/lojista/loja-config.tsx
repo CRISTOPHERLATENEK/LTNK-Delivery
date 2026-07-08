@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText } from 'lucide-react';
+import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
 import { agenteAtivo, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
@@ -865,6 +865,14 @@ export function ImpressaoLoja() {
           <p className="text-xs text-muted-foreground">
             Instale o <strong>Software de Impressão</strong> e mantenha-o aberto no computador do caixa.
             O cupom será enviado direto para a impressora térmica.
+          </p>
+
+          <a href="/downloads/Software-de-Impressao.exe" download
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-sm shadow-primary/30 transition-opacity hover:opacity-90">
+            <Download className="size-4" /> Baixar instalador (Windows)
+          </a>
+          <p className="text-[11px] text-muted-foreground">
+            Baixe no computador do caixa, instale e deixe aberto. Depois clique em <strong>Procurar impressoras</strong>.
           </p>
 
           {agEstado === 'ok' && agSelecionada && (
