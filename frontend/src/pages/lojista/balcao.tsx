@@ -303,7 +303,7 @@ export function BalcaoLoja() {
                   onClick={() => adicionar(p)}
                   className="group rounded-xl border border-border bg-card overflow-hidden text-left transition-all hover:border-primary hover:shadow-md active:scale-95"
                 >
-                  <div className="relative aspect-[4/3] bg-gradient-to-br from-orange-100 to-rose-200 overflow-hidden">
+                  <div className="relative aspect-[4/3] bg-white overflow-hidden">
                     {p.foto_url
                       ? <img src={p.foto_url} alt="" className="size-full object-cover" />
                       : <div className="size-full flex items-center justify-center text-3xl opacity-50">🍽️</div>}

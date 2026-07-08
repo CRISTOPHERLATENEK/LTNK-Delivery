@@ -58,6 +58,14 @@ export function PainelLojista() {
   const lojaRef = useRef<Record<string, unknown> | null>(null);
   lojaRef.current = lojaQ.data ?? null;
 
+  // Aplica a cor da marca da loja em TODO o painel do lojista (não só na aba de
+  // aparência) — senão, ao dar F5, o painel voltava pro vermelho padrão.
+  const { aplicarCorPrimaria } = useTema();
+  useEffect(() => {
+    const cor = lojaQ.data?.cor_marca as string | undefined;
+    if (cor) aplicarCorPrimaria(cor);
+  }, [lojaQ.data, aplicarCorPrimaria]);
+
   const ultimoMaiorId = useRef(0);
   const primeiraCarga = useRef(true);
   const pendentesRef = useRef(0);
