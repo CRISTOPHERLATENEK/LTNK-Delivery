@@ -61,11 +61,16 @@ export function PainelLojista() {
 
   // Aplica a cor da marca da loja em TODO o painel do lojista (não só na aba de
   // aparência) — senão, ao dar F5, o painel voltava pro vermelho padrão.
-  const { aplicarCorPrimaria } = useTema();
+  // Depende também de `marca`: o tema da PLATAFORMA (/api/tema, root do app)
+  // carrega em paralelo com esta config da loja — se resolver depois, ele
+  // sobrescreve --primary pro padrão. Incluir `marca` reaplica a cor da loja
+  // assim que isso acontece (mesma corrida existe na página pública da loja).
+  const { aplicarCorPrimaria, marca } = useTema();
   useEffect(() => {
     const cor = lojaQ.data?.cor_marca as string | undefined;
-    if (cor) aplicarCorPrimaria(cor);
-  }, [lojaQ.data, aplicarCorPrimaria]);
+    const corSecundaria = lojaQ.data?.cor_secundaria as string | undefined;
+    if (cor) aplicarCorPrimaria(cor, corSecundaria);
+  }, [lojaQ.data, aplicarCorPrimaria, marca]);
 
   const ultimoMaiorId = useRef(0);
   const primeiraCarga = useRef(true);

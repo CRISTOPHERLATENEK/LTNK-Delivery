@@ -40,19 +40,25 @@ export function PaginaLoja() {
     enabled: !!id,
   });
 
+  // Reage também a `marca`: o tema da PLATAFORMA (/api/tema) carrega em
+  // paralelo com o cardápio desta loja, e se resolver DEPOIS ele sobrescreve
+  // --primary de volta pro padrão da plataforma. Incluir `marca` nas
+  // dependências faz reaplicar a cor da loja assim que isso acontecer —
+  // sem isso, dava pra "ganhar a corrida" e a cor ficar errada (ou piscar).
   useEffect(() => {
     const cor = consulta.data?.loja.cor_marca;
     if (cor) aplicarCorPrimaria(cor, consulta.data?.loja.cor_secundaria);
     return () => { resetarCorPrimaria(); };
-  }, [consulta.data?.loja.cor_marca, consulta.data?.loja.cor_secundaria, aplicarCorPrimaria, resetarCorPrimaria]);
+  }, [consulta.data?.loja.cor_marca, consulta.data?.loja.cor_secundaria, aplicarCorPrimaria, resetarCorPrimaria, marca]);
 
   // Favicon próprio da loja na aba do navegador enquanto o cliente navega
-  // nela — volta pro favicon da plataforma ao sair.
+  // nela — volta pro favicon da plataforma ao sair. Mesma corrida do tema
+  // acima: reage a `marca` pra reaplicar se a plataforma sobrescrever depois.
   useEffect(() => {
     const favicon = consulta.data?.loja.favicon_url;
     if (favicon) aplicarFaviconLoja(favicon);
     return () => { resetarFavicon(); };
-  }, [consulta.data?.loja.favicon_url, aplicarFaviconLoja, resetarFavicon]);
+  }, [consulta.data?.loja.favicon_url, aplicarFaviconLoja, resetarFavicon, marca]);
 
   // Deep link: ?produto=ID
   useEffect(() => {
