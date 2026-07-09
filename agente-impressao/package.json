@@ -1,27 +1,45 @@
 {
   "name": "delivery-agente-impressao",
   "version": "1.1.0",
-  "description": "Agente local de impressão térmica (ESC/POS) do Delivery.",
-  "main": "agente.js",
-  "bin": "agente.js",
+  "description": "Agente local de impressão térmica (ESC/POS) do Delivery — janela + bandeja (Electron).",
+  "main": "main.js",
   "scripts": {
-    "start": "node agente.js",
-    "dist": "node aplicar-icone.js && npx pkg . --targets node18-win-x64 --output dist/AgenteImpressao.exe"
+    "start": "electron .",
+    "servidor": "node agente.js",
+    "dist": "electron-builder"
   },
-  "pkg": {
-    "assets": [
-      "imprimir-raw.ps1"
-    ],
-    "scripts": [
+  "build": {
+    "appId": "br.com.ltnk.agenteimpressao",
+    "productName": "LTNK",
+    "asar": true,
+    "directories": { "output": "dist" },
+    "files": [
+      "main.js",
+      "agente.js",
       "escpos.js",
-      "lib/*.js",
-      "paginas/*.js"
-    ]
+      "icone.ico",
+      "lib/**/*",
+      "paginas/**/*",
+      "imprimir-raw.ps1",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icone.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": true,
+      "artifactName": "AgenteImpressao-Instalador.exe",
+      "shortcutName": "LTNK"
+    }
   },
   "devDependencies": {
-    "png-to-ico": "^3.0.1",
-    "rcedit": "^5.0.2",
-    "resedit": "^3.0.2",
-    "sharp": "^0.35.3"
+    "electron": "^43.1.0",
+    "electron-builder": "^26.15.3"
   }
 }

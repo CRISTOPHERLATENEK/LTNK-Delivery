@@ -76,7 +76,25 @@ const servidor = http.createServer((req, res) => {
   json(res, 404, { erro: 'rota desconhecida' });
 });
 
+// Sem isso, um erro ao abrir a porta (ex.: já tem outra cópia do agente
+// rodando) é um evento 'error' SEM listener — o Node trata isso como exceção
+// não tratada e derruba o processo inteiro (a janela do Electron não tem
+// chance de mostrar nada, fica em branco/"Error"). Com o listener, o erro só
+// é registrado e module.exports.erroPorta fica disponível pra quem chamou
+// require('./agente.js') (o main.js do Electron) decidir o que fazer.
+let erroPorta = null;
+servidor.on('error', (err) => {
+  erroPorta = err;
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Porta ${PORTA} já está em uso — outra cópia do agente já deve estar rodando.`);
+  } else {
+    console.error('❌ Erro no servidor do agente:', err);
+  }
+});
+
 servidor.listen(PORTA, '127.0.0.1', () => {
   console.log(` LTNK SOFTWARE v${VERSAO} rodando em http://localhost:${PORTA}`);
   console.log('   Deixe esta janela aberta. Impressoras:', listarImpressoras().join(', ') || '(nenhuma)');
 });
+
+module.exports = { servidor, PORTA, get erroPorta() { return erroPorta; } };
