@@ -12,6 +12,7 @@
 'use strict';
 const { app, BrowserWindow, Tray, Menu, shell, nativeImage, dialog } = require('electron');
 const path = require('path');
+const inicializacao = require('./lib/inicializacao');
 
 const PORTA = Number(process.env.AGENTE_PORTA) || 9110;
 const ICONE = path.join(__dirname, 'icone.ico');
@@ -23,6 +24,12 @@ const ICONE = path.join(__dirname, 'icone.ico');
 // hardware evita esse problema (usa renderização por software, mais lenta
 // mas sempre funciona — a janela é simples, não precisa de GPU).
 app.disableHardwareAcceleration();
+// Em alguns ambientes (RDP/virtualizado no Windows) mesmo com a GPU
+// desabilitada o compositor do Chromium ainda usa DirectComposition e a
+// janela fica com um "buffer velho" (só as bordas repintam). Essa flag
+// força o compositor por software de verdade.
+app.commandLine.appendSwitch('disable-gpu-compositing');
+app.commandLine.appendSwitch('disable-direct-composition');
 
 // Só uma instância — evita dois agentes brigando pela porta 9110 e dois
 // ícones duplicados na bandeja.
@@ -42,11 +49,11 @@ if (!temLock) {
 
   function criarJanela() {
     janela = new BrowserWindow({
-      width: 420,
+      width: 920,
       height: 640,
       resizable: true,
-      minWidth: 380,
-      minHeight: 480,
+      minWidth: 680,
+      minHeight: 460,
       icon: ICONE,
       title: 'LTNK — Software de Impressão',
       autoHideMenuBar: true, // esconde a barra de menu padrão do Electron (File/Edit/View...)
@@ -125,11 +132,11 @@ if (!temLock) {
       agente.servidor.once('error', prosseguir);
     }
 
-    // Inicia com o Windows (o instalador também oferece essa opção — os
-    // dois fazem a mesma coisa; isso aqui é o "modo automático" via Electron,
-    // que funciona mesmo se o usuário mudar de ideia depois de instalar).
-    if (app.isPackaged) {
-      app.setLoginItemSettings({ openAtLogin: true, path: process.execPath });
+    // Só define o padrão (ligado) na PRIMEIRA vez que o app abre — depois
+    // disso, quem manda é o toggle "Abrir na inicialização" em Configurações.
+    // Forçar isso toda vez impediria o usuário de desligar de vez.
+    if (app.isPackaged && inicializacao.suportado() && inicializacao.primeiraVez()) {
+      inicializacao.definir(true);
     }
   });
 

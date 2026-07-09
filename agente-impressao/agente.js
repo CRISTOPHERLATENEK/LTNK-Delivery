@@ -12,14 +12,16 @@
 const http = require('http');
 const { montarEscpos } = require('./escpos');
 const { lerConfig, salvarConfig } = require('./lib/config');
-const { listarImpressoras, imprimirRaw, definirRaizApp } = require('./lib/impressora');
+const { listarImpressoras, listarImpressorasDetalhado, imprimirRaw, definirRaizApp } = require('./lib/impressora');
 definirRaizApp(__dirname); // __dirname aqui é confiável (agente.js = entry point do pkg)
 const { aplicarConfigFiscal } = require('./lib/fiscal');
+const inicializacao = require('./lib/inicializacao');
 const { paginaStatus } = require('./paginas/status');
 const { paginaEditor } = require('./paginas/editor');
+const { paginaManual } = require('./paginas/manual');
 
 const PORTA = Number(process.env.AGENTE_PORTA) || 9110;
-const VERSAO = '1.1.0';
+const VERSAO = '1.2.0';
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -38,16 +40,34 @@ const servidor = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') { cors(res); res.writeHead(204); return res.end(); }
 
   if (req.method === 'GET' && (req.url === '/' || req.url === '')) {
-    return html(res, paginaStatus({ versao: VERSAO, impressoras: listarImpressoras() }));
+    return html(res, paginaStatus({ versao: VERSAO }));
   }
   if (req.method === 'GET' && req.url === '/editor') {
     return html(res, paginaEditor());
+  }
+  if (req.method === 'GET' && req.url === '/manual') {
+    return html(res, paginaManual({ versao: VERSAO }));
   }
   if (req.method === 'GET' && req.url === '/status') {
     return json(res, 200, { ok: true, agente: 'delivery-print', versao: VERSAO });
   }
   if (req.method === 'GET' && req.url === '/impressoras') {
     return json(res, 200, { impressoras: listarImpressoras() });
+  }
+  if (req.method === 'GET' && req.url === '/impressoras/detalhado') {
+    return json(res, 200, { impressoras: listarImpressorasDetalhado() });
+  }
+  if (req.method === 'GET' && req.url === '/inicializacao') {
+    return json(res, 200, { suportado: inicializacao.suportado(), ativa: inicializacao.estaAtiva() });
+  }
+  if (req.method === 'POST' && req.url === '/inicializacao') {
+    return corpoJson(req, corpo => {
+      try {
+        const { ativa } = JSON.parse(corpo || '{}');
+        const ok = inicializacao.definir(!!ativa);
+        json(res, ok ? 200 : 400, { ok, suportado: inicializacao.suportado(), ativa: inicializacao.estaAtiva() });
+      } catch (e) { json(res, 400, { erro: String((e && e.message) || e) }); }
+    });
   }
   if (req.method === 'GET' && req.url === '/config') {
     return json(res, 200, lerConfig());

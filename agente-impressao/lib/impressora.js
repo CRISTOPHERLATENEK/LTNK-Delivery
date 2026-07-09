@@ -35,11 +35,35 @@ function caminhoPs1() {
   return destino;
 }
 
-/** Lista as impressoras instaladas no Windows. */
+/** Lista as impressoras instaladas no Windows (só o nome — formato usado pelo
+ * painel do lojista, GET /impressoras). Não mudar esse formato: o painel web
+ * espera um array de strings. */
 function listarImpressoras() {
   const r = ps(['-Command', 'Get-Printer | Select-Object -ExpandProperty Name']);
   if (r.status !== 0) return [];
   return r.stdout.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+}
+
+/**
+ * Versão com status real (Normal/Offline/etc.) — usada só pelo dashboard da
+ * janela do app (GET /impressoras/detalhado). Separado de listarImpressoras()
+ * de propósito: o painel web (loja-config.tsx) espera um array de strings,
+ * não objetos — não dá pra reaproveitar o mesmo endpoint sem quebrá-lo.
+ */
+function listarImpressorasDetalhado() {
+  const r = ps(['-Command',
+    'Get-Printer | Select-Object Name, PrinterStatus, WorkOffline, Default | ConvertTo-Json -Compress',
+  ]);
+  if (r.status !== 0) return [];
+  let dados;
+  try { dados = JSON.parse(r.stdout || '[]'); } catch { return []; }
+  const lista = Array.isArray(dados) ? dados : [dados]; // 1 impressora só = objeto, não array
+  return lista.filter(Boolean).map(p => {
+    let status = 'pronta';
+    if (p.WorkOffline) status = 'offline';
+    else if (p.PrinterStatus && p.PrinterStatus !== 'Normal') status = 'atencao';
+    return { nome: p.Name, status, motivo: p.PrinterStatus || '', padrao: !!p.Default };
+  });
 }
 
 /** Manda bytes crus (ESC/POS) para a impressora via RAW. */
@@ -55,4 +79,4 @@ function imprimirRaw(impressora, buffer) {
   }
 }
 
-module.exports = { listarImpressoras, imprimirRaw, definirRaizApp };
+module.exports = { listarImpressoras, listarImpressorasDetalhado, imprimirRaw, definirRaizApp };
