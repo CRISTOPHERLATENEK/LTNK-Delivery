@@ -606,7 +606,14 @@ router.get('/pedidos', (req, res, next) => {
 
     type PedidoLojista = Record<string, unknown> & { id: number };
     const pedidos = db.prepare(sql).all(...params) as PedidoLojista[];
-    const buscarItens = db.prepare('SELECT * FROM itens_pedido WHERE pedido_id = ?');
+    // JOIN com produtos pra trazer a categoria de cada item — usada pra rotear
+    // a impressão por setor (Cozinha/Bar) quando o pedido chega pelo app.
+    const buscarItens = db.prepare(
+      `SELECT ip.*, p.categoria AS categoria
+         FROM itens_pedido ip
+         LEFT JOIN produtos p ON p.id = ip.produto_id
+        WHERE ip.pedido_id = ?`
+    );
     for (const p of pedidos) p.itens = buscarItens.all(p.id);
     res.json({ pedidos });
   } catch (e) { next(e); }

@@ -24,7 +24,7 @@ import {
   sincronizarLembrete, pararLembrete,
 } from '@/lib/alerta-pedido';
 import { suportaPush, ativarPush } from '@/lib/push';
-import { despacharImpressao } from '@/lib/impressao';
+import { despacharImpressao, imprimirComandasProducao } from '@/lib/impressao';
 import type { BlocoImpressao } from '@/lib/agente';
 import { ProdutosLoja } from './produtos';
 import { LojaConfiguracao, HorarioLoja, ZonasEntrega, PagamentosLoja, ImpressaoLoja } from './loja-config';
@@ -797,6 +797,23 @@ ${p.observacoes ? `<div class="note">📝 ${escapar(p.observacoes)}</div>` : ''}
     { t: 'corte' },
   ];
   despacharImpressao(html, larguraMm, blocos);
+
+  // Roteamento por setor (Cozinha/Bar): pedidos vindos do app do cliente
+  // agora também disparam a via de produção separada, igual balcão/mesa —
+  // best-effort, só age se houver setor+impressora configurados neste PC.
+  imprimirComandasProducao({
+    titulo: `PEDIDO #${p.id}`,
+    linhas: (p.itens || []).map(i => ({
+      qtd: String(i.quantidade),
+      nome: i.nome_produto,
+      valor: fmt(i.preco_unit_centavos * i.quantidade),
+      observacao: (i as { opcoes_texto?: string }).opcoes_texto,
+      categoria: (i as { categoria?: string }).categoria || undefined,
+    })),
+    totais: [],
+    tipoVenda: 'Delivery', referencia: `#${p.id}`,
+    cliente: p.cliente_nome,
+  }, { largura, auto: true, loja_nome: config?.loja_nome || '', rodape: '' });
 }
 
 function PedidosLoja() {

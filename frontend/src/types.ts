@@ -217,6 +217,8 @@ export interface ItemPedido {
   preco_unit_centavos: number;
   quantidade: number;
   opcoes_texto?: string;
+  /** Categoria do produto — usada pra rotear a impressão por setor (Cozinha/Bar). */
+  categoria?: string | null;
 }
 
 export interface EventoStatus {
