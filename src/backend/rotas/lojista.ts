@@ -792,16 +792,90 @@ router.post('/pedidos/:id/acao', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// ----- Entregadores (atribuição manual pelo lojista) -----------------------
+// ----- Entregadores (cadastro + atribuição manual pelo lojista) ------------
 
-/** Lista de entregadores disponíveis para o lojista atribuir a um pedido. */
+/**
+ * Lista de entregadores disponíveis para o lojista atribuir a um pedido:
+ * os cadastrados exclusivamente por esta loja + os que se auto-cadastraram
+ * (loja_id nulo, compartilhados entre lojas do mesmo tenant).
+ */
 router.get('/entregadores', (req, res, next) => {
   try {
-    minhaLoja(req); // garante que o usuário é um lojista com loja
+    const loja = minhaLoja(req);
     const entregadores = db.prepare(
-      "SELECT id, nome, telefone FROM usuarios WHERE perfil = 'entregador' AND bloqueado = 0 ORDER BY nome"
-    ).all();
+      `SELECT id, nome, telefone FROM usuarios
+       WHERE perfil = 'entregador' AND bloqueado = 0 AND (loja_id IS NULL OR loja_id = ?)
+       ORDER BY nome`
+    ).all(loja.id);
     res.json({ entregadores });
+  } catch (e) { next(e); }
+});
+
+/** Entregadores cadastrados diretamente por esta loja (exclusivos dela). */
+router.get('/entregadores/cadastro', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req);
+    const entregadores = db.prepare(
+      `SELECT id, nome, email, telefone, bloqueado FROM usuarios
+       WHERE perfil = 'entregador' AND loja_id = ? ORDER BY nome`
+    ).all(loja.id);
+    res.json({ entregadores });
+  } catch (e) { next(e); }
+});
+
+/** Cadastra um novo entregador (motoboy) exclusivo desta loja. */
+router.post('/entregadores/cadastro', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req);
+    const nome = textoLimpo(req.body.nome, 120);
+    const telefone = textoLimpo(req.body.telefone, 30);
+    const email = textoLimpo(req.body.email, 200).toLowerCase();
+    const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
+    if (nome.length < 2) throw erroHttp(400, 'Informe o nome do entregador.');
+    if (!emailValido(email)) throw erroHttp(400, 'Informe um e-mail válido (login do entregador).');
+    if (senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
+
+    const jaExiste = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
+    if (jaExiste) throw erroHttp(409, 'Já existe uma conta com este e-mail.');
+
+    const senhaHash = bcrypt.hashSync(senha, 10);
+    const info = db.prepare(
+      `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, criado_em)
+       VALUES (?, ?, ?, 'entregador', ?, ?, ?)`
+    ).run(nome, email, senhaHash, telefone, loja.id, agoraUTC());
+    res.status(201).json({ id: info.lastInsertRowid, nome, email, telefone, bloqueado: 0 });
+  } catch (e) { next(e); }
+});
+
+/** Edita nome/telefone/senha ou bloqueia/desbloqueia um entregador desta loja. */
+router.put('/entregadores/cadastro/:id', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req);
+    const entregador = db.prepare(
+      "SELECT id FROM usuarios WHERE id = ? AND perfil = 'entregador' AND loja_id = ?"
+    ).get(req.params.id, loja.id) as { id: number } | undefined;
+    if (!entregador) throw erroHttp(404, 'Entregador não encontrado.');
+
+    if (req.body.nome !== undefined) {
+      const nome = textoLimpo(req.body.nome, 120);
+      if (nome.length < 2) throw erroHttp(400, 'Nome inválido.');
+      db.prepare('UPDATE usuarios SET nome = ? WHERE id = ?').run(nome, entregador.id);
+    }
+    if (req.body.telefone !== undefined) {
+      db.prepare('UPDATE usuarios SET telefone = ? WHERE id = ?')
+        .run(textoLimpo(req.body.telefone, 30), entregador.id);
+    }
+    if (req.body.bloqueado !== undefined) {
+      db.prepare('UPDATE usuarios SET bloqueado = ? WHERE id = ?')
+        .run(req.body.bloqueado ? 1 : 0, entregador.id);
+    }
+    if (req.body.senha !== undefined) {
+      const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
+      if (senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
+      db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?')
+        .run(bcrypt.hashSync(senha, 10), entregador.id);
+    }
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
@@ -817,8 +891,9 @@ router.post('/pedidos/:id/atribuir-entregador', (req, res, next) => {
     if (!entregadorId) throw erroHttp(400, 'Informe o entregador.');
 
     const entregador = db.prepare(
-      "SELECT id FROM usuarios WHERE id = ? AND perfil = 'entregador' AND bloqueado = 0"
-    ).get(entregadorId) as { id: number } | undefined;
+      `SELECT id FROM usuarios WHERE id = ? AND perfil = 'entregador' AND bloqueado = 0
+       AND (loja_id IS NULL OR loja_id = ?)`
+    ).get(entregadorId, loja.id) as { id: number } | undefined;
     if (!entregador) throw erroHttp(404, 'Entregador não encontrado ou indisponível.');
 
     const pedido = db.prepare(

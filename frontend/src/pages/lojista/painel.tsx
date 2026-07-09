@@ -27,7 +27,7 @@ import { suportaPush, ativarPush } from '@/lib/push';
 import { despacharImpressao, imprimirComandasProducao } from '@/lib/impressao';
 import type { BlocoImpressao } from '@/lib/agente';
 import { ProdutosLoja } from './produtos';
-import { LojaConfiguracao, HorarioLoja, ZonasEntrega, PagamentosLoja, ImpressaoLoja } from './loja-config';
+import { LojaConfiguracao, HorarioLoja, ZonasEntrega, PagamentosLoja, ImpressaoLoja, EntregadoresLoja } from './loja-config';
 import { FiscalLoja } from './fiscal';
 import { CategoriasLoja } from './categorias';
 import { RelatoriosLoja } from './relatorios';
@@ -152,12 +152,13 @@ export function PainelLojista() {
 /* ── Config da loja: só configuração de verdade.
    Cupons, Clientes e Avaliações agora vivem na aba "Mais" (operação). ── */
 function ConfiguracoesLoja() {
-  const [aba, setAba] = useState<'loja' | 'horario' | 'entrega' | 'visual' | 'banners' | 'pagamentos' | 'impressao' | 'fiscal'>('loja');
+  const [aba, setAba] = useState<'loja' | 'horario' | 'entrega' | 'entregadores' | 'visual' | 'banners' | 'pagamentos' | 'impressao' | 'fiscal'>('loja');
 
   const ABAS = [
     { id: 'loja' as const, label: 'Dados', icone: Settings },
     { id: 'horario' as const, label: 'Horário', icone: Clock },
     { id: 'entrega' as const, label: 'Entrega', icone: Bike },
+    { id: 'entregadores' as const, label: 'Entregadores', icone: Users },
     { id: 'pagamentos' as const, label: 'Pix', icone: CreditCard },
     { id: 'fiscal' as const, label: 'Fiscal', icone: FileText },
     { id: 'impressao' as const, label: 'Impressão', icone: Printer },
@@ -192,6 +193,7 @@ function ConfiguracoesLoja() {
       {aba === 'loja' && <LojaConfiguracao />}
       {aba === 'horario' && <HorarioLoja />}
       {aba === 'entrega' && <ZonasEntrega />}
+      {aba === 'entregadores' && <EntregadoresLoja />}
       {aba === 'pagamentos' && <PagamentosLoja />}
       {aba === 'fiscal' && <FiscalLoja />}
       {aba === 'impressao' && <ImpressaoLoja />}

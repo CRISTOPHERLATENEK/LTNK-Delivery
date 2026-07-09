@@ -550,6 +550,129 @@ export function ZonasEntrega() {
   );
 }
 
+/* ───────────────────────── Entregadores (motoboys) ─────────────────────── */
+
+interface EntregadorCadastro {
+  id: number; nome: string; email: string; telefone: string; bloqueado: 0 | 1;
+}
+
+export function EntregadoresLoja() {
+  const { mostrar } = useToast();
+  const [lista, setLista] = useState<EntregadorCadastro[]>([]);
+  const [carregado, setCarregado] = useState(false);
+  const [nome, setNome] = useState('');
+  const [telefone, setTelefone] = useState('');
+  const [email, setEmail] = useState('');
+  const [senha, setSenha] = useState('');
+  const [enviando, setEnviando] = useState(false);
+
+  function carregar() {
+    api<{ entregadores: EntregadorCadastro[] }>('GET', '/api/lojista/entregadores/cadastro')
+      .then(r => { setLista(r.entregadores); setCarregado(true); })
+      .catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar os entregadores.' }));
+  }
+
+  useEffect(() => { carregar(); }, []);
+
+  async function cadastrar() {
+    if (!nome.trim() || !email.trim() || senha.length < 6) return;
+    setEnviando(true);
+    try {
+      await api('POST', '/api/lojista/entregadores/cadastro', {
+        nome: nome.trim(), telefone: telefone.trim(), email: email.trim(), senha,
+      });
+      setNome(''); setTelefone(''); setEmail(''); setSenha('');
+      mostrar({ tipo: 'sucesso', titulo: 'Entregador cadastrado!' });
+      carregar();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  async function alternarBloqueio(e: EntregadorCadastro) {
+    try {
+      await api('PUT', `/api/lojista/entregadores/cadastro/${e.id}`, { bloqueado: !e.bloqueado });
+      setLista(l => l.map(x => x.id === e.id ? { ...x, bloqueado: e.bloqueado ? 0 : 1 } : x));
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+
+  if (!carregado) return <Skeleton className="h-80" />;
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <Bike className="size-5 text-primary" />
+            <span className="font-bold">Entregadores</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Cadastre o login dos seus motoboys aqui. Eles entram em <strong>/entregador</strong> com o
+            e-mail e a senha definidos abaixo, pra ver e aceitar as entregas prontas desta loja.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* Cadastrar novo entregador */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <Label className="mb-0 block">Cadastrar entregador</Label>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input placeholder="Nome" value={nome} onChange={e => setNome(e.target.value)} className="h-10" />
+            <Input placeholder="Telefone" value={telefone} onChange={e => setTelefone(e.target.value)} className="h-10" />
+            <Input placeholder="E-mail (login)" type="email" value={email} onChange={e => setEmail(e.target.value)} className="h-10" />
+            <Input placeholder="Senha (mín. 6 caracteres)" type="password" value={senha} onChange={e => setSenha(e.target.value)} className="h-10" />
+          </div>
+          <Button
+            onClick={cadastrar}
+            disabled={enviando || !nome.trim() || !email.trim() || senha.length < 6}
+          >
+            <Plus className="size-4" /> Cadastrar entregador
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Lista */}
+      <Card>
+        <CardContent className="p-3">
+          {lista.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-6">
+              Nenhum entregador cadastrado ainda.
+            </p>
+          ) : (
+            <div className="divide-y divide-border/60">
+              {lista.map(e => (
+                <div key={e.id} className="flex items-center gap-3 py-2.5 px-1">
+                  <Bike className="size-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{e.nome}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{e.email} {e.telefone && `· ${e.telefone}`}</p>
+                  </div>
+                  <button
+                    onClick={() => alternarBloqueio(e)}
+                    className={cn(
+                      'shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold transition-colors',
+                      e.bloqueado
+                        ? 'bg-muted text-muted-foreground hover:bg-destructive/10 hover:text-destructive'
+                        : 'bg-green-500/15 text-green-600 hover:bg-amber-500/15 hover:text-amber-600',
+                    )}
+                  >
+                    {e.bloqueado ? 'bloqueado' : 'ativo'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 /* ───────────────────────── Pagamentos (Mercado Pago) ───────────────────── */
 
 export function PagamentosLoja() {
