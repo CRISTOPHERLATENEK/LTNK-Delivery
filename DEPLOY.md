@@ -57,6 +57,19 @@ provedor: Gmail, Hostinger, Brevo, SES...):
 Sem essas variáveis, o fluxo continua funcionando sem erro (nunca derruba o servidor),
 mas o e-mail simplesmente não é enviado — fica registrado no log do servidor.
 
+### Monitoramento de erro (Sentry, opcional mas recomendado)
+
+Sem isso, um erro em produção só aparece se alguém reportar e você reproduzir manualmente
+(foi assim que caçamos o bug do certificado A1 nesta sessão — deu trabalho). Com o Sentry,
+o erro chega automaticamente com stack trace e contexto, sem precisar reproduzir nada.
+
+1. Crie uma conta grátis em [sentry.io](https://sentry.io) (plano free cobre um app pequeno).
+2. Crie um projeto **Node** — copie o DSN dele em `SENTRY_DSN`.
+3. Crie um projeto **React** — copie o DSN dele em `VITE_SENTRY_DSN`.
+4. Redeploy. Pronto — erros de backend e de tela branca no frontend caem automaticamente lá.
+
+Sem essas variáveis, tudo continua funcionando normalmente, só sem o monitoramento.
+
 ### Primeiro login (servidor novo = banco vazio)
 
 Um deploy novo sobe com o banco **vazio** — nenhuma loja, nenhum usuário. Não existe

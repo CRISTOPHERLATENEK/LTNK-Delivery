@@ -25,6 +25,7 @@ import pushRoutes from './rotas/push';
 import { ErroHttp, lojaAbertaPorAgenda, agoraUTC } from './util';
 import db, { comTenant } from './db';
 import { resolverPorHost, tenantPadrao, listarTenants } from './tenants';
+import { capturarErro } from './monitoramento';
 
 /**
  * Bootstrap opcional: em hospedagens gerenciadas (sem terminal/SSH para rodar
@@ -105,8 +106,10 @@ app.use('/api', (_req, res) => {
   res.status(404).json({ erro: 'Rota não encontrada.' });
 });
 
-// Tratador central de erros — converte ErroHttp em resposta JSON em português
-const tratadorErros: ErrorRequestHandler = (erro, _req, res, _next) => {
+// Tratador central de erros — converte ErroHttp em resposta JSON em português.
+// Só reporta ao Sentry os 500 (erro real, inesperado) — erros de negócio
+// (ErroHttp: 400/404/409...) são esperados e não viram ruído no monitoramento.
+const tratadorErros: ErrorRequestHandler = (erro, req, res, _next) => {
   if (erro instanceof ErroHttp || (erro && erro.statusHttp)) {
     return res.status(erro.statusHttp).json({ erro: erro.message });
   }
@@ -114,6 +117,7 @@ const tratadorErros: ErrorRequestHandler = (erro, _req, res, _next) => {
     return res.status(400).json({ erro: 'Corpo da requisição inválido (JSON malformado).' });
   }
   console.error('[ERRO INTERNO]', erro);
+  capturarErro(erro, { metodo: req.method, rota: req.path });
   res.status(500).json({ erro: 'Erro interno do servidor. Tente novamente em instantes.' });
 };
 app.use(tratadorErros);
