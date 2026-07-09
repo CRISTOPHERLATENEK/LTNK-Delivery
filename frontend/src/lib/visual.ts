@@ -119,6 +119,23 @@ export function estiloBotao(visual: VisualJson, corMarca: string): CSSProperties
   };
 }
 
+/**
+ * Estilo do botão-ÍCONE redondo (o "+" de adicionar no card do produto). Ao
+ * contrário de `estiloBotao`, NÃO aplica padding/fontSize (que são pro botão
+ * grande com texto) — num botão de 32px o padding empurraria o ícone pra fora
+ * e o botão apareceria vazio. Aqui só a cor, a sombra e a borda importam; o
+ * tamanho e o formato redondo vêm das classes (`size-8 rounded-full`).
+ */
+export function estiloBotaoIcone(visual: VisualJson, corMarca: string): CSSProperties {
+  const cor = corOuPadrao(visual.cores.cor_botoes, corMarca || '#dc2640');
+  return {
+    backgroundColor: visual.botoes.gradiente ? undefined : cor,
+    backgroundImage: visual.botoes.gradiente ? `linear-gradient(135deg, ${cor}, ${cor}cc)` : undefined,
+    boxShadow: visual.botoes.sombra ? '0 4px 14px rgba(0,0,0,.18)' : 'none',
+    border: visual.botoes.borda ? `1.5px solid ${cor}` : 'none',
+  };
+}
+
 /** Classe utilitária de animação do botão — as keyframes ficam em `PhonePreview`/`loja.tsx`. */
 export function classNameBotao(visual: VisualJson): string {
   if (visual.botoes.animacao === 'nenhuma') return '';

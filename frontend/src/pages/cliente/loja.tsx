@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { useTema, injetarFonteLink } from '@/lib/tema';
+import { useTema, injetarFonteLink, foregroundContraste } from '@/lib/tema';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2, Check, ArrowRight, ShoppingCart } from 'lucide-react';
@@ -13,7 +13,7 @@ import { adicionarAoCarrinho, useCarrinho, mudarQuantidade } from '@/lib/carrinh
 import { ModalProduto } from './modal-produto';
 import { BannerCarousel } from '@/components/banner-carousel';
 import {
-  parseVisualJson, corOuPadrao, estiloBotao, classNameBotao, FONTES_VISUAL,
+  parseVisualJson, corOuPadrao, estiloBotaoIcone, classNameBotao, FONTES_VISUAL,
   injetarAnalytics, removerAnalytics,
 } from '@/lib/visual';
 import type { Loja, Produto, Banner, VisualJson } from '@/types';
@@ -729,6 +729,9 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
   const abrivel = podeAbrir && !esgotado;
   const c = visual.cardapio;
   const corBadge = corOuPadrao(visual.cores.cor_badges, '');
+  // Cor do ícone "+" — contrasta com a cor real do botão (preto sobre cor clara).
+  const corBotao = corOuPadrao(visual.cores.cor_botoes, corMarca || '#dc2640');
+  const fgBotao = foregroundContraste(corBotao) === '0 0% 100%' ? '#fff' : '#111';
 
   return (
     <motion.div
@@ -750,9 +753,19 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
       {c.mostrar_foto && (
         <div className={cn('relative overflow-hidden bg-white', layoutGrid ? 'aspect-square' : 'size-16 shrink-0 rounded-xl')}>
           {produto.foto_url
-            ? <img src={produto.foto_url} alt={produto.nome} className={cn('size-full object-cover transition-transform duration-300', abrivel && 'group-hover:scale-105', esgotado && 'grayscale')} />
-            : <div className="flex size-full items-center justify-center text-4xl">🍽️</div>
-          }
+            ? <img src={produto.foto_url} alt={produto.nome}
+                onError={e => {
+                  // Foto quebrada (ex.: arquivo /uploads/... que não existe no
+                  // servidor) — troca por um placeholder em vez de mostrar o
+                  // ícone de imagem quebrada do navegador.
+                  const img = e.currentTarget;
+                  img.style.display = 'none';
+                  const ph = img.nextElementSibling as HTMLElement | null;
+                  if (ph) ph.style.display = 'flex';
+                }}
+                className={cn('size-full object-cover transition-transform duration-300', abrivel && 'group-hover:scale-105', esgotado && 'grayscale')} />
+            : null}
+          <div className="size-full items-center justify-center text-4xl" style={{ display: produto.foto_url ? 'none' : 'flex' }}>🍽️</div>
           {/* Overlay esgotado */}
           {esgotado && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/45">
@@ -818,8 +831,8 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
             <button
               type="button"
               onClick={e => { e.stopPropagation(); onClick(); }}
-              className={cn('flex size-8 shrink-0 items-center justify-center text-primary-foreground active:opacity-70 transition-opacity touch-manipulation', classNameBotao(visual))}
-              style={estiloBotao(visual, corMarca || '')}
+              className={cn('flex size-8 shrink-0 items-center justify-center rounded-full active:opacity-70 transition-opacity touch-manipulation', classNameBotao(visual))}
+              style={{ ...estiloBotaoIcone(visual, corMarca || ''), color: fgBotao }}
             >
               <Plus className="size-4" />
             </button>
