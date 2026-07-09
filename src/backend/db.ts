@@ -408,6 +408,12 @@ garantirColuna('usuarios', 'loja_id', 'loja_id INTEGER REFERENCES lojas(id)');
 garantirColuna('usuarios', 'cpf', 'cpf TEXT');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_cpf ON usuarios(cpf) WHERE cpf IS NOT NULL');
 
+// Recuperação de senha: token de uso único (guardado com HASH, nunca em
+// texto puro) com validade curta. Um único slot por usuário — pedir de novo
+// invalida o anterior.
+garantirColuna('usuarios', 'reset_token_hash', 'reset_token_hash TEXT');
+garantirColuna('usuarios', 'reset_token_expira', 'reset_token_expira TEXT');
+
 // Coordenadas do endereço (geocodificadas via OpenStreetMap/Nominatim ao salvar)
 // — deixam o mapa/navegação do entregador precisos (ponto exato, não só texto).
 garantirColuna('enderecos', 'lat', 'lat REAL');

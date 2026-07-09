@@ -29,6 +29,7 @@ import { TelaRepasses } from '@/pages/admin/repasses';
 import { TelaMonitor } from '@/pages/admin/monitor';
 import { TelaEntregadores } from '@/pages/admin/entregadores';
 import { TelaTenants } from '@/pages/admin/tenants';
+import { EsqueciSenha, RedefinirSenha } from '@/pages/esqueci-senha';
 import { Guard } from '@/components/guards';
 
 const STATUS_ATIVOS = ['pendente', 'aceito', 'preparando', 'pronto', 'em_entrega'];
@@ -102,6 +103,10 @@ export default function App() {
       <Route path="/pedidos" element={<ClienteLayout><PaginaPedidos /></ClienteLayout>} />
       <Route path="/pedido/:id" element={<ClienteLayout><PaginaPedido /></ClienteLayout>} />
       <Route path="/conta" element={<ClienteLayout><PaginaConta /></ClienteLayout>} />
+
+      {/* Recuperação de senha — independente de área, usada pelas 4 telas de login */}
+      <Route path="/esqueci-senha" element={<EsqueciSenha />} />
+      <Route path="/redefinir-senha" element={<RedefinirSenha />} />
 
       {/* Lojista — PainelLojista gerencia seu próprio login */}
       <Route path="/lojista/*" element={<PainelLojista />} />

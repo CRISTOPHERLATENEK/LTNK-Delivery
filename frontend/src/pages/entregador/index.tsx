@@ -3,7 +3,7 @@
  * Gerencia seu próprio login (sem Guard externo), padrão igual ao lojista.
  */
 import { useState, useEffect, useRef } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Bike, MapPin, Phone, Store, CheckCircle2, ExternalLink,
@@ -565,6 +565,9 @@ function LoginEntregador() {
               <Button type="submit" size="lg" className="w-full rounded-2xl mt-2" disabled={enviando}>
                 {enviando ? 'Entrando…' : 'Entrar'}
               </Button>
+              <Link to="/esqueci-senha" className="block text-center text-sm text-muted-foreground hover:text-primary">
+                Esqueci minha senha
+              </Link>
             </form>
           </CardContent>
         </Card>

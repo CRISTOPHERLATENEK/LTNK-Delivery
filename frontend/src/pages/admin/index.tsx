@@ -418,6 +418,9 @@ function LoginAdmin() {
           <Button type="submit" size="lg" className="w-full" disabled={carregando}>
             {carregando ? 'Entrando…' : 'Entrar no painel'}
           </Button>
+          <Link to="/esqueci-senha" className="block text-center text-sm text-zinc-400 hover:text-primary">
+            Esqueci minha senha
+          </Link>
         </form>
       </div>
     </div>

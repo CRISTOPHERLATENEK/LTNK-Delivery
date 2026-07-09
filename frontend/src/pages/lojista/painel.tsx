@@ -1166,6 +1166,9 @@ function LoginLojista() {
               <Button type="submit" size="lg" className="w-full" disabled={enviando}>
                 {enviando ? 'Entrando…' : 'Entrar'}
               </Button>
+              <Link to="/esqueci-senha" className="block text-center text-sm text-muted-foreground hover:text-primary">
+                Esqueci minha senha
+              </Link>
             </form>
           </CardContent>
         </Card>

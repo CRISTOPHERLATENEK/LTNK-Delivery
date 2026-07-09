@@ -45,6 +45,18 @@ No painel do app, adicione as variáveis (copie os nomes do `.env.example`). As 
 
 > **Nunca** coloque esses valores no código nem no GitHub — só nas variáveis de ambiente do painel.
 
+### E-mail (recuperação de senha)
+
+Pra "Esqueci minha senha" enviar o e-mail de verdade, configure um SMTP (qualquer
+provedor: Gmail, Hostinger, Brevo, SES...):
+
+- `SMTP_HOST`, `SMTP_PORT` (padrão 587), `SMTP_USER`, `SMTP_PASS`
+- `SMTP_FROM` (opcional) — ex.: `"Sua Loja" <naoresponda@seudominio.com.br>`
+- `SMTP_SECURE=1` (opcional) — só se o provedor exigir TLS direto (geralmente porta 465)
+
+Sem essas variáveis, o fluxo continua funcionando sem erro (nunca derruba o servidor),
+mas o e-mail simplesmente não é enviado — fica registrado no log do servidor.
+
 ### Primeiro login (servidor novo = banco vazio)
 
 Um deploy novo sobe com o banco **vazio** — nenhuma loja, nenhum usuário. Não existe

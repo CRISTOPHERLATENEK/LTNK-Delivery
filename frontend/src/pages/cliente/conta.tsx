@@ -2,7 +2,7 @@
  * Tela "Conta": login + cadastro de cliente. Após login, mostra perfil.
  */
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { LogIn, UserPlus, User, MapPin, Lock, Pencil, Plus, Trash2, Save, X, Check, Loader2 } from 'lucide-react';
 import { api, ApiError, salvarSessao, sessaoUsuario, encerrarSessao } from '@/lib/api';
@@ -335,6 +335,9 @@ function FormLogin({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
           <Button type="submit" size="lg" className="w-full" disabled={enviando}>
             {enviando ? 'Entrando…' : 'Entrar'}
           </Button>
+          <Link to="/esqueci-senha" className="block text-center text-sm text-muted-foreground hover:text-primary">
+            Esqueci minha senha
+          </Link>
         </form>
       </CardContent>
     </Card>
