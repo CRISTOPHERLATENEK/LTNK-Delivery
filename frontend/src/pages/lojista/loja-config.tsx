@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
-import { agenteAtivo, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL } from '@/lib/agente';
+import { statusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -700,6 +700,7 @@ export function ImpressaoLoja() {
   const [agImpressoras, setAgImpressoras] = useState<string[]>([]);
   const [agSelecionada, setAgSelecionada] = useState(impressoraAgente());
   const [agEstado, setAgEstado] = useState<'idle' | 'buscando' | 'ok' | 'off'>('idle');
+  const [agVersao, setAgVersao] = useState('');
   // Setores de impressão (Cozinha, Bar...) — vínculo setor→impressora é local deste PC.
   const [setores, setSetores] = useState<{ id: number; nome: string; categorias: number }[]>([]);
   const [setorImpressoras, setSetorImpressoras] = useState<Record<number, string>>({});
@@ -711,7 +712,9 @@ export function ImpressaoLoja() {
 
   async function conectarAgente() {
     setAgEstado('buscando');
-    if (!(await agenteAtivo())) { setAgEstado('off'); return; }
+    const status = await statusAgente();
+    if (!status) { setAgEstado('off'); return; }
+    setAgVersao(status.versao);
     try {
       const lista = await listarImpressorasAgente();
       setAgImpressoras(lista);
@@ -857,7 +860,9 @@ export function ImpressaoLoja() {
             <Printer className="size-4 text-primary" />
             <span className="font-bold text-sm">Software de Impressão</span>
             {agEstado === 'ok'
-              ? <span className="rounded-full bg-green-500/15 text-green-600 px-2 py-0.5 text-[10px] font-bold">ativo</span>
+              ? <span className="rounded-full bg-green-500/15 text-green-600 px-2 py-0.5 text-[10px] font-bold">
+                  ativo{agVersao ? ` · v${agVersao}` : ''}
+                </span>
               : agEstado === 'off'
                 ? <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">não detectado</span>
                 : null}
@@ -867,9 +872,15 @@ export function ImpressaoLoja() {
             O cupom será enviado direto para a impressora térmica.
           </p>
 
-          <a href="/downloads/Software-de-Impressao.exe" download
+          {agEstado === 'ok' && agVersao && agVersao !== VERSAO_INSTALADOR && (
+            <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">
+              Nova versão disponível ({VERSAO_INSTALADOR}) — baixe e instale por cima pra atualizar.
+            </p>
+          )}
+
+          <a href={URL_INSTALADOR}
             className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-bold text-primary-foreground shadow-sm shadow-primary/30 transition-opacity hover:opacity-90">
-            <Download className="size-4" /> Baixar instalador (Windows)
+            <Download className="size-4" /> Baixar instalador (Windows) · v{VERSAO_INSTALADOR}
           </a>
           <p className="text-[11px] text-muted-foreground">
             Baixe no computador do caixa, instale e deixe aberto. Depois clique em <strong>Procurar impressoras</strong>.

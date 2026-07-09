@@ -24,6 +24,16 @@ const CHAVE = 'agente_impressora';
 /** URL do editor do cupom fiscal (rodapé, QR, fonte) — aberto no navegador padrão. */
 export const URL_EDITOR_FISCAL = `${BASE}/editor`;
 
+/**
+ * Versão mais recente do Software de Impressão e onde baixar o instalador.
+ * Atualize os dois juntos a cada `npm run dist` no agente-impressao — o
+ * instalador é publicado como asset de uma GitHub Release (não fica
+ * versionado no repo, o .exe passa de 90MB).
+ */
+export const VERSAO_INSTALADOR = '1.2.0';
+export const URL_INSTALADOR =
+  'https://github.com/CRISTOPHERLATENEK/LTNK-Delivery/releases/download/agente-impressao-v1.2.0/AgenteImpressao-Instalador.exe';
+
 /** Heurística p/ reconhecer impressora térmica pelo nome. */
 const RE_TERMICA = /elgin|bematech|epson|daruma|sweda|tanca|pos\b|term|58mm|80mm|i[789]\b/i;
 
@@ -67,13 +77,20 @@ export async function impressoraAgentePreferida(): Promise<string | null> {
 
 /** true se o agente está rodando (responde ao /status rápido). */
 export async function agenteAtivo(): Promise<boolean> {
+  return (await statusAgente()) !== null;
+}
+
+/** Versão do Software de Impressão rodando neste PC, ou null se não estiver ativo. */
+export async function statusAgente(): Promise<{ versao: string } | null> {
   try {
     const c = new AbortController();
     const t = setTimeout(() => c.abort(), 1200);
     const r = await fetch(`${BASE}/status`, { signal: c.signal });
     clearTimeout(t);
-    return r.ok;
-  } catch { return false; }
+    if (!r.ok) return null;
+    const j = await r.json();
+    return { versao: String(j.versao || '') };
+  } catch { return null; }
 }
 
 /** Lista as impressoras que o agente enxerga no PC. */

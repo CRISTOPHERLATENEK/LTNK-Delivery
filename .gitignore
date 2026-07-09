@@ -30,3 +30,4 @@ agente-impressao/dist/
 *.tmp
 .DS_Store
 Thumbs.db
+public/downloads/
