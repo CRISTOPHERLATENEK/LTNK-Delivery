@@ -44,25 +44,44 @@ export function PaginaLoja() {
     enabled: !!id,
   });
 
+  // Modo preview: esta página roda dentro de um <iframe> no editor "Visual"
+  // do lojista (visual/PhonePreview.tsx), same-origin, recebendo por
+  // postMessage o estado AINDA NÃO SALVO do formulário — assim o preview do
+  // editor é literalmente esta mesma página renderizando de verdade, sem
+  // duplicar CSS/lógica em dois lugares que puderiam divergir.
+  const modoPreview = searchParams.get('preview') === '1';
+  const [previewOverride, setPreviewOverride] = useState<any | null>(null);
+  useEffect(() => {
+    if (!modoPreview) return;
+    function aoReceberMensagem(e: MessageEvent) {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type === 'visual-preview') setPreviewOverride(e.data.payload);
+    }
+    window.addEventListener('message', aoReceberMensagem);
+    try { window.parent.postMessage({ type: 'preview-ready' }, window.location.origin); } catch { /* sem parent */ }
+    return () => window.removeEventListener('message', aoReceberMensagem);
+  }, [modoPreview]);
+
+  const corMarcaEfetiva = previewOverride?.cor_marca ?? consulta.data?.loja.cor_marca;
+  const corSecundariaEfetiva = previewOverride?.cor_secundaria ?? consulta.data?.loja.cor_secundaria;
   // Reage também a `marca`: o tema da PLATAFORMA (/api/tema) carrega em
   // paralelo com o cardápio desta loja, e se resolver DEPOIS ele sobrescreve
   // --primary de volta pro padrão da plataforma. Incluir `marca` nas
   // dependências faz reaplicar a cor da loja assim que isso acontecer —
   // sem isso, dava pra "ganhar a corrida" e a cor ficar errada (ou piscar).
   useEffect(() => {
-    const cor = consulta.data?.loja.cor_marca;
-    if (cor) aplicarCorPrimaria(cor, consulta.data?.loja.cor_secundaria);
+    if (corMarcaEfetiva) aplicarCorPrimaria(corMarcaEfetiva, corSecundariaEfetiva);
     return () => { resetarCorPrimaria(); };
-  }, [consulta.data?.loja.cor_marca, consulta.data?.loja.cor_secundaria, aplicarCorPrimaria, resetarCorPrimaria, marca]);
+  }, [corMarcaEfetiva, corSecundariaEfetiva, aplicarCorPrimaria, resetarCorPrimaria, marca]);
 
   // Favicon próprio da loja na aba do navegador enquanto o cliente navega
   // nela — volta pro favicon da plataforma ao sair. Mesma corrida do tema
   // acima: reage a `marca` pra reaplicar se a plataforma sobrescrever depois.
+  const faviconEfetivo = previewOverride?.favicon_url ?? consulta.data?.loja.favicon_url;
   useEffect(() => {
-    const favicon = consulta.data?.loja.favicon_url;
-    if (favicon) aplicarFaviconLoja(favicon);
+    if (faviconEfetivo) aplicarFaviconLoja(faviconEfetivo);
     return () => { resetarFavicon(); };
-  }, [consulta.data?.loja.favicon_url, aplicarFaviconLoja, resetarFavicon, marca]);
+  }, [faviconEfetivo, aplicarFaviconLoja, resetarFavicon, marca]);
 
   // Deep link: ?produto=ID
   useEffect(() => {
@@ -80,7 +99,14 @@ export function PaginaLoja() {
   // Visual completo da loja (editor "Visual" do lojista) — parse feito uma
   // vez aqui em cima, reusado no resto do componente e nos efeitos abaixo
   // (que precisam rodar ANTES do early-return de loading, regra dos hooks).
-  const visual: VisualJson = parseVisualJson((consulta.data as any)?.loja?.visual_json);
+  // Em modo preview, os 9 blocos do visual_json vêm do override (postMessage)
+  // em vez do que está salvo no banco.
+  const visualSalvo: VisualJson = parseVisualJson((consulta.data as any)?.loja?.visual_json);
+  const visual: VisualJson = previewOverride ? {
+    geral: previewOverride.geral, cores: previewOverride.cores, logo: previewOverride.logo,
+    capa: previewOverride.capa, cardapio: previewOverride.cardapio, botoes: previewOverride.botoes,
+    tipografia: previewOverride.tipografia, banners: previewOverride.banners, avancado: previewOverride.avancado,
+  } : visualSalvo;
   const fonteLoja = FONTES_VISUAL[visual.tipografia.fonte];
 
   // Fonte da LOJA — só o <link> do Google Fonts, sem sobrescrever
@@ -90,18 +116,27 @@ export function PaginaLoja() {
     injetarFonteLink(fonteLoja, 'fonte-loja');
   }, [fonteLoja]);
 
-  // Analytics/pixels da loja (visual_json.avancado) — só na página pública,
-  // nunca no editor do lojista. Remove ao sair da página.
+  // Analytics/pixels da loja (visual_json.avancado) — só na página pública
+  // de verdade, nunca dentro do iframe de preview do editor.
   useEffect(() => {
-    if (consulta.data) injetarAnalytics(visual.avancado);
+    if (consulta.data && !modoPreview) injetarAnalytics(visual.avancado);
     return () => { removerAnalytics(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(visual.avancado), !!consulta.data]);
+  }, [JSON.stringify(visual.avancado), !!consulta.data, modoPreview]);
 
   if (consulta.isLoading) return <Skeleton_Loja />;
   if (!consulta.data) return null;
 
-  const { loja, cardapio, banners } = consulta.data;
+  const { cardapio, banners } = consulta.data;
+  const loja = previewOverride ? {
+    ...consulta.data.loja,
+    nome: previewOverride.nome ?? consulta.data.loja.nome,
+    cor_marca: previewOverride.cor_marca ?? consulta.data.loja.cor_marca,
+    cor_secundaria: previewOverride.cor_secundaria ?? consulta.data.loja.cor_secundaria,
+    logo_url: previewOverride.logo_url ?? consulta.data.loja.logo_url,
+    capa_url: previewOverride.capa_url ?? consulta.data.loja.capa_url,
+    favicon_url: previewOverride.favicon_url ?? consulta.data.loja.favicon_url,
+  } : consulta.data.loja;
   const modoWhiteLabel = marca.loja_id > 0;
   const estiloCat: 'cards' | 'chips' = loja.categoria_estilo === 'chips' ? 'chips' : 'cards';
   const metaCat: CategoriaMeta[] = consulta.data.categorias_meta?.length

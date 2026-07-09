@@ -44,10 +44,21 @@ app.disable('x-powered-by');
 if (process.env.CONFIA_PROXY === '1') app.set('trust proxy', 1);
 app.use(express.json({ limit: '200kb' }));
 
-// Cabeçalhos de segurança básicos
-app.use((_req, res, next) => {
+// Cabeçalhos de segurança básicos. Exceção estreita: a própria página da
+// loja em modo preview (`/loja/:id?preview=1`) precisa poder ser embutida
+// num <iframe> — é o preview ao vivo do editor "Visual" do lojista (ver
+// frontend/src/pages/lojista/visual/PhonePreview.tsx), same-origin. Em vez
+// de tirar a proteção, trocamos por CSP `frame-ancestors 'self'`: continua
+// bloqueando qualquer site de FORA framear a loja (clickjacking), só libera
+// o próprio domínio embutir a própria página de preview.
+app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
+  const ehPreviewDaLoja = /^\/loja\/[^/]+$/.test(req.path) && req.query.preview === '1';
+  if (ehPreviewDaLoja) {
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
+  } else {
+    res.setHeader('X-Frame-Options', 'DENY');
+  }
   res.setHeader('Referrer-Policy', 'no-referrer');
   next();
 });

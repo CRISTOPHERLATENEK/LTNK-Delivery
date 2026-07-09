@@ -1,7 +1,6 @@
-import { useEffect } from 'react';
-import { Star, Clock, Bike, ChevronLeft, ChevronRight } from 'lucide-react';
-import { foregroundContraste, injetarFonteLink } from '@/lib/tema';
-import { FONTES_VISUAL, corOuPadrao, estiloBotao, classNameBotao } from '@/lib/visual';
+import { useEffect, useRef, useState } from 'react';
+import { Smartphone, Monitor, RefreshCw } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { EstadoVisual } from './types';
 
 interface Props {
@@ -9,157 +8,124 @@ interface Props {
   lojaId: number | null;
 }
 
-const RAIO_LOGO = { quadrado: '10%', arredondado: '28%', circular: '50%' };
+const LARGURA_MOBILE = 390;
+const ALTURA_MOBILE = 720;
+const LARGURA_DESKTOP = 1180;
+const ALTURA_DESKTOP = 720;
 
 /**
- * Mockup do celular — moldura desenhada em CSS (não imagem), reage a cada
- * campo do `estado` via re-render normal (sem debounce: não há chamada de
- * rede por tecla, tudo local até o Salvar).
+ * Preview ao vivo = a página REAL da loja (`/loja/:id?preview=1`) dentro de
+ * um <iframe> same-origin, recebendo o estado ainda não salvo via
+ * postMessage. Não é um mockup à parte — é literalmente o mesmo componente
+ * que o cliente vê, então nunca diverge do site de verdade. O toggle
+ * mobile/desktop só redimensiona o iframe: como é o app de verdade
+ * renderizando, os breakpoints (`sm:`, `lg:`) reagem sozinhos, igual um
+ * navegador de verdade.
  */
-export function PhonePreview({ estado }: Props) {
-  const cor = estado.cor_marca || '#dc2640';
-  const fg = foregroundContraste(cor) === '0 0% 100%' ? '#fff' : '#111';
-  const fonte = FONTES_VISUAL[estado.tipografia.fonte] ?? FONTES_VISUAL.inter;
+export function PhonePreview({ estado, lojaId }: Props) {
+  const [modo, setModo] = useState<'mobile' | 'desktop'>('mobile');
+  const [pronto, setPronto] = useState(false);
+  const [escala, setEscala] = useState(1);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Handshake: o iframe avisa "estou pronto" via postMessage assim que monta
+  // (evita a corrida de mandar o estado antes do listener existir lá dentro).
+  useEffect(() => {
+    function aoReceberMensagem(e: MessageEvent) {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type === 'preview-ready') setPronto(true);
+    }
+    window.addEventListener('message', aoReceberMensagem);
+    return () => window.removeEventListener('message', aoReceberMensagem);
+  }, []);
+
+  // Reenvia o estado atual toda vez que algo muda (ou quando o iframe fica
+  // pronto) — postMessage é local e instantâneo, sem chamada de rede.
+  useEffect(() => {
+    if (!pronto) return;
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    win.postMessage({ type: 'visual-preview', payload: estado }, window.location.origin);
+  }, [estado, pronto]);
+
+  // Modo desktop: encolhe o iframe (que continua renderizando em 1180px de
+  // verdade) pra caber na largura do painel lateral — igual o zoom do
+  // DevTools, não é um layout "mobile forçado a parecer desktop".
+  const largura = modo === 'mobile' ? LARGURA_MOBILE : LARGURA_DESKTOP;
+  const altura = modo === 'mobile' ? ALTURA_MOBILE : ALTURA_DESKTOP;
 
   useEffect(() => {
-    injetarFonteLink(fonte, 'fonte-preview-visual');
-  }, [fonte]);
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    function recalcular() {
+      if (modo === 'mobile') { setEscala(1); return; }
+      const disponivel = wrapper!.clientWidth;
+      setEscala(disponivel > 0 ? Math.min(1, disponivel / LARGURA_DESKTOP) : 1);
+    }
+    recalcular();
+    const obs = new ResizeObserver(recalcular);
+    obs.observe(wrapper);
+    return () => obs.disconnect();
+  }, [modo]);
 
-  const corCabecalho = corOuPadrao(estado.cores.cor_cabecalho, cor);
-  const corFundo = corOuPadrao(estado.cores.cor_fundo, '#f7f7f5');
-  const corCards = corOuPadrao(estado.cores.cor_cards, '#ffffff');
-  const corTexto = corOuPadrao(estado.cores.cor_texto, '#1f1f1f');
-  const corBadges = corOuPadrao(estado.cores.cor_badges, '#16a34a');
-  const corRodape = corOuPadrao(estado.cores.cor_rodape, '#1a1a1a');
+  function recarregar() {
+    setPronto(false);
+    const el = iframeRef.current;
+    if (el) el.src = el.src;
+  }
 
-  const raioLogo = RAIO_LOGO[estado.logo.formato];
-
-  const produtos = ['Produto exemplo A', 'Produto exemplo B', 'Produto exemplo C'];
-  const grid = estado.cardapio.layout === 'grid' || estado.cardapio.layout === 'premium';
+  if (!lojaId) return null;
 
   return (
-    <div className="mx-auto w-[300px] select-none">
-      <style>{`
-        @keyframes botao-preview-scale { 0%,100%{transform:scale(1)} 50%{transform:scale(1.06)} }
-        @keyframes botao-preview-glow { 0%,100%{box-shadow:0 0 0 0 rgba(0,0,0,.25)} 50%{box-shadow:0 0 0 6px rgba(0,0,0,0)} }
-        @keyframes botao-preview-fade { 0%,100%{opacity:1} 50%{opacity:.7} }
-        .botao-anim-scale{ animation: botao-preview-scale 1.4s ease-in-out infinite; }
-        .botao-anim-glow{ animation: botao-preview-glow 1.4s ease-in-out infinite; }
-        .botao-anim-fade{ animation: botao-preview-fade 1.4s ease-in-out infinite; }
-        .botao-anim-ripple:active{ opacity:.7 }
-      `}</style>
-
-      <div className="overflow-hidden rounded-[2.5rem] border-8 border-neutral-900 bg-neutral-900 shadow-2xl">
-        {/* Status bar */}
-        <div className="flex items-center justify-between px-5 py-1.5 text-[10px] font-semibold text-white" style={{ backgroundColor: corCabecalho }}>
-          <span>9:41</span>
-          <div className="absolute left-1/2 top-1 h-4 w-20 -translate-x-1/2 rounded-full bg-neutral-900" />
-          <span>📶 🔋</span>
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="inline-flex rounded-lg bg-muted p-0.5">
+          <button type="button" onClick={() => setModo('mobile')}
+            className={cn('flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
+              modo === 'mobile' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+            <Smartphone className="size-3.5" /> Mobile
+          </button>
+          <button type="button" onClick={() => setModo('desktop')}
+            className={cn('flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
+              modo === 'desktop' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+            <Monitor className="size-3.5" /> Desktop
+          </button>
         </div>
+        <button type="button" onClick={recarregar} title="Recarregar preview"
+          className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground">
+          <RefreshCw className="size-3.5" />
+        </button>
+      </div>
 
-        {/* Tela */}
-        <div className="h-[560px] overflow-y-auto" style={{ backgroundColor: corFundo, fontFamily: fonte.stack, fontWeight: estado.tipografia.peso, letterSpacing: `${estado.tipografia.espacamento / 100}px`, fontSize: estado.tipografia.tamanho_base, lineHeight: estado.tipografia.altura_linha, color: corTexto }}>
-          {/* Hero (capa + logo) */}
-          <div className="relative h-32 overflow-hidden" style={{ backgroundColor: corCabecalho }}>
-            {estado.capa_url && (
-              <img src={estado.capa_url} alt="" className="absolute inset-0 size-full"
-                style={{
-                  objectFit: estado.capa.ajuste === 'repeat' ? 'cover' : estado.capa.ajuste,
-                  filter: estado.capa.blur ? `blur(${estado.capa.blur}px)` : undefined,
-                  opacity: estado.capa.opacidade / 100,
-                  objectPosition: estado.capa.posicao === 'topo' ? 'top' : estado.capa.posicao === 'base' ? 'bottom' : 'center',
-                }} />
-            )}
-            {estado.capa.gradiente && (
-              <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,.7), rgba(0,0,0,.1) 60%, transparent)' }} />
-            )}
-            {estado.capa.overlay && (
-              <div className="absolute inset-0" style={{ backgroundColor: `rgba(0,0,0,${estado.capa.escurecimento / 100})` }} />
-            )}
-            <div className="absolute bottom-0 left-0 right-0 flex items-end gap-2.5 px-3 pb-2.5">
-              <div
-                className="flex shrink-0 items-center justify-center overflow-hidden bg-white text-lg font-extrabold"
-                style={{
-                  width: estado.logo.tamanho * 0.55, height: estado.logo.tamanho * 0.55,
-                  borderRadius: raioLogo,
-                  boxShadow: estado.logo.sombra ? '0 4px 10px rgba(0,0,0,.35)' : undefined,
-                  border: estado.logo.borda_branca ? '2.5px solid #fff' : estado.logo.borda ? `2px solid ${cor}` : undefined,
-                  padding: estado.logo.padding ? 4 : 0,
-                }}>
-                {estado.logo_url
-                  ? <img src={estado.logo_url} alt="" className="size-full object-contain" />
-                  : <span style={{ color: cor }}>{(estado.nome || 'L').charAt(0)}</span>}
-              </div>
-              <div className="min-w-0 pb-0.5">
-                <p className="truncate text-sm font-extrabold text-white drop-shadow">{estado.nome || 'Sua loja'}</p>
-                {estado.geral.slogan && <p className="truncate text-[10px] text-white/80 drop-shadow">{estado.geral.slogan}</p>}
-                <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[9px] font-semibold text-white/85 drop-shadow">
-                  {estado.geral.mostrar_avaliacao && <span className="flex items-center gap-0.5"><Star className="size-2.5 fill-amber-400 text-amber-400" /> 4.8</span>}
-                  {estado.geral.mostrar_tempo_medio && <span className="flex items-center gap-0.5"><Clock className="size-2.5" /> 30 min</span>}
-                  {estado.geral.mostrar_taxa_entrega && <span className="flex items-center gap-0.5"><Bike className="size-2.5" /> Grátis</span>}
-                </div>
-              </div>
-            </div>
+      <div
+        ref={wrapperRef}
+        className={cn(
+          'mx-auto overflow-hidden border-neutral-900 bg-neutral-900 shadow-2xl',
+          modo === 'mobile' ? 'rounded-[2.5rem] border-8' : 'rounded-xl border-4 w-full',
+        )}
+        style={modo === 'mobile' ? { width: LARGURA_MOBILE, maxWidth: '100%' } : undefined}
+      >
+        {/* Status bar falsa só no modo mobile — o resto da tela é 100% real (iframe da própria loja). */}
+        {modo === 'mobile' && (
+          <div className="relative flex items-center justify-between bg-black px-5 py-1.5 text-[10px] font-semibold text-white">
+            <span>9:41</span>
+            <div className="absolute left-1/2 top-1/2 h-4 w-20 -translate-x-1/2 -translate-y-1/2 rounded-full bg-neutral-900" />
+            <span>📶 🔋</span>
           </div>
-
-          {/* Banner fake */}
-          <div className="relative m-2.5 h-16 overflow-hidden rounded-xl" style={{ backgroundColor: cor + '22' }}>
-            <div className="flex h-full items-center justify-center text-[11px] font-bold" style={{ color: cor }}>Banner promocional</div>
-            {estado.banners.mostrar_setas && (
-              <>
-                <ChevronLeft className="absolute left-1 top-1/2 size-4 -translate-y-1/2 text-black/40" />
-                <ChevronRight className="absolute right-1 top-1/2 size-4 -translate-y-1/2 text-black/40" />
-              </>
-            )}
-            {estado.banners.mostrar_indicadores && (
-              <div className="absolute bottom-1.5 left-1/2 flex -translate-x-1/2 gap-1">
-                <span className="size-1.5 rounded-full bg-black/60" />
-                <span className="size-1.5 rounded-full bg-black/25" />
-                <span className="size-1.5 rounded-full bg-black/25" />
-              </div>
-            )}
+        )}
+        <div className="w-full overflow-hidden bg-white" style={{ height: altura * escala }}>
+          <div style={{ width: largura, height: altura, transform: `scale(${escala})`, transformOrigin: 'top left' }}>
+            <iframe
+              ref={iframeRef}
+              key={lojaId}
+              src={`/loja/${lojaId}?preview=1`}
+              title="Pré-visualização da loja"
+              className="border-0 bg-white"
+              style={{ width: largura, height: altura }}
+              onLoad={() => setPronto(false)}
+            />
           </div>
-
-          {/* Produtos */}
-          <div className={grid ? 'grid grid-cols-2 gap-2 px-2.5' : 'flex flex-col gap-2 px-2.5'}>
-            {produtos.slice(0, grid ? 4 : 3).map((nome, i) => (
-              <div key={nome} className="overflow-hidden shadow-sm"
-                style={{
-                  backgroundColor: corCards,
-                  borderRadius: estado.cardapio.raio_bordas,
-                  height: grid ? estado.cardapio.altura_cards * 0.55 : undefined,
-                }}>
-                <div className={grid ? 'flex h-full flex-col' : 'flex items-center gap-2 p-2'}>
-                  {estado.cardapio.mostrar_foto && (
-                    <div className={grid ? 'h-1/2 w-full bg-muted' : 'size-11 shrink-0 rounded-lg bg-muted'} />
-                  )}
-                  <div className="min-w-0 flex-1 p-1.5">
-                    <div className="flex items-start justify-between gap-1">
-                      <p className="truncate text-[11px] font-semibold">{nome}</p>
-                      {estado.cardapio.badge_promocao && i === 0 && (
-                        <span className="shrink-0 rounded-full px-1.5 py-0.5 text-[8px] font-bold text-white" style={{ backgroundColor: corBadges }}>-10%</span>
-                      )}
-                    </div>
-                    {estado.cardapio.mostrar_descricao && <p className="truncate text-[9px] text-muted-foreground">Descrição do produto de exemplo</p>}
-                    <div className="mt-1 flex items-center justify-between gap-1">
-                      {estado.cardapio.preco_destacado
-                        ? <span className="text-xs font-extrabold">R$ 24,90</span>
-                        : <span className="text-[10px]">R$ 24,90</span>}
-                      {estado.cardapio.botao_comprar && (
-                        <button type="button" className={classNameBotao(estado)}
-                          style={{ ...estiloBotao(estado, cor), color: fg, padding: '3px 10px', fontSize: 10 }}>
-                          +
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="h-6" />
-          <div className="h-2" style={{ backgroundColor: corRodape }} />
         </div>
       </div>
     </div>
