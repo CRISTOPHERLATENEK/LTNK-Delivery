@@ -761,18 +761,28 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
               </span>
             </div>
           )}
-          {/* Badge destaque */}
-          {!!produto.destaque && !esgotado && c.badge_promocao && (
-            <span className="absolute top-2 left-2 flex items-center gap-0.5 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-amber-900 shadow">
-              <Star className="size-2.5 fill-amber-900" /> Top
-            </span>
-          )}
-          {/* Badge promo */}
-          {temPromo && !esgotado && c.badge_promocao && (
-            <span className="absolute top-2 right-2 rounded-full px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow"
-              style={{ backgroundColor: corBadge || undefined }}>
-              PROMO
-            </span>
+          {/* Badges destaque/promo — só na thumbnail grande (grid/premium); na lista
+              (thumbnail de 64px) o texto "PROMO"/"Top" não cabe e quebra feio, então
+              vira só um pontinho colorido no canto. */}
+          {layoutGrid ? (
+            <>
+              {!!produto.destaque && !esgotado && c.badge_promocao && (
+                <span className="absolute top-2 left-2 flex items-center gap-0.5 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-amber-900 shadow">
+                  <Star className="size-2.5 fill-amber-900" /> Top
+                </span>
+              )}
+              {temPromo && !esgotado && c.badge_promocao && (
+                <span className="absolute top-2 right-2 rounded-full px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow"
+                  style={{ backgroundColor: corBadge || undefined }}>
+                  PROMO
+                </span>
+              )}
+            </>
+          ) : (
+            ((!!produto.destaque || temPromo) && !esgotado && c.badge_promocao) && (
+              <span className="absolute top-1 right-1 size-2.5 rounded-full shadow ring-1 ring-white"
+                style={{ backgroundColor: temPromo ? (corBadge || '#dc2640') : '#fbbf24' }} />
+            )
           )}
         </div>
       )}

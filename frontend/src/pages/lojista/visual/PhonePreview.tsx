@@ -6,6 +6,8 @@ import type { EstadoVisual } from './types';
 interface Props {
   estado: EstadoVisual;
   lojaId: number | null;
+  modo: 'mobile' | 'desktop';
+  onModoChange: (modo: 'mobile' | 'desktop') => void;
 }
 
 const LARGURA_MOBILE = 390;
@@ -22,8 +24,7 @@ const ALTURA_DESKTOP = 720;
  * renderizando, os breakpoints (`sm:`, `lg:`) reagem sozinhos, igual um
  * navegador de verdade.
  */
-export function PhonePreview({ estado, lojaId }: Props) {
-  const [modo, setModo] = useState<'mobile' | 'desktop'>('mobile');
+export function PhonePreview({ estado, lojaId, modo, onModoChange }: Props) {
   const [pronto, setPronto] = useState(false);
   const [escala, setEscala] = useState(1);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -81,12 +82,12 @@ export function PhonePreview({ estado, lojaId }: Props) {
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <div className="inline-flex rounded-lg bg-muted p-0.5">
-          <button type="button" onClick={() => setModo('mobile')}
+          <button type="button" onClick={() => onModoChange('mobile')}
             className={cn('flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
               modo === 'mobile' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
             <Smartphone className="size-3.5" /> Mobile
           </button>
-          <button type="button" onClick={() => setModo('desktop')}
+          <button type="button" onClick={() => onModoChange('desktop')}
             className={cn('flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors',
               modo === 'desktop' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
             <Monitor className="size-3.5" /> Desktop

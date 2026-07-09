@@ -39,6 +39,7 @@ export function VisualLoja() {
   const form = useVisualForm();
   const [aba, setAba] = useState<AbaId>('geral');
   const [previewAberto, setPreviewAberto] = useState(false);
+  const [modoPreview, setModoPreview] = useState<'mobile' | 'desktop'>('mobile');
 
   // Evita perder alterações não salvas ao fechar/recarregar a aba sem querer.
   // Precisa ficar ANTES do early-return de loading (regra dos hooks).
@@ -97,7 +98,13 @@ export function VisualLoja() {
         })}
       </div>
 
-      <div className="lg:grid lg:grid-cols-[1fr_360px] lg:gap-5 lg:items-start">
+      <div className={cn(
+        'lg:grid lg:gap-5 lg:items-start',
+        // Modo "Desktop" do preview precisa de bem mais espaço horizontal
+        // pra não ficar minúsculo (é o site inteiro em 1180px escalado) —
+        // a coluna cresce, o formulário cede espaço.
+        modoPreview === 'mobile' ? 'lg:grid-cols-[minmax(0,1fr)_430px]' : 'lg:grid-cols-[minmax(280px,1fr)_760px]',
+      )}>
         <div className="min-w-0">
           {aba === 'geral' && <GeralTab estado={estado} atualizar={atualizar} />}
           {aba === 'cores' && <CoresTab estado={estado} atualizar={atualizar} restaurarPadrao={() => restaurarPadraoAba('cores')} />}
@@ -113,7 +120,7 @@ export function VisualLoja() {
 
         {/* Preview ao vivo — sticky no desktop, Sheet no mobile */}
         <div className="hidden lg:block lg:sticky lg:top-4">
-          <PhonePreview estado={estado} lojaId={lojaId} />
+          <PhonePreview estado={estado} lojaId={lojaId} modo={modoPreview} onModoChange={setModoPreview} />
         </div>
       </div>
 
@@ -123,7 +130,7 @@ export function VisualLoja() {
             <SheetTitle>Pré-visualização</SheetTitle>
           </SheetHeader>
           <div className="flex justify-center overflow-y-auto p-4">
-            <PhonePreview estado={estado} lojaId={lojaId} />
+            <PhonePreview estado={estado} lojaId={lojaId} modo={modoPreview} onModoChange={setModoPreview} />
           </div>
         </SheetContent>
       </Sheet>
