@@ -45,7 +45,8 @@ npm start
 > - `npm run start:rapido` — sobe sem recompilar (`dist/` e `public/index.html` já existem)
 > - `npm run dev:react` — Vite em modo dev (HMR em `localhost:5173` com proxy para a API)
 > - `npm run seed` — popula o banco com dados de demonstração
-> - `npm run teste:e2e` — executa o teste de ponta a ponta (32 cenários)
+> - `npm run teste:e2e` — executa o teste de ponta a ponta (45 cenários)
+> - `npm test` — executa os testes unitários (Vitest)
 
 ### Estrutura React do cliente
 
@@ -91,16 +92,23 @@ Pronto! Acesse:
 4. **Admin** (`/admin.html`): veja o pedido no dashboard, a comissão e o
    repasse da loja.
 
-## Teste automatizado de ponta a ponta
+## Testes automatizados
 
 ```bash
-npm run teste:e2e
+npm test          # unitários (Vitest) — funções puras: CPF, criptografia...
+npm run teste:e2e # ponta a ponta — servidor real + banco descartável
 ```
 
-Sobe o servidor em uma porta separada com banco descartável e valida 27
-cenários: fluxo feliz completo **e** os casos de erro (transição de status
-inválida, corrida aceita por dois entregadores ao mesmo tempo, acesso sem
-permissão, preço forjado no navegador, loja fechada, rate limiting etc.).
+`npm run teste:e2e` sobe o servidor em uma porta separada com banco descartável
+e valida 45 cenários: fluxo feliz completo **e** os casos de erro (transição de
+status inválida, corrida aceita por dois entregadores ao mesmo tempo, acesso sem
+permissão, preço forjado no navegador, loja fechada, cliente por CPF, recuperação
+de senha, rate limiting etc.).
+
+`npm test` roda testes unitários rápidos (sem subir servidor) pras funções mais
+sensíveis — ex.: validação de CPF e a criptografia de segredos em repouso (senha
+do certificado A1, CSC, token de pagamento), incluindo um teste de regressão
+específico pro bug de "segredo trocado entre deploys" que já pegamos em produção.
 
 ## Estrutura de pastas
 
@@ -130,8 +138,9 @@ delivery-multilojas/
 │   │   ├── tipos-frontend.ts # tipos enxutos do domínio para o navegador
 │   │   ├── comum.ts          # api(), sessão, formatação BRL/datas, escape XSS
 │   │   └── cliente.ts, lojista.ts, entregador.ts, admin.ts
-│   └── testes/
-│       └── e2e.ts            # teste de ponta a ponta (32 cenários)
+│   ├── testes/
+│   │   └── e2e.ts            # teste de ponta a ponta (45 cenários)
+│   └── backend/*.test.ts     # testes unitários (Vitest) — CPF, criptografia...
 └── public/                   # arquivos estáticos servidos pelo Express
     ├── index.html, lojista.html, entregador.html, admin.html
     ├── estilo.css

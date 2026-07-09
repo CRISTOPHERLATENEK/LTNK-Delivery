@@ -14,7 +14,9 @@
     "start": "npm run build && node dist/backend/server.js",
     "start:rapido": "node dist/backend/server.js",
     "seed": "npm run build:backend && node dist/backend/seed.js",
-    "teste:e2e": "npm run build:backend && node dist/testes/e2e.js"
+    "teste:e2e": "npm run build:backend && node dist/testes/e2e.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "keywords": [
     "delivery",
@@ -49,5 +51,8 @@
     "typescript": "^6.0.3",
     "web-push": "^3.6.7",
     "xml-crypto": "^6.1.2"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
   }
 }

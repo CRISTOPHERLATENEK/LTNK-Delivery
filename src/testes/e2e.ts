@@ -10,11 +10,15 @@
  *   4. Máquina de estados (transições válidas)
  *   5. Entregador: corrida disponível e aceite atômico
  *   6. Admin: dashboard, repasses e bloqueio
- *   7. Rate limiting no login
+ *   7. Cliente por CPF: registro, login, duplicidade
+ *   8. Recuperação de senha: pedido genérico, token válido/inválido/expirado/reusado
+ *   9. Rate limiting no login (por último — consome o limite do IP de teste)
  */
 import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
+import Database from 'better-sqlite3';
 
 const PORTA = 3100;
 const BASE = `http://localhost:${PORTA}`;
@@ -277,7 +281,72 @@ async function principal(): Promise<void> {
     const acessoBloqueado = await chamar('GET', '/api/entregador/corridas', undefined, tRival);
     verificar('Usuário bloqueado perde o acesso mesmo com token válido (403)', acessoBloqueado.status === 403);
 
-    console.log('\n— 7. Rate limiting no login (por último: bloqueia o IP de teste) —');
+    console.log('\n— 7. Cliente por CPF: registro, login, duplicidade —');
+    const cpfNovo = '390.533.447-05'; // CPF de teste com dígito verificador válido
+    const registroCliente = await chamar('POST', '/api/auth/registrar', {
+      nome: 'Cliente CPF Teste', cpf: cpfNovo, senha: 'senha123', perfil: 'cliente',
+    });
+    verificar('Registro de cliente por CPF (sem e-mail) funciona',
+      registroCliente.status === 201 && registroCliente.dados.usuario.cpf === '39053344705');
+
+    const loginPorCpf = await chamar('POST', '/api/auth/login', { cpf: cpfNovo, senha: 'senha123' });
+    verificar('Login por CPF funciona com a máscara', loginPorCpf.status === 200 && !!loginPorCpf.dados.token);
+
+    const cpfDuplicado = await chamar('POST', '/api/auth/registrar', {
+      nome: 'Outro Nome', cpf: cpfNovo, senha: 'outrasenha', perfil: 'cliente',
+    });
+    verificar('Registrar o mesmo CPF de novo é rejeitado com 409', cpfDuplicado.status === 409);
+
+    const cpfInvalido = await chamar('POST', '/api/auth/registrar', {
+      nome: 'CPF Invalido', cpf: '111.111.111-11', senha: 'senha123', perfil: 'cliente',
+    });
+    verificar('CPF com dígito verificador inválido é rejeitado com 400', cpfInvalido.status === 400);
+
+    const senhaErradaCpf = await chamar('POST', '/api/auth/login', { cpf: cpfNovo, senha: 'senhaErrada' });
+    verificar('Senha errada por CPF devolve 401 com mensagem específica de CPF',
+      senhaErradaCpf.status === 401 && /CPF/.test(senhaErradaCpf.dados.erro));
+
+    console.log('\n— 8. Recuperação de senha —');
+    const pedidoGenerico1 = await chamar('POST', '/api/auth/esqueci-senha', { email: 'lojista@demo.com' });
+    const pedidoGenerico2 = await chamar('POST', '/api/auth/esqueci-senha', { email: 'nao-existe-no-banco@x.com' });
+    verificar('Resposta é a MESMA genérica pra e-mail existente e inexistente (evita enumeração)',
+      pedidoGenerico1.status === 200 && pedidoGenerico2.status === 200 &&
+      pedidoGenerico1.dados.mensagem === pedidoGenerico2.dados.mensagem);
+
+    // O SMTP não está configurado neste ambiente de teste (e-mail não é enviado
+    // de fato) — simula o que o e-mail teria entregado, gravando o hash do
+    // token no banco descartável exatamente como a rota faz.
+    const dbTeste = new Database(DB_TESTE);
+    const tokenBruto = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(tokenBruto).digest('hex');
+    const expiraFuturo = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    dbTeste.prepare("UPDATE usuarios SET reset_token_hash = ?, reset_token_expira = ? WHERE email = 'lojista@demo.com'")
+      .run(tokenHash, expiraFuturo);
+
+    const tokenInvalido = await chamar('POST', '/api/auth/redefinir-senha', { token: 'token-que-nunca-existiu', senha: 'novaSenha123' });
+    verificar('Token inexistente é rejeitado com 400', tokenInvalido.status === 400);
+
+    const senhaCurta = await chamar('POST', '/api/auth/redefinir-senha', { token: tokenBruto, senha: '123' });
+    verificar('Senha nova curta demais é rejeitada com 400', senhaCurta.status === 400);
+
+    const redefinicaoOk = await chamar('POST', '/api/auth/redefinir-senha', { token: tokenBruto, senha: 'novaSenha123' });
+    verificar('Token válido + senha OK redefine com sucesso', redefinicaoOk.status === 200);
+
+    const loginComNovaSenha = await chamar('POST', '/api/auth/login', { email: 'lojista@demo.com', senha: 'novaSenha123' });
+    verificar('Login com a senha NOVA funciona', loginComNovaSenha.status === 200 && !!loginComNovaSenha.dados.token);
+
+    const reusarToken = await chamar('POST', '/api/auth/redefinir-senha', { token: tokenBruto, senha: 'outraSenha456' });
+    verificar('Reusar o MESMO token (já consumido) é rejeitado com 400', reusarToken.status === 400);
+
+    const tokenHashExpirado = crypto.createHash('sha256').update('token-expirado-teste').digest('hex');
+    const expiraPassado = new Date(Date.now() - 60 * 1000).toISOString(); // 1min no passado
+    dbTeste.prepare("UPDATE usuarios SET reset_token_hash = ?, reset_token_expira = ? WHERE email = 'entregador@demo.com'")
+      .run(tokenHashExpirado, expiraPassado);
+    const tokenExpirado = await chamar('POST', '/api/auth/redefinir-senha', { token: 'token-expirado-teste', senha: 'novaSenha789' });
+    verificar('Token EXPIRADO é rejeitado com 400 mesmo com o hash certo', tokenExpirado.status === 400);
+    dbTeste.close();
+
+    console.log('\n— 9. Rate limiting no login (por último: bloqueia o IP de teste) —');
     let resposta429: RespostaApi | null = null;
     for (let i = 0; i < 11; i++) {
       resposta429 = await chamar('POST', '/api/auth/login', { email: 'cliente@demo.com', senha: 'errada' + i });
