@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
-import { useTema } from '@/lib/tema';
+import { useTema, injetarFonteLink } from '@/lib/tema';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2, Check, ArrowRight, ShoppingCart } from 'lucide-react';
@@ -12,7 +12,11 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { adicionarAoCarrinho, useCarrinho, mudarQuantidade } from '@/lib/carrinho';
 import { ModalProduto } from './modal-produto';
 import { BannerCarousel } from '@/components/banner-carousel';
-import type { Loja, Produto, Banner } from '@/types';
+import {
+  parseVisualJson, corOuPadrao, estiloBotao, classNameBotao, FONTES_VISUAL,
+  injetarAnalytics, removerAnalytics,
+} from '@/lib/visual';
+import type { Loja, Produto, Banner, VisualJson } from '@/types';
 
 interface CategoriaMeta { nome: string; icone: string; ordem: number; imagem?: string }
 interface RespostaCardapio {
@@ -72,6 +76,27 @@ export function PaginaLoja() {
       setSearchParams(p => { p.delete('produto'); return p; }, { replace: true });
     }
   }, [searchParams, consulta.data, setSearchParams]);
+
+  // Visual completo da loja (editor "Visual" do lojista) — parse feito uma
+  // vez aqui em cima, reusado no resto do componente e nos efeitos abaixo
+  // (que precisam rodar ANTES do early-return de loading, regra dos hooks).
+  const visual: VisualJson = parseVisualJson((consulta.data as any)?.loja?.visual_json);
+  const fonteLoja = FONTES_VISUAL[visual.tipografia.fonte];
+
+  // Fonte da LOJA — só o <link> do Google Fonts, sem sobrescrever
+  // document.body.style.fontFamily global (isso vazaria pro resto do app
+  // quando o cliente navegar pra fora da página da loja).
+  useEffect(() => {
+    injetarFonteLink(fonteLoja, 'fonte-loja');
+  }, [fonteLoja]);
+
+  // Analytics/pixels da loja (visual_json.avancado) — só na página pública,
+  // nunca no editor do lojista. Remove ao sair da página.
+  useEffect(() => {
+    if (consulta.data) injetarAnalytics(visual.avancado);
+    return () => { removerAnalytics(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(visual.avancado), !!consulta.data]);
 
   if (consulta.isLoading) return <Skeleton_Loja />;
   if (!consulta.data) return null;
@@ -135,16 +160,38 @@ export function PaginaLoja() {
     setProdutoAberto(p);
   }
 
+  const RAIO_LOGO: Record<VisualJson['logo']['formato'], string> = { quadrado: '10%', arredondado: '28%', circular: '50%' };
+  const estiloTipografia: React.CSSProperties = {
+    fontFamily: fonteLoja.stack,
+    fontWeight: visual.tipografia.peso,
+    letterSpacing: `${visual.tipografia.espacamento / 100}px`,
+    fontSize: visual.tipografia.tamanho_base,
+    lineHeight: visual.tipografia.altura_linha,
+    color: visual.cores.cor_texto || undefined,
+  };
+
   return (
-    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_330px] lg:gap-6 lg:items-start">
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_330px] lg:gap-6 lg:items-start" style={estiloTipografia}>
     <div className="-mx-4 lg:mx-0 min-w-0">
       {/* ── HERO ── */}
       <div className="relative lg:rounded-3xl lg:overflow-hidden">
-        <div className="relative h-44 sm:h-52 overflow-hidden bg-gradient-to-br from-primary/30 via-primary/10 to-muted">
+        <div className="relative h-44 sm:h-52 overflow-hidden bg-gradient-to-br from-primary/30 via-primary/10 to-muted"
+          style={{ backgroundColor: visual.cores.cor_cabecalho || undefined }}>
           {loja.capa_url && (
-            <img src={loja.capa_url} alt="" className="absolute inset-0 size-full object-cover" />
+            <img src={loja.capa_url} alt="" className="absolute inset-0 size-full object-cover"
+              style={{
+                objectFit: visual.capa.ajuste === 'repeat' ? 'cover' : visual.capa.ajuste,
+                objectPosition: visual.capa.posicao === 'topo' ? 'top' : visual.capa.posicao === 'base' ? 'bottom' : 'center',
+                filter: visual.capa.blur ? `blur(${visual.capa.blur}px)` : undefined,
+                opacity: visual.capa.opacidade / 100,
+              }} />
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+          {visual.capa.gradiente && (
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+          )}
+          {visual.capa.overlay && (
+            <div className="absolute inset-0" style={{ backgroundColor: `rgba(0,0,0,${visual.capa.escurecimento / 100})` }} />
+          )}
 
           {!modoWhiteLabel && (
             <Link
@@ -163,7 +210,14 @@ export function PaginaLoja() {
 
           {/* Info sobreposta ao hero */}
           <div className="absolute bottom-0 left-0 right-0 px-4 pb-4 flex items-end gap-3">
-            <div className="shrink-0 size-16 sm:size-20 rounded-2xl overflow-hidden border-[3px] border-white/90 shadow-xl bg-white">
+            <div className="shrink-0 overflow-hidden bg-white"
+              style={{
+                width: visual.logo.tamanho, height: visual.logo.tamanho,
+                borderRadius: RAIO_LOGO[visual.logo.formato],
+                boxShadow: visual.logo.sombra ? '0 8px 20px rgba(0,0,0,.35)' : undefined,
+                border: visual.logo.borda_branca ? '3px solid rgba(255,255,255,.9)' : visual.logo.borda ? `3px solid ${loja.cor_marca || '#dc2640'}` : undefined,
+                padding: visual.logo.padding ? 6 : 0,
+              }}>
               {loja.logo_url
                 ? <img src={loja.logo_url} alt={loja.nome} className="size-full object-cover" />
                 : <div className="flex size-full items-center justify-center text-2xl bg-gradient-to-br from-primary/20 to-accent">🍕</div>
@@ -171,25 +225,32 @@ export function PaginaLoja() {
             </div>
             <div className="pb-0.5 min-w-0">
               <h1 className="text-xl sm:text-2xl font-extrabold text-white leading-tight drop-shadow">{loja.nome}</h1>
+              {visual.geral.slogan && (
+                <p className="text-xs text-white/85 drop-shadow leading-tight">{visual.geral.slogan}</p>
+              )}
               <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-1">
-                {!!loja.nota_qtd && loja.nota_qtd > 0 && (
+                {visual.geral.mostrar_avaliacao && !!loja.nota_qtd && loja.nota_qtd > 0 && (
                   <span className="flex items-center gap-1 text-xs font-bold text-amber-300 drop-shadow">
                     <Star className="size-3 fill-amber-300 text-amber-300" />
                     {loja.nota_media?.toFixed(1)}
                     <span className="font-normal text-white/70">({loja.nota_qtd})</span>
                   </span>
                 )}
-                <span className="flex items-center gap-1 text-xs font-semibold text-white/80 drop-shadow">
-                  <Bike className="size-3" />
-                  {loja.taxa_entrega_centavos === 0
-                    ? <span className="text-green-300 font-bold">Grátis</span>
-                    : brl(loja.taxa_entrega_centavos)
-                  }
-                </span>
-                <span className="flex items-center gap-1 text-xs font-semibold text-white/80 drop-shadow">
-                  <Clock className="size-3" />
-                  {loja.tempo_estimado_min} min
-                </span>
+                {visual.geral.mostrar_taxa_entrega && (
+                  <span className="flex items-center gap-1 text-xs font-semibold text-white/80 drop-shadow">
+                    <Bike className="size-3" />
+                    {loja.taxa_entrega_centavos === 0
+                      ? <span className="text-green-300 font-bold">Grátis</span>
+                      : brl(loja.taxa_entrega_centavos)
+                    }
+                  </span>
+                )}
+                {visual.geral.mostrar_tempo_medio && (
+                  <span className="flex items-center gap-1 text-xs font-semibold text-white/80 drop-shadow">
+                    <Clock className="size-3" />
+                    {loja.tempo_estimado_min} min
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -212,6 +273,10 @@ export function PaginaLoja() {
               const p = todosComCat.find(x => x.id === pid);
               if (p) setProdutoAberto(p);
             }}
+            tempoRotacaoMs={visual.banners.tempo_rotacao_ms}
+            loop={visual.banners.loop}
+            mostrarIndicadores={visual.banners.mostrar_indicadores}
+            mostrarSetas={visual.banners.mostrar_setas}
           />
         )}
 
@@ -296,17 +361,17 @@ export function PaginaLoja() {
                 {subs.length > 0 ? (
                   <>
                     {semSub.length > 0 && (
-                      <GridProdutos produtos={semSub} podeAbrir={!!loja.aberta} onClick={handleClickProduto} />
+                      <GridProdutos produtos={semSub} podeAbrir={!!loja.aberta} onClick={handleClickProduto} visual={visual} corMarca={loja.cor_marca} />
                     )}
                     {subs.map(sub => (
                       <div key={sub} className="mt-4">
                         <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/60 mb-2 pl-0.5">{sub}</h3>
-                        <GridProdutos produtos={prods.filter(p => p.subcategoria === sub)} podeAbrir={!!loja.aberta} onClick={handleClickProduto} />
+                        <GridProdutos produtos={prods.filter(p => p.subcategoria === sub)} podeAbrir={!!loja.aberta} onClick={handleClickProduto} visual={visual} corMarca={loja.cor_marca} />
                       </div>
                     ))}
                   </>
                 ) : (
-                  <GridProdutos produtos={prods} podeAbrir={!!loja.aberta} onClick={handleClickProduto} />
+                  <GridProdutos produtos={prods} podeAbrir={!!loja.aberta} onClick={handleClickProduto} visual={visual} corMarca={loja.cor_marca} />
                 )}
               </div>
             );
@@ -320,12 +385,12 @@ export function PaginaLoja() {
               return (
                 <>
                   {semSub.length > 0 && (
-                    <GridProdutos produtos={semSub} podeAbrir={!!loja.aberta} onClick={handleClickProduto} />
+                    <GridProdutos produtos={semSub} podeAbrir={!!loja.aberta} onClick={handleClickProduto} visual={visual} corMarca={loja.cor_marca} />
                   )}
                   {subcategorias.map(sub => (
                     <div key={sub} className="mt-4">
                       <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/60 mb-2 pl-0.5">{sub}</h3>
-                      <GridProdutos produtos={prods.filter(p => p.subcategoria === sub)} podeAbrir={!!loja.aberta} onClick={handleClickProduto} />
+                      <GridProdutos produtos={prods.filter(p => p.subcategoria === sub)} podeAbrir={!!loja.aberta} onClick={handleClickProduto} visual={visual} corMarca={loja.cor_marca} />
                     </div>
                   ))}
                 </>
@@ -339,6 +404,8 @@ export function PaginaLoja() {
               produtos={filtrados}
               podeAbrir={!!loja.aberta}
               onClick={handleClickProduto}
+              visual={visual}
+              corMarca={loja.cor_marca}
               animado
             />
           </AnimatePresence>
@@ -578,14 +645,24 @@ function ChipSubcat({ label, ativo, onClick }: { label: string; ativo: boolean; 
 }
 
 /* ── Grid de produtos ── */
-function GridProdutos({ produtos, podeAbrir, onClick, animado }: {
+function GridProdutos({ produtos, podeAbrir, onClick, visual, corMarca, animado }: {
   produtos: Produto[];
   podeAbrir: boolean;
   onClick: (p: Produto) => void;
+  visual: VisualJson;
+  corMarca?: string;
   animado?: boolean;
 }) {
+  const grid = visual.cardapio.layout === 'grid' || visual.cardapio.layout === 'premium';
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
+    <div
+      className={cn(
+        grid
+          ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4'
+          : visual.cardapio.layout === 'compacto' ? 'grid grid-cols-1 sm:grid-cols-2' : 'flex flex-col',
+      )}
+      style={{ gap: visual.cardapio.espacamento }}
+    >
       {produtos.map((p, i) =>
         animado ? (
           <motion.div
@@ -596,10 +673,10 @@ function GridProdutos({ produtos, podeAbrir, onClick, animado }: {
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.18, delay: i * 0.03 }}
           >
-            <CardProduto produto={p} podeAbrir={podeAbrir} onClick={() => onClick(p)} />
+            <CardProduto produto={p} podeAbrir={podeAbrir} onClick={() => onClick(p)} visual={visual} corMarca={corMarca} layoutGrid={grid} />
           </motion.div>
         ) : (
-          <CardProduto key={p.id} produto={p} podeAbrir={podeAbrir} onClick={() => onClick(p)} />
+          <CardProduto key={p.id} produto={p} podeAbrir={podeAbrir} onClick={() => onClick(p)} visual={visual} corMarca={corMarca} layoutGrid={grid} />
         )
       )}
     </div>
@@ -607,60 +684,73 @@ function GridProdutos({ produtos, podeAbrir, onClick, animado }: {
 }
 
 /* ── Card de produto ── */
-function CardProduto({ produto, podeAbrir, onClick }: { produto: Produto; podeAbrir: boolean; onClick: () => void }) {
+function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid }: {
+  produto: Produto; podeAbrir: boolean; onClick: () => void; visual: VisualJson; corMarca?: string; layoutGrid: boolean;
+}) {
   const temPromo = !!produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0;
   const preco = temPromo ? produto.preco_promocional_centavos! : produto.preco_centavos;
   const esgotado = !!produto.controla_estoque && (produto.estoque ?? 0) <= 0;
   const poucas = !esgotado && !!produto.controla_estoque && (produto.estoque ?? 0) <= 5;
   const abrivel = podeAbrir && !esgotado;
+  const c = visual.cardapio;
+  const corBadge = corOuPadrao(visual.cores.cor_badges, '');
 
   return (
     <motion.div
       whileTap={abrivel ? { scale: 0.96 } : {}}
       onClick={abrivel ? onClick : undefined}
       className={cn(
-        'group rounded-2xl bg-card border border-border/60 overflow-hidden shadow-sm transition-shadow',
+        'group border border-border/60 overflow-hidden shadow-sm transition-shadow',
+        !layoutGrid && 'flex items-center gap-3 p-2',
         abrivel && 'cursor-pointer hover:shadow-md',
         esgotado && 'opacity-90',
       )}
+      style={{
+        borderRadius: c.raio_bordas,
+        backgroundColor: visual.cores.cor_cards || undefined,
+        height: layoutGrid ? c.altura_cards : undefined,
+      }}
     >
       {/* Imagem */}
-      <div className="relative aspect-square overflow-hidden bg-white">
-        {produto.foto_url
-          ? <img src={produto.foto_url} alt={produto.nome} className={cn('size-full object-cover transition-transform duration-300', abrivel && 'group-hover:scale-105', esgotado && 'grayscale')} />
-          : <div className="flex size-full items-center justify-center text-4xl">🍽️</div>
-        }
-        {/* Overlay esgotado */}
-        {esgotado && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/45">
-            <span className="rounded-full bg-white/95 px-3 py-1 text-xs font-extrabold text-neutral-800 shadow">
-              Esgotado
+      {c.mostrar_foto && (
+        <div className={cn('relative overflow-hidden bg-white', layoutGrid ? 'aspect-square' : 'size-16 shrink-0 rounded-xl')}>
+          {produto.foto_url
+            ? <img src={produto.foto_url} alt={produto.nome} className={cn('size-full object-cover transition-transform duration-300', abrivel && 'group-hover:scale-105', esgotado && 'grayscale')} />
+            : <div className="flex size-full items-center justify-center text-4xl">🍽️</div>
+          }
+          {/* Overlay esgotado */}
+          {esgotado && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/45">
+              <span className="rounded-full bg-white/95 px-3 py-1 text-xs font-extrabold text-neutral-800 shadow">
+                Esgotado
+              </span>
+            </div>
+          )}
+          {/* Badge destaque */}
+          {!!produto.destaque && !esgotado && c.badge_promocao && (
+            <span className="absolute top-2 left-2 flex items-center gap-0.5 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-amber-900 shadow">
+              <Star className="size-2.5 fill-amber-900" /> Top
             </span>
-          </div>
-        )}
-        {/* Badge destaque */}
-        {!!produto.destaque && !esgotado && (
-          <span className="absolute top-2 left-2 flex items-center gap-0.5 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-amber-900 shadow">
-            <Star className="size-2.5 fill-amber-900" /> Top
-          </span>
-        )}
-        {/* Badge promo */}
-        {temPromo && !esgotado && (
-          <span className="absolute top-2 right-2 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow">
-            PROMO
-          </span>
-        )}
-      </div>
+          )}
+          {/* Badge promo */}
+          {temPromo && !esgotado && c.badge_promocao && (
+            <span className="absolute top-2 right-2 rounded-full px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow"
+              style={{ backgroundColor: corBadge || undefined }}>
+              PROMO
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Info */}
-      <div className="p-3">
-        {produto.subcategoria && (
+      <div className={layoutGrid ? 'p-3' : 'min-w-0 flex-1'}>
+        {c.mostrar_categoria && produto.subcategoria && (
           <span className="inline-block rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground mb-1">
             {produto.subcategoria}
           </span>
         )}
         <h3 className="font-bold text-[13px] sm:text-sm leading-snug line-clamp-2">{produto.nome}</h3>
-        {produto.descricao && (
+        {c.mostrar_descricao && produto.descricao && (
           <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5 leading-relaxed">{produto.descricao}</p>
         )}
         <div className="flex items-center justify-between mt-2 gap-1">
@@ -668,7 +758,7 @@ function CardProduto({ produto, podeAbrir, onClick }: { produto: Produto; podeAb
             {temPromo && (
               <span className="text-[10px] text-muted-foreground line-through block">{brl(produto.preco_centavos)}</span>
             )}
-            <span className={cn('font-extrabold text-[14px]', temPromo ? 'text-primary' : 'text-foreground')}>
+            <span className={cn(c.preco_destacado ? 'font-extrabold text-[14px]' : 'font-semibold text-[12px]', temPromo ? 'text-primary' : 'text-foreground')}>
               {brl(preco)}
             </span>
             {esgotado ? (
@@ -679,11 +769,12 @@ function CardProduto({ produto, podeAbrir, onClick }: { produto: Produto; podeAb
               <span className="text-[10px] text-muted-foreground block mt-0.5">Toque para personalizar</span>
             )}
           </div>
-          {abrivel && (
+          {abrivel && c.botao_comprar && (
             <button
               type="button"
               onClick={e => { e.stopPropagation(); onClick(); }}
-              className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm shadow-primary/30 active:opacity-70 transition-opacity touch-manipulation"
+              className={cn('flex size-8 shrink-0 items-center justify-center text-primary-foreground active:opacity-70 transition-opacity touch-manipulation', classNameBotao(visual))}
+              style={estiloBotao(visual, corMarca || '')}
             >
               <Plus className="size-4" />
             </button>

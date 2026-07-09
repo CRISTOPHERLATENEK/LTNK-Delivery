@@ -60,6 +60,98 @@ export interface Loja {
   impressora_largura?: '80' | '58';
   impressora_auto?: 0 | 1;
   cupom_rodape?: string;
+  /** Editor visual completo (aba "Visual") — blob JSON, ver VisualJson. */
+  visual_json?: string;
+}
+
+/**
+ * Forma do blob `Loja.visual_json` — TODOS os ajustes cosméticos granulares
+ * do editor "Visual" do lojista (independente do tema white-label da
+ * PLATAFORMA em `RaioMarca`/`FonteMarca` abaixo, que é global do SaaS).
+ */
+export interface VisualJson {
+  geral: {
+    slogan: string;
+    mostrar_avaliacao: boolean;
+    mostrar_tempo_medio: boolean;
+    mostrar_taxa_entrega: boolean;
+    mostrar_pedido_minimo: boolean;
+    mostrar_distancia: boolean;
+  };
+  cores: {
+    cor_botoes: string;
+    cor_cards: string;
+    cor_fundo: string;
+    cor_cabecalho: string;
+    cor_rodape: string;
+    cor_texto: string;
+    cor_badges: string;
+  };
+  logo: {
+    tamanho: number;
+    formato: 'quadrado' | 'arredondado' | 'circular';
+    sombra: boolean;
+    borda: boolean;
+    borda_branca: boolean;
+    padding: boolean;
+  };
+  capa: {
+    overlay: boolean;
+    gradiente: boolean;
+    blur: number;
+    escurecimento: number;
+    opacidade: number;
+    posicao: 'topo' | 'centro' | 'base';
+    ajuste: 'cover' | 'contain' | 'repeat';
+  };
+  cardapio: {
+    layout: 'lista' | 'grid' | 'compacto' | 'premium';
+    mostrar_foto: boolean;
+    mostrar_descricao: boolean;
+    mostrar_categoria: boolean;
+    mostrar_avaliacao: boolean;
+    mostrar_tempo: boolean;
+    preco_destacado: boolean;
+    badge_promocao: boolean;
+    botao_comprar: boolean;
+    espacamento: number;
+    raio_bordas: number;
+    altura_cards: number;
+  };
+  botoes: {
+    hover: boolean;
+    sombra: boolean;
+    gradiente: boolean;
+    icone: boolean;
+    borda: boolean;
+    raio: number;
+    tamanho: 'sm' | 'md' | 'lg';
+    animacao: 'nenhuma' | 'scale' | 'ripple' | 'glow' | 'fade';
+  };
+  tipografia: {
+    fonte: 'inter' | 'poppins' | 'roboto' | 'montserrat' | 'nunito';
+    peso: 400 | 500 | 600 | 700 | 800;
+    espacamento: number;
+    tamanho_base: number;
+    altura_linha: number;
+  };
+  banners: {
+    botao_texto: string;
+    tempo_rotacao_ms: number;
+    loop: boolean;
+    mostrar_indicadores: boolean;
+    mostrar_setas: boolean;
+  };
+  avancado: {
+    meta_description: string;
+    meta_keywords: string;
+    og_image: string;
+    ga_measurement_id: string;
+    gtm_container_id: string;
+    fb_pixel_id: string;
+    tiktok_pixel_id: string;
+    clarity_project_id: string;
+  };
 }
 
 /** Um dia da agenda semanal de funcionamento. dia: 0=domingo … 6=sábado. */
@@ -172,6 +264,7 @@ export interface Banner {
   produto_id?: number | null;
   produto_nome?: string;
   link_url?: string | null;
+  botao_texto?: string;
 }
 
 export interface ProdutoPromocao extends Produto {

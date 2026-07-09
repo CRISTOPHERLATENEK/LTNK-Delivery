@@ -147,7 +147,7 @@ router.get('/lojas/:id', (req, res, next) => {
       `SELECT id, nome, descricao, categoria, endereco,
               taxa_entrega_centavos, tempo_estimado_min, horario_funcionamento, aberta,
               logo_url, capa_url, favicon_url, cor_marca, cor_secundaria, slug, categoria_estilo,
-              horario_json, minimo_pedido_centavos, nota_media, nota_qtd
+              horario_json, minimo_pedido_centavos, nota_media, nota_qtd, visual_json
          FROM lojas
         WHERE ${porNumero ? 'id = ?' : 'slug = ?'} AND status_aprovacao = 'aprovada'`
     ).get(param) as Loja | undefined;
@@ -203,7 +203,7 @@ router.get('/lojas/:id', (req, res, next) => {
 
     // Banners promocionais criados pelo próprio lojista.
     const banners = db.prepare(
-      `SELECT id, titulo, subtitulo, imagem, produto_id, link_url
+      `SELECT id, titulo, subtitulo, imagem, produto_id, link_url, botao_texto
          FROM banners WHERE loja_id = ? AND ativo = 1 ORDER BY ordem, id`
     ).all(loja.id);
 

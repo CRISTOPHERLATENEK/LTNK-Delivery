@@ -148,12 +148,20 @@ router.put('/loja', (req, res, next) => {
       ? textoLimpo(req.body.cupom_rodape, 160)
       : (lojaQualquer.cupom_rodape ?? '');
 
+    // Editor visual completo (aba "Visual"): blob JSON com os campos cosméticos
+    // granulares (cores extras, logo, capa, cardápio, botões, tipografia,
+    // banners, avançado/SEO/pixels).
+    let visualJson = lojaQualquer.visual_json ?? '{}';
+    if (req.body.visual_json !== undefined) {
+      visualJson = validarVisualJson(req.body.visual_json, visualJson);
+    }
+
     db.prepare(
       `UPDATE lojas SET nome = ?, descricao = ?, categoria = ?, endereco = ?,
               taxa_entrega_centavos = ?, tempo_estimado_min = ?, horario_funcionamento = ?,
               logo_url = ?, capa_url = ?, favicon_url = ?, cor_marca = ?, cor_secundaria = ?, slug = ?,
               horario_json = ?, auto_horario = ?, minimo_pedido_centavos = ?,
-              impressora_largura = ?, impressora_auto = ?, cupom_rodape = ?
+              impressora_largura = ?, impressora_auto = ?, cupom_rodape = ?, visual_json = ?
         WHERE id = ?`
     ).run(nome,
           req.body.descricao !== undefined ? textoLimpo(req.body.descricao, 300) : loja.descricao,
@@ -167,7 +175,7 @@ router.put('/loja', (req, res, next) => {
           validarCor('cor_marca', lojaQualquer.cor_marca || ''),
           validarCor('cor_secundaria', lojaQualquer.cor_secundaria || ''),
           slug, horarioJson, autoHorario, minimoPedido,
-          impLargura, impAuto, cupomRodape,
+          impLargura, impAuto, cupomRodape, visualJson,
           loja.id);
 
     // Se acabou de ligar o automático, aplica a agenda na hora.
@@ -198,6 +206,155 @@ function validarHorarioJson(bruto: unknown): string {
       return { dia: d.dia, aberto, abre, fecha };
     });
   return JSON.stringify(norm);
+}
+
+const HEX = /^#[0-9a-fA-F]{6}$/;
+function cor(v: unknown, atual: string): string {
+  if (typeof v !== 'string') return atual;
+  const s = v.trim();
+  return s === '' || HEX.test(s) ? s : atual;
+}
+function num(v: unknown, atual: number, min: number, max: number): number {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return atual;
+  return Math.min(max, Math.max(min, n));
+}
+function bool(v: unknown, atual: boolean): boolean {
+  return typeof v === 'boolean' ? v : atual;
+}
+function texto(v: unknown, atual: string, max: number): string {
+  return typeof v === 'string' ? v.slice(0, max) : atual;
+}
+function enumerado<T extends string>(v: unknown, atual: T, opcoes: readonly T[]): T {
+  return typeof v === 'string' && (opcoes as readonly string[]).includes(v) ? (v as T) : atual;
+}
+function regexOuVazio(v: unknown, atual: string, re: RegExp): string {
+  if (typeof v !== 'string') return atual;
+  const s = v.trim();
+  return s === '' || re.test(s) ? s : atual;
+}
+
+/**
+ * Valida (whitelist estrita, sem passthrough de chaves desconhecidas) e
+ * normaliza o blob JSON do editor visual. Sempre re-serializa a partir da
+ * estrutura validada — nunca grava o JSON bruto do usuário.
+ */
+function validarVisualJson(bruto: unknown, atualStr: string): string {
+  let novo: any;
+  if (typeof bruto === 'string') {
+    try { novo = JSON.parse(bruto); } catch { throw erroHttp(400, 'Configuração visual inválida.'); }
+  } else {
+    novo = bruto;
+  }
+  if (!novo || typeof novo !== 'object') throw erroHttp(400, 'Configuração visual inválida.');
+
+  let atual: any;
+  try { atual = JSON.parse(atualStr || '{}'); } catch { atual = {}; }
+  const g = (obj: any, campo: string) => (obj && typeof obj === 'object' ? obj[campo] : undefined) ?? {};
+
+  const geralAtual = g(atual, 'geral'), geralNovo = g(novo, 'geral');
+  const coresAtual = g(atual, 'cores'), coresNovo = g(novo, 'cores');
+  const logoAtual = g(atual, 'logo'), logoNovo = g(novo, 'logo');
+  const capaAtual = g(atual, 'capa'), capaNovo = g(novo, 'capa');
+  const cardapioAtual = g(atual, 'cardapio'), cardapioNovo = g(novo, 'cardapio');
+  const botoesAtual = g(atual, 'botoes'), botoesNovo = g(novo, 'botoes');
+  const tipoAtual = g(atual, 'tipografia'), tipoNovo = g(novo, 'tipografia');
+  const bannersAtual = g(atual, 'banners'), bannersNovo = g(novo, 'banners');
+  const avAtual = g(atual, 'avancado'), avNovo = g(novo, 'avancado');
+
+  const validado = {
+    geral: {
+      slogan: texto(geralNovo.slogan, geralAtual.slogan || '', 140),
+      mostrar_avaliacao: bool(geralNovo.mostrar_avaliacao, geralAtual.mostrar_avaliacao ?? true),
+      mostrar_tempo_medio: bool(geralNovo.mostrar_tempo_medio, geralAtual.mostrar_tempo_medio ?? true),
+      mostrar_taxa_entrega: bool(geralNovo.mostrar_taxa_entrega, geralAtual.mostrar_taxa_entrega ?? true),
+      mostrar_pedido_minimo: bool(geralNovo.mostrar_pedido_minimo, geralAtual.mostrar_pedido_minimo ?? true),
+      mostrar_distancia: bool(geralNovo.mostrar_distancia, geralAtual.mostrar_distancia ?? false),
+    },
+    cores: {
+      cor_botoes: cor(coresNovo.cor_botoes, coresAtual.cor_botoes || ''),
+      cor_cards: cor(coresNovo.cor_cards, coresAtual.cor_cards || ''),
+      cor_fundo: cor(coresNovo.cor_fundo, coresAtual.cor_fundo || ''),
+      cor_cabecalho: cor(coresNovo.cor_cabecalho, coresAtual.cor_cabecalho || ''),
+      cor_rodape: cor(coresNovo.cor_rodape, coresAtual.cor_rodape || ''),
+      cor_texto: cor(coresNovo.cor_texto, coresAtual.cor_texto || ''),
+      cor_badges: cor(coresNovo.cor_badges, coresAtual.cor_badges || ''),
+    },
+    logo: {
+      tamanho: num(logoNovo.tamanho, logoAtual.tamanho ?? 64, 40, 120),
+      formato: enumerado(logoNovo.formato, logoAtual.formato ?? 'arredondado', ['quadrado', 'arredondado', 'circular'] as const),
+      sombra: bool(logoNovo.sombra, logoAtual.sombra ?? true),
+      borda: bool(logoNovo.borda, logoAtual.borda ?? false),
+      borda_branca: bool(logoNovo.borda_branca, logoAtual.borda_branca ?? true),
+      padding: bool(logoNovo.padding, logoAtual.padding ?? false),
+    },
+    capa: {
+      overlay: bool(capaNovo.overlay, capaAtual.overlay ?? true),
+      gradiente: bool(capaNovo.gradiente, capaAtual.gradiente ?? true),
+      blur: num(capaNovo.blur, capaAtual.blur ?? 0, 0, 20),
+      escurecimento: num(capaNovo.escurecimento, capaAtual.escurecimento ?? 30, 0, 100),
+      opacidade: num(capaNovo.opacidade, capaAtual.opacidade ?? 100, 0, 100),
+      posicao: enumerado(capaNovo.posicao, capaAtual.posicao ?? 'centro', ['topo', 'centro', 'base'] as const),
+      ajuste: enumerado(capaNovo.ajuste, capaAtual.ajuste ?? 'cover', ['cover', 'contain', 'repeat'] as const),
+    },
+    cardapio: {
+      layout: enumerado(cardapioNovo.layout, cardapioAtual.layout ?? 'lista', ['lista', 'grid', 'compacto', 'premium'] as const),
+      mostrar_foto: bool(cardapioNovo.mostrar_foto, cardapioAtual.mostrar_foto ?? true),
+      mostrar_descricao: bool(cardapioNovo.mostrar_descricao, cardapioAtual.mostrar_descricao ?? true),
+      mostrar_categoria: bool(cardapioNovo.mostrar_categoria, cardapioAtual.mostrar_categoria ?? true),
+      mostrar_avaliacao: bool(cardapioNovo.mostrar_avaliacao, cardapioAtual.mostrar_avaliacao ?? false),
+      mostrar_tempo: bool(cardapioNovo.mostrar_tempo, cardapioAtual.mostrar_tempo ?? false),
+      preco_destacado: bool(cardapioNovo.preco_destacado, cardapioAtual.preco_destacado ?? true),
+      badge_promocao: bool(cardapioNovo.badge_promocao, cardapioAtual.badge_promocao ?? true),
+      botao_comprar: bool(cardapioNovo.botao_comprar, cardapioAtual.botao_comprar ?? true),
+      espacamento: num(cardapioNovo.espacamento, cardapioAtual.espacamento ?? 12, 4, 24),
+      raio_bordas: num(cardapioNovo.raio_bordas, cardapioAtual.raio_bordas ?? 16, 0, 32),
+      altura_cards: num(cardapioNovo.altura_cards, cardapioAtual.altura_cards ?? 180, 140, 320),
+    },
+    botoes: {
+      hover: bool(botoesNovo.hover, botoesAtual.hover ?? true),
+      sombra: bool(botoesNovo.sombra, botoesAtual.sombra ?? true),
+      gradiente: bool(botoesNovo.gradiente, botoesAtual.gradiente ?? false),
+      icone: bool(botoesNovo.icone, botoesAtual.icone ?? false),
+      borda: bool(botoesNovo.borda, botoesAtual.borda ?? false),
+      raio: num(botoesNovo.raio, botoesAtual.raio ?? 999, 0, 32),
+      tamanho: enumerado(botoesNovo.tamanho, botoesAtual.tamanho ?? 'md', ['sm', 'md', 'lg'] as const),
+      animacao: enumerado(botoesNovo.animacao, botoesAtual.animacao ?? 'nenhuma', ['nenhuma', 'scale', 'ripple', 'glow', 'fade'] as const),
+    },
+    tipografia: {
+      fonte: enumerado(tipoNovo.fonte, tipoAtual.fonte ?? 'inter', ['inter', 'poppins', 'roboto', 'montserrat', 'nunito'] as const),
+      peso: ([400, 500, 600, 700, 800] as const).includes(tipoNovo.peso) ? tipoNovo.peso : (tipoAtual.peso ?? 600),
+      espacamento: num(tipoNovo.espacamento, tipoAtual.espacamento ?? 0, -2, 4),
+      tamanho_base: num(tipoNovo.tamanho_base, tipoAtual.tamanho_base ?? 15, 14, 18),
+      altura_linha: num(tipoNovo.altura_linha, tipoAtual.altura_linha ?? 1.5, 1.2, 1.8),
+    },
+    banners: {
+      botao_texto: texto(bannersNovo.botao_texto, bannersAtual.botao_texto || '', 40),
+      tempo_rotacao_ms: num(bannersNovo.tempo_rotacao_ms, bannersAtual.tempo_rotacao_ms ?? 5000, 2000, 10000),
+      loop: bool(bannersNovo.loop, bannersAtual.loop ?? true),
+      mostrar_indicadores: bool(bannersNovo.mostrar_indicadores, bannersAtual.mostrar_indicadores ?? true),
+      mostrar_setas: bool(bannersNovo.mostrar_setas, bannersAtual.mostrar_setas ?? true),
+    },
+    avancado: {
+      meta_description: texto(avNovo.meta_description, avAtual.meta_description || '', 300),
+      meta_keywords: texto(avNovo.meta_keywords, avAtual.meta_keywords || '', 200),
+      og_image: validarUrlSolta(avNovo.og_image, avAtual.og_image || ''),
+      ga_measurement_id: regexOuVazio(avNovo.ga_measurement_id, avAtual.ga_measurement_id || '', /^G-[A-Z0-9]{6,}$/i),
+      gtm_container_id: regexOuVazio(avNovo.gtm_container_id, avAtual.gtm_container_id || '', /^GTM-[A-Z0-9]{4,}$/i),
+      fb_pixel_id: regexOuVazio(avNovo.fb_pixel_id, avAtual.fb_pixel_id || '', /^\d{5,20}$/),
+      tiktok_pixel_id: regexOuVazio(avNovo.tiktok_pixel_id, avAtual.tiktok_pixel_id || '', /^[A-Z0-9]{10,30}$/i),
+      clarity_project_id: regexOuVazio(avNovo.clarity_project_id, avAtual.clarity_project_id || '', /^[a-z0-9]{6,20}$/i),
+    },
+  };
+  return JSON.stringify(validado);
+}
+
+/** URL https:// ou /uploads/... solta (fora do padrão UPDATE de /loja), ou vazia. */
+function validarUrlSolta(v: unknown, atual: string): string {
+  if (typeof v !== 'string') return atual;
+  const s = v.trim().slice(0, 500);
+  if (s === '' || /^https?:\/\//i.test(s) || s.startsWith('/uploads/')) return s;
+  return atual;
 }
 
 router.post('/loja/abrir-fechar', (req, res, next) => {
@@ -1813,7 +1970,7 @@ router.get('/banners', (req, res, next) => {
     const loja = minhaLoja(req);
     const banners = db.prepare(
       `SELECT b.id, b.titulo, b.subtitulo, b.imagem, b.produto_id, b.link_url, b.ordem, b.ativo,
-              p.nome AS produto_nome
+              b.botao_texto, p.nome AS produto_nome
          FROM banners b
          LEFT JOIN produtos p ON p.id = b.produto_id
         WHERE b.loja_id = ?
@@ -1839,9 +1996,13 @@ router.post('/banners', (req, res, next) => {
       if (!existe) throw erroHttp(400, 'Produto não encontrado na sua loja.');
     }
 
+    const ativos = (db.prepare('SELECT COUNT(*) AS n FROM banners WHERE loja_id = ? AND ativo = 1')
+      .get(loja.id) as { n: number }).n;
+    if (ativos >= 5) throw erroHttp(400, 'Máximo de 5 banners ativos. Desative um antes de criar outro.');
+
     const info = db.prepare(
-      `INSERT INTO banners (titulo, subtitulo, imagem, loja_id, produto_id, link_url, ordem, ativo, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`
+      `INSERT INTO banners (titulo, subtitulo, imagem, loja_id, produto_id, link_url, ordem, ativo, botao_texto, criado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     ).run(
       titulo,
       textoLimpo(req.body.subtitulo ?? '', 200),
@@ -1850,6 +2011,7 @@ router.post('/banners', (req, res, next) => {
       produtoId,
       textoLimpo(req.body.link_url ?? '', 500) || null,
       inteiroPositivo(req.body.ordem) || 0,
+      textoLimpo(req.body.botao_texto ?? '', 40),
       agoraUTC(),
     );
     res.status(201).json({ banner_id: Number(info.lastInsertRowid) });
@@ -1876,8 +2038,15 @@ router.put('/banners/:id', (req, res, next) => {
       ? (inteiroPositivo(req.body.produto_id) || null)
       : banner.produto_id;
 
+    const novoAtivo = req.body.ativo !== undefined ? (req.body.ativo ? 1 : 0) : banner.ativo;
+    if (novoAtivo === 1 && banner.ativo === 0) {
+      const ativos = (db.prepare('SELECT COUNT(*) AS n FROM banners WHERE loja_id = ? AND ativo = 1')
+        .get(loja.id) as { n: number }).n;
+      if (ativos >= 5) throw erroHttp(400, 'Máximo de 5 banners ativos. Desative outro antes de ativar este.');
+    }
+
     db.prepare(
-      `UPDATE banners SET titulo = ?, subtitulo = ?, imagem = ?, produto_id = ?, link_url = ?, ordem = ?, ativo = ?
+      `UPDATE banners SET titulo = ?, subtitulo = ?, imagem = ?, produto_id = ?, link_url = ?, ordem = ?, ativo = ?, botao_texto = ?
         WHERE id = ?`
     ).run(
       titulo,
@@ -1886,7 +2055,8 @@ router.put('/banners/:id', (req, res, next) => {
       produtoId,
       req.body.link_url !== undefined ? (textoLimpo(req.body.link_url, 500) || null) : banner.link_url,
       req.body.ordem !== undefined ? (inteiroPositivo(req.body.ordem) || 0) : banner.ordem,
-      req.body.ativo !== undefined ? (req.body.ativo ? 1 : 0) : banner.ativo,
+      novoAtivo,
+      req.body.botao_texto !== undefined ? textoLimpo(req.body.botao_texto, 40) : (banner.botao_texto ?? ''),
       banner.id,
     );
     res.json({ ok: true });

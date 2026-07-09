@@ -13,9 +13,17 @@ interface Props {
   banners: Banner[];
   /** Chamado ao clicar num banner que tem produto_id mas não loja_id (já estamos na loja). */
   onProdutoClick?: (produtoId: number) => void;
+  /** Config de rotação da loja (visual_json.banners) — todos opcionais, com os defaults de sempre. */
+  tempoRotacaoMs?: number;
+  loop?: boolean;
+  mostrarIndicadores?: boolean;
+  mostrarSetas?: boolean;
 }
 
-export function BannerCarousel({ banners, onProdutoClick }: Props) {
+export function BannerCarousel({
+  banners, onProdutoClick,
+  tempoRotacaoMs = 5000, loop = true, mostrarIndicadores = true, mostrarSetas = true,
+}: Props) {
   const [atual, setAtual] = useState(0);
   const [pausado, setPausado] = useState(false);
   const navigate = useNavigate();
@@ -23,14 +31,15 @@ export function BannerCarousel({ banners, onProdutoClick }: Props) {
   const cronoRef = useRef<number | null>(null);
 
   const ir = (i: number) => setAtual(((i % total) + total) % total);
-  const proximo = () => ir(atual + 1);
-  const anterior = () => ir(atual - 1);
+  const proximo = () => ir(loop ? atual + 1 : Math.min(atual + 1, total - 1));
+  const anterior = () => ir(loop ? atual - 1 : Math.max(atual - 1, 0));
 
   useEffect(() => {
     if (pausado || total < 2) return;
-    cronoRef.current = window.setTimeout(() => setAtual(v => (v + 1) % total), 5000);
+    if (!loop && atual === total - 1) return;
+    cronoRef.current = window.setTimeout(() => setAtual(v => (loop ? (v + 1) % total : Math.min(v + 1, total - 1))), tempoRotacaoMs);
     return () => { if (cronoRef.current) clearTimeout(cronoRef.current); };
-  }, [atual, pausado, total]);
+  }, [atual, pausado, total, loop, tempoRotacaoMs]);
 
   if (total === 0) return null;
   const banner = banners[atual];
@@ -77,6 +86,11 @@ export function BannerCarousel({ banners, onProdutoClick }: Props) {
               {banner.subtitulo && (
                 <div className="text-sm text-white/75 mt-0.5 line-clamp-1">{banner.subtitulo}</div>
               )}
+              {banner.botao_texto && (
+                <span className="mt-2 inline-block rounded-full bg-white px-3.5 py-1.5 text-xs font-bold text-neutral-900">
+                  {banner.botao_texto}
+                </span>
+              )}
             </div>
           </motion.button>
         </AnimatePresence>
@@ -84,22 +98,28 @@ export function BannerCarousel({ banners, onProdutoClick }: Props) {
 
       {total > 1 && (
         <>
-          <SetaCarrossel onClick={anterior} lado="esquerda" />
-          <SetaCarrossel onClick={proximo} lado="direita" />
+          {mostrarSetas && (
+            <>
+              <SetaCarrossel onClick={anterior} lado="esquerda" />
+              <SetaCarrossel onClick={proximo} lado="direita" />
+            </>
+          )}
 
-          <div className="absolute inset-x-0 bottom-3 flex items-center justify-center gap-2 pointer-events-none">
-            {banners.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => ir(i)}
-                aria-label={`Ir para slide ${i + 1}`}
-                className={cn(
-                  'h-2 rounded-full bg-white/50 backdrop-blur transition-all pointer-events-auto',
-                  i === atual ? 'w-7 bg-white' : 'w-2 hover:bg-white/80',
-                )}
-              />
-            ))}
-          </div>
+          {mostrarIndicadores && (
+            <div className="absolute inset-x-0 bottom-3 flex items-center justify-center gap-2 pointer-events-none">
+              {banners.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => ir(i)}
+                  aria-label={`Ir para slide ${i + 1}`}
+                  className={cn(
+                    'h-2 rounded-full bg-white/50 backdrop-blur transition-all pointer-events-auto',
+                    i === atual ? 'w-7 bg-white' : 'w-2 hover:bg-white/80',
+                  )}
+                />
+              ))}
+            </div>
+          )}
         </>
       )}
     </section>

@@ -551,6 +551,17 @@ garantirColuna('lojas', 'nfce_cert_senha', "nfce_cert_senha TEXT NOT NULL DEFAUL
 garantirColuna('lojas', 'nfce_cert_validade', "nfce_cert_validade TEXT NOT NULL DEFAULT ''");
 garantirColuna('lojas', 'nfce_cert_titular', "nfce_cert_titular TEXT NOT NULL DEFAULT ''");
 
+// Editor visual completo da loja (aba "Visual" do painel do lojista): guarda
+// TODOS os ajustes cosméticos granulares (cores extras, logo, capa, cardápio,
+// botões, tipografia, banners, avançado/SEO/pixels) num JSON só — nenhum
+// desses campos é filtrado/ordenado via SQL em rota nenhuma, então um blob
+// evita dezenas de colunas/parâmetros. logo_url/capa_url/favicon_url/
+// cor_marca/cor_secundaria continuam como colunas dedicadas (não migrar pra
+// cá) porque já são lidas isoladamente em várias rotas/telas.
+garantirColuna('lojas', 'visual_json', "visual_json TEXT NOT NULL DEFAULT '{}'");
+// Texto do botão/CTA exibido dentro do slide do banner (ex.: "Peça agora").
+garantirColuna('banners', 'botao_texto', "botao_texto TEXT NOT NULL DEFAULT ''");
+
 // itens_pedido.produto_id precisa ser nullable para suportar itens avulsos de comanda (PDV mesa).
 // SQLite não permite ALTER COLUMN, então recriamos a tabela se ainda tiver NOT NULL.
 {

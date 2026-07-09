@@ -120,6 +120,14 @@ function luminancia(hex: string): number {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 }
 
+/** #RRGGBB → {r,g,b} (0–255 cada), ou null se inválido. */
+export function hexParaRgb(hex: string): { r: number; g: number; b: number } | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const num = parseInt(m[1], 16);
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+
 /** Foreground com contraste garantido: preto sobre cores claras, branco sobre escuras. */
 export function foregroundContraste(hex: string): string {
   return luminancia(hex) > 0.55 ? '240 10% 8%' : '0 0% 100%';
@@ -127,20 +135,29 @@ export function foregroundContraste(hex: string): string {
 
 /* ───────────────────────── aplicação do tema no DOM ───────────────────────── */
 
+/**
+ * Só injeta o `<link>` do Google Fonts (idempotente por `elId`) — NÃO seta
+ * `document.body.style.fontFamily` globalmente. Usada por telas que
+ * precisam de uma fonte diferente da fonte-marca da plataforma só num
+ * escopo próprio (ex.: a fonte que o LOJISTA escolheu pra loja dele, no
+ * editor Visual e na página pública da loja) sem vazar pro resto do app.
+ */
+export function injetarFonteLink(cfg: { stack: string; google?: string }, elId: string) {
+  if (!cfg.google) return;
+  let link = document.getElementById(elId) as HTMLLinkElement | null;
+  const href = `https://fonts.googleapis.com/css2?family=${cfg.google}&display=swap`;
+  if (!link) {
+    link = document.createElement('link');
+    link.id = elId;
+    link.rel = 'stylesheet';
+    document.head.appendChild(link);
+  }
+  if (link.href !== href) link.href = href;
+}
+
 function injetarFonte(fonte: FonteMarca) {
   const cfg = FONTES[fonte] ?? FONTES.inter;
-  if (cfg.google) {
-    const id = 'fonte-marca';
-    let link = document.getElementById(id) as HTMLLinkElement | null;
-    const href = `https://fonts.googleapis.com/css2?family=${cfg.google}&display=swap`;
-    if (!link) {
-      link = document.createElement('link');
-      link.id = id;
-      link.rel = 'stylesheet';
-      document.head.appendChild(link);
-    }
-    if (link.href !== href) link.href = href;
-  }
+  injetarFonteLink(cfg, 'fonte-marca');
   document.documentElement.style.setProperty('--fonte-marca', cfg.stack);
   document.body.style.fontFamily = cfg.stack;
 }

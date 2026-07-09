@@ -21,11 +21,13 @@ interface BannerLoja {
   link_url: string | null;
   ordem: number;
   ativo: 0 | 1;
+  botao_texto?: string;
 }
 
 interface ProdutoSimples { id: number; nome: string; categoria: string; }
 
-const FORM_VAZIO = { titulo: '', subtitulo: '', imagem: '', produto_id: '', link_url: '', ordem: '0' };
+const FORM_VAZIO = { titulo: '', subtitulo: '', imagem: '', produto_id: '', link_url: '', ordem: '0', botao_texto: '' };
+const MAX_BANNERS_ATIVOS = 5;
 
 export function BannersLoja() {
   const [criando, setCriando] = useState(false);
@@ -47,6 +49,8 @@ export function BannersLoja() {
     enabled: criando,
   });
 
+  const ativosNoLimite = (bannersQ.data?.filter(b => b.ativo).length ?? 0) >= MAX_BANNERS_ATIVOS;
+
   function campo(k: keyof typeof FORM_VAZIO) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
       setForm(f => ({ ...f, [k]: e.target.value }));
@@ -67,6 +71,7 @@ export function BannersLoja() {
         produto_id: form.produto_id ? Number(form.produto_id) : null,
         link_url: form.link_url || null,
         ordem: Number(form.ordem),
+        botao_texto: form.botao_texto,
       });
       mostrar({ tipo: 'sucesso', titulo: 'Banner criado!' });
       setForm(FORM_VAZIO);
@@ -111,10 +116,16 @@ export function BannersLoja() {
             <p className="text-sm text-muted-foreground">Aparecem no topo do seu cardápio para os clientes.</p>
           </div>
         </div>
-        <Button onClick={() => setCriando(c => !c)} size="sm">
+        <Button onClick={() => setCriando(c => !c)} size="sm" disabled={ativosNoLimite}>
           <Plus className="size-4" /> Novo banner
         </Button>
       </div>
+
+      {ativosNoLimite && (
+        <p className="text-xs text-amber-600 -mt-2">
+          Máximo de {MAX_BANNERS_ATIVOS} banners ativos. Desative um pra criar outro.
+        </p>
+      )}
 
       {criando && (
         <Card className="border-primary/30">
@@ -126,8 +137,12 @@ export function BannersLoja() {
                 <Input required value={form.titulo} onChange={campo('titulo')} placeholder="Ex.: Promoção de fim de semana" />
               </div>
               <div>
-                <Label>Subtítulo (aparece menor, abaixo do título)</Label>
+                <Label>Subtítulo / descrição (aparece menor, abaixo do título)</Label>
                 <Input value={form.subtitulo} onChange={campo('subtitulo')} placeholder="Ex.: 30% de desconto em todos os combos" />
+              </div>
+              <div>
+                <Label>Texto do botão (opcional)</Label>
+                <Input value={form.botao_texto} onChange={campo('botao_texto')} placeholder="Ex.: Peça já" maxLength={40} />
               </div>
               <ImageUpload
                 label="Imagem do banner *"
@@ -220,8 +235,9 @@ export function BannersLoja() {
               <div className="flex items-center gap-1 shrink-0">
                 <button
                   onClick={() => alternarAtivo(b)}
-                  className="text-muted-foreground hover:text-primary transition-colors p-1"
-                  title={b.ativo ? 'Desativar' : 'Ativar'}
+                  disabled={!b.ativo && ativosNoLimite}
+                  className="text-muted-foreground hover:text-primary transition-colors p-1 disabled:opacity-40 disabled:pointer-events-none"
+                  title={b.ativo ? 'Desativar' : ativosNoLimite ? `Máximo de ${MAX_BANNERS_ATIVOS} ativos` : 'Ativar'}
                 >
                   {b.ativo
                     ? <ToggleRight className="size-6 text-primary" />

@@ -28,6 +28,7 @@ import { despacharImpressao, imprimirComandasProducao } from '@/lib/impressao';
 import type { BlocoImpressao } from '@/lib/agente';
 import { ProdutosLoja } from './produtos';
 import { LojaConfiguracao, HorarioLoja, ZonasEntrega, PagamentosLoja, ImpressaoLoja, EntregadoresLoja } from './loja-config';
+import { VisualLoja } from './visual';
 import { FiscalLoja } from './fiscal';
 import { CategoriasLoja } from './categorias';
 import { RelatoriosLoja } from './relatorios';
@@ -135,7 +136,7 @@ export function PainelLojista() {
         <Route path="produtos" element={<ProdutosLoja />} />
         <Route path="mais" element={<MenuMais />} />
         <Route path="cupons" element={<CuponsLoja />} />
-        <Route path="personalizacao" element={<PersonalizacaoLoja />} />
+        <Route path="personalizacao" element={<VisualLoja />} />
         <Route path="loja" element={<LojaConfiguracao />} />
         <Route path="config" element={<ConfiguracoesLoja />} />
         <Route path="relatorios" element={<RelatoriosLoja />} />
@@ -197,7 +198,7 @@ function ConfiguracoesLoja() {
       {aba === 'pagamentos' && <PagamentosLoja />}
       {aba === 'fiscal' && <FiscalLoja />}
       {aba === 'impressao' && <ImpressaoLoja />}
-      {aba === 'visual' && <PersonalizacaoLoja />}
+      {aba === 'visual' && <VisualLoja />}
       {aba === 'banners' && <BannersLoja />}
     </div>
   );
@@ -532,204 +533,6 @@ function GerenciarCozinha() {
   );
 }
 
-function PersonalizacaoLoja() {
-  const { mostrar } = useToast();
-  const { aplicarCorPrimaria } = useTema();
-  const [enviando, setEnviando] = useState(false);
-  const [lojaId, setLojaId] = useState<number | null>(null);
-  const [nomeLoja, setNomeLoja] = useState('Sua loja');
-  const [lojaAberta, setLojaAberta] = useState(true);
-  const [form, setForm] = useState({
-    logo_url: '', capa_url: '', favicon_url: '', cor_marca: '#dc2640', cor_secundaria: '',
-  });
-  const [carregado, setCarregado] = useState(false);
-
-  useEffect(() => {
-    api<{ loja: any }>('GET', '/api/lojista/loja').then(r => {
-      setLojaId(r.loja.id);
-      setNomeLoja(r.loja.nome || 'Sua loja');
-      setLojaAberta(!!r.loja.aberta);
-      setForm({
-        logo_url: r.loja.logo_url || '',
-        capa_url: r.loja.capa_url || '',
-        favicon_url: r.loja.favicon_url || '',
-        cor_marca: r.loja.cor_marca || '#dc2640',
-        cor_secundaria: r.loja.cor_secundaria || '',
-      });
-      setCarregado(true);
-    }).catch(() => setCarregado(true));
-  }, []);
-
-  // SEM cleanup/reset aqui: o painel do lojista é sempre temado pela cor DA
-  // LOJA (ver PainelLojista acima), nunca pela cor padrão da plataforma. Um
-  // reset ao sair desta aba sobrescrevia o cache anti-flash do F5 com a cor
-  // padrão, causando o "pisca vermelho" — mesmo bug que já tínhamos corrigido
-  // uma vez, reintroduzido aqui pela edição da cor secundária.
-  useEffect(() => {
-    if (form.cor_marca) aplicarCorPrimaria(form.cor_marca, form.cor_secundaria || null);
-  }, [form.cor_marca, form.cor_secundaria, aplicarCorPrimaria]);
-
-  async function salvar(e: React.FormEvent) {
-    e.preventDefault();
-    setEnviando(true);
-    try {
-      await api('PUT', '/api/lojista/loja', form);
-      mostrar({ tipo: 'sucesso', titulo: 'Visual atualizado! 🎨' });
-    } catch (err) {
-      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
-    } finally {
-      setEnviando(false);
-    }
-  }
-
-  function verPreview() {
-    if (lojaId) window.open(`/loja/${lojaId}`, '_blank');
-  }
-
-  if (!carregado) return <Skeleton className="h-96" />;
-
-  const fg = `hsl(${foregroundContraste(form.cor_marca)})`;
-  const contrasteClaro = foregroundContraste(form.cor_marca) === '0 0% 100%';
-
-  return (
-    <div className="space-y-5 pb-4">
-      <div className="flex items-center gap-3">
-        <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-          <Palette className="size-6" />
-        </div>
-        <div>
-          <h1 className="text-xl font-extrabold">Visual da loja</h1>
-          <p className="text-sm text-muted-foreground">Logo, capa e cor que o cliente vê no cardápio.</p>
-        </div>
-      </div>
-
-      {/* Preview ao vivo — replica o hero real da página da loja (mesmo layout que o cliente vê) */}
-      <div>
-        <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
-          <Eye className="size-3.5" /> Pré-visualização
-        </div>
-        <Card className="overflow-hidden">
-          <div className="relative h-32 overflow-hidden bg-gradient-to-br from-primary/30 via-primary/10 to-muted">
-            {form.capa_url && (
-              <img src={form.capa_url} alt="" className="absolute inset-0 size-full object-cover" />
-            )}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-            <div className="absolute top-3 right-3">
-              <Badge variant={lojaAberta ? 'success' : 'secondary'} className="shadow text-[10px]">
-                {lojaAberta ? '● Aberta' : '● Fechada'}
-              </Badge>
-            </div>
-            <div className="absolute bottom-0 left-0 right-0 px-4 pb-3 flex items-end gap-3">
-              <div className="shrink-0 size-14 rounded-2xl overflow-hidden border-[3px] border-white/90 shadow-xl bg-white">
-                {form.logo_url ? (
-                  <img src={form.logo_url} alt="" className="size-full object-cover" />
-                ) : (
-                  <div className="flex size-full items-center justify-center text-xl font-extrabold"
-                    style={{ backgroundColor: form.cor_marca, color: fg }}>
-                    {nomeLoja.charAt(0)}
-                  </div>
-                )}
-              </div>
-              <div className="pb-0.5 min-w-0">
-                <h2 className="text-lg font-extrabold text-white leading-tight drop-shadow truncate">{nomeLoja}</h2>
-                <div className="flex items-center gap-x-3 mt-0.5">
-                  <span className="flex items-center gap-1 text-[11px] font-semibold text-white/80 drop-shadow">
-                    <Bike className="size-3" /> <span className="text-green-300 font-bold">Grátis</span>
-                  </span>
-                  <span className="flex items-center gap-1 text-[11px] font-semibold text-white/80 drop-shadow">
-                    <Clock className="size-3" /> 30 min
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-          <CardContent className="p-4 space-y-3">
-            <div className="flex items-center gap-3 rounded-xl border border-border p-2.5">
-              <div className="size-12 rounded-lg bg-white border border-border flex items-center justify-center text-xl shrink-0">🍔</div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold leading-tight">Produto de exemplo</div>
-                <div className="text-sm font-bold">R$ 24,90</div>
-              </div>
-              <button type="button" className="rounded-full px-4 py-2 text-sm font-bold shadow-sm"
-                style={{ backgroundColor: form.cor_marca, color: fg }}>
-                Adicionar
-              </button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardContent className="p-6">
-          <form onSubmit={salvar} className="space-y-5">
-            <ImageUpload label="Logo da loja" value={form.logo_url}
-              onChange={url => setForm(f => ({ ...f, logo_url: url }))} aspectRatio="square" />
-            <ImageUpload label="Imagem de capa" value={form.capa_url}
-              onChange={url => setForm(f => ({ ...f, capa_url: url }))} aspectRatio="wide" />
-            <div>
-              <ImageUpload label="Favicon (ícone da aba do navegador)" value={form.favicon_url}
-                onChange={url => setForm(f => ({ ...f, favicon_url: url }))} aspectRatio="square" />
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Aparece na aba do navegador enquanto o cliente vê sua loja. Use uma imagem quadrada simples (ex.: seu logo).
-              </p>
-            </div>
-
-            <div>
-              <Label htmlFor="cor_marca">Cor da marca (principal)</Label>
-              <div className="flex items-center gap-3 mt-1.5">
-                <input id="cor_marca" type="color" value={form.cor_marca}
-                  onChange={e => setForm(f => ({ ...f, cor_marca: e.target.value }))}
-                  className="h-12 w-16 rounded-xl border border-input cursor-pointer" />
-                <Input value={form.cor_marca}
-                  onChange={e => setForm(f => ({ ...f, cor_marca: e.target.value }))}
-                  maxLength={7} placeholder="#dc2640" className="font-mono uppercase w-32" />
-                <div className="size-10 rounded-xl border border-border shrink-0"
-                  style={{ backgroundColor: form.cor_marca }} />
-              </div>
-              <div className={cn('mt-2 rounded-lg px-3 py-2 text-xs flex items-center gap-2',
-                contrasteClaro ? 'bg-foreground text-background' : 'bg-foreground/5')}>
-                <span className="inline-flex size-4 items-center justify-center rounded-full"
-                  style={{ background: form.cor_marca, color: fg }}>A</span>
-                Texto sobre a cor fica <b>{contrasteClaro ? 'branco' : 'escuro'}</b> (contraste automático).
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="cor_secundaria">Cor secundária (opcional)</Label>
-              <div className="flex items-center gap-3 mt-1.5">
-                <input id="cor_secundaria" type="color" value={form.cor_secundaria || '#000000'}
-                  onChange={e => setForm(f => ({ ...f, cor_secundaria: e.target.value }))}
-                  className="h-12 w-16 rounded-xl border border-input cursor-pointer" />
-                <Input value={form.cor_secundaria}
-                  onChange={e => setForm(f => ({ ...f, cor_secundaria: e.target.value }))}
-                  maxLength={7} placeholder="Deixe em branco pra não usar" className="font-mono uppercase w-48" />
-                {form.cor_secundaria && (
-                  <button type="button" onClick={() => setForm(f => ({ ...f, cor_secundaria: '' }))}
-                    className="text-xs text-muted-foreground hover:text-destructive underline underline-offset-2">
-                    limpar
-                  </button>
-                )}
-              </div>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Usada em detalhes de apoio (badges, destaques). Deixe vazio pra usar só a cor principal.
-              </p>
-            </div>
-
-            <div className="flex gap-3 pt-1">
-              <Button type="submit" size="lg" className="flex-1" disabled={enviando}>
-                <Save className="size-4" />
-                {enviando ? 'Salvando…' : 'Salvar visual'}
-              </Button>
-              <Button type="button" size="lg" variant="outline" disabled={!lojaId} onClick={verPreview}>
-                <Eye className="size-4" /> Ver loja
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
 
 const STATUS_ATIVOS = ['pendente', 'aceito', 'preparando', 'pronto', 'em_entrega'];
 
