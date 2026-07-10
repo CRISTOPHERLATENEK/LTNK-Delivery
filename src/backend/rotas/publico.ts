@@ -37,12 +37,13 @@ router.get('/tema', (_req, res) => {
     favicon = loja?.favicon_url || '';
   }
   res.json({
-    nome:          valor('marca_nome', 'Delivery Já'),
-    slogan:        valor('marca_slogan', 'Peça das melhores lojas da sua região'),
-    logo_url:      valor('marca_logo_url'),
-    favicon_url:   favicon,
-    cor_primaria:  valor('marca_cor_primaria', '#dc2640'),
-    loja_id:       lojaId,
+    nome:              valor('marca_nome', 'Delivery Já'),
+    slogan:            valor('marca_slogan', 'Peça das melhores lojas da sua região'),
+    logo_url:          valor('marca_logo_url'),
+    favicon_url:       favicon,
+    cor_primaria:      valor('marca_cor_primaria', '#dc2640'),
+    login_banner_url:  valor('marca_login_banner_url'),
+    loja_id:           lojaId,
   });
 });
 

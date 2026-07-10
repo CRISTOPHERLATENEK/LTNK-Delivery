@@ -595,6 +595,8 @@ const padroes: Array<[string, string]> = [
   ['marca_favicon_url', ''],
   ['marca_cor_primaria', '#dc2640'],
   ['loja_padrao_id', '0'],
+  // Banner personalizado da tela de login (vazio = usa a ilustração padrão).
+  ['marca_login_banner_url', ''],
 ];
 const inserirConfig = db.prepare('INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES (?, ?)');
 for (const [k, v] of padroes) inserirConfig.run(k, v);

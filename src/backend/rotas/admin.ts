@@ -620,12 +620,13 @@ router.get('/tema', (_req, res) => {
     return r?.valor ?? padrao;
   };
   res.json({
-    nome:          valor('marca_nome', 'Delivery Já'),
-    slogan:        valor('marca_slogan', 'Peça das melhores lojas da sua região'),
-    logo_url:      valor('marca_logo_url'),
-    favicon_url:   valor('marca_favicon_url'),
-    cor_primaria:  valor('marca_cor_primaria', '#dc2640'),
-    loja_id:       Number(valor('loja_padrao_id', '0')),
+    nome:              valor('marca_nome', 'Delivery Já'),
+    slogan:            valor('marca_slogan', 'Peça das melhores lojas da sua região'),
+    logo_url:          valor('marca_logo_url'),
+    favicon_url:       valor('marca_favicon_url'),
+    cor_primaria:      valor('marca_cor_primaria', '#dc2640'),
+    login_banner_url:  valor('marca_login_banner_url'),
+    loja_id:           Number(valor('loja_padrao_id', '0')),
   });
 });
 
@@ -649,6 +650,14 @@ router.put('/tema', exigirSuperAdmin, (req, res, next) => {
       const v = textoLimpo(req.body.favicon_url, 500);
       if (v && !/^https?:\/\//i.test(v) && !v.startsWith('/uploads/')) throw erroHttp(400, 'URL do favicon inválida (use https://… ou faça upload).');
       stmt.run(v, 'marca_favicon_url');
+    }
+    if (req.body.login_banner_url !== undefined) {
+      const v = textoLimpo(req.body.login_banner_url, 500);
+      if (v && !/^https?:\/\//i.test(v) && !v.startsWith('/uploads/')) throw erroHttp(400, 'URL do banner de login inválida (use https://… ou faça upload).');
+      // upsert: a chave pode não existir em bancos antigos criados antes deste campo.
+      // Ordem dos parâmetros casa com VALUES (chave, valor).
+      db.prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor')
+        .run('marca_login_banner_url', v);
     }
     if (req.body.cor_primaria !== undefined) {
       const cor = textoLimpo(req.body.cor_primaria, 20);

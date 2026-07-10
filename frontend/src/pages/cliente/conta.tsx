@@ -56,7 +56,7 @@ function TelaAuth({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
     <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-stretch">
       {/* ── Coluna esquerda: hero + login ── */}
       <div className="animate-[fadeUp_.5s_ease-out] overflow-hidden rounded-3xl border border-border bg-card shadow-sm">
-        <HeroAuth nome={marca.nome} />
+        <HeroAuth nome={marca.nome} banner={marca.login_banner_url} />
         <div className="p-6 sm:p-8">
           <h1 className="text-2xl font-extrabold tracking-tight">
             Bem-vindo de volta! <span className="inline-block">👋</span>
@@ -86,8 +86,21 @@ function TelaAuth({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
   );
 }
 
-/* Hero ilustrado do topo do card de login — SVG inline, usa a cor da marca. */
-function HeroAuth({ nome }: { nome: string }) {
+/* Hero do topo do card de login. Se o admin definiu um banner próprio
+   (Admin → Marca → Banner do login), mostra a imagem; senão, a ilustração
+   padrão desenhada em SVG com a cor da marca. */
+function HeroAuth({ nome, banner }: { nome: string; banner?: string }) {
+  if (banner) {
+    return (
+      <div className="relative h-40 overflow-hidden sm:h-48">
+        <img src={banner} alt="" className="absolute inset-0 size-full object-cover" />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
+        <div className="absolute bottom-3 left-4 text-[11px] font-bold uppercase tracking-widest text-white/85 drop-shadow">
+          {nome}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="relative h-40 overflow-hidden bg-gradient-to-br from-primary via-primary to-primary/70 sm:h-48">
       {/* brilhos decorativos */}

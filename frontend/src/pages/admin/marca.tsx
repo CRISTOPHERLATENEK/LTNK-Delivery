@@ -105,6 +105,13 @@ export function TelaMarca() {
               onChange={v => up('logo_url', v)} aspectRatio="square" />
             <ImageUpload label="Favicon (ícone da aba)" value={form.favicon_url}
               onChange={v => up('favicon_url', v)} aspectRatio="square" />
+            <div>
+              <ImageUpload label="Banner da tela de login" value={form.login_banner_url}
+                onChange={v => up('login_banner_url', v)} aspectRatio="wide" />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Aparece no topo do card de login (/conta). Vazio = usa a ilustração padrão. Ideal ~1200×480px.
+              </p>
+            </div>
           </Secao>
 
           {/* Cores */}

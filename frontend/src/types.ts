@@ -182,6 +182,8 @@ export interface TemaMarca {
   descricao: string;
   /** Imagem de compartilhamento (Open Graph) — aparece ao colar o link em redes sociais. */
   og_image: string;
+  /** Banner personalizado da tela de login (vazio = usa a ilustração padrão). */
+  login_banner_url: string;
   /** ID da loja padrão (0 = modo marketplace, >0 = white label single-store) */
   loja_id: number;
 }

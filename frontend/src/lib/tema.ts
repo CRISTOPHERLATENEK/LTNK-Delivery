@@ -21,6 +21,7 @@ const PADRAO: TemaMarca = {
   fonte: 'inter',
   descricao: '',
   og_image: '',
+  login_banner_url: '',
   loja_id: 0,
 };
 
