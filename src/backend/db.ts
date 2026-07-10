@@ -562,6 +562,29 @@ garantirColuna('lojas', 'visual_json', "visual_json TEXT NOT NULL DEFAULT '{}'")
 // Texto do botão/CTA exibido dentro do slide do banner (ex.: "Peça agora").
 garantirColuna('banners', 'botao_texto', "botao_texto TEXT NOT NULL DEFAULT ''");
 
+// Login do cliente por telefone (além de e-mail; CPF continua funcionando
+// como fallback silencioso no backend, só não aparece mais na tela de
+// login). Normaliza telefones já salvos pra só-dígitos (o campo nunca teve
+// validação/formatação antes) e tenta criar um índice único parcial (ignora
+// vazio/NULL) pra impedir duas contas com o mesmo telefone daqui pra frente.
+// O índice é tentado dentro de um try/catch: se já existirem duplicatas
+// legadas nos dados (o campo nunca foi único), a criação falha e é só
+// logada — não pode derrubar o boot do servidor por causa de dado antigo sujo.
+{
+  const linhas = db.prepare("SELECT id, telefone FROM usuarios WHERE telefone IS NOT NULL AND telefone <> ''").all() as Array<{ id: number; telefone: string }>;
+  const normalizar = db.prepare('UPDATE usuarios SET telefone = ? WHERE id = ?');
+  for (const l of linhas) {
+    const digitos = l.telefone.replace(/\D/g, '').slice(0, 11);
+    if (digitos !== l.telefone) normalizar.run(digitos || null, l.id);
+  }
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_usuarios_telefone_unico
+             ON usuarios(telefone) WHERE telefone IS NOT NULL AND telefone <> ''`);
+  } catch (e) {
+    console.warn('[DB] Não foi possível criar índice único de telefone (provavelmente há duplicatas legadas nos dados):', (e as Error).message);
+  }
+}
+
 // itens_pedido.produto_id precisa ser nullable para suportar itens avulsos de comanda (PDV mesa).
 // SQLite não permite ALTER COLUMN, então recriamos a tabela se ainda tiver NOT NULL.
 {

@@ -20,6 +20,7 @@ import { useConfirm } from '@/components/ui/confirm';
 import { useCarrinho } from '@/lib/carrinho';
 import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import { formatarCpf, cpfDigitos, cpfValido } from '@/lib/cpf';
+import { telefoneDigitos, formatarTelefone } from '@/lib/telefone';
 import type { UsuarioSessao, Endereco } from '@/types';
 
 export function PaginaConta() {
@@ -175,7 +176,7 @@ function PerfilSecao({ usuario }: { usuario: UsuarioSessao }) {
   const { mostrar } = useToast();
   const [editando, setEditando] = useState(false);
   const [nome, setNome] = useState(usuario.nome);
-  const [telefone, setTelefone] = useState(usuario.telefone || '');
+  const [telefone, setTelefone] = useState(formatarTelefone(usuario.telefone || ''));
   const [enviando, setEnviando] = useState(false);
 
   async function salvar(e: React.FormEvent) {
@@ -204,7 +205,7 @@ function PerfilSecao({ usuario }: { usuario: UsuarioSessao }) {
             {usuario.email && !usuario.email.endsWith('@cliente.local') && (
               <p className="text-xs text-muted-foreground truncate">{usuario.email}</p>
             )}
-            {usuario.telefone && <p className="text-xs text-muted-foreground">{usuario.telefone}</p>}
+            {usuario.telefone && <p className="text-xs text-muted-foreground">{formatarTelefone(usuario.telefone)}</p>}
           </div>
           {!editando && (
             <Button variant="ghost" size="icon" onClick={() => setEditando(true)} title="Editar perfil">
@@ -221,11 +222,11 @@ function PerfilSecao({ usuario }: { usuario: UsuarioSessao }) {
             </div>
             <div>
               <Label htmlFor="perfil-tel">Telefone</Label>
-              <Input id="perfil-tel" type="tel" value={telefone} onChange={e => setTelefone(e.target.value)} placeholder="(11) 99999-9999" />
+              <Input id="perfil-tel" type="tel" value={telefone} onChange={e => setTelefone(formatarTelefone(e.target.value))} placeholder="(11) 99999-9999" />
             </div>
             <div className="flex gap-2">
               <Button type="submit" disabled={enviando}><Save className="size-4" /> {enviando ? 'Salvando…' : 'Salvar'}</Button>
-              <Button type="button" variant="ghost" onClick={() => { setEditando(false); setNome(usuario.nome); setTelefone(usuario.telefone || ''); }}>Cancelar</Button>
+              <Button type="button" variant="ghost" onClick={() => { setEditando(false); setNome(usuario.nome); setTelefone(formatarTelefone(usuario.telefone || '')); }}>Cancelar</Button>
             </div>
           </form>
         )}
@@ -434,7 +435,7 @@ function CampoSenha({ id, value, onChange, autoComplete, minLength }: {
 }
 
 function FormLogin({ onLogar, irParaCadastro }: { onLogar: (u: UsuarioSessao) => void; irParaCadastro: () => void }) {
-  const [cpf, setCpf] = useState('');
+  const [identificador, setIdentificador] = useState('');
   const [senha, setSenha] = useState('');
   const [lembrar, setLembrar] = useState(true);
   const [enviando, setEnviando] = useState(false);
@@ -443,12 +444,20 @@ function FormLogin({ onLogar, irParaCadastro }: { onLogar: (u: UsuarioSessao) =>
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
-    if (!cpfValido(cpf)) { mostrar({ tipo: 'erro', titulo: 'CPF inválido.' }); return; }
+    const valor = identificador.trim();
+    if (!valor) { mostrar({ tipo: 'erro', titulo: 'Informe seu e-mail ou telefone.' }); return; }
+    // Detecta o formato: tem "@" → e-mail; senão → telefone (backend também
+    // aceita CPF nesse mesmo campo como fallback, pra contas antigas).
+    const ehEmail = valor.includes('@');
     setEnviando(true);
     try {
       const r = await api<{ token: string; usuario: UsuarioSessao }>(
         'POST', '/api/auth/login',
-        { cpf: cpfDigitos(cpf), senha, loja_id: marca.loja_id || null },
+        {
+          email: ehEmail ? valor.toLowerCase() : undefined,
+          telefone: ehEmail ? undefined : telefoneDigitos(valor),
+          senha, loja_id: marca.loja_id || null,
+        },
       );
       salvarSessao(r.token, r.usuario, 'cliente', lembrar);
       onLogar(r.usuario);
@@ -462,9 +471,9 @@ function FormLogin({ onLogar, irParaCadastro }: { onLogar: (u: UsuarioSessao) =>
   return (
     <form onSubmit={enviar} className="mt-6 space-y-4">
       <div>
-        <Label htmlFor="login-cpf">CPF</Label>
-        <CampoIcone icone={User} id="login-cpf" inputMode="numeric" autoComplete="username" placeholder="000.000.000-00"
-          required value={cpf} onChange={e => setCpf(formatarCpf((e.target as HTMLInputElement).value))} className="mt-1.5" />
+        <Label htmlFor="login-identificador">E-mail ou telefone</Label>
+        <CampoIcone icone={User} id="login-identificador" autoComplete="username" placeholder="seu@email.com ou (11) 99999-9999"
+          required value={identificador} onChange={e => setIdentificador((e.target as HTMLInputElement).value)} className="mt-1.5" />
       </div>
       <div>
         <Label htmlFor="login-senha">Senha</Label>
@@ -543,7 +552,8 @@ function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
         <div>
           <Label htmlFor="cad-tel">Telefone / WhatsApp</Label>
           <CampoIcone icone={Phone} id="cad-tel" type="tel" placeholder="(11) 99999-9999"
-            value={telefone} onChange={e => setTelefone((e.target as HTMLInputElement).value)} className="mt-1.5" />
+            value={telefone} onChange={e => setTelefone(formatarTelefone((e.target as HTMLInputElement).value))} className="mt-1.5" />
+          <p className="mt-1 text-[11px] text-muted-foreground">Também pode ser usado pra entrar na sua conta.</p>
         </div>
         <div>
           <Label htmlFor="cad-email">E-mail <span className="font-normal text-muted-foreground">(opcional)</span></Label>

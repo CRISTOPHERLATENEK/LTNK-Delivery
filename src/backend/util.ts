@@ -45,6 +45,11 @@ export function cpfDigitos(cpf: unknown): string {
   return typeof cpf === 'string' ? cpf.replace(/\D/g, '').slice(0, 11) : '';
 }
 
+/** Telefone só com dígitos (DDD + número, sem máscara) — usado como chave de login do cliente. */
+export function telefoneDigitos(telefone: unknown): string {
+  return typeof telefone === 'string' ? telefone.replace(/\D/g, '').slice(0, 11) : '';
+}
+
 /** Valida CPF pelos dígitos verificadores (rejeita sequências iguais). */
 export function cpfValido(cpf: unknown): boolean {
   const d = cpfDigitos(cpf);

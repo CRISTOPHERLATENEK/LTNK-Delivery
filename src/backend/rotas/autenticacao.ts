@@ -7,7 +7,7 @@ import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import db from '../db';
 import { gerarToken, autenticar } from '../auth';
-import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, erroHttp } from '../util';
+import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, telefoneDigitos, erroHttp } from '../util';
 import { enviarEmail, emailRedefinirSenha, emailHabilitado } from '../email';
 import { Perfil, Usuario } from '../../tipos/modelos';
 
@@ -39,7 +39,7 @@ router.post('/registrar', (req, res, next) => {
     const nome = textoLimpo(req.body.nome, 120);
     const email = textoLimpo(req.body.email, 200).toLowerCase();
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
-    const telefone = textoLimpo(req.body.telefone, 30);
+    const telefone = telefoneDigitos(req.body.telefone);
     const perfil = (textoLimpo(req.body.perfil, 20) || 'cliente') as Perfil;
     const cpf = cpfDigitos(req.body.cpf);
 
@@ -47,14 +47,20 @@ router.post('/registrar', (req, res, next) => {
     if (senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
     if (!PERFIS_PUBLICOS.includes(perfil)) throw erroHttp(400, 'Perfil inválido.');
 
-    // Cliente loga por CPF (obrigatório); e-mail é opcional. Lojista/entregador
-    // continuam por e-mail (obrigatório), sem CPF.
+    // Cliente entra por e-mail ou telefone (CPF continua sendo aceito no
+    // login como fallback silencioso, mas some da tela — ver /login). CPF
+    // ainda é obrigatório no CADASTRO (dado fiscal, usado na NFC-e).
+    // Lojista/entregador continuam só por e-mail, sem CPF.
     const ehCliente = perfil === 'cliente';
     if (ehCliente) {
       if (!cpfValido(cpf)) throw erroHttp(400, 'Informe um CPF válido.');
       if (email && !emailValido(email)) throw erroHttp(400, 'E-mail inválido.');
       const cpfExiste = db.prepare('SELECT id FROM usuarios WHERE cpf = ?').get(cpf);
       if (cpfExiste) throw erroHttp(409, 'Já existe uma conta com este CPF.');
+      if (telefone) {
+        const telExiste = db.prepare('SELECT id FROM usuarios WHERE telefone = ?').get(telefone);
+        if (telExiste) throw erroHttp(409, 'Já existe uma conta com este telefone.');
+      }
     } else if (!emailValido(email)) {
       throw erroHttp(400, 'Informe um e-mail válido.');
     }
@@ -94,16 +100,31 @@ router.post('/registrar', (req, res, next) => {
 router.post('/login', limiteLogin, (req, res, next) => {
   try {
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
-    // Cliente entra por CPF; lojista/entregador por e-mail. Se vier `cpf` no
-    // corpo, busca por CPF; senão, pelo e-mail.
+    // Cliente entra por e-mail ou telefone (tela nova); lojista/entregador/
+    // admin continuam só por e-mail. CPF ainda funciona como fallback
+    // silencioso (não aparece mais na tela de login, mas contas antigas que
+    // só têm CPF+senha — sem e-mail nem telefone salvos — continuam
+    // conseguindo entrar digitando o CPF no mesmo campo).
     const cpf = cpfDigitos(req.body.cpf);
+    const telefone = telefoneDigitos(req.body.telefone);
     const email = textoLimpo(req.body.email, 200).toLowerCase();
-    const porCpf = cpf.length === 11;
-    const credErrada = porCpf ? 'CPF ou senha incorretos.' : 'E-mail ou senha incorretos.';
+    const porTelefone = telefone.length === 10 || telefone.length === 11;
+    const porCpf = !porTelefone && cpf.length === 11;
+    const credErrada = (porCpf || porTelefone) ? 'Credenciais incorretas.' : 'E-mail ou senha incorretos.';
 
-    const usuario = (porCpf
-      ? db.prepare('SELECT * FROM usuarios WHERE cpf = ?').get(cpf)
-      : db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email)) as Usuario | undefined;
+    let usuario: Usuario | undefined;
+    if (porTelefone) {
+      usuario = db.prepare('SELECT * FROM usuarios WHERE telefone = ?').get(telefone) as Usuario | undefined;
+      // Um telefone de 11 dígitos é ambíguo com CPF (mesmo tamanho) — se não
+      // achou por telefone, tenta como CPF antes de desistir (contas antigas).
+      if (!usuario && telefone.length === 11) {
+        usuario = db.prepare('SELECT * FROM usuarios WHERE cpf = ?').get(telefone) as Usuario | undefined;
+      }
+    } else if (porCpf) {
+      usuario = db.prepare('SELECT * FROM usuarios WHERE cpf = ?').get(cpf) as Usuario | undefined;
+    } else {
+      usuario = db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email) as Usuario | undefined;
+    }
     if (!usuario || !bcrypt.compareSync(senha, usuario.senha_hash)) {
       throw erroHttp(401, credErrada);
     }

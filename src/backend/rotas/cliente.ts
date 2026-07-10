@@ -7,7 +7,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import db from '../db';
 import { autenticar, exigirPerfil } from '../auth';
-import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp } from '../util';
+import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, telefoneDigitos, erroHttp } from '../util';
 import { transicionarStatus } from '../fluxoPedido';
 import { notificarLojistaNovoPedido } from '../notificacoes';
 import { comissaoPercentualDaLoja } from '../comissao';
@@ -97,8 +97,14 @@ router.delete('/enderecos/:id', (req, res, next) => {
 router.put('/perfil', (req, res, next) => {
   try {
     const nome = textoLimpo(req.body.nome, 120);
-    const telefone = textoLimpo(req.body.telefone, 30);
+    const telefone = telefoneDigitos(req.body.telefone);
     if (nome.length < 2) throw erroHttp(400, 'Informe seu nome completo.');
+    // Telefone agora também é chave de login — não pode colidir com outra conta.
+    if (telefone) {
+      const dono = db.prepare('SELECT id FROM usuarios WHERE telefone = ? AND id != ?')
+        .get(telefone, req.usuario!.id);
+      if (dono) throw erroHttp(409, 'Esse telefone já está em uso por outra conta.');
+    }
     db.prepare('UPDATE usuarios SET nome = ?, telefone = ? WHERE id = ?')
       .run(nome, telefone, req.usuario!.id);
     res.json({ usuario: { id: req.usuario!.id, nome, telefone, email: req.usuario!.email, perfil: 'cliente' } });
