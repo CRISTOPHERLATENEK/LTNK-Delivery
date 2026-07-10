@@ -8,6 +8,10 @@
  * Variáveis de ambiente:
  *   SMTP_HOST, SMTP_PORT (padrão 587), SMTP_USER, SMTP_PASS,
  *   SMTP_FROM (padrão: "Delivery" <SMTP_USER>), SMTP_SECURE ('1' = TLS direto)
+ *   SMTP_TLS_INSECURE ('1' = não valida o certificado do servidor SMTP —
+ *     só pra hospedagem compartilhada com certificado genérico que não bate
+ *     com o hostname configurado; deixa a conexão vulnerável a MITM, então
+ *     é opt-in, nunca o padrão)
  */
 import nodemailer, { type Transporter } from 'nodemailer';
 
@@ -18,7 +22,7 @@ export function emailHabilitado(): boolean {
   return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
 }
 
-function obterTransportador(): Transporter | null {
+async function obterTransportador(): Promise<Transporter | null> {
   if (!emailHabilitado()) {
     if (!avisado) {
       console.warn('[EMAIL] SMTP não configurado (SMTP_HOST/SMTP_USER/SMTP_PASS) — envio de e-mails desativado.');
@@ -27,30 +31,63 @@ function obterTransportador(): Transporter | null {
     return null;
   }
   if (!transportador) {
+    console.log('[EMAIL] Configurando SMTP:', {
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === '1',
+      user: process.env.SMTP_USER,
+      tlsInsecure: process.env.SMTP_TLS_INSECURE === '1',
+    });
     transportador = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
       port: Number(process.env.SMTP_PORT) || 587,
       secure: process.env.SMTP_SECURE === '1',
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 15000,
+      tls: { rejectUnauthorized: process.env.SMTP_TLS_INSECURE !== '1' },
     });
+    try {
+      await transportador.verify();
+      console.log('[EMAIL] ✅ Conexão SMTP verificada com sucesso.');
+    } catch (e) {
+      const err = e as NodeJS.ErrnoException;
+      console.error('[EMAIL] ❌ Falha ao verificar conexão SMTP:', err.message, '| code:', err.code, '| syscall:', err.syscall);
+      // Não desiste aqui — o verify() pode falhar por um motivo diferente do
+      // envio de verdade (alguns servidores recusam o comando de teste mas
+      // aceitam SEND normal); a tentativa real acontece em enviarEmail().
+    }
   }
   return transportador;
 }
 
 /** Envia um e-mail. Nunca lança — best-effort, retorna se conseguiu enviar. */
 export async function enviarEmail(destino: string, assunto: string, html: string): Promise<boolean> {
-  const t = obterTransportador();
+  const t = await obterTransportador();
   if (!t) return false;
   try {
-    await t.sendMail({
+    console.log('[EMAIL] Enviando para:', destino);
+    const info = await t.sendMail({
       from: process.env.SMTP_FROM || `"Delivery" <${process.env.SMTP_USER}>`,
       to: destino,
       subject: assunto,
       html,
     });
+    console.log('[EMAIL] ✅ Enviado. messageId:', info.messageId, '| response:', info.response);
     return true;
   } catch (e) {
-    console.error('[EMAIL] Falha ao enviar:', (e as Error).message);
+    const err = e as NodeJS.ErrnoException;
+    console.error('[EMAIL] ❌ Falha ao enviar:', {
+      message: err.message, code: err.code, errno: err.errno,
+      syscall: err.syscall, hostname: (err as any).hostname,
+      command: (err as any).command, response: (err as any).response,
+      responseCode: (err as any).responseCode,
+    });
+    // Descarta o transportador cacheado — se a conexão morreu (timeout, DNS,
+    // etc.), a próxima chamada cria uma nova do zero em vez de reusar uma
+    // conexão quebrada indefinidamente.
+    transportador = null;
     return false;
   }
 }
