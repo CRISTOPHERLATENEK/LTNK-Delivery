@@ -146,6 +146,12 @@ router.post('/esqueci-senha', limiteEsqueciSenha, async (req, res, next) => {
     const usuario = db.prepare('SELECT id, nome, email, bloqueado FROM usuarios WHERE email = ?')
       .get(email) as { id: number; nome: string; email: string; bloqueado: number } | undefined;
 
+    // Log só do servidor (nunca vai pra resposta HTTP) — a mensagem pro
+    // usuário continua genérica por segurança, mas isso ajuda a diagnosticar
+    // "não chegou o e-mail" sem precisar adivinhar qual dos 3 motivos foi.
+    if (!usuario) console.warn(`[AUTH] esqueci-senha: nenhuma conta encontrada com o e-mail "${email}".`);
+    else if (usuario.bloqueado) console.warn(`[AUTH] esqueci-senha: conta de "${email}" (id ${usuario.id}) está bloqueada — e-mail não enviado.`);
+
     if (usuario && !usuario.bloqueado) {
       const token = crypto.randomBytes(32).toString('hex');
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
