@@ -1,10 +1,13 @@
 /**
  * Tela "Conta": login + cadastro de cliente. Após login, mostra perfil.
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { LogIn, UserPlus, User, MapPin, Lock, Pencil, Plus, Trash2, Save, X, Check, Loader2 } from 'lucide-react';
+import {
+  UserPlus, User, MapPin, Lock, Pencil, Plus, Trash2, Save, X, Check, Loader2,
+  Eye, EyeOff, ArrowRight, ShieldCheck, Phone, Mail,
+} from 'lucide-react';
 import { api, ApiError, salvarSessao, sessaoUsuario, encerrarSessao } from '@/lib/api';
 import { useTema } from '@/lib/tema';
 import { Card, CardContent } from '@/components/ui/card';
@@ -35,10 +38,108 @@ export function PaginaConta() {
     else navigate('/');
   }
 
+  return <TelaAuth onLogar={aoLogar} />;
+}
+
+/* ─────────────────── Tela de login/cadastro (deslogado) ─────────────────── */
+function TelaAuth({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
+  const { marca } = useTema();
+  const cadastroRef = useRef<HTMLDivElement>(null);
+
+  function irParaCadastro() {
+    cadastroRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Foca o primeiro campo do cadastro (depois do scroll no mobile).
+    setTimeout(() => cadastroRef.current?.querySelector('input')?.focus(), 400);
+  }
+
   return (
-    <div className="space-y-4">
-      <FormLogin onLogar={aoLogar} />
-      <FormCadastro onLogar={aoLogar} />
+    <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-stretch">
+      {/* ── Coluna esquerda: hero + login ── */}
+      <div className="animate-[fadeUp_.5s_ease-out] overflow-hidden rounded-3xl border border-border bg-card shadow-sm">
+        <HeroAuth nome={marca.nome} />
+        <div className="p-6 sm:p-8">
+          <h1 className="text-2xl font-extrabold tracking-tight">
+            Bem-vindo de volta! <span className="inline-block">👋</span>
+          </h1>
+          <p className="mt-1 text-sm text-muted-foreground">Entre para continuar acompanhando seus pedidos.</p>
+          <FormLogin onLogar={onLogar} irParaCadastro={irParaCadastro} />
+        </div>
+      </div>
+
+      {/* ── Coluna direita: cadastro ── */}
+      <div ref={cadastroRef} className="mt-4 lg:mt-0 animate-[fadeUp_.5s_ease-out_.08s_both] rounded-3xl border border-border bg-card p-6 shadow-sm sm:p-8">
+        <div className="flex items-center gap-3">
+          <div className="flex size-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+            <UserPlus className="size-5" />
+          </div>
+          <div>
+            <h2 className="text-xl font-extrabold tracking-tight">Criar conta de cliente</h2>
+            <p className="text-sm text-muted-foreground">Preencha os dados abaixo para criar sua conta.</p>
+          </div>
+        </div>
+        <FormCadastro onLogar={onLogar} />
+      </div>
+
+      {/* keyframe local do fade-up (não depende de config do Tailwind) */}
+      <style>{`@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}`}</style>
+    </div>
+  );
+}
+
+/* Hero ilustrado do topo do card de login — SVG inline, usa a cor da marca. */
+function HeroAuth({ nome }: { nome: string }) {
+  return (
+    <div className="relative h-40 overflow-hidden bg-gradient-to-br from-primary via-primary to-primary/70 sm:h-48">
+      {/* brilhos decorativos */}
+      <div className="absolute -left-10 -top-10 size-40 rounded-full bg-white/15 blur-2xl" />
+      <div className="absolute -bottom-16 right-6 size-44 rounded-full bg-black/10 blur-2xl" />
+      {/* padrão de bolinhas */}
+      <svg className="absolute inset-0 size-full opacity-[0.12]" aria-hidden="true">
+        <defs>
+          <pattern id="pts" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="2" cy="2" r="1.5" fill="#fff" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#pts)" />
+      </svg>
+
+      {/* Composição: telefone com cardápio + itens flutuando + pin */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="relative">
+          {/* telefone */}
+          <div className="w-28 rotate-[-6deg] rounded-2xl border-4 border-white/90 bg-white p-2 shadow-2xl sm:w-32">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <div className="flex size-6 items-center justify-center rounded-md bg-primary/15 text-sm">🍕</div>
+                <div className="flex-1 space-y-1">
+                  <div className="h-1.5 w-10 rounded-full bg-neutral-300" />
+                  <div className="h-1.5 w-6 rounded-full bg-primary/40" />
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="flex size-6 items-center justify-center rounded-md bg-primary/15 text-sm">🍔</div>
+                <div className="flex-1 space-y-1">
+                  <div className="h-1.5 w-9 rounded-full bg-neutral-300" />
+                  <div className="h-1.5 w-5 rounded-full bg-primary/40" />
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* pin de localização */}
+          <div className="absolute -left-8 top-1 flex size-9 items-center justify-center rounded-full rounded-bl-none bg-white shadow-lg sm:-left-10">
+            <MapPin className="size-4 text-primary" />
+          </div>
+          {/* sacola de entrega flutuando */}
+          <div className="absolute -right-9 bottom-0 flex size-11 items-center justify-center rounded-2xl bg-white text-lg shadow-lg sm:-right-11">🛵</div>
+          {/* emojis soltos */}
+          <div className="absolute -right-4 -top-6 text-xl drop-shadow">🥤</div>
+        </div>
+      </div>
+
+      {/* rótulo da marca no canto */}
+      <div className="absolute bottom-3 left-4 text-[11px] font-bold uppercase tracking-widest text-white/70">
+        {nome}
+      </div>
     </div>
   );
 }
@@ -290,9 +391,39 @@ function SenhaSecao() {
   );
 }
 
-function FormLogin({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
+/* Campo de texto com ícone à esquerda. */
+function CampoIcone({ icone: Icone, ...props }: { icone: React.ComponentType<{ className?: string }> } & React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <div className="relative">
+      <Icone className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input {...props} className="pl-10" />
+    </div>
+  );
+}
+
+/* Campo de senha com ícone de cadeado + botão de mostrar/ocultar. */
+function CampoSenha({ id, value, onChange, autoComplete, minLength }: {
+  id: string; value: string; onChange: (v: string) => void; autoComplete: string; minLength?: number;
+}) {
+  const [ver, setVer] = useState(false);
+  return (
+    <div className="relative">
+      <Lock className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input id={id} type={ver ? 'text' : 'password'} autoComplete={autoComplete} minLength={minLength}
+        required value={value} onChange={e => onChange(e.target.value)} placeholder="Digite sua senha" className="pl-10 pr-11" />
+      <button type="button" onClick={() => setVer(v => !v)} tabIndex={-1}
+        aria-label={ver ? 'Ocultar senha' : 'Mostrar senha'}
+        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition-colors hover:text-foreground">
+        {ver ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+      </button>
+    </div>
+  );
+}
+
+function FormLogin({ onLogar, irParaCadastro }: { onLogar: (u: UsuarioSessao) => void; irParaCadastro: () => void }) {
   const [cpf, setCpf] = useState('');
   const [senha, setSenha] = useState('');
+  const [lembrar, setLembrar] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const { mostrar } = useToast();
   const { marca } = useTema();
@@ -306,7 +437,7 @@ function FormLogin({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
         'POST', '/api/auth/login',
         { cpf: cpfDigitos(cpf), senha, loja_id: marca.loja_id || null },
       );
-      salvarSessao(r.token, r.usuario);
+      salvarSessao(r.token, r.usuario, 'cliente', lembrar);
       onLogar(r.usuario);
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
@@ -316,31 +447,41 @@ function FormLogin({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
   }
 
   return (
-    <Card>
-      <CardContent className="p-6">
-        <h2 className="flex items-center gap-2 text-lg font-bold mb-4">
-          <LogIn className="size-5 text-primary" />
-          Entrar
-        </h2>
-        <form onSubmit={enviar} className="space-y-3">
-          <div>
-            <Label htmlFor="login-cpf">CPF</Label>
-            <Input id="login-cpf" inputMode="numeric" autoComplete="username" placeholder="000.000.000-00"
-              required value={cpf} onChange={e => setCpf(formatarCpf(e.target.value))} />
-          </div>
-          <div>
-            <Label htmlFor="login-senha">Senha</Label>
-            <Input id="login-senha" type="password" autoComplete="current-password" required value={senha} onChange={e => setSenha(e.target.value)} />
-          </div>
-          <Button type="submit" size="lg" className="w-full" disabled={enviando}>
-            {enviando ? 'Entrando…' : 'Entrar'}
-          </Button>
-          <Link to="/esqueci-senha" className="block text-center text-sm text-muted-foreground hover:text-primary">
+    <form onSubmit={enviar} className="mt-6 space-y-4">
+      <div>
+        <Label htmlFor="login-cpf">CPF</Label>
+        <CampoIcone icone={User} id="login-cpf" inputMode="numeric" autoComplete="username" placeholder="000.000.000-00"
+          required value={cpf} onChange={e => setCpf(formatarCpf((e.target as HTMLInputElement).value))} className="mt-1.5" />
+      </div>
+      <div>
+        <Label htmlFor="login-senha">Senha</Label>
+        <div className="mt-1.5">
+          <CampoSenha id="login-senha" value={senha} onChange={setSenha} autoComplete="current-password" />
+        </div>
+        <div className="mt-1.5 text-right">
+          <Link to="/esqueci-senha" className="text-sm font-medium text-primary hover:underline">
             Esqueci minha senha
           </Link>
-        </form>
-      </CardContent>
-    </Card>
+        </div>
+      </div>
+
+      <label className="flex cursor-pointer select-none items-center gap-2.5 text-sm">
+        <input type="checkbox" checked={lembrar} onChange={e => setLembrar(e.target.checked)}
+          className="size-4 shrink-0 accent-[hsl(var(--primary))]" />
+        Permanecer conectado
+      </label>
+
+      <Button type="submit" size="lg" className="w-full" disabled={enviando}>
+        {enviando ? 'Entrando…' : <>Entrar <ArrowRight className="size-4" /></>}
+      </Button>
+
+      <p className="text-center text-sm text-muted-foreground lg:hidden">
+        Não tem uma conta?{' '}
+        <button type="button" onClick={irParaCadastro} className="font-semibold text-primary hover:underline">
+          Criar conta
+        </button>
+      </p>
+    </form>
   );
 }
 
@@ -374,39 +515,44 @@ function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
   }
 
   return (
-    <Card>
-      <CardContent className="p-6">
-        <h2 className="flex items-center gap-2 text-lg font-bold mb-4">
-          <UserPlus className="size-5 text-primary" />
-          Criar conta de cliente
-        </h2>
-        <form onSubmit={enviar} className="space-y-3">
-          <div>
-            <Label htmlFor="cad-nome">Nome completo</Label>
-            <Input id="cad-nome" autoComplete="name" required value={nome} onChange={e => setNome(e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="cad-cpf">CPF</Label>
-            <Input id="cad-cpf" inputMode="numeric" placeholder="000.000.000-00" required
-              value={cpf} onChange={e => setCpf(formatarCpf(e.target.value))} />
-          </div>
-          <div>
-            <Label htmlFor="cad-tel">Telefone/WhatsApp</Label>
-            <Input id="cad-tel" type="tel" placeholder="(11) 99999-9999" value={telefone} onChange={e => setTelefone(e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="cad-email">E-mail <span className="text-muted-foreground font-normal">(opcional)</span></Label>
-            <Input id="cad-email" type="email" autoComplete="email" value={email} onChange={e => setEmail(e.target.value)} />
-          </div>
-          <div>
-            <Label htmlFor="cad-senha">Senha (mínimo 6)</Label>
-            <Input id="cad-senha" type="password" minLength={6} required value={senha} onChange={e => setSenha(e.target.value)} />
-          </div>
-          <Button type="submit" size="lg" variant="outline" className="w-full" disabled={enviando}>
-            {enviando ? 'Criando…' : 'Cadastrar'}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+    <form onSubmit={enviar} className="mt-6 space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <Label htmlFor="cad-nome">Nome completo</Label>
+          <CampoIcone icone={User} id="cad-nome" autoComplete="name" placeholder="Seu nome completo"
+            required value={nome} onChange={e => setNome((e.target as HTMLInputElement).value)} className="mt-1.5" />
+        </div>
+        <div>
+          <Label htmlFor="cad-cpf">CPF</Label>
+          <CampoIcone icone={User} id="cad-cpf" inputMode="numeric" placeholder="000.000.000-00" required
+            value={cpf} onChange={e => setCpf(formatarCpf((e.target as HTMLInputElement).value))} className="mt-1.5" />
+        </div>
+        <div>
+          <Label htmlFor="cad-tel">Telefone / WhatsApp</Label>
+          <CampoIcone icone={Phone} id="cad-tel" type="tel" placeholder="(11) 99999-9999"
+            value={telefone} onChange={e => setTelefone((e.target as HTMLInputElement).value)} className="mt-1.5" />
+        </div>
+        <div>
+          <Label htmlFor="cad-email">E-mail <span className="font-normal text-muted-foreground">(opcional)</span></Label>
+          <CampoIcone icone={Mail} id="cad-email" type="email" autoComplete="email" placeholder="seu@email.com"
+            value={email} onChange={e => setEmail((e.target as HTMLInputElement).value)} className="mt-1.5" />
+        </div>
+      </div>
+      <div>
+        <Label htmlFor="cad-senha">Senha <span className="font-normal text-muted-foreground">(mínimo 6 caracteres)</span></Label>
+        <div className="mt-1.5">
+          <CampoSenha id="cad-senha" value={senha} onChange={setSenha} autoComplete="new-password" minLength={6} />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2.5 rounded-xl bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+        <ShieldCheck className="size-4 shrink-0 text-primary" />
+        Seus dados estão protegidos e nunca serão compartilhados.
+      </div>
+
+      <Button type="submit" size="lg" variant="outline" className="w-full" disabled={enviando}>
+        {enviando ? 'Criando…' : <><UserPlus className="size-4" /> Cadastrar</>}
+      </Button>
+    </form>
   );
 }

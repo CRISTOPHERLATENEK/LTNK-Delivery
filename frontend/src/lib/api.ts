@@ -52,23 +52,37 @@ const chaveUsuario = (a: Area) => `usuario:${a}`;
 /** Chave do tema (claro/escuro) por área — cada painel lembra a própria preferência. */
 export const chaveTema = (a: Area = areaAtual()) => `tema:${a}`;
 
-export function salvarSessao(token: string, usuario: UsuarioSessao, area: Area = areaAtual()) {
-  localStorage.setItem(chaveToken(area), token);
-  localStorage.setItem(chaveUsuario(area), JSON.stringify(usuario));
+/**
+ * Salva a sessão. `lembrar` (padrão true) controla a persistência:
+ *   - true  → localStorage: continua logado mesmo fechando o navegador.
+ *   - false → sessionStorage: cai fora ao fechar a aba/navegador.
+ * Grava só num dos dois e limpa o outro, pra não deixar sessão duplicada.
+ */
+export function salvarSessao(token: string, usuario: UsuarioSessao, area: Area = areaAtual(), lembrar = true) {
+  const persistente = lembrar ? localStorage : sessionStorage;
+  const efemero = lembrar ? sessionStorage : localStorage;
+  efemero.removeItem(chaveToken(area));
+  efemero.removeItem(chaveUsuario(area));
+  persistente.setItem(chaveToken(area), token);
+  persistente.setItem(chaveUsuario(area), JSON.stringify(usuario));
 }
 
 export function sessaoUsuario(area: Area = areaAtual()): UsuarioSessao | null {
-  try { return JSON.parse(localStorage.getItem(chaveUsuario(area)) || 'null'); }
-  catch { return null; }
+  try {
+    const bruto = localStorage.getItem(chaveUsuario(area)) ?? sessionStorage.getItem(chaveUsuario(area));
+    return JSON.parse(bruto || 'null');
+  } catch { return null; }
 }
 
 export function tokenSessao(area: Area = areaAtual()): string | null {
-  return localStorage.getItem(chaveToken(area));
+  return localStorage.getItem(chaveToken(area)) ?? sessionStorage.getItem(chaveToken(area));
 }
 
 export function encerrarSessao(area: Area = areaAtual()) {
   localStorage.removeItem(chaveToken(area));
   localStorage.removeItem(chaveUsuario(area));
+  sessionStorage.removeItem(chaveToken(area));
+  sessionStorage.removeItem(chaveUsuario(area));
 }
 
 /** Checa se o usuário logado NA ÁREA ADMIN é o super admin (dono da plataforma). */
