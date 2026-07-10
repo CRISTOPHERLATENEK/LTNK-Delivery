@@ -774,9 +774,11 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
               </span>
             </div>
           )}
-          {/* Badges destaque/promo — só na thumbnail grande (grid/premium); na lista
-              (thumbnail de 64px) o texto "PROMO"/"Top" não cabe e quebra feio, então
-              vira só um pontinho colorido no canto. */}
+          {/* Badges destaque/promo — na thumbnail grande (grid/premium) mostra o
+              texto completo ("Top"/"PROMO"); na lista (thumbnail de 64px) o
+              texto não cabe, então vira um selo redondo compacto com ícone
+              (estrela pro destaque, "%" pra promoção) em vez de um pontinho
+              genérico que ninguém entendia o que era. */}
           {layoutGrid ? (
             <>
               {!!produto.destaque && !esgotado && c.badge_promocao && (
@@ -792,10 +794,20 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
               )}
             </>
           ) : (
-            ((!!produto.destaque || temPromo) && !esgotado && c.badge_promocao) && (
-              <span className="absolute top-1 right-1 size-2.5 rounded-full shadow ring-1 ring-white"
-                style={{ backgroundColor: temPromo ? (corBadge || '#dc2640') : '#fbbf24' }} />
-            )
+            <>
+              {!!produto.destaque && !esgotado && c.badge_promocao && (
+                <span className="absolute top-1 left-1 flex size-4 items-center justify-center rounded-full bg-amber-400 shadow ring-1 ring-white"
+                  title="Destaque">
+                  <Star className="size-2.5 fill-amber-900 text-amber-900" />
+                </span>
+              )}
+              {temPromo && !esgotado && c.badge_promocao && (
+                <span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-full text-[9px] font-extrabold text-white shadow ring-1 ring-white"
+                  style={{ backgroundColor: corBadge || '#dc2640' }} title="Em promoção">
+                  %
+                </span>
+              )}
+            </>
           )}
         </div>
       )}
