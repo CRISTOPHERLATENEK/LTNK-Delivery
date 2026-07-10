@@ -264,7 +264,7 @@ export function montarXmlNfce(emit: EmitenteNfce, venda: VendaNfce): { xml: stri
       `<infRespTec>` +
         `<CNPJ>${pad(emit.respTecCnpj || emit.cnpj, 14)}</CNPJ>` +
         `<xContato>${esc(emit.respTecContato || emit.razaoSocial)}</xContato>` +
-        `<email>${esc(emit.respTecEmail || 'suporte@unimaxx.com.br')}</email>` +
+        `<email>${esc(emit.respTecEmail || 'suporte@maxxtalk.com.br')}</email>` +
         `<fone>${pad(emit.respTecFone || '4830000000', 10)}</fone>` +
       `</infRespTec>` +
     `</infNFe>`;

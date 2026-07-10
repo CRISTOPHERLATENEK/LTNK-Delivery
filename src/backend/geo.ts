@@ -10,7 +10,7 @@
 
 export interface Coordenadas { lat: number; lon: number; }
 
-const USER_AGENT = process.env.NOMINATIM_UA || 'DeliveryMultilojas/1.0 (+https://unimaxx.com.br)';
+const USER_AGENT = process.env.NOMINATIM_UA || 'DeliveryMultilojas/1.0 (+https://maxxtalk.com.br)';
 const BASE = process.env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org/search';
 
 export interface EnderecoParaGeo {
