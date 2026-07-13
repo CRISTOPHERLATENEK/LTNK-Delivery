@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store } from 'lucide-react';
+import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -56,7 +56,7 @@ export function TelaMarca() {
     try {
       await api('PUT', '/api/admin/tema', form);
       await recarregar();
-      mostrar({ tipo: 'sucesso', titulo: 'Marca atualizada! 🎨', descricao: 'O visual aplicou em toda a plataforma.' });
+      mostrar({ tipo: 'sucesso', titulo: 'Marca atualizada!', descricao: 'O visual aplicou em toda a plataforma.' });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
@@ -235,8 +235,77 @@ export function TelaMarca() {
           </div>
         </div>
       </form>
+
+      <SecaoConfiguracoesGerais />
     </div>
     </AdminLayout>
+  );
+}
+
+interface ConfiguracoesGerais {
+  suporte_email: string;
+  suporte_telefone: string;
+  termos_url: string;
+}
+
+/**
+ * Independente do form de marca (endpoint/salvamento próprios) — contato de
+ * suporte e link dos termos de uso, hoje sem nenhum lugar editável no admin.
+ */
+function SecaoConfiguracoesGerais() {
+  const { mostrar } = useToast();
+  const consulta = useQuery({
+    queryKey: ['admin-configuracoes-gerais'],
+    queryFn: () => api<ConfiguracoesGerais>('GET', '/api/admin/configuracoes-gerais'),
+  });
+  const [form, setForm] = useState<ConfiguracoesGerais>({ suporte_email: '', suporte_telefone: '', termos_url: '' });
+  const [enviando, setEnviando] = useState(false);
+
+  useEffect(() => { if (consulta.data) setForm(consulta.data); }, [consulta.data]);
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    setEnviando(true);
+    try {
+      await api('PUT', '/api/admin/configuracoes-gerais', form);
+      mostrar({ tipo: 'sucesso', titulo: 'Configurações gerais salvas!' });
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <form onSubmit={salvar} className="max-w-2xl">
+      <Secao icone={LifeBuoy} titulo="Suporte e termos de uso">
+        <div>
+          <Label htmlFor="suporte_email">E-mail de suporte</Label>
+          <Input id="suporte_email" type="email" maxLength={200} value={form.suporte_email}
+            onChange={e => setForm(f => ({ ...f, suporte_email: e.target.value }))}
+            placeholder="suporte@suaempresa.com.br" />
+        </div>
+        <div>
+          <Label htmlFor="suporte_telefone">Telefone/WhatsApp de suporte</Label>
+          <Input id="suporte_telefone" maxLength={30} value={form.suporte_telefone}
+            onChange={e => setForm(f => ({ ...f, suporte_telefone: e.target.value }))}
+            placeholder="(11) 99999-9999" />
+        </div>
+        <div>
+          <Label htmlFor="termos_url">Link dos termos de uso</Label>
+          <Input id="termos_url" maxLength={500} value={form.termos_url}
+            onChange={e => setForm(f => ({ ...f, termos_url: e.target.value }))}
+            placeholder="https://…" />
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Vazio = a plataforma não exibe link de termos de uso.
+          </p>
+        </div>
+        <Button type="submit" disabled={enviando}>
+          <Save className="size-4" />
+          {enviando ? 'Salvando…' : 'Salvar configurações gerais'}
+        </Button>
+      </Secao>
+    </form>
   );
 }
 

@@ -625,20 +625,27 @@ function CardCategoria({ icone, imagem, label, ativo, onClick }: { icone: string
   return (
     <button
       onClick={onClick}
-      className={cn(
-        'relative shrink-0 w-[96px] h-[96px] rounded-2xl overflow-hidden border-2 transition-all',
-        ativo ? 'border-primary ring-2 ring-primary/30' : 'border-transparent',
-      )}
+      className="flex shrink-0 flex-col items-center gap-1.5 w-[68px]"
     >
-      {imagem ? (
-        <img src={imagem} alt="" className="absolute inset-0 size-full object-cover" />
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary/25 to-primary/5 text-3xl">
-          {icone || '🍽️'}
-        </div>
-      )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/20 to-transparent" />
-      <span className="absolute inset-x-1 bottom-1.5 text-center text-[11px] font-bold text-white leading-tight line-clamp-2 drop-shadow">
+      {/* Anel gradiente estilo Stories quando ativo */}
+      <span
+        className={cn(
+          'flex size-[64px] items-center justify-center rounded-full p-[2.5px] transition-all',
+          ativo ? 'bg-gradient-to-br from-primary to-primary/50' : 'bg-border',
+        )}
+      >
+        <span className="flex size-full items-center justify-center overflow-hidden rounded-full border-2 border-background bg-muted">
+          {imagem ? (
+            <img src={imagem} alt="" className="size-full object-cover" />
+          ) : (
+            <span className="text-2xl">{icone || '🍽️'}</span>
+          )}
+        </span>
+      </span>
+      <span className={cn(
+        'text-center text-[11px] font-semibold leading-tight line-clamp-2',
+        ativo ? 'text-primary' : 'text-muted-foreground',
+      )}>
         {label}
       </span>
     </button>
@@ -688,15 +695,18 @@ function GridProdutos({ produtos, podeAbrir, onClick, visual, corMarca, animado 
   corMarca?: string;
   animado?: boolean;
 }) {
-  const grid = visual.cardapio.layout === 'grid' || visual.cardapio.layout === 'premium';
+  const premium = visual.cardapio.layout === 'premium';
+  const grid = visual.cardapio.layout === 'grid' || premium;
   return (
     <div
       className={cn(
-        grid
+        premium
+          ? 'grid grid-cols-2 lg:grid-cols-3'
+          : grid
           ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4'
           : visual.cardapio.layout === 'compacto' ? 'grid grid-cols-1 sm:grid-cols-2' : 'flex flex-col',
       )}
-      style={{ gap: visual.cardapio.espacamento }}
+      style={{ gap: premium ? Math.max(visual.cardapio.espacamento, 16) : visual.cardapio.espacamento }}
     >
       {produtos.map((p, i) =>
         animado ? (
@@ -708,10 +718,10 @@ function GridProdutos({ produtos, podeAbrir, onClick, visual, corMarca, animado 
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.18, delay: i * 0.03 }}
           >
-            <CardProduto produto={p} podeAbrir={podeAbrir} onClick={() => onClick(p)} visual={visual} corMarca={corMarca} layoutGrid={grid} />
+            <CardProduto produto={p} podeAbrir={podeAbrir} onClick={() => onClick(p)} visual={visual} corMarca={corMarca} layoutGrid={grid} premium={premium} />
           </motion.div>
         ) : (
-          <CardProduto key={p.id} produto={p} podeAbrir={podeAbrir} onClick={() => onClick(p)} visual={visual} corMarca={corMarca} layoutGrid={grid} />
+          <CardProduto key={p.id} produto={p} podeAbrir={podeAbrir} onClick={() => onClick(p)} visual={visual} corMarca={corMarca} layoutGrid={grid} premium={premium} />
         )
       )}
     </div>
@@ -719,8 +729,8 @@ function GridProdutos({ produtos, podeAbrir, onClick, visual, corMarca, animado 
 }
 
 /* ── Card de produto ── */
-function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid }: {
-  produto: Produto; podeAbrir: boolean; onClick: () => void; visual: VisualJson; corMarca?: string; layoutGrid: boolean;
+function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid, premium }: {
+  produto: Produto; podeAbrir: boolean; onClick: () => void; visual: VisualJson; corMarca?: string; layoutGrid: boolean; premium?: boolean;
 }) {
   const temPromo = !!produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0;
   const preco = temPromo ? produto.preco_promocional_centavos! : produto.preco_centavos;
@@ -738,15 +748,16 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
       whileTap={abrivel ? { scale: 0.96 } : {}}
       onClick={abrivel ? onClick : undefined}
       className={cn(
-        'group border border-border/60 overflow-hidden shadow-sm transition-shadow',
+        'group border overflow-hidden transition-all duration-300',
+        premium ? 'border-transparent shadow-md' : 'border-border/60 shadow-sm',
         !layoutGrid && 'flex items-center gap-3 p-2',
-        abrivel && 'cursor-pointer hover:shadow-md',
+        abrivel && (premium ? 'cursor-pointer hover:shadow-xl hover:-translate-y-1' : 'cursor-pointer hover:shadow-md'),
         esgotado && 'opacity-90',
       )}
       style={{
-        borderRadius: c.raio_bordas,
+        borderRadius: premium ? Math.max(c.raio_bordas, 20) : c.raio_bordas,
         backgroundColor: visual.cores.cor_cards || undefined,
-        height: layoutGrid ? c.altura_cards : undefined,
+        height: layoutGrid ? (premium ? Math.max(c.altura_cards, 240) : c.altura_cards) : undefined,
       }}
     >
       {/* Imagem */}
@@ -787,8 +798,8 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
                 </span>
               )}
               {temPromo && !esgotado && c.badge_promocao && (
-                <span className="absolute top-2 right-2 rounded-full px-2 py-0.5 text-[10px] font-bold text-primary-foreground shadow"
-                  style={{ backgroundColor: corBadge || undefined }}>
+                <span className="absolute top-2 right-2 rounded-full px-2 py-0.5 text-[10px] font-bold text-white shadow"
+                  style={{ backgroundColor: corBadge || '#dc2640' }}>
                   PROMO
                 </span>
               )}
@@ -809,6 +820,22 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
               )}
             </>
           )}
+          {/* Premium: preço vira uma etiqueta flutuando sobre a foto (com
+              gradiente pra garantir legibilidade), em vez de só texto embaixo
+              — é o que diferencia visualmente esse layout do "Grid" normal. */}
+          {premium && (
+            <>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/70 to-transparent" />
+              <span className="absolute bottom-2 left-2 rounded-full bg-white/95 backdrop-blur px-2.5 py-1 text-[13px] font-extrabold text-neutral-900 shadow-lg">
+                {brl(preco)}
+              </span>
+              {temPromo && (
+                <span className="absolute bottom-2 right-2 rounded-full bg-black/50 backdrop-blur px-2 py-1 text-[10px] font-semibold text-white/90 line-through">
+                  {brl(produto.preco_centavos)}
+                </span>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -825,12 +852,18 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
         )}
         <div className="flex items-center justify-between mt-2 gap-1">
           <div>
-            {temPromo && (
-              <span className="text-[10px] text-muted-foreground line-through block">{brl(produto.preco_centavos)}</span>
+            {/* Premium com foto já mostra o preço flutuando sobre a imagem —
+                não repete aqui pra não duplicar a informação. */}
+            {!(premium && c.mostrar_foto) && (
+              <>
+                {temPromo && (
+                  <span className="text-[10px] text-muted-foreground line-through block">{brl(produto.preco_centavos)}</span>
+                )}
+                <span className={cn(c.preco_destacado ? 'font-extrabold text-[14px]' : 'font-semibold text-[12px]', temPromo ? 'text-primary' : 'text-foreground')}>
+                  {brl(preco)}
+                </span>
+              </>
             )}
-            <span className={cn(c.preco_destacado ? 'font-extrabold text-[14px]' : 'font-semibold text-[12px]', temPromo ? 'text-primary' : 'text-foreground')}>
-              {brl(preco)}
-            </span>
             {esgotado ? (
               <span className="text-[10px] font-semibold text-muted-foreground block mt-0.5">Indisponível</span>
             ) : poucas ? (

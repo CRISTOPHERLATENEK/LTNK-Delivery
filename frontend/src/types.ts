@@ -56,6 +56,8 @@ export interface Loja {
   nota_qtd?: number;
   /** URL amigável da loja (/loja/slug). */
   slug?: string | null;
+  /** Domínio próprio apontado pelo lojista (ex.: pizzariadapaula.com.br), alternativa ao slug. */
+  dominio_personalizado?: string | null;
   /** Impressão térmica do cupom. */
   impressora_largura?: '80' | '58';
   impressora_auto?: 0 | 1;
@@ -221,6 +223,13 @@ export interface Produto {
   vendido_por?: 'un' | 'kg';
   codigo_barras?: string;
   grupos?: GrupoOpcoes[];
+  /** Dados fiscais (NFC-e) — mesmos campos editáveis em lojista/fiscal.tsx. */
+  ncm?: string;
+  cfop?: string;
+  csosn?: string;
+  origem?: string;
+  unidade_comercial?: string;
+  cest?: string;
 }
 
 export interface Endereco {
@@ -288,6 +297,10 @@ export interface Pedido {
   cliente_nome?: string;
   cliente_telefone?: string | null;
   entregador_nome?: string | null;
+  entregador_telefone?: string | null;
+  entregador_nota_media?: number | null;
+  entregador_nota_qtd?: number | null;
+  entregador_chat_metodo?: 'app' | 'whatsapp' | null;
   entregador_lat?: number | null;
   entregador_lng?: number | null;
   entregador_local_em?: string | null;

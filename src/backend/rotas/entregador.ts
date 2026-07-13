@@ -161,4 +161,51 @@ router.get('/historico', (req, res) => {
   res.json({ periodo, entregas, total_fretes_centavos: totalFretes });
 });
 
+// ----- Chat do pedido -------------------------------------------------------
+
+/** Confere que o pedido pertence a este entregador antes de deixar ler/escrever. */
+function minhaCorridaAtiva(pedidoId: string | number, entregadorId: number) {
+  const pedido = db.prepare('SELECT id FROM pedidos WHERE id = ? AND entregador_id = ?')
+    .get(pedidoId, entregadorId) as { id: number } | undefined;
+  if (!pedido) throw erroHttp(404, 'Pedido não encontrado ou não é seu.');
+  return pedido;
+}
+
+router.get('/corridas/:id/mensagens', (req, res, next) => {
+  try {
+    const pedido = minhaCorridaAtiva(req.params.id, req.usuario!.id);
+    const mensagens = db.prepare(
+      'SELECT id, remetente, texto, criado_em FROM mensagens_pedido WHERE pedido_id = ? ORDER BY id'
+    ).all(pedido.id);
+    db.prepare("UPDATE mensagens_pedido SET lida = 1 WHERE pedido_id = ? AND remetente = 'cliente'").run(pedido.id);
+    res.json({ mensagens });
+  } catch (e) { next(e); }
+});
+
+router.post('/corridas/:id/mensagens', (req, res, next) => {
+  try {
+    const pedido = minhaCorridaAtiva(req.params.id, req.usuario!.id);
+    const texto = String(req.body.texto || '').trim().slice(0, 500);
+    if (!texto) throw erroHttp(400, 'Escreva uma mensagem.');
+    const info = db.prepare(
+      `INSERT INTO mensagens_pedido (pedido_id, remetente, texto, criado_em) VALUES (?, 'entregador', ?, ?)`
+    ).run(pedido.id, texto, agoraUTC());
+    res.status(201).json({ mensagem_id: Number(info.lastInsertRowid) });
+  } catch (e) { next(e); }
+});
+
+/** Preferência de como o entregador quer conversar com o cliente. */
+router.get('/config/chat', (req, res) => {
+  const u = db.prepare('SELECT entregador_chat_metodo FROM usuarios WHERE id = ?').get(req.usuario!.id) as { entregador_chat_metodo: string };
+  res.json({ metodo: u.entregador_chat_metodo || 'app' });
+});
+
+router.put('/config/chat', (req, res, next) => {
+  try {
+    const metodo = req.body.metodo === 'whatsapp' ? 'whatsapp' : 'app';
+    db.prepare('UPDATE usuarios SET entregador_chat_metodo = ? WHERE id = ?').run(metodo, req.usuario!.id);
+    res.json({ ok: true, metodo });
+  } catch (e) { next(e); }
+});
+
 export default router;

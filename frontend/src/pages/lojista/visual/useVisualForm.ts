@@ -84,7 +84,7 @@ export function useVisualForm() {
       const novo = montarEstado(r.loja);
       setEstado(novo);
       estadoInicialRef.current = JSON.stringify(novo);
-      mostrar({ tipo: 'sucesso', titulo: 'Visual salvo! 🎨' });
+      mostrar({ tipo: 'sucesso', titulo: 'Visual salvo!' });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {

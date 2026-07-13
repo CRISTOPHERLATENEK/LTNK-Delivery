@@ -9,7 +9,7 @@ import { Minus, Plus, ShoppingBag, MapPin, CreditCard, Ticket, X, AlertTriangle,
 import { useCarrinho, mudarQuantidade, limparCarrinho } from '@/lib/carrinho';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
 import { brl } from '@/lib/format';
-import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
+import { buscarCep, formatarCep, cepDigitos, normalizarBairro } from '@/lib/cep';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input, Textarea } from '@/components/ui/input';
@@ -32,7 +32,7 @@ export function PaginaCarrinho() {
 
   function concluirPedido(pedidoId: number) {
     limparCarrinho();
-    mostrar({ tipo: 'sucesso', titulo: 'Pedido realizado! 🎉' });
+    mostrar({ tipo: 'sucesso', titulo: 'Pedido realizado!' });
     navigate(`/pedido/${pedidoId}`);
   }
 
@@ -225,7 +225,7 @@ function CupomBox({
         { loja_id: lojaId, codigo: cod, subtotal },
       );
       onAplicar({ codigo: r.codigo, tipo: r.tipo, valor: r.valor });
-      mostrar({ tipo: 'sucesso', titulo: 'Cupom aplicado! 🎟️' });
+      mostrar({ tipo: 'sucesso', titulo: 'Cupom aplicado!' });
       setCodigo('');
     } catch (e) {
       if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
@@ -405,7 +405,8 @@ function Checkout({
     ? novo.bairro
     : enderecos.data?.find(e => e.id === enderecoId)?.bairro ?? '';
   useEffect(() => {
-    const zona = zonas.find(z => z.bairro.toLowerCase() === bairroSelecionado.trim().toLowerCase());
+    const bairroNorm = normalizarBairro(bairroSelecionado);
+    const zona = zonas.find(z => normalizarBairro(z.bairro) === bairroNorm);
     onFreteChange(zona ? zona.taxa_centavos : fretePadrao);
   }, [bairroSelecionado, zonas, fretePadrao, onFreteChange]);
 

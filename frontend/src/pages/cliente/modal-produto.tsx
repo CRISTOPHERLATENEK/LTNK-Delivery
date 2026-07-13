@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { adicionarAoCarrinho } from '@/lib/carrinho';
+import { adicionarAoCarrinho, vooCarrinho } from '@/lib/carrinho';
 import { useToast } from '@/components/ui/toast';
 import type { GrupoOpcoes, Loja, OpcaoItem, Produto } from '@/types';
 
@@ -73,11 +73,13 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
     });
   }
 
-  function adicionar() {
+  function adicionar(e: React.MouseEvent<HTMLButtonElement>) {
     if (faltando.length) {
       mostrar({ tipo: 'erro', titulo: 'Faltam escolhas obrigatórias', descricao: faltando.join(', ') });
       return;
     }
+    const r = e.currentTarget.getBoundingClientRect();
+    vooCarrinho({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
     const ok = adicionarAoCarrinho(loja, {
       produto_id: produto.id,
       nome: produto.nome,

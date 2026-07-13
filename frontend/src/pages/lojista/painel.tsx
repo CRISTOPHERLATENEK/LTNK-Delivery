@@ -17,7 +17,7 @@ import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
 import { useTema, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
-import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag } from 'lucide-react';
+import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag, MessageCircle } from 'lucide-react';
 import { ImageUpload } from '@/components/ui/image-upload';
 import {
   garantirPermissaoNotificacao, notificarNovoPedido,
@@ -32,6 +32,7 @@ import { VisualLoja } from './visual';
 import { FiscalLoja } from './fiscal';
 import { CategoriasLoja } from './categorias';
 import { RelatoriosLoja } from './relatorios';
+import { WhatsAppLoja } from './whatsapp';
 import { AvaliacoesLoja } from './avaliacoes';
 import { MesasLoja } from './mesas';
 import { BalcaoLoja } from './balcao';
@@ -153,7 +154,7 @@ export function PainelLojista() {
 /* ── Config da loja: só configuração de verdade.
    Cupons, Clientes e Avaliações agora vivem na aba "Mais" (operação). ── */
 function ConfiguracoesLoja() {
-  const [aba, setAba] = useState<'loja' | 'horario' | 'entrega' | 'entregadores' | 'visual' | 'banners' | 'pagamentos' | 'impressao' | 'fiscal'>('loja');
+  const [aba, setAba] = useState<'loja' | 'horario' | 'entrega' | 'entregadores' | 'visual' | 'banners' | 'pagamentos' | 'impressao' | 'fiscal' | 'whatsapp'>('loja');
 
   const ABAS = [
     { id: 'loja' as const, label: 'Dados', icone: Settings },
@@ -161,6 +162,7 @@ function ConfiguracoesLoja() {
     { id: 'entrega' as const, label: 'Entrega', icone: Bike },
     { id: 'entregadores' as const, label: 'Entregadores', icone: Users },
     { id: 'pagamentos' as const, label: 'Pix', icone: CreditCard },
+    { id: 'whatsapp' as const, label: 'WhatsApp', icone: MessageCircle },
     { id: 'fiscal' as const, label: 'Fiscal', icone: FileText },
     { id: 'impressao' as const, label: 'Impressão', icone: Printer },
     { id: 'visual' as const, label: 'Visual', icone: Palette },
@@ -196,6 +198,7 @@ function ConfiguracoesLoja() {
       {aba === 'entrega' && <ZonasEntrega />}
       {aba === 'entregadores' && <EntregadoresLoja />}
       {aba === 'pagamentos' && <PagamentosLoja />}
+      {aba === 'whatsapp' && <WhatsAppLoja />}
       {aba === 'fiscal' && <FiscalLoja />}
       {aba === 'impressao' && <ImpressaoLoja />}
       {aba === 'visual' && <VisualLoja />}

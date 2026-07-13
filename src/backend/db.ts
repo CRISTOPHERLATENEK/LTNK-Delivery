@@ -518,6 +518,14 @@ garantirColuna('lojas', 'mercadopago_token', 'mercadopago_token TEXT');
 // Slug amigável para URL da loja (ex: pizzaria-da-paula → /loja/pizzaria-da-paula).
 // NULL = acesso só por ID numérico (/loja/2). Deve ser único entre lojas ativas.
 garantirColuna('lojas', 'slug', 'slug TEXT');
+// Domínio próprio do lojista (ex.: pizzariadapaula.com.br), alternativa ao
+// slug — quando o Host da requisição bate com este valor, a rota pública
+// resolve direto pra essa loja (ver GET /api/tema em publico.ts), como se o
+// modo "loja única" da marca estivesse ligado só pra esse domínio específico.
+// O lojista precisa apontar o DNS (CNAME/A) pro servidor por fora; aqui só
+// guardamos qual domínio pertence a qual loja.
+garantirColuna('lojas', 'dominio_personalizado', 'dominio_personalizado TEXT');
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_lojas_dominio ON lojas(dominio_personalizado) WHERE dominio_personalizado IS NOT NULL');
 // Configuração de impressão térmica do cupom (PDV / comanda).
 garantirColuna('lojas', 'impressora_largura', "impressora_largura TEXT NOT NULL DEFAULT '80'"); // '80' | '58' mm
 garantirColuna('lojas', 'impressora_auto', 'impressora_auto INTEGER NOT NULL DEFAULT 1');       // imprime ao finalizar
@@ -610,6 +618,92 @@ garantirColuna('banners', 'botao_texto', "botao_texto TEXT NOT NULL DEFAULT ''")
   }
 }
 
+// Log de auditoria das ações administrativas (quem fez o quê, quando).
+// Não referencia usuarios.id via FK pois o admin pode ter sido removido depois
+// — o nome/e-mail são congelados no momento da ação para o log continuar legível.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS admin_auditoria (
+    id           INTEGER PRIMARY KEY,
+    admin_id     INTEGER,
+    admin_nome   TEXT    NOT NULL,
+    admin_email  TEXT    NOT NULL,
+    acao         TEXT    NOT NULL,
+    alvo_tipo    TEXT    NOT NULL DEFAULT '',
+    alvo_id      INTEGER,
+    alvo_desc    TEXT    NOT NULL DEFAULT '',
+    detalhes     TEXT    NOT NULL DEFAULT '',
+    criado_em    TEXT    NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_admin_auditoria_criado ON admin_auditoria(criado_em DESC);
+`);
+
+// ----- WhatsApp por loja ----------------------------------------------------
+// O admin decide QUAIS métodos cada loja pode usar (permissão); o lojista
+// escolhe e configura, dentre os liberados. Dois métodos coexistem:
+//  - 'oficial': API oficial da Meta (Cloud API) — precisa de credenciais
+//    (phone_number_id, token) que o próprio lojista obtém no Business Manager
+//    da Meta; token guardado CRIPTOGRAFADO (mesmo padrão do CSC/certificado).
+//  - 'nao_oficial': sessão pareada por QR code (tipo WhatsApp Web), sem
+//    aprovação da Meta, mas fora dos termos de uso do WhatsApp — a sessão
+//    fica em arquivo local e é perdida se o servidor perder o disco (ex.:
+//    redeploy sem volume persistente), exigindo escanear o QR de novo.
+garantirColuna('lojas', 'whatsapp_permite_oficial', 'whatsapp_permite_oficial INTEGER NOT NULL DEFAULT 0');
+garantirColuna('lojas', 'whatsapp_permite_nao_oficial', 'whatsapp_permite_nao_oficial INTEGER NOT NULL DEFAULT 0');
+garantirColuna('lojas', 'whatsapp_metodo_ativo', "whatsapp_metodo_ativo TEXT NOT NULL DEFAULT 'nenhum'"); // 'nenhum' | 'oficial' | 'nao_oficial'
+// Método oficial (Meta Cloud API)
+garantirColuna('lojas', 'whatsapp_oficial_numero', "whatsapp_oficial_numero TEXT NOT NULL DEFAULT ''");
+garantirColuna('lojas', 'whatsapp_oficial_phone_id', "whatsapp_oficial_phone_id TEXT NOT NULL DEFAULT ''");
+garantirColuna('lojas', 'whatsapp_oficial_business_id', "whatsapp_oficial_business_id TEXT NOT NULL DEFAULT ''");
+garantirColuna('lojas', 'whatsapp_oficial_token', 'whatsapp_oficial_token TEXT'); // criptografado
+// Nome do modelo de mensagem (template) aprovado pelo lojista no Business
+// Manager da Meta — mensagem business-initiated fora da janela de 24h só
+// pode ser um template já aprovado, não dá pra mandar texto livre.
+garantirColuna('lojas', 'whatsapp_oficial_template', "whatsapp_oficial_template TEXT NOT NULL DEFAULT 'confirmacao_pedido'");
+// Método não oficial (sessão pareada por QR)
+garantirColuna('lojas', 'whatsapp_nao_oficial_status', "whatsapp_nao_oficial_status TEXT NOT NULL DEFAULT 'desconectado'"); // desconectado | pareando | conectado
+// Envio automático de "pedido confirmado" — desligado por padrão até o
+// lojista configurar e testar, evita mensagem quebrada saindo sem querer.
+garantirColuna('lojas', 'whatsapp_enviar_confirmacao', 'whatsapp_enviar_confirmacao INTEGER NOT NULL DEFAULT 0');
+
+// ----- Avaliação do entregador (separada da avaliação da loja) -------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS avaliacoes_entregador (
+  id            INTEGER PRIMARY KEY,
+  pedido_id     INTEGER NOT NULL REFERENCES pedidos(id),
+  entregador_id INTEGER NOT NULL REFERENCES usuarios(id),
+  cliente_id    INTEGER NOT NULL REFERENCES usuarios(id),
+  nota          INTEGER NOT NULL CHECK (nota >= 1 AND nota <= 5),
+  comentario    TEXT    NOT NULL DEFAULT '',
+  criado_em     TEXT    NOT NULL,
+  UNIQUE (pedido_id)
+);
+CREATE INDEX IF NOT EXISTS idx_avaliacoes_entregador ON avaliacoes_entregador(entregador_id);
+`);
+// Cache da nota média do entregador (mesmo padrão de lojas.nota_media/nota_qtd).
+garantirColuna('usuarios', 'nota_media', 'nota_media REAL NOT NULL DEFAULT 0');
+garantirColuna('usuarios', 'nota_qtd', 'nota_qtd INTEGER NOT NULL DEFAULT 0');
+
+// ----- Chat do pedido (cliente ↔ entregador) --------------------------------
+// Só existe enquanto o pedido está com entregador atribuído; não some depois,
+// fica como histórico. Polling simples (mesmo padrão de rastreio ao vivo),
+// sem WebSocket — consistente com o resto do app.
+db.exec(`
+CREATE TABLE IF NOT EXISTS mensagens_pedido (
+  id          INTEGER PRIMARY KEY,
+  pedido_id   INTEGER NOT NULL REFERENCES pedidos(id),
+  remetente   TEXT    NOT NULL CHECK (remetente IN ('cliente','entregador')),
+  texto       TEXT    NOT NULL,
+  lida        INTEGER NOT NULL DEFAULT 0,
+  criado_em   TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_mensagens_pedido ON mensagens_pedido(pedido_id, id);
+`);
+
+// Preferência do entregador: conversar pelo chat interno do app ou pelo
+// próprio WhatsApp dele (a plataforma nunca guarda o número do cliente pro
+// entregador nesse segundo caso — só abre um link wa.me no navegador).
+garantirColuna('usuarios', 'entregador_chat_metodo', "entregador_chat_metodo TEXT NOT NULL DEFAULT 'app'"); // 'app' | 'whatsapp'
+
 // Marca da plataforma (sobrescrita global) — chaves padrão criadas só na primeira vez
 const padroes: Array<[string, string]> = [
   ['marca_nome', 'Delivery Já'],
@@ -620,6 +714,10 @@ const padroes: Array<[string, string]> = [
   ['loja_padrao_id', '0'],
   // Banner personalizado da tela de login (vazio = usa a ilustração padrão).
   ['marca_login_banner_url', ''],
+  // Configurações gerais da plataforma (contato de suporte e termos de uso).
+  ['suporte_email', ''],
+  ['suporte_telefone', ''],
+  ['termos_url', ''],
 ];
 const inserirConfig = db.prepare('INSERT OR IGNORE INTO configuracoes (chave, valor) VALUES (?, ?)');
 for (const [k, v] of padroes) inserirConfig.run(k, v);

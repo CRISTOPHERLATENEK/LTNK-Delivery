@@ -121,7 +121,7 @@ export function DashboardLoja() {
       try {
         const r = await api<{ aberta: boolean }>('POST', '/api/lojista/loja/abrir-fechar');
         qc.setQueryData(['lojista-loja-dashboard'], (old: any) => ({ ...old, aberta: r.aberta ? 1 : 0 }));
-        mostrar({ tipo: 'sucesso', titulo: '🟢 Loja aberta!' });
+        mostrar({ tipo: 'sucesso', titulo: 'Loja aberta!' });
       } catch (e) {
         if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
       }
@@ -140,7 +140,7 @@ export function DashboardLoja() {
     try {
       const r = await api<{ aberta: boolean }>('POST', '/api/lojista/loja/abrir-fechar');
       qc.setQueryData(['lojista-loja-dashboard'], (old: any) => ({ ...old, aberta: r.aberta ? 1 : 0 }));
-      mostrar({ tipo: 'sucesso', titulo: '🔴 Loja fechada.' });
+      mostrar({ tipo: 'sucesso', titulo: 'Loja fechada.' });
     } catch (e) {
       if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
     }

@@ -10,7 +10,7 @@ import { Routes, Route } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChefHat, Clock, AlarmClock, Check, Play, Volume2, VolumeX, LogOut, Soup,
-  Bike, UtensilsCrossed, ShoppingBag,
+  Bike, UtensilsCrossed, ShoppingBag, Keyboard,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -131,6 +131,14 @@ function TelaKDS() {
   });
   const pedidos = pedidosQ.data ?? [];
 
+  // Atalhos de teclado: ←/→ (ou ↑/↓) navega entre os tickets, Enter avança o
+  // selecionado (iniciar preparo → marcar pronto). Pensado pro pico de
+  // movimento no balcão, quando ninguém quer ficar mirando o mouse.
+  const [selecionado, setSelecionado] = useState(0);
+  useEffect(() => {
+    if (selecionado > pedidos.length - 1) setSelecionado(Math.max(0, pedidos.length - 1));
+  }, [pedidos.length, selecionado]);
+
   // Relógio: mantém os tempos de espera frescos mesmo entre as atualizações.
   useEffect(() => {
     const t = setInterval(() => setAgora(Date.now()), 15000);
@@ -172,6 +180,30 @@ function TelaKDS() {
     }
   }
 
+  // Setas navegam, Enter avança o ticket selecionado. Ignora quando o foco
+  // está num campo de texto (não existe nenhum nesta tela hoje, mas evita
+  // surpresa se algum dia aparecer um input aqui).
+  useEffect(() => {
+    function aoTeclar(e: KeyboardEvent) {
+      const alvo = e.target as HTMLElement;
+      if (alvo.tagName === 'INPUT' || alvo.tagName === 'TEXTAREA') return;
+      if (pedidos.length === 0) return;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelecionado(i => Math.min(pedidos.length - 1, i + 1));
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelecionado(i => Math.max(0, i - 1));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        const p = pedidos[selecionado];
+        if (p) acao(p, p.etapa === 'preparando' ? 'pronto' : 'preparar');
+      }
+    }
+    window.addEventListener('keydown', aoTeclar);
+    return () => window.removeEventListener('keydown', aoTeclar);
+  }, [pedidos, selecionado]);
+
   return (
     <div className="min-h-dvh bg-background text-foreground flex flex-col">
       {/* Top bar */}
@@ -189,6 +221,9 @@ function TelaKDS() {
           <div className="flex items-center gap-3">
             <span className="hidden sm:flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
               <Soup className="size-4" /> {pedidos.length} na fila
+            </span>
+            <span className="hidden lg:flex items-center gap-1.5 text-xs text-muted-foreground" title="Setas navegam, Enter avança o ticket selecionado">
+              <Keyboard className="size-3.5" /> ←/→ navega · Enter avança
             </span>
             <button onClick={alternarSom} title={som ? 'Som ligado' : 'Som desligado'}
               className="flex size-9 items-center justify-center rounded-xl hover:bg-accent text-muted-foreground">
@@ -220,8 +255,8 @@ function TelaKDS() {
         )}
 
         <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {pedidos.map(p => (
-            <TicketCozinha key={`${p.fonte}-${p.id}`} pedido={p} agora={agora} onAcao={acao} />
+          {pedidos.map((p, i) => (
+            <TicketCozinha key={`${p.fonte}-${p.id}`} pedido={p} agora={agora} onAcao={acao} selecionado={i === selecionado} />
           ))}
         </div>
       </main>
@@ -265,11 +300,12 @@ const FONTE_INFO: Record<FonteCozinha, { icone: typeof Bike; rotulo: string }> =
 };
 
 function TicketCozinha({
-  pedido, agora, onAcao,
+  pedido, agora, onAcao, selecionado,
 }: {
   pedido: PedidoCozinha;
   agora: number;
   onAcao: (p: PedidoCozinha, tipo: 'preparar' | 'pronto') => void;
+  selecionado?: boolean;
 }) {
   const u = urgencia(pedido.criado_em, agora);
   const emPreparo = pedido.etapa === 'preparando';
@@ -277,7 +313,11 @@ function TicketCozinha({
   const IconeFonte = Fonte.icone;
 
   return (
-    <Card className={cn('overflow-hidden border-2', u.borda, u.atrasado && 'animate-pulse')}>
+    <Card className={cn(
+      'overflow-hidden border-2 transition-shadow',
+      u.borda, u.atrasado && 'animate-pulse',
+      selecionado && 'ring-4 ring-primary/50 shadow-lg',
+    )}>
       <div className={cn('flex items-center justify-between px-3 py-2 font-bold', u.faixa)}>
         <span className="flex items-center gap-1.5 text-sm">
           <IconeFonte className="size-4" /> {pedido.referencia}

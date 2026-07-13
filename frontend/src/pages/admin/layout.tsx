@@ -6,7 +6,7 @@ import { useState, type ReactNode } from 'react';
 import { NavLink, Link } from 'react-router-dom';
 import {
   LayoutDashboard, Store, Users, ShoppingBag, TrendingUp,
-  Image, Palette, Shield, Crown, LogOut, Menu, X, ChevronRight, Radio, Bike, Building2,
+  Image, Palette, Shield, Crown, LogOut, Menu, X, ChevronRight, Radio, Bike, Building2, History,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { encerrarSessao, sessaoUsuario, ehSuperAdmin } from '@/lib/api';
@@ -21,18 +21,52 @@ interface NavItem {
   badge?: number;
 }
 
-const ITENS: NavItem[] = [
-  { rota: '/painel-admin',       icone: LayoutDashboard, label: 'Dashboard',   },
-  { rota: '/painel-admin/clientes', icone: Building2,     label: 'Clientes',    somenteSuper: true },
-  { rota: '/painel-admin/monitor',  icone: Radio,         label: 'Monitor',     },
-  { rota: '/painel-admin/lojas', icone: Store,            label: 'Lojas',       },
-  { rota: '/painel-admin/lojistas', icone: Users,         label: 'Lojistas',    somenteSuper: true },
-  { rota: '/painel-admin/pedidos',  icone: ShoppingBag,   label: 'Pedidos',     },
-  { rota: '/painel-admin/entregadores', icone: Bike,      label: 'Entregadores', },
-  { rota: '/painel-admin/repasses', icone: TrendingUp,    label: 'Repasses',    somenteSuper: true },
-  { rota: '/painel-admin/banners',  icone: Image,         label: 'Banners',     },
-  { rota: '/painel-admin/marca',    icone: Palette,       label: 'Marca',       somenteSuper: true },
-  { rota: '/painel-admin/admins',   icone: Shield,        label: 'Admins',      somenteSuper: true },
+interface NavGrupo {
+  titulo: string;
+  itens: NavItem[];
+}
+
+const GRUPOS: NavGrupo[] = [
+  {
+    titulo: 'Visão geral',
+    itens: [
+      { rota: '/painel-admin',         icone: LayoutDashboard, label: 'Dashboard' },
+      { rota: '/painel-admin/monitor', icone: Radio,           label: 'Monitor' },
+    ],
+  },
+  {
+    titulo: 'Operação',
+    itens: [
+      { rota: '/painel-admin/lojas',         icone: Store,      label: 'Lojas' },
+      { rota: '/painel-admin/pedidos',       icone: ShoppingBag, label: 'Pedidos' },
+      { rota: '/painel-admin/entregadores',  icone: Bike,       label: 'Entregadores' },
+      { rota: '/painel-admin/banners',       icone: Image,      label: 'Banners' },
+    ],
+  },
+  {
+    titulo: 'Pessoas',
+    itens: [
+      { rota: '/painel-admin/lojistas', icone: Users,  label: 'Lojistas', somenteSuper: true },
+      { rota: '/painel-admin/admins',   icone: Shield, label: 'Admins',   somenteSuper: true },
+    ],
+  },
+  {
+    titulo: 'Financeiro',
+    itens: [
+      { rota: '/painel-admin/repasses', icone: TrendingUp, label: 'Repasses', somenteSuper: true },
+    ],
+  },
+  {
+    titulo: 'Configurações',
+    itens: [
+      { rota: '/painel-admin/marca',     icone: Palette, label: 'Marca',     somenteSuper: true },
+      { rota: '/painel-admin/auditoria', icone: History, label: 'Auditoria', somenteSuper: true },
+    ],
+  },
+  // Grupo "SaaS" (gestão de tenants/clientes revendidos) fica oculto do menu
+  // — esta instância é operada só pelo dono, sem revenda white-label pra
+  // terceiros. A rota /painel-admin/clientes continua funcionando se for
+  // acessada direto pela URL; só não aparece mais na navegação.
 ];
 
 export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?: string }) {
@@ -40,7 +74,9 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
   const superAdmin = ehSuperAdmin();
   const u = sessaoUsuario();
 
-  const itens = ITENS.filter(i => !i.somenteSuper || superAdmin);
+  const grupos = GRUPOS
+    .map(g => ({ ...g, itens: g.itens.filter(i => !i.somenteSuper || superAdmin) }))
+    .filter(g => g.itens.length > 0);
 
   function sair() {
     encerrarSessao();
@@ -51,7 +87,7 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
     <div className="flex min-h-screen bg-muted/30">
       {/* ── SIDEBAR DESKTOP ── */}
       <aside className="hidden md:flex md:flex-col w-60 shrink-0 bg-zinc-900 text-zinc-100">
-        <SidebarContent itens={itens} superAdmin={superAdmin} u={u} onSair={sair} />
+        <SidebarContent grupos={grupos} superAdmin={superAdmin} u={u} onSair={sair} />
       </aside>
 
       {/* ── DRAWER MOBILE ── */}
@@ -65,7 +101,7 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
             >
               <X className="size-5" />
             </button>
-            <SidebarContent itens={itens} superAdmin={superAdmin} u={u} onSair={sair} />
+            <SidebarContent grupos={grupos} superAdmin={superAdmin} u={u} onSair={sair} />
           </aside>
         </div>
       )}
@@ -111,8 +147,8 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
   );
 }
 
-function SidebarContent({ itens, superAdmin, u, onSair }: {
-  itens: NavItem[];
+function SidebarContent({ grupos, superAdmin, u, onSair }: {
+  grupos: NavGrupo[];
   superAdmin: boolean;
   u: ReturnType<typeof sessaoUsuario>;
   onSair: () => void;
@@ -133,27 +169,34 @@ function SidebarContent({ itens, superAdmin, u, onSair }: {
       </div>
 
       {/* Navegação */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {itens.map(item => (
-          <NavLink
-            key={item.rota}
-            to={item.rota}
-            end={item.rota === '/painel-admin'}
-            className={({ isActive }) => cn(
-              'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
-              isActive
-                ? 'bg-primary text-primary-foreground shadow-sm'
-                : 'text-zinc-400 hover:bg-white/8 hover:text-zinc-100',
-            )}
-          >
-            <item.icone className="size-4 shrink-0" />
-            <span className="flex-1">{item.label}</span>
-            {item.badge ? (
-              <span className="flex size-5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
-                {item.badge}
-              </span>
-            ) : null}
-          </NavLink>
+      <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
+        {grupos.map(grupo => (
+          <div key={grupo.titulo} className="space-y-0.5">
+            <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
+              {grupo.titulo}
+            </div>
+            {grupo.itens.map(item => (
+              <NavLink
+                key={item.rota}
+                to={item.rota}
+                end={item.rota === '/painel-admin'}
+                className={({ isActive }) => cn(
+                  'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
+                  isActive
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-zinc-400 hover:bg-white/8 hover:text-zinc-100',
+                )}
+              >
+                <item.icone className="size-4 shrink-0" />
+                <span className="flex-1">{item.label}</span>
+                {item.badge ? (
+                  <span className="flex size-5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
+                    {item.badge}
+                  </span>
+                ) : null}
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
 

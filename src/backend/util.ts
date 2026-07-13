@@ -17,6 +17,28 @@ export function textoLimpo(valor: unknown, max = 500): string {
   return valor.trim().slice(0, max);
 }
 
+/**
+ * Normaliza nome de bairro pra comparação tolerante: remove acentos, baixa
+ * caixa, expande abreviações comuns de endereço BR e junta espaços. Evita que
+ * "Jd. Sofia" (digitado pelo lojista) e "Jardim Sofia" (devolvido pelo ViaCEP,
+ * ou vice-versa) sejam tratados como bairros diferentes e o cliente caia
+ * silenciosamente na taxa de entrega padrão em vez da taxa da zona certa.
+ */
+export function normalizarBairro(valor: string): string {
+  return (valor || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // remove acentos
+    .toLowerCase()
+    .replace(/\bjd\.?\b/g, 'jardim')
+    .replace(/\bvl\.?\b/g, 'vila')
+    .replace(/\bpq\.?\b/g, 'parque')
+    .replace(/\bres\.?\b/g, 'residencial')
+    .replace(/\bconj\.?\b/g, 'conjunto')
+    .replace(/\bcj\.?\b/g, 'conjunto')
+    .replace(/[^a-z0-9\s]/g, '') // remove pontuação restante
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** Converte para inteiro positivo ou retorna null se inválido. */
 export function inteiroPositivo(valor: unknown): number | null {
   const n = Number(valor);

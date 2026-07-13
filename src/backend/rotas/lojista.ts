@@ -9,7 +9,7 @@ import path from 'path';
 import fs from 'fs';
 import db, { arquivoTenantAtual } from '../db';
 import { autenticar, exigirPerfil } from '../auth';
-import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido } from '../util';
+import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido, normalizarBairro } from '../util';
 import { transicionarStatus } from '../fluxoPedido';
 import { enviarPush } from '../push';
 import { comissaoPercentualDaLoja } from '../comissao';
@@ -21,6 +21,7 @@ import {
   montarInutilizacao, transmitirInutilizacao,
 } from '../sefaz';
 import { criptografar, descriptografar } from '../cripto';
+import { testarCredenciaisOficial } from '../whatsapp';
 import { GrupoOpcao, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
 
 /** Pasta protegida do certificado de uma loja (namespeada por tenant). */
@@ -124,6 +125,22 @@ router.put('/loja', (req, res, next) => {
       slug = s || null;
     }
 
+    // Domínio próprio (alternativa ao slug): ex. pizzariadapaula.com.br.
+    // Guardamos sem protocolo/www/caminho — o lojista aponta o DNS por fora.
+    let dominioPersonalizado = lojaQualquer.dominio_personalizado ?? null;
+    if (req.body.dominio_personalizado !== undefined) {
+      let d = textoLimpo(req.body.dominio_personalizado, 200).toLowerCase()
+        .replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+      if (d && !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(d)) {
+        throw erroHttp(400, 'Domínio inválido. Use o formato "suaempresa.com.br", sem https:// nem barras.');
+      }
+      if (d) {
+        const conflito = db.prepare('SELECT id FROM lojas WHERE dominio_personalizado = ? AND id != ?').get(d, loja.id);
+        if (conflito) throw erroHttp(409, 'Este domínio já está sendo usado por outra loja.');
+      }
+      dominioPersonalizado = d || null;
+    }
+
     // Agenda semanal (horário automático): valida e normaliza o JSON.
     let horarioJson = lojaQualquer.horario_json ?? '[]';
     if (req.body.horario_json !== undefined) {
@@ -160,6 +177,7 @@ router.put('/loja', (req, res, next) => {
       `UPDATE lojas SET nome = ?, descricao = ?, categoria = ?, endereco = ?,
               taxa_entrega_centavos = ?, tempo_estimado_min = ?, horario_funcionamento = ?,
               logo_url = ?, capa_url = ?, favicon_url = ?, cor_marca = ?, cor_secundaria = ?, slug = ?,
+              dominio_personalizado = ?,
               horario_json = ?, auto_horario = ?, minimo_pedido_centavos = ?,
               impressora_largura = ?, impressora_auto = ?, cupom_rodape = ?, visual_json = ?
         WHERE id = ?`
@@ -174,7 +192,8 @@ router.put('/loja', (req, res, next) => {
           validarUrl('favicon_url', lojaQualquer.favicon_url || ''),
           validarCor('cor_marca', lojaQualquer.cor_marca || ''),
           validarCor('cor_secundaria', lojaQualquer.cor_secundaria || ''),
-          slug, horarioJson, autoHorario, minimoPedido,
+          slug, dominioPersonalizado,
+          horarioJson, autoHorario, minimoPedido,
           impLargura, impAuto, cupomRodape, visualJson,
           loja.id);
 
@@ -402,11 +421,13 @@ router.post('/zonas', (req, res, next) => {
     if (bairro.length < 2) throw erroHttp(400, 'Informe o nome do bairro.');
     const taxa = reaisParaCentavos(req.body.taxa);
     if (taxa === null || taxa < 0) throw erroHttp(400, 'Informe uma taxa válida (use 0 para grátis).');
-    // Evita bairro duplicado na mesma loja.
-    const existe = db.prepare(
-      'SELECT id FROM zonas_entrega WHERE loja_id = ? AND lower(bairro) = lower(?)'
-    ).get(loja.id, bairro);
-    if (existe) throw erroHttp(409, 'Esse bairro já tem uma taxa cadastrada.');
+    // Evita bairro duplicado na mesma loja (comparação tolerante — "Jd. Sofia"
+    // e "Jardim Sofia" contam como o mesmo bairro).
+    const existentes = db.prepare('SELECT bairro FROM zonas_entrega WHERE loja_id = ?').all(loja.id) as { bairro: string }[];
+    const bairroNorm = normalizarBairro(bairro);
+    if (existentes.some(z => normalizarBairro(z.bairro) === bairroNorm)) {
+      throw erroHttp(409, 'Esse bairro já tem uma taxa cadastrada.');
+    }
     const info = db.prepare(
       'INSERT INTO zonas_entrega (loja_id, bairro, taxa_centavos, criado_em) VALUES (?, ?, ?, ?)'
     ).run(loja.id, bairro, taxa, agoraUTC());
@@ -424,6 +445,13 @@ router.put('/zonas/:id', (req, res, next) => {
     if (bairro.length < 2) throw erroHttp(400, 'Nome do bairro inválido.');
     const taxa = req.body.taxa !== undefined ? reaisParaCentavos(req.body.taxa) : zona.taxa_centavos;
     if (taxa === null || taxa < 0) throw erroHttp(400, 'Taxa inválida.');
+    if (req.body.bairro !== undefined) {
+      const outras = db.prepare('SELECT bairro FROM zonas_entrega WHERE loja_id = ? AND id != ?').all(loja.id, zona.id) as { bairro: string }[];
+      const bairroNorm = normalizarBairro(bairro);
+      if (outras.some(z => normalizarBairro(z.bairro) === bairroNorm)) {
+        throw erroHttp(409, 'Esse bairro já tem uma taxa cadastrada.');
+      }
+    }
     db.prepare('UPDATE zonas_entrega SET bairro = ?, taxa_centavos = ? WHERE id = ?')
       .run(bairro, taxa, zona.id);
     res.json({ ok: true });
@@ -611,6 +639,87 @@ router.delete('/produtos/:id', (req, res, next) => {
     ).run(req.params.id, loja.id);
     if (info.changes === 0) throw erroHttp(404, 'Produto não encontrado.');
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /produtos/:id/duplicar — clona um produto (todos os campos + grupos
+ * de opções + itens) como um novo produto "(cópia)". Útil pra variações
+ * rápidas (ex.: mesmo lanche em tamanho diferente) sem redigitar tudo.
+ * O clone nasce indisponível — o lojista revisa/ajusta antes de publicar.
+ */
+router.post('/produtos/:id/duplicar', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req);
+    const original = meuProduto(loja, req.params.id) as any;
+
+    const clonar = db.transaction(() => {
+      const info = db.prepare(
+        `INSERT INTO produtos (loja_id, nome, descricao, categoria, subcategoria, preco_centavos,
+                               preco_promocional_centavos, serve_pessoas, destaque,
+                               foto_url, disponivel, vendido_por, codigo_barras,
+                               controla_estoque, estoque, ncm, cfop, csosn, origem,
+                               unidade_comercial, cest, criado_em)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        loja.id, `${original.nome} (cópia)`, original.descricao, original.categoria, original.subcategoria,
+        original.preco_centavos, original.preco_promocional_centavos, original.serve_pessoas, original.destaque,
+        original.foto_url, original.vendido_por, original.codigo_barras,
+        original.controla_estoque, original.estoque,
+        original.ncm, original.cfop, original.csosn, original.origem, original.unidade_comercial, original.cest,
+        agoraUTC(),
+      );
+      const novoId = Number(info.lastInsertRowid);
+
+      const grupos = db.prepare('SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id').all(original.id) as any[];
+      for (const g of grupos) {
+        const gInfo = db.prepare(
+          `INSERT INTO grupos_opcoes (produto_id, nome, tipo, obrigatorio, max_escolhas, ordem)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).run(novoId, g.nome, g.tipo, g.obrigatorio, g.max_escolhas, g.ordem);
+        const novoGrupoId = Number(gInfo.lastInsertRowid);
+        const opcoes = db.prepare('SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id').all(g.id) as any[];
+        for (const o of opcoes) {
+          db.prepare(
+            `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem)
+             VALUES (?, ?, ?, ?, ?)`
+          ).run(novoGrupoId, o.nome, o.preco_adicional_centavos, o.disponivel, o.ordem);
+        }
+      }
+      return novoId;
+    });
+
+    const produto_id = clonar();
+    res.status(201).json({ produto_id });
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /produtos/bulk — ativa/desativa/exclui vários produtos de uma vez.
+ * Sempre restrito à loja do lojista autenticado (o IN (...) filtra por
+ * loja_id, então IDs de outra loja são simplesmente ignorados).
+ */
+router.post('/produtos/bulk', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req);
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter((n: number) => Number.isInteger(n) && n > 0) : [];
+    const acao = String(req.body.acao || '');
+    if (ids.length === 0) throw erroHttp(400, 'Selecione ao menos um produto.');
+    if (!['ativar', 'desativar', 'excluir'].includes(acao)) throw erroHttp(400, 'Ação inválida.');
+
+    const placeholders = ids.map(() => '?').join(',');
+    let info;
+    if (acao === 'ativar') {
+      info = db.prepare(`UPDATE produtos SET disponivel = 1 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
+        .run(loja.id, ...ids);
+    } else if (acao === 'desativar') {
+      info = db.prepare(`UPDATE produtos SET disponivel = 0 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
+        .run(loja.id, ...ids);
+    } else {
+      info = db.prepare(`UPDATE produtos SET excluido = 1, disponivel = 0 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
+        .run(loja.id, ...ids);
+    }
+    res.json({ ok: true, afetados: info.changes });
   } catch (e) { next(e); }
 });
 
@@ -2439,6 +2548,84 @@ router.get('/comandas-historico', (req, res, next) => {
        ORDER BY c.id DESC LIMIT 50
     `).all(loja.id);
     res.json({ comandas });
+  } catch (e) { next(e); }
+});
+
+// ----- WhatsApp -------------------------------------------------------------
+
+/** Lê a config de WhatsApp da loja (sem devolver o token — só se está preenchido). */
+router.get('/whatsapp', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req) as any;
+    res.json({
+      permite_oficial: !!loja.whatsapp_permite_oficial,
+      permite_nao_oficial: !!loja.whatsapp_permite_nao_oficial,
+      metodo_ativo: loja.whatsapp_metodo_ativo || 'nenhum',
+      enviar_confirmacao: !!loja.whatsapp_enviar_confirmacao,
+      oficial: {
+        numero: loja.whatsapp_oficial_numero || '',
+        phone_id: loja.whatsapp_oficial_phone_id || '',
+        business_id: loja.whatsapp_oficial_business_id || '',
+        template: loja.whatsapp_oficial_template || 'confirmacao_pedido',
+        tem_token: !!loja.whatsapp_oficial_token,
+      },
+      nao_oficial: { status: loja.whatsapp_nao_oficial_status || 'desconectado' },
+    });
+  } catch (e) { next(e); }
+});
+
+/** Salva a config do método oficial (Meta Cloud API). Token só é regravado se enviado (não vazio). */
+router.put('/whatsapp/oficial', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req) as any;
+    if (!loja.whatsapp_permite_oficial) throw erroHttp(403, 'O WhatsApp oficial não está liberado pra esta loja. Fale com o suporte da plataforma.');
+
+    const numero = textoLimpo(req.body.numero, 20).replace(/\D/g, '');
+    const phoneId = textoLimpo(req.body.phone_id, 40);
+    const businessId = textoLimpo(req.body.business_id, 40);
+    const template = textoLimpo(req.body.template, 60) || 'confirmacao_pedido';
+    if (!phoneId) throw erroHttp(400, 'Informe o Phone Number ID (Meta Business).');
+
+    if (typeof req.body.token === 'string' && req.body.token.trim()) {
+      db.prepare(
+        `UPDATE lojas SET whatsapp_oficial_numero = ?, whatsapp_oficial_phone_id = ?,
+                whatsapp_oficial_business_id = ?, whatsapp_oficial_template = ?, whatsapp_oficial_token = ?
+          WHERE id = ?`
+      ).run(numero, phoneId, businessId, template, criptografar(req.body.token.trim()), loja.id);
+    } else {
+      db.prepare(
+        `UPDATE lojas SET whatsapp_oficial_numero = ?, whatsapp_oficial_phone_id = ?,
+                whatsapp_oficial_business_id = ?, whatsapp_oficial_template = ?
+          WHERE id = ?`
+      ).run(numero, phoneId, businessId, template, loja.id);
+    }
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/** Testa as credenciais oficiais salvas (chamada leve à Graph API). */
+router.post('/whatsapp/oficial/testar', async (req, res, next) => {
+  try {
+    const loja = minhaLoja(req) as any;
+    const r = await testarCredenciaisOficial(loja.whatsapp_oficial_phone_id || '', loja.whatsapp_oficial_token || '');
+    if (!r.ok) throw erroHttp(400, r.erro || 'Falha ao testar credenciais.');
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/** Escolhe qual método fica ativo (só entre os liberados pelo admin) e liga/desliga o envio automático. */
+router.put('/whatsapp/ativo', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req) as any;
+    const metodo = textoLimpo(req.body.metodo, 20);
+    if (!['nenhum', 'oficial', 'nao_oficial'].includes(metodo)) throw erroHttp(400, 'Método inválido.');
+    if (metodo === 'oficial' && !loja.whatsapp_permite_oficial) throw erroHttp(403, 'WhatsApp oficial não liberado pra esta loja.');
+    if (metodo === 'nao_oficial' && !loja.whatsapp_permite_nao_oficial) throw erroHttp(403, 'WhatsApp não oficial não liberado pra esta loja.');
+
+    const enviarConfirmacao = req.body.enviar_confirmacao !== undefined ? (req.body.enviar_confirmacao ? 1 : 0) : loja.whatsapp_enviar_confirmacao;
+    db.prepare('UPDATE lojas SET whatsapp_metodo_ativo = ?, whatsapp_enviar_confirmacao = ? WHERE id = ?')
+      .run(metodo, enviarConfirmacao, loja.id);
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 

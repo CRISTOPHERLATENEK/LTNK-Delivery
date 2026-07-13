@@ -6,7 +6,7 @@ import { Router } from 'express';
 import db, { abrirBanco, arquivoTenantAtual, comTenant } from '../db';
 import bcrypt from 'bcryptjs';
 import { autenticar, exigirPerfil, exigirSuperAdmin } from '../auth';
-import { textoLimpo, inteiroPositivo, erroHttp, agoraUTC, emailValido } from '../util';
+import { textoLimpo, inteiroPositivo, erroHttp, agoraUTC, emailValido, cpfValido, cpfDigitos, telefoneDigitos } from '../util';
 import { criptografar } from '../cripto';
 import { validarCertificado, } from '../assinatura';
 import { caminhoCertificado } from './lojista';
@@ -17,6 +17,27 @@ import { Banner } from '../../tipos/modelos';
 
 const router = Router();
 router.use(autenticar, exigirPerfil('admin'));
+
+/**
+ * Registra uma ação administrativa no log de auditoria. Nunca lança — uma
+ * falha ao gravar o log não pode derrubar a ação principal que já aconteceu.
+ */
+function registrarAuditoria(
+  req: import('express').Request,
+  acao: string,
+  opts?: { alvoTipo?: string; alvoId?: number | null; alvoDesc?: string; detalhes?: string },
+): void {
+  try {
+    db.prepare(
+      `INSERT INTO admin_auditoria (admin_id, admin_nome, admin_email, acao, alvo_tipo, alvo_id, alvo_desc, detalhes, criado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      req.usuario!.id, req.usuario!.nome, req.usuario!.email, acao,
+      opts?.alvoTipo || '', opts?.alvoId ?? null, opts?.alvoDesc || '', opts?.detalhes || '',
+      agoraUTC(),
+    );
+  } catch { /* log é best-effort */ }
+}
 
 router.get('/dashboard', (_req, res) => {
   const hoje = new Date().toISOString().slice(0, 10);
@@ -100,18 +121,22 @@ router.get('/lojas', (_req, res) => {
 
 router.post('/lojas/:id/aprovar', (req, res, next) => {
   try {
+    const loja = db.prepare('SELECT nome FROM lojas WHERE id = ?').get(req.params.id) as { nome: string } | undefined;
     const info = db.prepare("UPDATE lojas SET status_aprovacao = 'aprovada' WHERE id = ?")
       .run(req.params.id);
     if (info.changes === 0) throw erroHttp(404, 'Loja não encontrada.');
+    registrarAuditoria(req, 'loja.aprovar', { alvoTipo: 'loja', alvoId: Number(req.params.id), alvoDesc: loja?.nome || '' });
     res.json({ ok: true, mensagem: 'Loja aprovada.' });
   } catch (e) { next(e); }
 });
 
 router.post('/lojas/:id/suspender', (req, res, next) => {
   try {
+    const loja = db.prepare('SELECT nome FROM lojas WHERE id = ?').get(req.params.id) as { nome: string } | undefined;
     const info = db.prepare("UPDATE lojas SET status_aprovacao = 'suspensa', aberta = 0 WHERE id = ?")
       .run(req.params.id);
     if (info.changes === 0) throw erroHttp(404, 'Loja não encontrada.');
+    registrarAuditoria(req, 'loja.suspender', { alvoTipo: 'loja', alvoId: Number(req.params.id), alvoDesc: loja?.nome || '' });
     res.json({ ok: true, mensagem: 'Loja suspensa.' });
   } catch (e) { next(e); }
 });
@@ -121,6 +146,10 @@ router.post('/lojas', exigirSuperAdmin, (req, res, next) => {
   try {
     const nomeLoja = textoLimpo(req.body.nome, 120);
     const categoria = textoLimpo(req.body.categoria || 'Outros', 50) || 'Outros';
+    const descricao = textoLimpo(req.body.descricao || '', 300);
+    const endereco = textoLimpo(req.body.endereco || '', 200);
+    const taxaEntrega = Math.max(0, Math.round(Number(req.body.taxa_entrega_centavos) || 0));
+    const tempoEstimado = Math.max(1, Math.round(Number(req.body.tempo_estimado_min) || 40));
     const nomeDono = textoLimpo(req.body.dono_nome, 120);
     const email = textoLimpo(req.body.email, 200).toLowerCase();
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
@@ -143,26 +172,30 @@ router.post('/lojas', exigirSuperAdmin, (req, res, next) => {
         `INSERT INTO lojas (usuario_id, nome, descricao, categoria, endereco,
                             taxa_entrega_centavos, tempo_estimado_min, horario_funcionamento,
                             status_aprovacao, aberta, criado_em)
-         VALUES (?, ?, '', ?, '', 0, 40, '', 'aprovada', 0, ?)`
-      ).run(uid, nomeLoja, categoria, agoraUTC());
+         VALUES (?, ?, ?, ?, ?, ?, ?, '', 'aprovada', 0, ?)`
+      ).run(uid, nomeLoja, descricao, categoria, endereco, taxaEntrega, tempoEstimado, agoraUTC());
       return { usuario_id: uid, loja_id: Number(l.lastInsertRowid) };
     });
-    res.status(201).json(criar());
+    const resultado = criar();
+    registrarAuditoria(req, 'loja.criar', { alvoTipo: 'loja', alvoId: resultado.loja_id, alvoDesc: nomeLoja, detalhes: `dono: ${email}` });
+    res.status(201).json(resultado);
   } catch (e) { next(e); }
 });
 
 /**
  * Exclui uma loja. Bloqueia se houver pedidos (preserva o histórico
  * financeiro) — nesse caso o admin deve suspender. Sem pedidos, apaga em
- * cascata: produtos/grupos/opções, zonas, banners, favoritos, avaliações e a
- * conta do responsável (se não tiver outra loja).
+ * cascata TODAS as tabelas que referenciam loja_id/usuario_id — a lista
+ * cresceu com o tempo (PDV de mesa, cozinha, cupons, categorias, notas
+ * fiscais) e esquecer uma delas quebra a exclusão com FOREIGN KEY constraint
+ * failed no meio da transação.
  */
 router.delete('/lojas/:id', exigirSuperAdmin, (req, res, next) => {
   try {
     const lojaId = inteiroPositivo(req.params.id);
     if (!lojaId) throw erroHttp(400, 'Loja inválida.');
-    const loja = db.prepare('SELECT id, usuario_id FROM lojas WHERE id = ?').get(lojaId) as
-      { id: number; usuario_id: number } | undefined;
+    const loja = db.prepare('SELECT id, usuario_id, nome FROM lojas WHERE id = ?').get(lojaId) as
+      { id: number; usuario_id: number; nome: string } | undefined;
     if (!loja) throw erroHttp(404, 'Loja não encontrada.');
 
     const nPedidos = (db.prepare('SELECT COUNT(*) AS n FROM pedidos WHERE loja_id = ?')
@@ -173,6 +206,23 @@ router.delete('/lojas/:id', exigirSuperAdmin, (req, res, next) => {
     }
 
     const apagar = db.transaction(() => {
+      // PDV de mesa (comanda_itens → comandas → mesas, nessa ordem por causa das FKs)
+      db.prepare(
+        'DELETE FROM comanda_itens WHERE comanda_id IN (SELECT id FROM comandas WHERE loja_id = ?)'
+      ).run(lojaId);
+      db.prepare('DELETE FROM comandas WHERE loja_id = ?').run(lojaId);
+      db.prepare('DELETE FROM mesas WHERE loja_id = ?').run(lojaId);
+      // Cozinha (KDS): ticket_itens → tickets, e as contas de login da cozinha
+      db.prepare(
+        'DELETE FROM cozinha_ticket_itens WHERE ticket_id IN (SELECT id FROM cozinha_tickets WHERE loja_id = ?)'
+      ).run(lojaId);
+      db.prepare('DELETE FROM cozinha_tickets WHERE loja_id = ?').run(lojaId);
+      db.prepare('DELETE FROM cozinha_contas WHERE loja_id = ?').run(lojaId);
+      // Cupons, categorias e notas fiscais emitidas pela loja
+      db.prepare('DELETE FROM cupons WHERE loja_id = ?').run(lojaId);
+      db.prepare('DELETE FROM categorias WHERE loja_id = ?').run(lojaId);
+      db.prepare('DELETE FROM notas_fiscais WHERE loja_id = ?').run(lojaId);
+      // Cardápio (opções → grupos → produtos)
       db.prepare(
         `DELETE FROM opcoes_itens WHERE grupo_id IN (
            SELECT g.id FROM grupos_opcoes g JOIN produtos p ON p.id = g.produto_id WHERE p.loja_id = ?)`
@@ -188,11 +238,16 @@ router.delete('/lojas/:id', exigirSuperAdmin, (req, res, next) => {
       // Clientes isolados nesta loja (white label) deixam de apontar para ela.
       db.prepare('UPDATE usuarios SET loja_id = NULL WHERE loja_id = ?').run(lojaId);
       db.prepare('DELETE FROM lojas WHERE id = ?').run(lojaId);
-      // Remove o responsável se ele não tiver outra loja.
+      // Remove o responsável se ele não tiver outra loja (inclui o que referencia a conta dele).
       const outra = db.prepare('SELECT id FROM lojas WHERE usuario_id = ?').get(loja.usuario_id);
-      if (!outra) db.prepare("DELETE FROM usuarios WHERE id = ? AND perfil = 'lojista'").run(loja.usuario_id);
+      if (!outra) {
+        db.prepare('DELETE FROM push_inscricoes WHERE usuario_id = ?').run(loja.usuario_id);
+        db.prepare('DELETE FROM enderecos WHERE usuario_id = ?').run(loja.usuario_id);
+        db.prepare("DELETE FROM usuarios WHERE id = ? AND perfil = 'lojista'").run(loja.usuario_id);
+      }
     });
     apagar();
+    registrarAuditoria(req, 'loja.excluir', { alvoTipo: 'loja', alvoId: lojaId, alvoDesc: loja.nome });
     res.json({ ok: true, mensagem: 'Loja excluída.' });
   } catch (e) { next(e); }
 });
@@ -301,15 +356,114 @@ router.get('/usuarios', (_req, res) => {
   res.json({ usuarios });
 });
 
+/**
+ * POST /api/admin/usuarios — cria uma conta de cliente pelo admin (super
+ * admin). Mesma validação do autocadastro público (POST /auth/registrar):
+ * CPF obrigatório e válido, e-mail opcional (gera um sintético se vazio,
+ * já que a coluna é NOT NULL UNIQUE), telefone único se informado.
+ * loja_id opcional isola o cliente numa loja específica (white label).
+ */
+router.post('/usuarios', exigirSuperAdmin, (req, res, next) => {
+  try {
+    const nome = textoLimpo(req.body.nome, 120);
+    const email = textoLimpo(req.body.email, 200).toLowerCase();
+    const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
+    const telefone = telefoneDigitos(req.body.telefone);
+    const cpf = cpfDigitos(req.body.cpf);
+    const lojaId = req.body.loja_id ? inteiroPositivo(req.body.loja_id) : null;
+
+    if (nome.length < 2) throw erroHttp(400, 'Informe o nome do cliente.');
+    if (senha.length < 6) throw erroHttp(400, 'Senha mínima de 6 caracteres.');
+    if (!cpfValido(cpf)) throw erroHttp(400, 'Informe um CPF válido.');
+    if (email && !emailValido(email)) throw erroHttp(400, 'E-mail inválido.');
+
+    const cpfExiste = db.prepare('SELECT id FROM usuarios WHERE cpf = ?').get(cpf);
+    if (cpfExiste) throw erroHttp(409, 'Já existe uma conta com este CPF.');
+    if (telefone) {
+      const telExiste = db.prepare('SELECT id FROM usuarios WHERE telefone = ?').get(telefone);
+      if (telExiste) throw erroHttp(409, 'Já existe uma conta com este telefone.');
+    }
+    const emailFinal = email || `${cpf}@cliente.local`;
+    const emailExiste = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(emailFinal);
+    if (emailExiste) throw erroHttp(409, 'Já existe uma conta com este e-mail.');
+
+    const info = db.prepare(
+      `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, cpf, criado_em)
+       VALUES (?, ?, ?, 'cliente', ?, ?, ?, ?)`
+    ).run(nome, emailFinal, bcrypt.hashSync(senha, 10), telefone, lojaId, cpf, agoraUTC());
+
+    const usuarioId = Number(info.lastInsertRowid);
+    registrarAuditoria(req, 'cliente.criar', { alvoTipo: 'cliente', alvoId: usuarioId, alvoDesc: `${nome} (${emailFinal})` });
+    res.status(201).json({ usuario_id: usuarioId });
+  } catch (e) { next(e); }
+});
+
+/** PUT /api/admin/usuarios/:id — edita nome/e-mail/telefone de um cliente existente. */
+router.put('/usuarios/:id', exigirSuperAdmin, (req, res, next) => {
+  try {
+    const alvo = db.prepare("SELECT * FROM usuarios WHERE id = ? AND perfil = 'cliente'")
+      .get(req.params.id) as { id: number; nome: string; email: string } | undefined;
+    if (!alvo) throw erroHttp(404, 'Cliente não encontrado.');
+
+    const nome = req.body.nome !== undefined ? textoLimpo(req.body.nome, 120) : alvo.nome;
+    if (nome.length < 2) throw erroHttp(400, 'Informe o nome do cliente.');
+
+    let email = alvo.email;
+    if (req.body.email !== undefined) {
+      const v = textoLimpo(req.body.email, 200).toLowerCase();
+      if (v && !emailValido(v)) throw erroHttp(400, 'E-mail inválido.');
+      email = v || alvo.email;
+      if (email !== alvo.email) {
+        const existe = db.prepare('SELECT id FROM usuarios WHERE email = ? AND id != ?').get(email, alvo.id);
+        if (existe) throw erroHttp(409, 'Já existe uma conta com este e-mail.');
+      }
+    }
+
+    let telefone: string | undefined;
+    if (req.body.telefone !== undefined) {
+      telefone = telefoneDigitos(req.body.telefone);
+      if (telefone) {
+        const existe = db.prepare('SELECT id FROM usuarios WHERE telefone = ? AND id != ?').get(telefone, alvo.id);
+        if (existe) throw erroHttp(409, 'Já existe uma conta com este telefone.');
+      }
+    }
+
+    if (telefone !== undefined) {
+      db.prepare('UPDATE usuarios SET nome = ?, email = ?, telefone = ? WHERE id = ?').run(nome, email, telefone, alvo.id);
+    } else {
+      db.prepare('UPDATE usuarios SET nome = ?, email = ? WHERE id = ?').run(nome, email, alvo.id);
+    }
+    registrarAuditoria(req, 'cliente.editar', { alvoTipo: 'cliente', alvoId: alvo.id, alvoDesc: `${nome} (${email})` });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/** POST /api/admin/usuarios/:id/resetar-senha — define uma nova senha pro cliente. */
+router.post('/usuarios/:id/resetar-senha', exigirSuperAdmin, (req, res, next) => {
+  try {
+    const alvo = db.prepare("SELECT * FROM usuarios WHERE id = ? AND perfil = 'cliente'")
+      .get(req.params.id) as { id: number; nome: string; email: string } | undefined;
+    if (!alvo) throw erroHttp(404, 'Cliente não encontrado.');
+    const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
+    if (senha.length < 6) throw erroHttp(400, 'Senha mínima de 6 caracteres.');
+    db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?').run(bcrypt.hashSync(senha, 10), alvo.id);
+    registrarAuditoria(req, 'cliente.resetar_senha', { alvoTipo: 'cliente', alvoId: alvo.id, alvoDesc: `${alvo.nome} (${alvo.email})` });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 router.post('/usuarios/:id/bloquear-desbloquear', (req, res, next) => {
   try {
     const usuario = db.prepare('SELECT * FROM usuarios WHERE id = ?')
-      .get(req.params.id) as { id: number; bloqueado: number } | undefined;
+      .get(req.params.id) as { id: number; nome: string; email: string; perfil: string; bloqueado: number } | undefined;
     if (!usuario) throw erroHttp(404, 'Usuário não encontrado.');
     if (usuario.id === req.usuario!.id) throw erroHttp(400, 'Você não pode bloquear a si mesmo.');
 
     const novo = usuario.bloqueado ? 0 : 1;
     db.prepare('UPDATE usuarios SET bloqueado = ? WHERE id = ?').run(novo, usuario.id);
+    registrarAuditoria(req, novo ? 'usuario.bloquear' : 'usuario.desbloquear', {
+      alvoTipo: usuario.perfil, alvoId: usuario.id, alvoDesc: `${usuario.nome} (${usuario.email})`,
+    });
     res.json({ ok: true, bloqueado: !!novo });
   } catch (e) { next(e); }
 });
@@ -339,12 +493,13 @@ router.post('/admins', exigirSuperAdmin, (req, res, next) => {
     const existe = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
     if (existe) throw erroHttp(409, 'Já existe uma conta com este e-mail.');
 
-    // super_admin SEMPRE 0 — promoção precisa ser feita manualmente no banco
-    // (segurança extra: a UI não pode "criar outro super admin")
+    // super_admin SEMPRE 0 na criação — promoção exige uma ação separada
+    // (POST /admins/:id/promover) com confirmação de senha do super admin.
     const info = db.prepare(
       `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, super_admin, criado_em)
        VALUES (?, ?, ?, 'admin', ?, 0, ?)`
     ).run(nome, email, bcrypt.hashSync(senha, 10), telefone, agoraUTC());
+    registrarAuditoria(req, 'admin.criar', { alvoTipo: 'admin', alvoId: Number(info.lastInsertRowid), alvoDesc: `${nome} (${email})` });
     res.status(201).json({ admin_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
@@ -353,12 +508,65 @@ router.post('/admins', exigirSuperAdmin, (req, res, next) => {
 router.delete('/admins/:id', exigirSuperAdmin, (req, res, next) => {
   try {
     const alvo = db.prepare("SELECT * FROM usuarios WHERE id = ? AND perfil = 'admin'")
-      .get(req.params.id) as { id: number; super_admin: number } | undefined;
+      .get(req.params.id) as { id: number; nome: string; email: string; super_admin: number } | undefined;
     if (!alvo) throw erroHttp(404, 'Admin não encontrado.');
     if (alvo.id === req.usuario!.id) throw erroHttp(400, 'Você não pode remover sua própria conta.');
     if (alvo.super_admin) throw erroHttp(400, 'Não é possível remover um super admin pela UI.');
 
     db.prepare('DELETE FROM usuarios WHERE id = ?').run(alvo.id);
+    registrarAuditoria(req, 'admin.remover', { alvoTipo: 'admin', alvoId: alvo.id, alvoDesc: `${alvo.nome} (${alvo.email})` });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /api/admin/admins/:id/promover — promove um admin operacional a super
+ * admin. Exige a SENHA do super admin que está fazendo a promoção (não a do
+ * alvo) como segunda confirmação — evita que uma sessão sequestrada ou um
+ * clique acidental crie outro dono do SaaS sem intenção explícita.
+ */
+router.post('/admins/:id/promover', exigirSuperAdmin, (req, res, next) => {
+  try {
+    const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
+    if (!senha) throw erroHttp(400, 'Confirme sua senha para promover outro super admin.');
+    const eu = db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?').get(req.usuario!.id) as { senha_hash: string };
+    if (!bcrypt.compareSync(senha, eu.senha_hash)) throw erroHttp(401, 'Senha incorreta.');
+
+    const alvo = db.prepare("SELECT * FROM usuarios WHERE id = ? AND perfil = 'admin'")
+      .get(req.params.id) as { id: number; nome: string; email: string; super_admin: number } | undefined;
+    if (!alvo) throw erroHttp(404, 'Admin não encontrado.');
+    if (alvo.super_admin) throw erroHttp(400, 'Este admin já é super admin.');
+
+    db.prepare('UPDATE usuarios SET super_admin = 1 WHERE id = ?').run(alvo.id);
+    registrarAuditoria(req, 'admin.promover', { alvoTipo: 'admin', alvoId: alvo.id, alvoDesc: `${alvo.nome} (${alvo.email})` });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /api/admin/admins/:id/rebaixar — remove poderes de super admin de
+ * outro admin (nunca de si mesmo — evita ficar sem nenhum super admin ativo
+ * por engano). Também exige senha de confirmação.
+ */
+router.post('/admins/:id/rebaixar', exigirSuperAdmin, (req, res, next) => {
+  try {
+    const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
+    if (!senha) throw erroHttp(400, 'Confirme sua senha para rebaixar um super admin.');
+    const eu = db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?').get(req.usuario!.id) as { senha_hash: string };
+    if (!bcrypt.compareSync(senha, eu.senha_hash)) throw erroHttp(401, 'Senha incorreta.');
+
+    const alvo = db.prepare("SELECT * FROM usuarios WHERE id = ? AND perfil = 'admin'")
+      .get(req.params.id) as { id: number; nome: string; email: string; super_admin: number } | undefined;
+    if (!alvo) throw erroHttp(404, 'Admin não encontrado.');
+    if (alvo.id === req.usuario!.id) throw erroHttp(400, 'Você não pode rebaixar a si mesmo.');
+    if (!alvo.super_admin) throw erroHttp(400, 'Este admin já não é super admin.');
+
+    const restantes = (db.prepare("SELECT COUNT(*) AS n FROM usuarios WHERE perfil = 'admin' AND super_admin = 1")
+      .get() as { n: number }).n;
+    if (restantes <= 1) throw erroHttp(400, 'Não é possível rebaixar o único super admin restante.');
+
+    db.prepare('UPDATE usuarios SET super_admin = 0 WHERE id = ?').run(alvo.id);
+    registrarAuditoria(req, 'admin.rebaixar', { alvoTipo: 'admin', alvoId: alvo.id, alvoDesc: `${alvo.nome} (${alvo.email})` });
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -378,6 +586,7 @@ router.put('/comissao', exigirSuperAdmin, (req, res, next) => {
       throw erroHttp(400, 'Informe um percentual entre 0 e 50.');
     }
     db.prepare("UPDATE configuracoes SET valor = ? WHERE chave = 'comissao_percentual'").run(String(pct));
+    registrarAuditoria(req, 'comissao.alterar', { detalhes: `nova comissão global: ${pct}%` });
     res.json({ ok: true, comissao_percentual: pct });
   } catch (e) { next(e); }
 });
@@ -414,7 +623,72 @@ router.put('/lojas/:id/comissao', exigirSuperAdmin, (req, res, next) => {
       }
     }
     db.prepare('UPDATE lojas SET comissao_percentual = ? WHERE id = ?').run(valor, loja.id);
+    registrarAuditoria(req, 'loja.comissao', { alvoTipo: 'loja', alvoId: loja.id, detalhes: valor === null ? 'voltou para o padrão' : `${valor}%` });
     res.json({ ok: true, comissao_percentual: valor });
+  } catch (e) { next(e); }
+});
+
+/**
+ * PUT /api/admin/lojas/:id/dominio — o super admin também pode definir o
+ * domínio próprio de qualquer loja (não só o lojista) — útil quando é a
+ * própria plataforma que vende/gerencia o domínio pro cliente. Mesma
+ * validação usada no self-service do lojista (PUT /lojista/loja).
+ */
+router.put('/lojas/:id/dominio', exigirSuperAdmin, (req, res, next) => {
+  try {
+    const loja = db.prepare('SELECT id FROM lojas WHERE id = ?').get(req.params.id) as { id: number } | undefined;
+    if (!loja) throw erroHttp(404, 'Loja não encontrada.');
+
+    let d = textoLimpo(req.body.dominio_personalizado || '', 200).toLowerCase()
+      .replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+    if (d && !/^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/.test(d)) {
+      throw erroHttp(400, 'Domínio inválido. Use o formato "suaempresa.com.br", sem https:// nem barras.');
+    }
+    if (d) {
+      const conflito = db.prepare('SELECT id FROM lojas WHERE dominio_personalizado = ? AND id != ?').get(d, loja.id);
+      if (conflito) throw erroHttp(409, 'Este domínio já está sendo usado por outra loja.');
+    }
+
+    db.prepare('UPDATE lojas SET dominio_personalizado = ? WHERE id = ?').run(d || null, loja.id);
+    registrarAuditoria(req, 'loja.dominio', { alvoTipo: 'loja', alvoId: loja.id, detalhes: d || '(removido)' });
+    res.json({ ok: true, dominio_personalizado: d || null });
+  } catch (e) { next(e); }
+});
+
+/**
+ * PUT /api/admin/lojas/:id/whatsapp-permissoes — o admin decide QUAIS
+ * métodos de WhatsApp essa loja pode usar. O lojista só vê/escolhe entre o
+ * que estiver liberado aqui (frontend esconde as opções não permitidas).
+ * Revogar uma permissão também desliga o método se ele era o ativo, pra
+ * não deixar a loja "configurada" num método que o admin acabou de proibir.
+ */
+router.put('/lojas/:id/whatsapp-permissoes', exigirSuperAdmin, (req, res, next) => {
+  try {
+    const loja = db.prepare('SELECT id, whatsapp_metodo_ativo FROM lojas WHERE id = ?').get(req.params.id) as
+      { id: number; whatsapp_metodo_ativo: string } | undefined;
+    if (!loja) throw erroHttp(404, 'Loja não encontrada.');
+
+    const permiteOficial = req.body.permite_oficial !== undefined ? (req.body.permite_oficial ? 1 : 0) : undefined;
+    const permiteNaoOficial = req.body.permite_nao_oficial !== undefined ? (req.body.permite_nao_oficial ? 1 : 0) : undefined;
+
+    const atual = db.prepare('SELECT whatsapp_permite_oficial, whatsapp_permite_nao_oficial FROM lojas WHERE id = ?')
+      .get(loja.id) as { whatsapp_permite_oficial: number; whatsapp_permite_nao_oficial: number };
+    const novoOficial = permiteOficial ?? atual.whatsapp_permite_oficial;
+    const novoNaoOficial = permiteNaoOficial ?? atual.whatsapp_permite_nao_oficial;
+
+    let metodoAtivo = loja.whatsapp_metodo_ativo;
+    if ((metodoAtivo === 'oficial' && !novoOficial) || (metodoAtivo === 'nao_oficial' && !novoNaoOficial)) {
+      metodoAtivo = 'nenhum';
+    }
+
+    db.prepare(
+      'UPDATE lojas SET whatsapp_permite_oficial = ?, whatsapp_permite_nao_oficial = ?, whatsapp_metodo_ativo = ? WHERE id = ?'
+    ).run(novoOficial, novoNaoOficial, metodoAtivo, loja.id);
+    registrarAuditoria(req, 'loja.whatsapp_permissoes', {
+      alvoTipo: 'loja', alvoId: loja.id,
+      detalhes: `oficial=${novoOficial ? 'sim' : 'não'}, não oficial=${novoNaoOficial ? 'sim' : 'não'}`,
+    });
+    res.json({ ok: true, permite_oficial: !!novoOficial, permite_nao_oficial: !!novoNaoOficial });
   } catch (e) { next(e); }
 });
 
@@ -669,6 +943,45 @@ router.put('/tema', exigirSuperAdmin, (req, res, next) => {
       if (isNaN(id) || id < 0) throw erroHttp(400, 'ID de loja inválido.');
       stmt.run(String(id), 'loja_padrao_id');
     }
+    registrarAuditoria(req, 'marca.editar');
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ----- Configurações gerais da plataforma (contato de suporte, termos) -----
+
+router.get('/configuracoes-gerais', (_req, res) => {
+  const valor = (chave: string): string => {
+    const r = db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
+    return r?.valor ?? '';
+  };
+  res.json({
+    suporte_email:    valor('suporte_email'),
+    suporte_telefone: valor('suporte_telefone'),
+    termos_url:       valor('termos_url'),
+  });
+});
+
+router.put('/configuracoes-gerais', exigirSuperAdmin, (req, res, next) => {
+  try {
+    const upsert = (chave: string, valor: string) =>
+      db.prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor')
+        .run(chave, valor);
+
+    if (req.body.suporte_email !== undefined) {
+      const v = textoLimpo(req.body.suporte_email, 200);
+      if (v && !emailValido(v)) throw erroHttp(400, 'E-mail de suporte inválido.');
+      upsert('suporte_email', v);
+    }
+    if (req.body.suporte_telefone !== undefined) {
+      upsert('suporte_telefone', textoLimpo(req.body.suporte_telefone, 30));
+    }
+    if (req.body.termos_url !== undefined) {
+      const v = textoLimpo(req.body.termos_url, 500);
+      if (v && !/^https?:\/\//i.test(v)) throw erroHttp(400, 'URL dos termos de uso inválida (use https://…).');
+      upsert('termos_url', v);
+    }
+    registrarAuditoria(req, 'configuracoes.editar');
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -680,6 +993,7 @@ router.get('/lojistas', (_req, res) => {
     SELECT l.id, l.nome AS loja_nome, l.status_aprovacao, l.aberta,
            l.logo_url, l.categoria, l.criado_em AS loja_criada_em,
            u.id AS usuario_id, u.nome AS dono_nome, u.email AS dono_email, u.telefone AS dono_telefone,
+           u.bloqueado AS dono_bloqueado,
            (SELECT COUNT(*) FROM pedidos p WHERE p.loja_id = l.id AND p.status NOT IN ('cancelado','recusado')) AS total_pedidos,
            (SELECT COALESCE(SUM(p.total_centavos),0) FROM pedidos p WHERE p.loja_id = l.id AND p.status = 'entregue') AS faturamento_centavos,
            (SELECT COUNT(*) FROM usuarios c WHERE c.loja_id = l.id AND c.perfil = 'cliente') AS total_clientes
@@ -694,7 +1008,7 @@ router.get('/lojistas/:id/clientes', (req, res, next) => {
     const loja = db.prepare('SELECT id FROM lojas WHERE id = ?').get(req.params.id) as { id: number } | undefined;
     if (!loja) throw erroHttp(404, 'Loja não encontrada.');
     const clientes = db.prepare(`
-      SELECT id, nome, email, telefone, criado_em
+      SELECT id, nome, email, telefone, bloqueado, criado_em
         FROM usuarios
        WHERE loja_id = ? AND perfil = 'cliente'
        ORDER BY criado_em DESC LIMIT 200`).all(loja.id);
@@ -893,6 +1207,7 @@ router.post('/tenants', exigirSuperAdmin, (req, res, next) => {
       throw erroHttp(500, 'Cliente provisionado, mas falhou ao criar o responsável. Contate o suporte.');
     }
 
+    registrarAuditoria(req, 'tenant.criar', { alvoTipo: 'tenant', alvoId: tenant.id, alvoDesc: nome });
     res.status(201).json({ tenant, loja_id: lojaId });
   } catch (e) { next(e); }
 });
@@ -912,8 +1227,22 @@ router.put('/tenants/:id', exigirSuperAdmin, (req, res, next) => {
     } catch (e) {
       throw erroHttp(409, 'Não foi possível atualizar (domínio já em uso?).');
     }
+    registrarAuditoria(req, 'tenant.editar', { alvoTipo: 'tenant', alvoId: id });
     res.json({ ok: true });
   } catch (e) { next(e); }
+});
+
+// ----- Auditoria (log de ações administrativas) -----------------------------
+
+router.get('/auditoria', exigirSuperAdmin, (req, res) => {
+  let sql = 'SELECT * FROM admin_auditoria WHERE 1 = 1';
+  const params: (string | number)[] = [];
+  if (req.query.admin_id) { sql += ' AND admin_id = ?'; params.push(Number(req.query.admin_id)); }
+  if (req.query.acao)     { sql += ' AND acao LIKE ?'; params.push(`${String(req.query.acao)}%`); }
+  if (req.query.de)       { sql += ' AND criado_em >= ?'; params.push(textoLimpo(req.query.de, 10) + 'T00:00:00.000Z'); }
+  if (req.query.ate)      { sql += ' AND criado_em <= ?'; params.push(textoLimpo(req.query.ate, 10) + 'T23:59:59.999Z'); }
+  sql += ' ORDER BY id DESC LIMIT 500';
+  res.json({ registros: db.prepare(sql).all(...params) });
 });
 
 export default router;

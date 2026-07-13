@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Users, UserPlus, Trash2, Crown, Shield } from 'lucide-react';
+import { Users, UserPlus, Trash2, Crown, Shield, ArrowUpCircle, ArrowDownCircle, Lock, X } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,7 @@ import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
 import { dataLocal } from '@/lib/format';
+import { cn } from '@/lib/utils';
 
 interface Admin {
   id: number;
@@ -39,6 +40,9 @@ export function TelaAdmins() {
 
   const [form, setForm] = useState({ nome: '', email: '', telefone: '', senha: '' });
   const [enviando, setEnviando] = useState(false);
+  const [alvoPromocao, setAlvoPromocao] = useState<{ admin: Admin; acao: 'promover' | 'rebaixar' } | null>(null);
+  const [senhaPromocao, setSenhaPromocao] = useState('');
+  const [enviandoPromocao, setEnviandoPromocao] = useState(false);
 
   async function criar(e: React.FormEvent) {
     e.preventDefault();
@@ -63,6 +67,26 @@ export function TelaAdmins() {
       consulta.refetch();
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+
+  async function confirmarPromocao() {
+    if (!alvoPromocao) return;
+    setEnviandoPromocao(true);
+    try {
+      await api('POST', `/api/admin/admins/${alvoPromocao.admin.id}/${alvoPromocao.acao}`, { senha: senhaPromocao });
+      mostrar({
+        tipo: 'sucesso',
+        titulo: alvoPromocao.acao === 'promover' ? 'Promovido a super admin!' : 'Rebaixado a admin operacional.',
+        descricao: alvoPromocao.admin.nome,
+      });
+      setAlvoPromocao(null);
+      setSenhaPromocao('');
+      consulta.refetch();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setEnviandoPromocao(false);
     }
   }
 
@@ -139,10 +163,23 @@ export function TelaAdmins() {
                     {a.email} · desde {dataLocal(a.criado_em)}
                   </div>
                 </div>
-                {!a.super_admin && a.id !== eu?.id && (
-                  <Button variant="destructive" size="sm" onClick={() => remover(a)}>
-                    <Trash2 className="size-4" />
-                  </Button>
+                {a.id !== eu?.id && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {a.super_admin ? (
+                      <Button variant="outline" size="sm" onClick={() => setAlvoPromocao({ admin: a, acao: 'rebaixar' })}>
+                        <ArrowDownCircle className="size-4" /> Rebaixar
+                      </Button>
+                    ) : (
+                      <Button variant="outline" size="sm" onClick={() => setAlvoPromocao({ admin: a, acao: 'promover' })}>
+                        <ArrowUpCircle className="size-4" /> Promover
+                      </Button>
+                    )}
+                    {!a.super_admin && (
+                      <Button variant="destructive" size="sm" onClick={() => remover(a)}>
+                        <Trash2 className="size-4" />
+                      </Button>
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -156,16 +193,66 @@ export function TelaAdmins() {
           <div>
             <strong className="text-amber-700 dark:text-amber-300">Sobre o super admin:</strong>{' '}
             <span className="text-muted-foreground">
-              Por segurança, novos super admins não podem ser criados pela UI. Para promover alguém,
-              um operador do banco precisa rodar{' '}
-              <code className="px-1 py-0.5 rounded bg-muted text-foreground">
-                UPDATE usuarios SET super_admin = 1 WHERE email = 'x@y.com'
-              </code>.
+              Super admins têm acesso total (marca, comissão, financeiro, outros admins e clientes do SaaS).
+              Promover ou rebaixar exige sua senha como segunda confirmação, e o último super admin não pode ser rebaixado.
             </span>
           </div>
         </CardContent>
       </Card>
     </div>
+
+    {alvoPromocao && (
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !enviandoPromocao && setAlvoPromocao(null)} />
+        <Card className="relative w-full max-w-sm">
+          <CardContent className="p-6 space-y-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className={cn(
+                  'flex size-10 items-center justify-center rounded-2xl',
+                  alvoPromocao.acao === 'promover' ? 'bg-amber-500/12 text-amber-600' : 'bg-muted text-muted-foreground',
+                )}>
+                  {alvoPromocao.acao === 'promover' ? <Crown className="size-5" /> : <ArrowDownCircle className="size-5" />}
+                </div>
+                <div>
+                  <h2 className="font-extrabold leading-tight">
+                    {alvoPromocao.acao === 'promover' ? 'Promover a super admin' : 'Rebaixar super admin'}
+                  </h2>
+                  <p className="text-xs text-muted-foreground">{alvoPromocao.admin.nome}</p>
+                </div>
+              </div>
+              <button onClick={() => setAlvoPromocao(null)} className="p-1 rounded-lg hover:bg-muted text-muted-foreground">
+                <X className="size-4" />
+              </button>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {alvoPromocao.acao === 'promover'
+                ? 'Ele passará a ter acesso total à plataforma (marca, comissão, financeiro e outros admins). Confirme sua senha para continuar.'
+                : 'Ele perderá o acesso total e volta a ser admin operacional. Confirme sua senha para continuar.'}
+            </p>
+            <div>
+              <Label htmlFor="senha-promocao">Sua senha</Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <Input
+                  id="senha-promocao" type="password" autoFocus className="pl-9"
+                  value={senhaPromocao} onChange={e => setSenhaPromocao(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && confirmarPromocao()}
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={() => setAlvoPromocao(null)} disabled={enviandoPromocao}>
+                Cancelar
+              </Button>
+              <Button className="flex-1" onClick={confirmarPromocao} disabled={enviandoPromocao || !senhaPromocao}>
+                {enviandoPromocao ? 'Confirmando…' : 'Confirmar'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )}
     </AdminLayout>
   );
 }

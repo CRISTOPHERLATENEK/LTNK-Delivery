@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Box, Plus, Pencil, Trash2, X, Star, ChevronDown, ChevronUp,
   ToggleLeft, ToggleRight, Tag, SlidersHorizontal, Check, Layers,
+  Copy, CheckSquare, Square, FileText, Rows3, Rows4,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,8 +29,15 @@ const FORM_VAZIO = {
   disponivel: true, destaque: false, serve_pessoas: '',
   vendido_por: 'un' as 'un' | 'kg', codigo_barras: '',
   controla_estoque: false, estoque: '',
+  // Dados fiscais (NFC-e) — mesmos valores padrão usados pelo backend ao
+  // criar um produto (garantirColuna em db.ts), pra não sobrescrever com
+  // vazio quando o lojista não mexe nessa seção.
+  ncm: '21069090', cfop: '5102', csosn: '102', origem: '0', unidade_comercial: 'UN', cest: '',
 };
 type FormProduto = typeof FORM_VAZIO;
+
+const CHAVE_DENSIDADE = 'lojista:produtos:densidade';
+type Densidade = 'confortavel' | 'compacta';
 
 interface OpcaoItem {
   id: number;
@@ -81,6 +89,20 @@ export function ProdutosLoja() {
   const [enviando, setEnviando] = useState(false);
   const [busca, setBusca] = useState('');
   const [gerindoGrupos, setGerindoGrupos] = useState<Produto | null>(null);
+  const [mostrarFiscal, setMostrarFiscal] = useState(false);
+  const [modoSelecao, setModoSelecao] = useState(false);
+  const [densidade, setDensidade] = useState<Densidade>(
+    () => (localStorage.getItem(CHAVE_DENSIDADE) as Densidade) || 'confortavel',
+  );
+  function alternarDensidade() {
+    setDensidade(d => {
+      const novo = d === 'confortavel' ? 'compacta' : 'confortavel';
+      localStorage.setItem(CHAVE_DENSIDADE, novo);
+      return novo;
+    });
+  }
+  const [selecionados, setSelecionados] = useState<Set<number>>(new Set());
+  const [aplicandoAcao, setAplicandoAcao] = useState(false);
   const { mostrar } = useToast();
   const confirmar = useConfirm();
   const qc = useQueryClient();
@@ -113,6 +135,12 @@ export function ProdutosLoja() {
       codigo_barras: p.codigo_barras || '',
       controla_estoque: !!p.controla_estoque,
       estoque: p.controla_estoque ? String(p.estoque ?? 0) : '',
+      ncm: p.ncm || '21069090',
+      cfop: p.cfop || '5102',
+      csosn: p.csosn || '102',
+      origem: p.origem || '0',
+      unidade_comercial: p.unidade_comercial || 'UN',
+      cest: p.cest || '',
     });
     setEditando(p.id);
     setTimeout(() => document.getElementById('campo-nome')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
@@ -144,20 +172,41 @@ export function ProdutosLoja() {
       controla_estoque: form.controla_estoque,
       estoque: form.controla_estoque ? (form.estoque === '' ? 0 : Number(form.estoque)) : 0,
     };
+    const corpoFiscal = {
+      ncm: form.ncm, cfop: form.cfop, csosn: form.csosn,
+      origem: form.origem, unidade_comercial: form.unidade_comercial, cest: form.cest,
+    };
     try {
+      let produtoId: number;
       if (editando === 'novo') {
-        await api('POST', '/api/lojista/produtos', corpo);
+        const r = await api<{ produto_id: number }>('POST', '/api/lojista/produtos', corpo);
+        produtoId = r.produto_id;
         mostrar({ tipo: 'sucesso', titulo: 'Produto criado!' });
       } else {
+        produtoId = editando!;
         await api('PUT', `/api/lojista/produtos/${editando}`, corpo);
         mostrar({ tipo: 'sucesso', titulo: 'Produto atualizado!' });
       }
+      // Dados fiscais salvos junto — endpoint próprio (compartilhado com a
+      // tela Fiscal), mas agora o lojista não precisa sair do cadastro do
+      // produto pra preencher isso.
+      await api('PUT', `/api/lojista/fiscal/produtos/${produtoId}`, corpoFiscal).catch(() => {});
       setEditando(null);
       qc.invalidateQueries({ queryKey: ['lojista-produtos'] });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
       setEnviando(false);
+    }
+  }
+
+  async function duplicar(p: Produto) {
+    try {
+      await api('POST', `/api/lojista/produtos/${p.id}/duplicar`);
+      mostrar({ tipo: 'sucesso', titulo: `"${p.nome}" duplicado!`, descricao: 'A cópia nasce indisponível — revise e ative quando estiver pronta.' });
+      qc.invalidateQueries({ queryKey: ['lojista-produtos'] });
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     }
   }
 
@@ -178,6 +227,47 @@ export function ProdutosLoja() {
       qc.invalidateQueries({ queryKey: ['lojista-produtos'] });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+
+  function alternarSelecao(id: number) {
+    setSelecionados(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  function sairDaSelecao() {
+    setModoSelecao(false);
+    setSelecionados(new Set());
+  }
+
+  async function aplicarAcaoEmMassa(acao: 'ativar' | 'desativar' | 'excluir') {
+    if (selecionados.size === 0) return;
+    if (acao === 'excluir') {
+      const ok = await confirmar({
+        titulo: `Excluir ${selecionados.size} produto(s)?`,
+        descricao: 'Esta ação não pode ser desfeita.',
+        confirmar: 'Excluir', destrutivo: true,
+      });
+      if (!ok) return;
+    }
+    setAplicandoAcao(true);
+    try {
+      const r = await api<{ afetados: number }>('POST', '/api/lojista/produtos/bulk', { ids: [...selecionados], acao });
+      mostrar({
+        tipo: 'sucesso',
+        titulo: acao === 'ativar' ? `${r.afetados} produto(s) ativado(s).`
+          : acao === 'desativar' ? `${r.afetados} produto(s) desativado(s).`
+          : `${r.afetados} produto(s) excluído(s).`,
+      });
+      sairDaSelecao();
+      qc.invalidateQueries({ queryKey: ['lojista-produtos'] });
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setAplicandoAcao(false);
     }
   }
 
@@ -228,10 +318,50 @@ export function ProdutosLoja() {
             </p>
           )}
         </div>
-        <Button size="sm" onClick={abrirNovo} disabled={editando !== null}>
-          <Plus className="size-4" /> Novo produto
-        </Button>
+        <div className="flex items-center gap-2">
+          {todos.length > 3 && (
+            <Button
+              size="sm" variant="outline"
+              onClick={alternarDensidade}
+              title={densidade === 'confortavel' ? 'Ver mais compacto' : 'Ver mais espaçado'}
+            >
+              {densidade === 'confortavel' ? <Rows4 className="size-4" /> : <Rows3 className="size-4" />}
+            </Button>
+          )}
+          {todos.length > 0 && (
+            modoSelecao ? (
+              <Button size="sm" variant="outline" onClick={sairDaSelecao}>
+                <X className="size-4" /> Cancelar
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={() => setModoSelecao(true)} disabled={editando !== null}>
+                <CheckSquare className="size-4" /> Selecionar
+              </Button>
+            )
+          )}
+          <Button size="sm" onClick={abrirNovo} disabled={editando !== null || modoSelecao}>
+            <Plus className="size-4" /> Novo produto
+          </Button>
+        </div>
       </div>
+
+      {/* Barra flutuante de ações em massa */}
+      {modoSelecao && selecionados.size > 0 && (
+        <div className="sticky top-2 z-20 flex items-center gap-2 rounded-2xl border border-primary/30 bg-card px-4 py-2.5 shadow-lg">
+          <span className="text-sm font-bold shrink-0">{selecionados.size} selecionado{selecionados.size > 1 ? 's' : ''}</span>
+          <div className="flex items-center gap-1.5 ml-auto flex-wrap justify-end">
+            <Button size="sm" variant="outline" disabled={aplicandoAcao} onClick={() => aplicarAcaoEmMassa('ativar')}>
+              <ToggleRight className="size-4" /> Ativar
+            </Button>
+            <Button size="sm" variant="outline" disabled={aplicandoAcao} onClick={() => aplicarAcaoEmMassa('desativar')}>
+              <ToggleLeft className="size-4" /> Desativar
+            </Button>
+            <Button size="sm" variant="destructive" disabled={aplicandoAcao} onClick={() => aplicarAcaoEmMassa('excluir')}>
+              <Trash2 className="size-4" /> Excluir
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Busca */}
       {todos.length > 3 && (
@@ -478,6 +608,59 @@ export function ProdutosLoja() {
                 )}
               </div>
 
+              {/* Dados fiscais (NFC-e) — colapsado por padrão, com valores
+                  padrão seguros pra quem não mexe. Antes isso só existia numa
+                  tela separada (Fiscal), desconectada do cadastro do produto. */}
+              <div className="rounded-xl border border-border">
+                <button
+                  type="button"
+                  onClick={() => setMostrarFiscal(v => !v)}
+                  className="flex w-full items-center gap-2.5 p-3.5 text-left"
+                >
+                  <FileText className="size-4 text-muted-foreground shrink-0" />
+                  <span className="text-sm font-medium flex-1">Dados fiscais (NFC-e)</span>
+                  <span className="text-[11px] text-muted-foreground">opcional</span>
+                  {mostrarFiscal ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
+                </button>
+                {mostrarFiscal && (
+                  <div className="px-3.5 pb-3.5 grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <div>
+                      <Label>NCM</Label>
+                      <Input value={form.ncm} onChange={e => setForm(f => ({ ...f, ncm: e.target.value.replace(/\D/g, '').slice(0, 8) }))}
+                        maxLength={8} className="font-mono" placeholder="21069090" />
+                    </div>
+                    <div>
+                      <Label>CFOP</Label>
+                      <Input value={form.cfop} onChange={e => setForm(f => ({ ...f, cfop: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
+                        maxLength={4} className="font-mono" placeholder="5102" />
+                    </div>
+                    <div>
+                      <Label>CSOSN</Label>
+                      <Input value={form.csosn} onChange={e => setForm(f => ({ ...f, csosn: e.target.value.replace(/\D/g, '').slice(0, 3) }))}
+                        maxLength={3} className="font-mono" placeholder="102" />
+                    </div>
+                    <div>
+                      <Label>Origem</Label>
+                      <Input value={form.origem} onChange={e => setForm(f => ({ ...f, origem: e.target.value.replace(/\D/g, '').slice(0, 1) }))}
+                        maxLength={1} className="font-mono" placeholder="0" />
+                    </div>
+                    <div>
+                      <Label>Unidade</Label>
+                      <Input value={form.unidade_comercial} onChange={e => setForm(f => ({ ...f, unidade_comercial: e.target.value.toUpperCase().slice(0, 6) }))}
+                        maxLength={6} className="font-mono uppercase" placeholder="UN" />
+                    </div>
+                    <div>
+                      <Label>CEST <span className="text-muted-foreground font-normal text-xs">(opc.)</span></Label>
+                      <Input value={form.cest} onChange={e => setForm(f => ({ ...f, cest: e.target.value.replace(/\D/g, '').slice(0, 7) }))}
+                        maxLength={7} className="font-mono" placeholder="—" />
+                    </div>
+                    <p className="col-span-2 sm:col-span-3 text-[11px] text-muted-foreground">
+                      Já vem com valores padrão genéricos. Se seu contador pedir códigos específicos, ajuste aqui.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Botões */}
               <div className="flex gap-3 pt-1">
                 <Button type="submit" size="lg" className="flex-1" disabled={enviando}>
@@ -530,6 +713,11 @@ export function ProdutosLoja() {
           onExcluir={excluir}
           onAlternarDisponivel={alternarDisponivel}
           onVerOpcoes={p => setGerindoGrupos(p)}
+          onDuplicar={duplicar}
+          modoSelecao={modoSelecao}
+          selecionados={selecionados}
+          onToggleSelecao={alternarSelecao}
+          densidade={densidade}
         />
       ))}
     </div>
@@ -654,7 +842,8 @@ function SeletorChips({
 
 /* ─────────────────────── seção de categoria ──────────────────────── */
 function CategoriaSection({
-  categoria, subs, onEditar, onExcluir, onAlternarDisponivel, onVerOpcoes,
+  categoria, subs, onEditar, onExcluir, onAlternarDisponivel, onVerOpcoes, onDuplicar,
+  modoSelecao, selecionados, onToggleSelecao, densidade,
 }: {
   categoria: string;
   subs: Record<string, Produto[]>;
@@ -662,6 +851,11 @@ function CategoriaSection({
   onExcluir: (id: number, nome: string) => void;
   onAlternarDisponivel: (p: Produto) => void;
   onVerOpcoes: (p: Produto) => void;
+  onDuplicar: (p: Produto) => void;
+  modoSelecao: boolean;
+  selecionados: Set<number>;
+  onToggleSelecao: (id: number) => void;
+  densidade: Densidade;
 }) {
   const [aberta, setAberta] = useState(true);
   const total = Object.values(subs).flat().length;
@@ -698,6 +892,11 @@ function CategoriaSection({
                     onExcluir={() => onExcluir(p.id, p.nome)}
                     onAlternarDisponivel={() => onAlternarDisponivel(p)}
                     onVerOpcoes={() => onVerOpcoes(p)}
+                    onDuplicar={() => onDuplicar(p)}
+                    modoSelecao={modoSelecao}
+                    selecionado={selecionados.has(p.id)}
+                    onToggleSelecao={() => onToggleSelecao(p.id)}
+                    densidade={densidade}
                   />
                 ))}
               </div>
@@ -711,27 +910,43 @@ function CategoriaSection({
 
 /* ─────────────────────── card do produto ──────────────────────── */
 function CardProduto({
-  produto: p, onEditar, onExcluir, onAlternarDisponivel, onVerOpcoes,
+  produto: p, onEditar, onExcluir, onAlternarDisponivel, onVerOpcoes, onDuplicar,
+  modoSelecao, selecionado, onToggleSelecao, densidade,
 }: {
   produto: Produto;
   onEditar: () => void;
   onExcluir: () => void;
   onAlternarDisponivel: () => void;
   onVerOpcoes: () => void;
+  onDuplicar: () => void;
+  modoSelecao: boolean;
+  selecionado: boolean;
+  onToggleSelecao: () => void;
+  densidade: Densidade;
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const grupos = (p as any).grupos as GrupoOpcoes[] | undefined;
   const totalOpcoes = grupos?.reduce((s, g) => s + g.opcoes.length, 0) ?? 0;
   const totalGrupos = grupos?.length ?? 0;
+  const compacta = densidade === 'compacta';
 
   return (
-    <Card className={cn('transition-opacity', !p.disponivel && 'opacity-55')}>
+    <Card className={cn('transition-opacity', !p.disponivel && 'opacity-55', selecionado && 'ring-2 ring-primary')}>
       <CardContent className="p-0">
-        <div className="flex items-center gap-3 p-3">
+        <div
+          className={cn('flex items-center gap-3', compacta ? 'p-1.5' : 'p-3', modoSelecao && 'cursor-pointer')}
+          onClick={modoSelecao ? onToggleSelecao : undefined}
+        >
+          {/* Checkbox de seleção */}
+          {modoSelecao && (
+            <button type="button" onClick={e => { e.stopPropagation(); onToggleSelecao(); }} className="shrink-0 text-primary">
+              {selecionado ? <CheckSquare className="size-5" /> : <Square className="size-5 text-muted-foreground" />}
+            </button>
+          )}
           {/* Foto */}
           {p.foto_url
-            ? <img src={p.foto_url} alt={p.nome} className="size-16 rounded-xl object-cover border border-border shrink-0 bg-muted" />
-            : <div className="flex size-16 items-center justify-center rounded-xl bg-accent text-2xl shrink-0">🍽️</div>
+            ? <img src={p.foto_url} alt={p.nome} className={cn('rounded-xl object-cover border border-border shrink-0 bg-muted', compacta ? 'size-9' : 'size-16')} />
+            : <div className={cn('flex items-center justify-center rounded-xl bg-accent shrink-0', compacta ? 'size-9 text-base' : 'size-16 text-2xl')}>🍽️</div>
           }
 
           {/* Info */}
@@ -748,10 +963,10 @@ function CardProduto({
                     </Badge>
               ) : null}
             </div>
-            {p.descricao && (
+            {!compacta && p.descricao && (
               <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{p.descricao}</p>
             )}
-            <div className="flex items-center gap-2 mt-1">
+            <div className={cn('flex items-center gap-2', compacta ? 'mt-0.5' : 'mt-1')}>
               <span className="text-sm font-bold">{brl(p.preco_centavos)}</span>
               {p.preco_promocional_centavos ? (
                 <Badge variant="success" className="text-[10px] px-1.5">
@@ -762,53 +977,65 @@ function CardProduto({
           </div>
 
           {/* Ações */}
-          <div className="flex flex-col items-center gap-1 shrink-0">
-            <button
-              onClick={onAlternarDisponivel}
-              className="text-muted-foreground hover:text-primary transition-colors"
-              title={p.disponivel ? 'Tornar indisponível' : 'Tornar disponível'}
-            >
-              {p.disponivel
-                ? <ToggleRight className="size-6 text-primary" />
-                : <ToggleLeft className="size-6" />}
-            </button>
-            <div className="flex gap-0.5">
+          {!modoSelecao && (
+            <div className="flex flex-col items-center gap-1 shrink-0">
               <button
-                onClick={onEditar}
-                className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-                title="Editar"
+                onClick={onAlternarDisponivel}
+                className="text-muted-foreground hover:text-primary transition-colors"
+                title={p.disponivel ? 'Tornar indisponível' : 'Tornar disponível'}
               >
-                <Pencil className="size-3.5" />
+                {p.disponivel
+                  ? <ToggleRight className="size-6 text-primary" />
+                  : <ToggleLeft className="size-6" />}
               </button>
-              <button
-                onClick={onExcluir}
-                className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-destructive"
-                title="Excluir"
-              >
-                <Trash2 className="size-3.5" />
-              </button>
+              <div className="flex gap-0.5">
+                <button
+                  onClick={onEditar}
+                  className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+                  title="Editar"
+                >
+                  <Pencil className="size-3.5" />
+                </button>
+                <button
+                  onClick={onDuplicar}
+                  className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+                  title="Duplicar"
+                >
+                  <Copy className="size-3.5" />
+                </button>
+                <button
+                  onClick={onExcluir}
+                  className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-destructive"
+                  title="Excluir"
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
-        {/* Barra de adicionais — destaque visual */}
-        <button
-          onClick={onVerOpcoes}
-          className={cn(
-            'flex w-full items-center gap-2 border-t px-3 py-2 text-xs font-semibold transition-colors',
-            totalGrupos > 0
-              ? 'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10'
-              : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
-          )}
-        >
-          <SlidersHorizontal className="size-3.5 shrink-0" />
-          <span className="flex-1 text-left">
-            {totalGrupos > 0
-              ? `${totalGrupos} grupo${totalGrupos > 1 ? 's' : ''} · ${totalOpcoes} opç${totalOpcoes !== 1 ? 'ões' : 'ão'}`
-              : 'Adicionar tamanhos, bordas e adicionais…'}
-          </span>
-          <Layers className="size-3.5 shrink-0 opacity-60" />
-        </button>
+        {/* Barra de adicionais — destaque visual (some na densidade compacta, o
+            duplo-clique no card ou o botão editar continuam abrindo o produto) */}
+        {!compacta && (
+          <button
+            onClick={onVerOpcoes}
+            className={cn(
+              'flex w-full items-center gap-2 border-t px-3 py-2 text-xs font-semibold transition-colors',
+              totalGrupos > 0
+                ? 'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10'
+                : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
+            )}
+          >
+            <SlidersHorizontal className="size-3.5 shrink-0" />
+            <span className="flex-1 text-left">
+              {totalGrupos > 0
+                ? `${totalGrupos} grupo${totalGrupos > 1 ? 's' : ''} · ${totalOpcoes} opç${totalOpcoes !== 1 ? 'ões' : 'ão'}`
+                : 'Adicionar tamanhos, bordas e adicionais…'}
+            </span>
+            <Layers className="size-3.5 shrink-0 opacity-60" />
+          </button>
+        )}
       </CardContent>
     </Card>
   );

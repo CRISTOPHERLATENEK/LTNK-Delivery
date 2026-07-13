@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Store, CheckCircle2, XCircle, Clock, Search, Plus, Trash2,
   ChevronDown, TrendingUp, Receipt, Ticket, Activity,
-  FileText, ShieldCheck, Upload, Package, Save, ChevronUp,
+  FileText, ShieldCheck, Upload, Package, Save, ChevronUp, Globe, Loader2,
 } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,6 +16,7 @@ import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, ehSuperAdmin, tokenSessao } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
+import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
 import { cn } from '@/lib/utils';
 
 interface Loja {
@@ -32,6 +33,10 @@ interface Loja {
   dono_email: string;
   comissao_percentual: number | null;
   criado_em: string;
+  slug: string | null;
+  dominio_personalizado: string | null;
+  whatsapp_permite_oficial: 0 | 1;
+  whatsapp_permite_nao_oficial: 0 | 1;
 }
 
 type Filtro = 'todas' | 'pendente' | 'aprovada' | 'suspensa';
@@ -213,6 +218,12 @@ export function TelaLojas() {
                           : <Badge variant="secondary" className="text-[10px]">Fechada</Badge>}
                       </div>
                       <div className="text-sm text-muted-foreground mt-0.5">{l.categoria} · {l.dono_nome}</div>
+                      {(l.dominio_personalizado || l.slug) && (
+                        <div className="text-xs text-muted-foreground mt-0.5 font-mono flex items-center gap-1">
+                          <Globe className="size-3" />
+                          {l.dominio_personalizado || `/loja/${l.slug}`}
+                        </div>
+                      )}
                       <div className="text-xs text-primary font-semibold mt-1 flex items-center gap-1">
                         <TrendingUp className="size-3" />
                         {aberto ? 'Ocultar vendas' : 'Ver vendas'}
@@ -244,6 +255,12 @@ export function TelaLojas() {
                   {aberto && <PainelVendas lojaId={l.id} />}
                   {aberto && superAdmin && (
                     <ComissaoLojaEditor loja={l} onSalvo={() => consulta.refetch()} />
+                  )}
+                  {aberto && superAdmin && (
+                    <DominioLojaEditor loja={l} onSalvo={() => consulta.refetch()} />
+                  )}
+                  {aberto && superAdmin && (
+                    <WhatsAppPermissoesEditor loja={l} onSalvo={() => consulta.refetch()} />
                   )}
                   {aberto && superAdmin && <FiscalLojaAdmin lojaId={l.id} />}
                 </CardContent>
@@ -293,21 +310,115 @@ function ComissaoLojaEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void
   );
 }
 
+/* ──────────────────── Domínio próprio (definido pelo admin) ──────────────────── */
+
+function DominioLojaEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void }) {
+  const { mostrar } = useToast();
+  const [valor, setValor] = useState(loja.dominio_personalizado || '');
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    setSalvando(true);
+    try {
+      await api('PUT', `/api/admin/lojas/${loja.id}/dominio`, { dominio_personalizado: valor.trim() });
+      mostrar({ tipo: 'sucesso', titulo: valor.trim() ? `Domínio vinculado: ${valor.trim()}` : 'Domínio removido.' });
+      onSalvo();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setSalvando(false); }
+  }
+
+  return (
+    <form onSubmit={salvar} className="mt-3 border-t pt-3 space-y-2">
+      <Label className="flex items-center gap-1.5"><Globe className="size-3.5" /> Domínio próprio desta loja</Label>
+      <div className="flex items-end gap-2">
+        <Input
+          value={valor}
+          onChange={e => setValor(e.target.value)}
+          placeholder="suaempresa.com.br"
+          className="flex-1 font-mono text-sm"
+        />
+        <Button type="submit" size="sm" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Sem "https://" nem barras. Lembre de apontar o DNS do domínio (CNAME ou A) pro servidor — sem isso o domínio não vai funcionar mesmo salvo aqui.
+      </p>
+    </form>
+  );
+}
+
+/* ──────────────────── Permissões de WhatsApp (definido pelo admin) ──────────────────── */
+
+function WhatsAppPermissoesEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void }) {
+  const { mostrar } = useToast();
+  const [oficial, setOficial] = useState(!!loja.whatsapp_permite_oficial);
+  const [naoOficial, setNaoOficial] = useState(!!loja.whatsapp_permite_nao_oficial);
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvar(permiteOficial: boolean, permiteNaoOficial: boolean) {
+    setSalvando(true);
+    try {
+      await api('PUT', `/api/admin/lojas/${loja.id}/whatsapp-permissoes`, {
+        permite_oficial: permiteOficial, permite_nao_oficial: permiteNaoOficial,
+      });
+      mostrar({ tipo: 'sucesso', titulo: 'Permissões de WhatsApp atualizadas.' });
+      onSalvo();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setSalvando(false); }
+  }
+
+  return (
+    <div className="mt-3 border-t pt-3 space-y-2">
+      <Label>WhatsApp — o que esta loja pode usar</Label>
+      <div className="flex flex-wrap gap-4">
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox" checked={oficial} disabled={salvando}
+            onChange={e => { setOficial(e.target.checked); salvar(e.target.checked, naoOficial); }}
+            className="accent-primary size-4"
+          />
+          API oficial (Meta)
+        </label>
+        <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox" checked={naoOficial} disabled={salvando}
+            onChange={e => { setNaoOficial(e.target.checked); salvar(oficial, e.target.checked); }}
+            className="accent-primary size-4"
+          />
+          Não oficial (QR code)
+        </label>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        O lojista só vê e pode configurar os métodos marcados aqui, na tela de WhatsApp do painel dele.
+      </p>
+    </div>
+  );
+}
+
 /* ───────────────────────── Form nova loja ───────────────────────── */
 
 function FormNovaLoja({ onCancelar, onCriada }: { onCancelar: () => void; onCriada: () => void }) {
   const { mostrar } = useToast();
-  const [form, setForm] = useState({ nome: '', categoria: 'Outros', dono_nome: '', email: '', senha: '', telefone: '' });
+  const [form, setForm] = useState({
+    nome: '', categoria: 'Outros', dono_nome: '', email: '', senha: '', telefone: '',
+    descricao: '', endereco: '', taxa_entrega: '', tempo_estimado_min: '40',
+  });
   const [enviando, setEnviando] = useState(false);
-  const up = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+  const up = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(f => ({ ...f, [k]: e.target.value }));
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     setEnviando(true);
     try {
-      await api('POST', '/api/admin/lojas', form);
-      mostrar({ tipo: 'sucesso', titulo: 'Loja criada! 🎉', descricao: `${form.nome} já está aprovada.` });
+      await api('POST', '/api/admin/lojas', {
+        ...form,
+        taxa_entrega_centavos: Math.round((Number(form.taxa_entrega.replace(',', '.')) || 0) * 100),
+        tempo_estimado_min: Number(form.tempo_estimado_min) || 40,
+      });
+      mostrar({ tipo: 'sucesso', titulo: 'Loja criada!', descricao: `${form.nome} já está aprovada.` });
       onCriada();
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
@@ -335,6 +446,29 @@ function FormNovaLoja({ onCancelar, onCriada }: { onCancelar: () => void; onCria
           <div>
             <Label>Telefone (opcional)</Label>
             <Input value={form.telefone} onChange={up('telefone')} placeholder="(00) 00000-0000" />
+          </div>
+          <div className="sm:col-span-2">
+            <Label>Descrição (opcional)</Label>
+            <textarea value={form.descricao} onChange={up('descricao')} rows={2} maxLength={300}
+              placeholder="Uma frase sobre a loja — aparece no perfil dela."
+              className="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+          </div>
+
+          <div className="sm:col-span-2 mt-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Configuração inicial de entrega
+          </div>
+          <div className="sm:col-span-2">
+            <Label>Endereço</Label>
+            <Input value={form.endereco} onChange={up('endereco')} placeholder="Rua, número, bairro, cidade - UF" />
+            <p className="mt-1 text-[11px] text-muted-foreground">Sem endereço a loja não aparece bem no mapa/distância — o lojista pode ajustar depois.</p>
+          </div>
+          <div>
+            <Label>Taxa de entrega inicial (R$)</Label>
+            <Input value={form.taxa_entrega} onChange={up('taxa_entrega')} placeholder="0,00" inputMode="decimal" />
+          </div>
+          <div>
+            <Label>Tempo estimado (min)</Label>
+            <Input type="number" min={1} value={form.tempo_estimado_min} onChange={up('tempo_estimado_min')} />
           </div>
 
           <div className="sm:col-span-2 mt-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
@@ -513,6 +647,31 @@ function FiscalLojaAdmin({ lojaId }: { lojaId: number }) {
     setCfg(c => (c ? { ...c, [k]: v } : c));
   }
 
+  const [buscandoCnpj, setBuscandoCnpj] = useState(false);
+  async function aoDigitarCnpj(bruto: string) {
+    const digitos = cnpjDigitos(bruto);
+    campo('cnpj', digitos);
+    if (digitos.length !== 14) return;
+    setBuscandoCnpj(true);
+    const d = await buscarCnpj(digitos);
+    setBuscandoCnpj(false);
+    if (!d) { mostrar({ tipo: 'erro', titulo: 'CNPJ não encontrado.' }); return; }
+    setCfg(c => c ? {
+      ...c,
+      cnpj: digitos,
+      razao_social: d.razao_social || c.razao_social,
+      nome_fantasia: d.nome_fantasia || c.nome_fantasia,
+      uf: d.uf || c.uf,
+      cmun: d.cmun || c.cmun,
+      municipio: d.municipio || c.municipio,
+      logradouro: d.logradouro || c.logradouro,
+      numero: d.numero || c.numero,
+      bairro: d.bairro || c.bairro,
+      cep: d.cep || c.cep,
+    } : c);
+    mostrar({ tipo: 'sucesso', titulo: 'Dados do CNPJ preenchidos!' });
+  }
+
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     if (!cfg) return;
@@ -629,8 +788,14 @@ function FiscalLojaAdmin({ lojaId }: { lojaId: number }) {
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="sm:col-span-2"><label className="text-[10px] font-semibold text-muted-foreground block mb-0.5">Razão social</label>
                   <input value={cfg.razao_social} onChange={e => campo('razao_social', e.target.value)} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30" /></div>
-                <div><label className="text-[10px] font-semibold text-muted-foreground block mb-0.5">CNPJ</label>
-                  <input value={cfg.cnpj} onChange={e => campo('cnpj', e.target.value.replace(/\D/g, '').slice(0,14))} maxLength={14} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/30" /></div>
+                <div>
+                  <label className="text-[10px] font-semibold text-muted-foreground block mb-0.5">CNPJ</label>
+                  <div className="relative">
+                    <input value={formatarCnpj(cfg.cnpj)} onChange={e => aoDigitarCnpj(e.target.value)} maxLength={18}
+                      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/30" />
+                    {buscandoCnpj && <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 size-3.5 animate-spin text-muted-foreground" />}
+                  </div>
+                </div>
                 <div><label className="text-[10px] font-semibold text-muted-foreground block mb-0.5">IE</label>
                   <input value={cfg.ie} onChange={e => campo('ie', e.target.value)} className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-primary/30" /></div>
                 <div><label className="text-[10px] font-semibold text-muted-foreground block mb-0.5">UF</label>

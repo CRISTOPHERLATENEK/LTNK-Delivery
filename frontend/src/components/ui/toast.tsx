@@ -22,10 +22,13 @@ export function useToast() {
 const ICONES: Record<Tipo, React.ElementType> = {
   sucesso: CheckCircle2, erro: AlertCircle, info: Info,
 };
+// Fundo sólido (bg-card) com faixa colorida só na borda esquerda e no ícone —
+// evita o visual "lavado"/pouco legível de uma caixa inteira tingida de cor
+// translúcida sobre fundo escuro.
 const CORES: Record<Tipo, string> = {
-  sucesso: 'border-success/30 bg-success/10 text-success',
-  erro: 'border-destructive/30 bg-destructive/10 text-destructive',
-  info: 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300',
+  sucesso: 'border-l-success text-success',
+  erro: 'border-l-destructive text-destructive',
+  info: 'border-l-blue-500 text-blue-600 dark:text-blue-400',
 };
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
@@ -54,18 +57,18 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                 exit={{ y: -20, opacity: 0, scale: 0.95 }}
                 transition={{ type: 'spring', stiffness: 380, damping: 30 }}
                 className={cn(
-                  'pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-2xl border p-4 shadow-lg backdrop-blur',
+                  'pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-2xl border border-border bg-card border-l-4 p-4 shadow-lg',
                   CORES[t.tipo],
                 )}
               >
                 <Icone className="mt-0.5 size-5 shrink-0" />
                 <div className="flex-1">
-                  <div className="font-semibold leading-tight">{t.titulo}</div>
-                  {t.descricao && <div className="mt-0.5 text-sm opacity-90">{t.descricao}</div>}
+                  <div className="font-semibold leading-tight text-foreground">{t.titulo}</div>
+                  {t.descricao && <div className="mt-0.5 text-sm text-muted-foreground">{t.descricao}</div>}
                 </div>
                 <button
                   onClick={() => setToasts(a => a.filter(x => x.id !== t.id))}
-                  className="rounded-full p-0.5 transition-opacity hover:opacity-100 opacity-60"
+                  className="rounded-full p-0.5 text-muted-foreground transition-opacity hover:opacity-100 opacity-60"
                   aria-label="Fechar notificação"
                 >
                   <X className="size-4" />

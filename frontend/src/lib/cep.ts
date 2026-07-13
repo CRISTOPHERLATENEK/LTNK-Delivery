@@ -11,6 +11,26 @@ export interface EnderecoCep {
   uf: string;
 }
 
+/**
+ * Normaliza nome de bairro pra comparação tolerante (mesma lógica do
+ * backend, em util.ts) — evita que "Jd. Sofia" (ViaCEP) e "Jardim Sofia"
+ * (cadastrado pelo lojista) sejam tratados como bairros diferentes.
+ */
+export function normalizarBairro(valor: string): string {
+  return (valor || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/\bjd\.?\b/g, 'jardim')
+    .replace(/\bvl\.?\b/g, 'vila')
+    .replace(/\bpq\.?\b/g, 'parque')
+    .replace(/\bres\.?\b/g, 'residencial')
+    .replace(/\bconj\.?\b/g, 'conjunto')
+    .replace(/\bcj\.?\b/g, 'conjunto')
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /** Só os dígitos do CEP (remove máscara). */
 export function cepDigitos(cep: string): string {
   return (cep || '').replace(/\D/g, '').slice(0, 8);

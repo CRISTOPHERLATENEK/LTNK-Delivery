@@ -7,9 +7,10 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import db from '../db';
 import { autenticar, exigirPerfil } from '../auth';
-import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, telefoneDigitos, erroHttp } from '../util';
+import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, telefoneDigitos, erroHttp, normalizarBairro } from '../util';
 import { transicionarStatus } from '../fluxoPedido';
 import { notificarLojistaNovoPedido } from '../notificacoes';
+import { notificarPedidoWhatsApp } from '../whatsapp';
 import { comissaoPercentualDaLoja } from '../comissao';
 import { geocodificar } from '../geo';
 import { criarPagamentoMercadoPago, pagamentoOnlineAtivo } from './pagamentos';
@@ -323,10 +324,14 @@ router.post('/pedidos', async (req, res, next) => {
     }
 
     // Frete por bairro: usa a zona de entrega cadastrada; senão, a taxa padrão.
-    const zona = db.prepare(
-      `SELECT taxa_centavos FROM zonas_entrega
-        WHERE loja_id = ? AND lower(bairro) = lower(?) LIMIT 1`
-    ).get(lojaId, endereco.bairro) as { taxa_centavos: number } | undefined;
+    // Comparação tolerante (normalizarBairro) — o bairro do cliente vem do
+    // ViaCEP e pode variar de grafia em relação ao que o lojista digitou
+    // (ex.: "Jd. Sofia" vs "Jardim Sofia").
+    const zonasLoja = db.prepare(
+      'SELECT bairro, taxa_centavos FROM zonas_entrega WHERE loja_id = ?'
+    ).all(lojaId) as { bairro: string; taxa_centavos: number }[];
+    const bairroCliente = normalizarBairro(endereco.bairro);
+    const zona = zonasLoja.find(z => normalizarBairro(z.bairro) === bairroCliente);
     const taxaEntrega = zona ? zona.taxa_centavos : loja.taxa_entrega_centavos;
 
     // Cupom (opcional): valida no servidor e desconta do subtotal.
@@ -401,6 +406,7 @@ router.post('/pedidos', async (req, res, next) => {
         db.prepare(
           "UPDATE pedidos SET pagamento_gateway = 'mercadopago', pagamento_gateway_id = ? WHERE id = ?"
         ).run(pix.pagamento_id, pedidoId);
+        notificarPedidoWhatsApp(pedidoId);
         return res.status(201).json({ pedido_id: pedidoId, total_centavos: total, pix });
       } catch (e) {
         // Limpa o pedido recém-criado (e devolve estoque + uso do cupom).
@@ -420,6 +426,7 @@ router.post('/pedidos', async (req, res, next) => {
 
     // Pagamento na entrega: o lojista é avisado na hora.
     notificarLojistaNovoPedido(pedidoId);
+    notificarPedidoWhatsApp(pedidoId);
     res.status(201).json({ pedido_id: pedidoId, total_centavos: total });
   } catch (err) { next(err); }
 });
@@ -437,7 +444,11 @@ router.get('/pedidos', (req, res) => {
 router.get('/pedidos/:id', (req, res, next) => {
   try {
     const pedido = db.prepare(
-      `SELECT p.*, l.nome AS loja_nome, l.tempo_estimado_min, u.nome AS entregador_nome
+      `SELECT p.*, l.nome AS loja_nome, l.tempo_estimado_min,
+              l.cor_marca AS loja_cor_marca, l.cor_secundaria AS loja_cor_secundaria,
+              u.nome AS entregador_nome, u.telefone AS entregador_telefone,
+              u.nota_media AS entregador_nota_media, u.nota_qtd AS entregador_nota_qtd,
+              u.entregador_chat_metodo
          FROM pedidos p
          JOIN lojas l ON l.id = p.loja_id
          LEFT JOIN usuarios u ON u.id = p.entregador_id
@@ -452,7 +463,10 @@ router.get('/pedidos/:id', (req, res, next) => {
     const avaliacao = db.prepare(
       'SELECT nota, comentario, resposta FROM avaliacoes WHERE pedido_id = ?'
     ).get((pedido as any).id) || null;
-    res.json({ pedido, itens, historico, avaliacao });
+    const avaliacaoEntregador = db.prepare(
+      'SELECT nota, comentario FROM avaliacoes_entregador WHERE pedido_id = ?'
+    ).get((pedido as any).id) || null;
+    res.json({ pedido, itens, historico, avaliacao, avaliacaoEntregador });
   } catch (err) { next(err); }
 });
 
@@ -486,6 +500,69 @@ router.post('/pedidos/:id/avaliar', (req, res, next) => {
     ).run(pedido.id, pedido.loja_id, req.usuario!.id, nota, comentario, agoraUTC());
     recalcularNotaLoja(pedido.loja_id);
     res.status(201).json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+/** Recalcula e grava a nota média/quantidade do entregador (mesmo padrão da loja). */
+function recalcularNotaEntregador(entregadorId: number): void {
+  const agg = db.prepare(
+    'SELECT AVG(nota) AS media, COUNT(*) AS qtd FROM avaliacoes_entregador WHERE entregador_id = ?'
+  ).get(entregadorId) as { media: number | null; qtd: number };
+  db.prepare('UPDATE usuarios SET nota_media = ?, nota_qtd = ? WHERE id = ?')
+    .run(agg.media ? Math.round(agg.media * 10) / 10 : 0, agg.qtd, entregadorId);
+}
+
+router.post('/pedidos/:id/avaliar-entregador', (req, res, next) => {
+  try {
+    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ? AND cliente_id = ?')
+      .get(req.params.id, req.usuario!.id) as { id: number; entregador_id: number | null; status: string } | undefined;
+    if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
+    if (pedido.status !== 'entregue') throw erroHttp(409, 'Você só pode avaliar pedidos que já foram entregues.');
+    if (!pedido.entregador_id) throw erroHttp(409, 'Este pedido não teve um entregador atribuído.');
+
+    const nota = inteiroPositivo(req.body.nota);
+    if (!nota || nota < 1 || nota > 5) throw erroHttp(400, 'Dê uma nota de 1 a 5 estrelas.');
+    const comentario = textoLimpo(req.body.comentario, 500);
+
+    const jaTem = db.prepare('SELECT id FROM avaliacoes_entregador WHERE pedido_id = ?').get(pedido.id);
+    if (jaTem) throw erroHttp(409, 'Você já avaliou este entregador.');
+
+    db.prepare(
+      `INSERT INTO avaliacoes_entregador (pedido_id, entregador_id, cliente_id, nota, comentario, criado_em)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(pedido.id, pedido.entregador_id, req.usuario!.id, nota, comentario, agoraUTC());
+    recalcularNotaEntregador(pedido.entregador_id);
+    res.status(201).json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ----- Chat do pedido --------------------------------------------------------
+
+router.get('/pedidos/:id/mensagens', (req, res, next) => {
+  try {
+    const pedido = db.prepare('SELECT id FROM pedidos WHERE id = ? AND cliente_id = ?')
+      .get(req.params.id, req.usuario!.id) as { id: number } | undefined;
+    if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
+    const mensagens = db.prepare(
+      'SELECT id, remetente, texto, criado_em FROM mensagens_pedido WHERE pedido_id = ? ORDER BY id'
+    ).all(pedido.id);
+    db.prepare("UPDATE mensagens_pedido SET lida = 1 WHERE pedido_id = ? AND remetente = 'entregador'").run(pedido.id);
+    res.json({ mensagens });
+  } catch (err) { next(err); }
+});
+
+router.post('/pedidos/:id/mensagens', (req, res, next) => {
+  try {
+    const pedido = db.prepare('SELECT id, entregador_id FROM pedidos WHERE id = ? AND cliente_id = ?')
+      .get(req.params.id, req.usuario!.id) as { id: number; entregador_id: number | null } | undefined;
+    if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
+    if (!pedido.entregador_id) throw erroHttp(409, 'Ainda não tem entregador atribuído a este pedido.');
+    const texto = textoLimpo(req.body.texto, 500);
+    if (!texto) throw erroHttp(400, 'Escreva uma mensagem.');
+    const info = db.prepare(
+      `INSERT INTO mensagens_pedido (pedido_id, remetente, texto, criado_em) VALUES (?, 'cliente', ?, ?)`
+    ).run(pedido.id, texto, agoraUTC());
+    res.status(201).json({ mensagem_id: Number(info.lastInsertRowid) });
   } catch (err) { next(err); }
 });
 

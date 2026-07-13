@@ -7,9 +7,10 @@ import { Routes, Route, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Bike, MapPin, Phone, Store, CheckCircle2, ExternalLink,
-  Activity, DollarSign, Home, TrendingUp, Clock, ArrowRight, Navigation, Bell,
+  Activity, DollarSign, Home, TrendingUp, Clock, ArrowRight, Navigation, Bell, MessagesSquare,
 } from 'lucide-react';
 import { AppLayout } from '@/components/app-layout';
+import { ChatPedido } from '@/components/chat-pedido';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -91,7 +92,7 @@ function CorridasDisponiveis() {
   async function aceitar(id: number) {
     try {
       await api('POST', `/api/entregador/corridas/${id}/aceitar`);
-      mostrar({ tipo: 'sucesso', titulo: 'Corrida aceita! Boa entrega. 🛵' });
+      mostrar({ tipo: 'sucesso', titulo: 'Corrida aceita! Boa entrega.' });
       consulta.refetch();
       ativaQ.refetch();
     } catch (e) {
@@ -257,12 +258,13 @@ function EntregaAtiva() {
   const estadoGPS = useCompartilharLocalizacao(consulta.data?.id);
   const [avisando, setAvisando] = useState(false);
   const [avisou, setAvisou] = useState(false);
+  const [chatAberto, setChatAberto] = useState(false);
 
   async function confirmar(id: number) {
     if (!(await pedirConfirmacao({ titulo: 'Confirmar entrega?', descricao: 'Confirme que o pedido foi entregue ao cliente.', confirmar: 'Confirmar entrega' }))) return;
     try {
       await api('POST', `/api/entregador/corridas/${id}/entregar`);
-      mostrar({ tipo: 'sucesso', titulo: 'Entrega confirmada! 💰 Bom trabalho!' });
+      mostrar({ tipo: 'sucesso', titulo: 'Entrega confirmada! Bom trabalho.' });
       consulta.refetch();
     } catch (e) {
       if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
@@ -274,7 +276,7 @@ function EntregaAtiva() {
     try {
       await api('POST', `/api/entregador/corridas/${id}/chegando`);
       setAvisou(true);
-      mostrar({ tipo: 'sucesso', titulo: 'Cliente avisado! 🔔', descricao: 'Ele recebeu a notificação que você está chegando.' });
+      mostrar({ tipo: 'sucesso', titulo: 'Cliente avisado!', descricao: 'Ele recebeu a notificação que você está chegando.' });
     } catch (e) {
       if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
     } finally {
@@ -359,11 +361,20 @@ function EntregaAtiva() {
               <MapPin className="size-3.5" /> Ponto 2 — Entrega
             </div>
             <div className="font-bold">{p.cliente_nome}</div>
-            {p.cliente_telefone && (
-              <a href={`tel:${p.cliente_telefone}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary">
-                <Phone className="size-3.5" /> {p.cliente_telefone}
-              </a>
-            )}
+            <div className="flex items-center gap-3">
+              {p.cliente_telefone && (
+                <a href={`tel:${p.cliente_telefone}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary">
+                  <Phone className="size-3.5" /> {p.cliente_telefone}
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => setChatAberto(true)}
+                className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary"
+              >
+                <MessagesSquare className="size-3.5" /> Chat
+              </button>
+            </div>
             <div className="text-sm text-muted-foreground">{p.endereco_entrega}</div>
             <a href={mapa(p.endereco_entrega, p.entrega_lat, p.entrega_lon)} target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-xs font-bold text-primary">
@@ -414,6 +425,14 @@ function EntregaAtiva() {
           </Button>
         </CardContent>
       </Card>
+
+      <ChatPedido
+        basePath={`/api/entregador/corridas/${p.id}`}
+        remetenteProprio="entregador"
+        nomeContato={p.cliente_nome}
+        aberto={chatAberto}
+        onFechar={() => setChatAberto(false)}
+      />
     </div>
   );
 }
@@ -441,6 +460,8 @@ function Ganhos() {
         <DollarSign className="size-5 text-primary" />
         Meus ganhos
       </h2>
+
+      <PreferenciaChat />
 
       <div className="flex gap-2 p-1 rounded-2xl bg-accent">
         {(['dia', 'semana', 'mes'] as Periodo[]).map(p => (
@@ -511,6 +532,58 @@ function Ganhos() {
         </>
       )}
     </div>
+  );
+}
+
+/** Como o entregador prefere conversar com o cliente: chat do app ou WhatsApp próprio. */
+function PreferenciaChat() {
+  const { mostrar } = useToast();
+  const [metodo, setMetodo] = useState<'app' | 'whatsapp' | null>(null);
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    api<{ metodo: 'app' | 'whatsapp' }>('GET', '/api/entregador/config/chat')
+      .then(r => setMetodo(r.metodo))
+      .catch(() => {});
+  }, []);
+
+  async function escolher(novo: 'app' | 'whatsapp') {
+    setSalvando(true);
+    try {
+      await api('PUT', '/api/entregador/config/chat', { metodo: novo });
+      setMetodo(novo);
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  if (metodo === null) return null;
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-2.5">
+        <div className="flex items-center gap-2 text-sm font-bold">
+          <MessagesSquare className="size-4 text-primary" /> Como falar com o cliente
+        </div>
+        <div className="flex gap-2">
+          <button type="button" disabled={salvando} onClick={() => escolher('app')}
+            className={cn('flex-1 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors',
+              metodo === 'app' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40')}>
+            Chat do app
+          </button>
+          <button type="button" disabled={salvando} onClick={() => escolher('whatsapp')}
+            className={cn('flex-1 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors',
+              metodo === 'whatsapp' ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40')}>
+            Meu WhatsApp
+          </button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          "Meu WhatsApp" abre uma conversa direto no seu número quando o cliente tocar em "Chat" — a plataforma não guarda essa conversa.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

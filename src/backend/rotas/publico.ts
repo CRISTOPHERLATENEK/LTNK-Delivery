@@ -22,12 +22,24 @@ router.get('/push/chave-publica', (_req, res) => {
  * Endpoint público sem autenticação — o frontend carrega no boot e aplica
  * via CSS variables antes da primeira renderização.
  */
-router.get('/tema', (_req, res) => {
+router.get('/tema', (req, res) => {
   const valor = (chave: string, padrao = ''): string => {
     const r = db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
     return r?.valor ?? padrao;
   };
-  const lojaId = Number(valor('loja_padrao_id', '0'));
+
+  // Domínio próprio de uma loja (ex.: pizzariadapaula.com.br) tem prioridade
+  // sobre o "loja única" global do admin — cada loja pode ter o domínio dela
+  // enquanto o domínio principal continua mostrando o marketplace inteiro.
+  let lojaId = Number(valor('loja_padrao_id', '0'));
+  const host = (req.headers.host || '').split(':')[0].toLowerCase().replace(/^www\./, '');
+  if (host) {
+    const lojaDominio = db.prepare(
+      "SELECT id FROM lojas WHERE dominio_personalizado = ? AND status_aprovacao = 'aprovada'"
+    ).get(host) as { id: number } | undefined;
+    if (lojaDominio) lojaId = lojaDominio.id;
+  }
+
   // Favicon: se o admin não definiu um favicon próprio da plataforma e o
   // domínio é white-label de uma loja, usa o favicon dessa loja (reforça a
   // identidade de "site próprio" de quem paga white-label).

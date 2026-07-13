@@ -29,6 +29,7 @@ import { TelaRepasses } from '@/pages/admin/repasses';
 import { TelaMonitor } from '@/pages/admin/monitor';
 import { TelaEntregadores } from '@/pages/admin/entregadores';
 import { TelaTenants } from '@/pages/admin/tenants';
+import { TelaAuditoria } from '@/pages/admin/auditoria';
 import { EsqueciSenha, RedefinirSenha } from '@/pages/esqueci-senha';
 import { Guard } from '@/components/guards';
 
@@ -128,6 +129,7 @@ export default function App() {
       <Route path="/painel-admin/pedidos"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaPedidosAdmin /></Guard>} />
       <Route path="/painel-admin/banners"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaBanners /></Guard>} />
       <Route path="/painel-admin/repasses" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaRepasses /></Guard>} />
+      <Route path="/painel-admin/auditoria" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaAuditoria /></Guard>} />
 
       {/* Admin — TelaAdmin gerencia seu próprio login */}
       <Route path="/painel-admin/*" element={<TelaAdmin />} />

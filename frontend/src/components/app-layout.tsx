@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react';
 import { Link, NavLink, useLocation } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Home, ShoppingBag, Receipt, User, LogOut, Bike } from 'lucide-react';
 import { ThemeToggle } from './theme-toggle';
 import { Button } from './ui/button';
@@ -105,7 +106,7 @@ export function AppLayout({ children, itens, titulo, subtitulo }: Props) {
                         transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                       />
                     )}
-                    <div className="relative">
+                    <div className="relative" data-nav-icon={item.rota}>
                       <Icone className="size-5 shrink-0" strokeWidth={isActive ? 2.5 : 2} />
                       {item.badge && (
                         <span className="absolute -right-2 -top-1.5">{item.badge}</span>
@@ -187,7 +188,7 @@ export function AppLayout({ children, itens, titulo, subtitulo }: Props) {
                         transition={{ type: 'spring', stiffness: 400, damping: 30 }}
                       />
                     )}
-                    <div className="relative">
+                    <div className="relative" data-nav-icon={item.rota}>
                       <Icone className="size-5" strokeWidth={isActive ? 2.5 : 2} />
                       {item.badge && (
                         <span className="absolute -right-2 -top-1.5">{item.badge}</span>
@@ -201,7 +202,54 @@ export function AppLayout({ children, itens, titulo, subtitulo }: Props) {
           })}
         </div>
       </nav>
+
+      <FlyToCartOverlay />
     </div>
+  );
+}
+
+/**
+ * Escuta o evento global 'voar-carrinho' (disparado por vooCarrinho() em
+ * lib/carrinho.ts) e anima uma bolha saindo do ponto de origem até o ícone
+ * de Carrinho visível no momento (mobile ou desktop, o que estiver na tela).
+ * Existe aqui — não em loja.tsx/modal-produto.tsx — porque só o layout
+ * conhece a posição real do ícone alvo.
+ */
+function FlyToCartOverlay() {
+  const [voos, setVoos] = useState<{ id: number; from: { x: number; y: number }; to: { x: number; y: number } }[]>([]);
+
+  useEffect(() => {
+    function aoVoar(e: Event) {
+      const origem = (e as CustomEvent<{ x: number; y: number }>).detail;
+      const alvos = document.querySelectorAll<HTMLElement>('[data-nav-icon="/carrinho"]');
+      let alvo: HTMLElement | null = null;
+      for (const el of alvos) { if (el.offsetParent !== null) { alvo = el; break; } }
+      if (!alvo) return;
+      const r = alvo.getBoundingClientRect();
+      const id = Date.now() + Math.random();
+      setVoos(v => [...v, { id, from: origem, to: { x: r.left + r.width / 2, y: r.top + r.height / 2 } }]);
+      setTimeout(() => setVoos(v => v.filter(x => x.id !== id)), 650);
+    }
+    window.addEventListener('voar-carrinho', aoVoar);
+    return () => window.removeEventListener('voar-carrinho', aoVoar);
+  }, []);
+
+  return (
+    <AnimatePresence>
+      {voos.map(v => (
+        <motion.div
+          key={v.id}
+          className="fixed z-[200] flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg pointer-events-none"
+          style={{ left: 0, top: 0 }}
+          initial={{ x: v.from.x - 12, y: v.from.y - 12, scale: 1, opacity: 1 }}
+          animate={{ x: v.to.x - 12, y: v.to.y - 12, scale: 0.4, opacity: 0.6 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.55, ease: [0.2, 0.8, 0.3, 1] }}
+        >
+          <ShoppingBag className="size-3.5" />
+        </motion.div>
+      ))}
+    </AnimatePresence>
   );
 }
 

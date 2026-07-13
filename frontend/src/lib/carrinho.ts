@@ -97,3 +97,14 @@ export function totalItensCarrinho(c: CarrinhoLocal | null): number {
   if (!c) return 0;
   return c.itens.reduce((s, i) => s + i.quantidade, 0);
 }
+
+/**
+ * Dispara a animação de "voar pro carrinho" a partir de um ponto de origem
+ * na tela (ex.: o botão de adicionar que o cliente tocou). Quem escuta e
+ * desenha a animação é o <FlyToCartOverlay> em components/app-layout.tsx —
+ * aqui é só o evento global, pra não acoplar loja.tsx/modal-produto.tsx ao
+ * layout (o alvo — ícone do carrinho no menu — vive em outro componente).
+ */
+export function vooCarrinho(origem: { x: number; y: number }) {
+  window.dispatchEvent(new CustomEvent('voar-carrinho', { detail: origem }));
+}

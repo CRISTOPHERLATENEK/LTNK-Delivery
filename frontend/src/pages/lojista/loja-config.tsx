@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download } from 'lucide-react';
+import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
 import { statusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,7 +20,7 @@ export function LojaConfiguracao() {
   const [form, setForm] = useState({
     nome: '', descricao: '', categoria: '', endereco: '',
     taxa_entrega: '', tempo_estimado_min: '', horario_funcionamento: '', minimo_pedido: '',
-    slug: '',
+    slug: '', dominio_personalizado: '',
   });
   const [enviando, setEnviando] = useState(false);
   const [alternando, setAlternando] = useState(false);
@@ -39,6 +39,7 @@ export function LojaConfiguracao() {
         horario_funcionamento: l.horario_funcionamento || '',
         minimo_pedido: l.minimo_pedido_centavos ? String((l.minimo_pedido_centavos / 100).toFixed(2)) : '',
         slug: (l as any).slug || '',
+        dominio_personalizado: (l as any).dominio_personalizado || '',
       });
     }).catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar os dados da loja.' }));
   }, []);
@@ -62,6 +63,7 @@ export function LojaConfiguracao() {
         horario_funcionamento: form.horario_funcionamento,
         minimo_pedido: form.minimo_pedido === '' ? 0 : Number(form.minimo_pedido),
         slug: form.slug.trim() || null,
+        dominio_personalizado: form.dominio_personalizado.trim() || null,
       });
       setLoja(r.loja);
       mostrar({ tipo: 'sucesso', titulo: 'Loja atualizada!' });
@@ -200,6 +202,24 @@ export function LojaConfiguracao() {
               {!form.slug && (
                 <p className="text-[11px] text-muted-foreground mt-1">Opcional. Permite acessar via URL amigável em vez de /loja/123.</p>
               )}
+            </div>
+
+            <div className="sm:col-span-2">
+              <Label className="flex items-center gap-1.5">
+                <Globe className="size-3.5" /> Domínio próprio (opcional)
+              </Label>
+              <Input
+                value={form.dominio_personalizado}
+                onChange={e => setForm(f => ({ ...f, dominio_personalizado: e.target.value }))}
+                placeholder="suaempresa.com.br"
+                className="mt-1 font-mono text-sm"
+                maxLength={200}
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Alternativa ao link acima: se você tem o próprio domínio, aponte o DNS dele (registro CNAME ou A) pro
+                servidor da plataforma e cole aqui <b>sem</b> "https://" nem barras. Quando alguém acessar esse domínio,
+                cai direto na sua loja — sem precisar do endereço padrão. Deixe em branco se for usar só o link de cima.
+              </p>
             </div>
 
             <div className="sm:col-span-2">
@@ -883,7 +903,7 @@ export function ImpressaoLoja() {
         cupom_rodape: rodape,
       });
       setLoja(r.loja);
-      mostrar({ tipo: 'sucesso', titulo: 'Impressão configurada! 🖨️' });
+      mostrar({ tipo: 'sucesso', titulo: 'Impressão configurada!' });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
