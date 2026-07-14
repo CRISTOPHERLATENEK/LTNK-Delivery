@@ -13,6 +13,8 @@ import { validarCertificado, } from '../assinatura';
 import { caminhoCertificado } from './lojista';
 import * as fs from 'fs';
 import multer from 'multer';
+import { spawn } from 'child_process';
+import path from 'path';
 import { listarTenants, criarTenant, atualizarTenant, ehMaster } from '../tenants';
 import { Banner } from '../../tipos/modelos';
 
@@ -1039,6 +1041,45 @@ router.post('/whatsapp-nao-oficial/desconectar', exigirSuperAdmin, async (_req, 
   try {
     await desconectarPlataforma();
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ----- Backup ----------------------------------------------------------------
+
+/**
+ * Baixa um .tar.gz de toda a pasta `dados/` (todos os bancos SQLite —
+ * plataforma + cada tenant — mais certificados A1). Existe porque, em
+ * hospedagens "Web App Node.js" gerenciadas (ex.: Hostinger), o disco do app
+ * é recriado do zero a cada deploy — só sobrevive o que está no repositório
+ * git. Enquanto não migramos pra um banco externo persistente, isso é a
+ * salvaguarda manual: baixar antes de cada deploy.
+ *
+ * Usa o `tar` do sistema (streaming direto pra resposta, sem bufferizar em
+ * memória) em vez de uma lib de zip — evita dependência nova e funciona tanto
+ * no Linux de produção quanto no Windows moderno (que já traz um `tar`).
+ */
+router.get('/backup', exigirSuperAdmin, (req, res, next) => {
+  try {
+    const raiz = process.cwd();
+    const pastaDados = path.join(raiz, 'dados');
+    if (!fs.existsSync(pastaDados)) throw erroHttp(404, 'Pasta de dados não encontrada neste servidor.');
+
+    registrarAuditoria(req, 'backup.baixar');
+
+    const nomeArquivo = `backup-dados-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+    res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Disposition', `attachment; filename="${nomeArquivo}"`);
+
+    const processo = spawn('tar', ['-czf', '-', '-C', raiz, 'dados']);
+    processo.stdout.pipe(res);
+    processo.stderr.on('data', d => console.warn('[Backup] tar stderr:', d.toString()));
+    processo.on('error', (e) => {
+      console.error('[Backup] Falha ao iniciar o tar:', e);
+      if (!res.headersSent) next(erroHttp(500, 'Não foi possível gerar o backup (tar indisponível no servidor).'));
+    });
+    processo.on('close', (codigo) => {
+      if (codigo !== 0 && !res.headersSent) next(erroHttp(500, `tar terminou com código ${codigo}.`));
+    });
   } catch (e) { next(e); }
 });
 

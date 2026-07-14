@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2 } from 'lucide-react';
+import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2 } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { useToast } from '@/components/ui/toast';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, tokenSessao } from '@/lib/api';
 import { useTema, FONTES, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
 import type { TemaMarca, RaioMarca, FonteMarca } from '@/types';
@@ -237,6 +237,7 @@ export function TelaMarca() {
       </form>
 
       <SecaoConfiguracoesGerais />
+      <SecaoBackup />
     </div>
     </AdminLayout>
   );
@@ -491,6 +492,66 @@ function ConexaoWbapi() {
             )}
           </>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Backup manual da pasta `dados/` (todos os bancos SQLite + certificados A1).
+ * Existe porque, nesse plano de hospedagem, o disco do app é recriado do
+ * zero a cada deploy — enquanto não migramos pra um banco externo
+ * persistente, isso é a salvaguarda: baixar antes de cada deploy.
+ */
+function SecaoBackup() {
+  const { mostrar } = useToast();
+  const [baixando, setBaixando] = useState(false);
+
+  async function baixar() {
+    setBaixando(true);
+    try {
+      const token = tokenSessao();
+      const resp = await fetch('/api/admin/backup', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!resp.ok) {
+        const corpo = await resp.json().catch(() => ({}));
+        throw new Error(corpo.erro || `Falha ao gerar o backup (HTTP ${resp.status}).`);
+      }
+      const blob = await resp.blob();
+      const nome = resp.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1]
+        || `backup-dados-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = nome;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      mostrar({ tipo: 'sucesso', titulo: 'Backup baixado!' });
+    } catch (err) {
+      mostrar({ tipo: 'erro', titulo: err instanceof Error ? err.message : 'Falha ao baixar o backup.' });
+    } finally {
+      setBaixando(false);
+    }
+  }
+
+  return (
+    <Card className="max-w-2xl border-amber-500/30">
+      <CardContent className="p-5 space-y-3">
+        <div className="flex items-center gap-2 text-sm font-bold">
+          <DatabaseBackup className="size-4 text-amber-500" /> Backup do banco de dados
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Baixa um arquivo .tar.gz com todos os bancos SQLite (plataforma + cada loja/tenant) e os
+          certificados A1. <strong>Baixe antes de cada deploy</strong> — nesse plano de hospedagem, o disco
+          do app é recriado do zero a cada implantação, e só o que estiver no repositório git sobrevive.
+        </p>
+        <Button type="button" variant="outline" onClick={baixar} disabled={baixando}>
+          {baixando ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+          {baixando ? 'Gerando backup…' : 'Baixar backup agora'}
+        </Button>
       </CardContent>
     </Card>
   );

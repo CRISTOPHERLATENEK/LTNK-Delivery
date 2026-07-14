@@ -119,13 +119,43 @@ export async function testarCredenciaisOficial(phoneNumberId: string, tokenCript
  * 'nao_oficial' (texto livre via sessão WBAPI/QR — sem restrição de janela
  * de 24h porque não passa pela Meta).
  */
-export async function notificarPedidoWhatsApp(pedidoId: number): Promise<void> {
+const ROTULO_PAGAMENTO: Record<string, string> = {
+  pix: 'Pix',
+  dinheiro: 'Dinheiro',
+  cartao_entrega: 'Cartão na entrega',
+};
+
+/** Monta o texto livre da confirmação (só usado no método não-oficial — o oficial usa template fixo da Meta). */
+function montarTextoConfirmacao(pedido: {
+  id: number; cliente_nome: string; total_centavos: number; forma_pagamento: string;
+}, lojaNome: string, baseUrl: string): string {
+  const itens = db.prepare(
+    'SELECT nome_produto, quantidade FROM itens_pedido WHERE pedido_id = ? ORDER BY id'
+  ).all(pedido.id) as { nome_produto: string; quantidade: number }[];
+
+  const listaItens = itens.map(i => `${i.quantidade}x ${i.nome_produto}`).join('\n');
+  const pagamento = ROTULO_PAGAMENTO[pedido.forma_pagamento] || pedido.forma_pagamento;
+  const link = `${baseUrl.replace(/\/+$/, '')}/pedido/${pedido.id}`;
+
+  return [
+    `Olá, ${pedido.cliente_nome}! Seu pedido #${pedido.id} na ${lojaNome} foi confirmado.`,
+    '',
+    listaItens,
+    '',
+    `Total: ${brl(pedido.total_centavos)}`,
+    `Pagamento: ${pagamento}`,
+    '',
+    `Acompanhe seu pedido: ${link}`,
+  ].join('\n');
+}
+
+export async function notificarPedidoWhatsApp(pedidoId: number, baseUrl: string): Promise<void> {
   try {
     const pedido = db.prepare(
-      `SELECT p.id, p.total_centavos, p.loja_id, c.nome AS cliente_nome, c.telefone AS cliente_telefone
+      `SELECT p.id, p.total_centavos, p.loja_id, p.forma_pagamento, c.nome AS cliente_nome, c.telefone AS cliente_telefone
          FROM pedidos p JOIN usuarios c ON c.id = p.cliente_id
         WHERE p.id = ?`
-    ).get(pedidoId) as { id: number; total_centavos: number; loja_id: number; cliente_nome: string; cliente_telefone: string } | undefined;
+    ).get(pedidoId) as { id: number; total_centavos: number; loja_id: number; forma_pagamento: string; cliente_nome: string; cliente_telefone: string } | undefined;
     if (!pedido || !pedido.cliente_telefone) return;
 
     const loja = db.prepare('SELECT * FROM lojas WHERE id = ?').get(pedido.loja_id) as any;
@@ -143,7 +173,7 @@ export async function notificarPedidoWhatsApp(pedidoId: number): Promise<void> {
       );
       if (!r.ok) console.warn(`[WhatsApp] Falha ao notificar pedido #${pedido.id} (loja ${pedido.loja_id}): ${r.erro}`);
     } else if (loja.whatsapp_metodo_ativo === 'nao_oficial') {
-      const texto = `Olá, ${pedido.cliente_nome}! Seu pedido #${pedido.id} de ${brl(pedido.total_centavos)} foi recebido pela ${loja.nome}. Acompanhe o status pelo app.`;
+      const texto = montarTextoConfirmacao(pedido, loja.nome, baseUrl);
       const r = await enviarTextoNaoOficial(pedido.cliente_telefone, texto);
       if (!r.ok) console.warn(`[WhatsApp] Falha ao notificar pedido #${pedido.id} (loja ${pedido.loja_id}): ${r.erro}`);
     }

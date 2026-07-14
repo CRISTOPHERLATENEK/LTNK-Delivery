@@ -406,7 +406,7 @@ router.post('/pedidos', async (req, res, next) => {
         db.prepare(
           "UPDATE pedidos SET pagamento_gateway = 'mercadopago', pagamento_gateway_id = ? WHERE id = ?"
         ).run(pix.pagamento_id, pedidoId);
-        notificarPedidoWhatsApp(pedidoId);
+        notificarPedidoWhatsApp(pedidoId, `${req.protocol}://${req.get('host')}`);
         return res.status(201).json({ pedido_id: pedidoId, total_centavos: total, pix });
       } catch (e) {
         // Limpa o pedido recém-criado (e devolve estoque + uso do cupom).
@@ -426,7 +426,7 @@ router.post('/pedidos', async (req, res, next) => {
 
     // Pagamento na entrega: o lojista é avisado na hora.
     notificarLojistaNovoPedido(pedidoId);
-    notificarPedidoWhatsApp(pedidoId);
+    notificarPedidoWhatsApp(pedidoId, `${req.protocol}://${req.get('host')}`);
     res.status(201).json({ pedido_id: pedidoId, total_centavos: total });
   } catch (err) { next(err); }
 });
