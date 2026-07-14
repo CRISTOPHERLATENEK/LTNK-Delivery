@@ -22,6 +22,8 @@ import {
 } from '../sefaz';
 import { criptografar, descriptografar } from '../cripto';
 import { testarCredenciaisOficial } from '../whatsapp';
+import { wbapiConfigurado, statusSessaoPlataforma } from '../whatsapp-nao-oficial';
+import { geocodificarTexto } from '../geo';
 import { GrupoOpcao, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
 
 /** Pasta protegida do certificado de uma loja (namespeada por tenant). */
@@ -59,7 +61,7 @@ router.get('/loja', (req, res, next) => {
   try { res.json({ loja: minhaLoja(req) }); } catch (e) { next(e); }
 });
 
-router.post('/loja', (req, res, next) => {
+router.post('/loja', async (req, res, next) => {
   try {
     if (minhaLoja(req, false)) throw erroHttp(409, 'Você já tem uma loja cadastrada.');
 
@@ -68,14 +70,16 @@ router.post('/loja', (req, res, next) => {
     const taxa = reaisParaCentavos(req.body.taxa_entrega);
     const tempo = inteiroPositivo(req.body.tempo_estimado_min) || 40;
     if (taxa === null) throw erroHttp(400, 'Informe a taxa de entrega (use 0 para entrega grátis).');
+    const endereco = textoLimpo(req.body.endereco, 200);
+    const coord = endereco ? await geocodificarTexto(endereco) : null; // best-effort
 
     const info = db.prepare(
-      `INSERT INTO lojas (usuario_id, nome, descricao, categoria, endereco,
+      `INSERT INTO lojas (usuario_id, nome, descricao, categoria, endereco, lat, lon,
                           taxa_entrega_centavos, tempo_estimado_min, horario_funcionamento,
                           status_aprovacao, aberta, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', 0, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', 0, ?)`
     ).run(req.usuario!.id, nome, textoLimpo(req.body.descricao, 300),
-          textoLimpo(req.body.categoria, 50) || 'Outros', textoLimpo(req.body.endereco, 200),
+          textoLimpo(req.body.categoria, 50) || 'Outros', endereco, coord?.lat ?? null, coord?.lon ?? null,
           taxa, tempo, textoLimpo(req.body.horario_funcionamento, 100), agoraUTC());
 
     res.status(201).json({
@@ -85,7 +89,7 @@ router.post('/loja', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.put('/loja', (req, res, next) => {
+router.put('/loja', async (req, res, next) => {
   try {
     const loja = minhaLoja(req);
     const nome = textoLimpo(req.body.nome, 100) || loja.nome;
@@ -173,8 +177,19 @@ router.put('/loja', (req, res, next) => {
       visualJson = validarVisualJson(req.body.visual_json, visualJson);
     }
 
+    // Re-geocodifica só quando o endereço realmente muda (evita bater no
+    // Nominatim a cada salvamento de outros campos da loja).
+    const enderecoNovo = req.body.endereco !== undefined ? textoLimpo(req.body.endereco, 200) : loja.endereco;
+    let lat = lojaQualquer.lat ?? null;
+    let lon = lojaQualquer.lon ?? null;
+    if (enderecoNovo && enderecoNovo !== loja.endereco) {
+      const coord = await geocodificarTexto(enderecoNovo); // best-effort
+      lat = coord?.lat ?? null;
+      lon = coord?.lon ?? null;
+    }
+
     db.prepare(
-      `UPDATE lojas SET nome = ?, descricao = ?, categoria = ?, endereco = ?,
+      `UPDATE lojas SET nome = ?, descricao = ?, categoria = ?, endereco = ?, lat = ?, lon = ?,
               taxa_entrega_centavos = ?, tempo_estimado_min = ?, horario_funcionamento = ?,
               logo_url = ?, capa_url = ?, favicon_url = ?, cor_marca = ?, cor_secundaria = ?, slug = ?,
               dominio_personalizado = ?,
@@ -184,7 +199,7 @@ router.put('/loja', (req, res, next) => {
     ).run(nome,
           req.body.descricao !== undefined ? textoLimpo(req.body.descricao, 300) : loja.descricao,
           req.body.categoria !== undefined ? (textoLimpo(req.body.categoria, 50) || 'Outros') : loja.categoria,
-          req.body.endereco !== undefined ? textoLimpo(req.body.endereco, 200) : loja.endereco,
+          enderecoNovo, lat, lon,
           taxa, tempo,
           req.body.horario_funcionamento !== undefined ? textoLimpo(req.body.horario_funcionamento, 100) : loja.horario_funcionamento,
           validarUrl('logo_url', lojaQualquer.logo_url || ''),
@@ -880,7 +895,13 @@ router.get('/pedidos', (req, res, next) => {
          LEFT JOIN produtos p ON p.id = ip.produto_id
         WHERE ip.pedido_id = ?`
     );
-    for (const p of pedidos) p.itens = buscarItens.all(p.id);
+    const contarNaoLidas = db.prepare(
+      "SELECT COUNT(*) AS n FROM mensagens_pedido WHERE pedido_id = ? AND remetente = 'cliente' AND lida = 0"
+    );
+    for (const p of pedidos) {
+      p.itens = buscarItens.all(p.id);
+      p.mensagens_nao_lidas = (contarNaoLidas.get(p.id) as { n: number }).n;
+    }
     res.json({ pedidos });
   } catch (e) { next(e); }
 });
@@ -1055,6 +1076,37 @@ router.post('/pedidos/:id/acao', (req, res, next) => {
     }
     const atualizado = transicionarStatus(pedido.id, novoStatus, { camposExtras: extras });
     res.json({ pedido: atualizado });
+  } catch (e) { next(e); }
+});
+
+// ----- Chat do pedido (loja fala com o cliente enquanto não tem entregador) -
+
+router.get('/pedidos/:id/mensagens', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req);
+    const pedido = db.prepare('SELECT id FROM pedidos WHERE id = ? AND loja_id = ?')
+      .get(req.params.id, loja.id) as { id: number } | undefined;
+    if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
+    const mensagens = db.prepare(
+      'SELECT id, remetente, texto, criado_em FROM mensagens_pedido WHERE pedido_id = ? ORDER BY id'
+    ).all(pedido.id);
+    db.prepare("UPDATE mensagens_pedido SET lida = 1 WHERE pedido_id = ? AND remetente = 'cliente'").run(pedido.id);
+    res.json({ mensagens });
+  } catch (e) { next(e); }
+});
+
+router.post('/pedidos/:id/mensagens', (req, res, next) => {
+  try {
+    const loja = minhaLoja(req);
+    const pedido = db.prepare('SELECT id FROM pedidos WHERE id = ? AND loja_id = ?')
+      .get(req.params.id, loja.id) as { id: number } | undefined;
+    if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
+    const texto = textoLimpo(req.body.texto, 500);
+    if (!texto) throw erroHttp(400, 'Escreva uma mensagem.');
+    const info = db.prepare(
+      `INSERT INTO mensagens_pedido (pedido_id, remetente, texto, criado_em) VALUES (?, 'loja', ?, ?)`
+    ).run(pedido.id, texto, agoraUTC());
+    res.status(201).json({ mensagem_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
 
@@ -2553,10 +2605,16 @@ router.get('/comandas-historico', (req, res, next) => {
 
 // ----- WhatsApp -------------------------------------------------------------
 
-/** Lê a config de WhatsApp da loja (sem devolver o token — só se está preenchido). */
-router.get('/whatsapp', (req, res, next) => {
+/**
+ * Lê a config de WhatsApp da loja (sem devolver o token — só se está preenchido).
+ * O "não-oficial" é UMA sessão compartilhada de toda a plataforma (não por loja —
+ * o plano contratado só permite uma sessão), então aqui é só leitura do status;
+ * quem conecta/desconecta é o super admin.
+ */
+router.get('/whatsapp', async (req, res, next) => {
   try {
     const loja = minhaLoja(req) as any;
+    const naoOficial = loja.whatsapp_permite_nao_oficial ? await statusSessaoPlataforma() : { conectado: false };
     res.json({
       permite_oficial: !!loja.whatsapp_permite_oficial,
       permite_nao_oficial: !!loja.whatsapp_permite_nao_oficial,
@@ -2569,7 +2627,10 @@ router.get('/whatsapp', (req, res, next) => {
         template: loja.whatsapp_oficial_template || 'confirmacao_pedido',
         tem_token: !!loja.whatsapp_oficial_token,
       },
-      nao_oficial: { status: loja.whatsapp_nao_oficial_status || 'desconectado' },
+      nao_oficial: {
+        status: naoOficial.conectado ? 'conectado' : 'desconectado',
+        disponivel: wbapiConfigurado(),
+      },
     });
   } catch (e) { next(e); }
 });

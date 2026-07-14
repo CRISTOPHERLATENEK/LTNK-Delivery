@@ -22,6 +22,7 @@ import adminRoutes from './rotas/admin';
 import pagamentosRoutes from './rotas/pagamentos';
 import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
+import webhooksRoutes from './rotas/webhooks';
 import { ErroHttp, lojaAbertaPorAgenda, agoraUTC } from './util';
 import db, { comTenant } from './db';
 import { resolverPorHost, tenantPadrao, listarTenants } from './tenants';
@@ -81,6 +82,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/pagamentos', pagamentosRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/webhooks', webhooksRoutes);
 
 // Uploads de imagem (fotos de produtos, banners, logos, capas).
 app.use('/uploads', express.static(path.resolve('./dados/uploads')));

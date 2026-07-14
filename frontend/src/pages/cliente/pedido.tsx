@@ -314,10 +314,10 @@ export function PaginaPedido() {
           </Card>
         )}
 
-        {/* Coluna direita: entregador + resumo */}
+        {/* Coluna direita: contato (entregador ou loja, o que estiver disponível) + resumo */}
         <div className="space-y-4">
-          {ehAtivo && pedido.entregador_nome && (
-            <EntregadorCard pedido={pedido} onAbrirChat={() => setChatAberto(true)} />
+          {ehAtivo && (
+            <ContatoCard pedido={pedido} onAbrirChat={() => setChatAberto(true)} />
           )}
 
           {/* Resumo do pedido — recolhido, expande pro detalhe completo */}
@@ -459,11 +459,11 @@ export function PaginaPedido() {
         </CardContent>
       </Card>
 
-      {pedido.entregador_nome && (
+      {!terminouMal && (
         <ChatPedido
           basePath={`/api/cliente/pedidos/${pedido.id}`}
           remetenteProprio="cliente"
-          nomeContato={pedido.entregador_nome}
+          nomeContato={pedido.entregador_nome || pedido.loja_nome || 'Loja'}
           aberto={chatAberto}
           onFechar={() => setChatAberto(false)}
         />
@@ -473,10 +473,13 @@ export function PaginaPedido() {
 }
 
 /** Foto (iniciais)/nota/ligar/chat do entregador designado ao pedido. */
-function EntregadorCard({ pedido, onAbrirChat }: { pedido: Pedido; onAbrirChat: () => void }) {
-  const temNota = !!pedido.entregador_nota_qtd && pedido.entregador_nota_qtd > 0;
-  const usaWhatsApp = pedido.entregador_chat_metodo === 'whatsapp';
-  const telefoneDigitos = (pedido.entregador_telefone || '').replace(/\D/g, '');
+/** Contato do pedido: mostra o entregador se já tiver um atribuído, senão a loja. */
+function ContatoCard({ pedido, onAbrirChat }: { pedido: Pedido; onAbrirChat: () => void }) {
+  const temEntregador = !!pedido.entregador_nome;
+  const nome = pedido.entregador_nome || pedido.loja_nome || 'Loja';
+  const temNota = temEntregador && !!pedido.entregador_nota_qtd && pedido.entregador_nota_qtd > 0;
+  const usaWhatsApp = temEntregador && pedido.entregador_chat_metodo === 'whatsapp';
+  const telefoneDigitos = temEntregador ? (pedido.entregador_telefone || '').replace(/\D/g, '') : '';
 
   function abrirChatOuWhats() {
     if (usaWhatsApp && telefoneDigitos) {
@@ -491,11 +494,11 @@ function EntregadorCard({ pedido, onAbrirChat }: { pedido: Pedido; onAbrirChat: 
     <Card>
       <CardContent className="p-4 flex items-center gap-3">
         <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary text-lg font-bold shrink-0">
-          {pedido.entregador_nome!.charAt(0).toUpperCase()}
+          {nome.charAt(0).toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="font-bold text-sm truncate">{pedido.entregador_nome}</div>
-          <div className="text-xs text-muted-foreground">Entregador parceiro</div>
+          <div className="font-bold text-sm truncate">{nome}</div>
+          <div className="text-xs text-muted-foreground">{temEntregador ? 'Entregador parceiro' : 'Sua loja'}</div>
           {temNota && (
             <div className="flex items-center gap-1 mt-0.5">
               <Star className="size-3 fill-amber-400 text-amber-400" />
@@ -518,7 +521,7 @@ function EntregadorCard({ pedido, onAbrirChat }: { pedido: Pedido; onAbrirChat: 
             type="button"
             onClick={abrirChatOuWhats}
             className="flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
-            title="Conversar com o entregador"
+            title={temEntregador ? 'Conversar com o entregador' : 'Conversar com a loja'}
           >
             <MessagesSquare className="size-4" />
           </button>
@@ -595,21 +598,26 @@ function CardAvisos() {
     );
   }
 
+  const bloqueado = estado === 'negado';
+
   return (
-    <Card className="border-primary/30 bg-primary/5">
+    <Card className={cn(bloqueado ? 'border-border' : 'border-primary/30 bg-primary/5')}>
       <CardContent className="p-4 flex items-center gap-3">
-        <div className="flex size-10 items-center justify-center rounded-full bg-primary/15 text-primary shrink-0">
+        <div className={cn(
+          'flex size-10 items-center justify-center rounded-full shrink-0',
+          bloqueado ? 'bg-muted text-muted-foreground' : 'bg-primary/15 text-primary',
+        )}>
           <Bell className="size-5" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="font-bold text-sm">Quer ser avisado quando chegar?</div>
           <p className="text-xs text-muted-foreground">
-            {estado === 'negado'
+            {bloqueado
               ? 'Notificações bloqueadas — libere nas configurações do navegador.'
               : 'Receba um alerta no celular quando o entregador estiver perto.'}
           </p>
         </div>
-        {estado !== 'negado' && (
+        {!bloqueado && (
           <Button size="sm" className="rounded-xl shrink-0" onClick={ativar} disabled={carregando}>
             {carregando ? '…' : 'Ativar'}
           </Button>

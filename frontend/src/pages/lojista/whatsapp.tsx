@@ -7,7 +7,7 @@
  *    WhatsApp — ainda não implementado nesta versão (placeholder abaixo).
  */
 import { useEffect, useState } from 'react';
-import { Loader2, CheckCircle2, Send, Info, QrCode } from 'lucide-react';
+import { Loader2, CheckCircle2, Send, Info, QrCode, Smartphone } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,7 +26,7 @@ interface ConfigWhatsApp {
   oficial: {
     numero: string; phone_id: string; business_id: string; template: string; tem_token: boolean;
   };
-  nao_oficial: { status: string };
+  nao_oficial: { status: 'desconectado' | 'conectando' | 'conectado' | string; disponivel: boolean };
 }
 
 /** Glifo oficial do WhatsApp (marca) — usa currentColor, herda a cor do pai. */
@@ -235,22 +235,56 @@ export function WhatsAppLoja() {
         </Card>
       )}
 
-      {/* Método não oficial — ainda não implementado */}
-      {cfg.permite_nao_oficial && (
-        <Card className="border-dashed">
-          <CardContent className="p-5 space-y-2">
-            <div className="flex items-center gap-2">
-              <QrCode className="size-4 text-muted-foreground" />
-              <h2 className="font-bold">Não oficial (QR code)</h2>
-              <Badge variant="secondary" className="text-[10px]">em breve</Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Conectar escaneando o QR code com o WhatsApp do seu celular — sem burocracia da Meta, mas com risco
-              de o número ser banido por violar os termos do WhatsApp. Essa opção ainda está sendo construída.
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      {/* Método não oficial — sessão única compartilhada da plataforma, conectada pelo super admin */}
+      {cfg.permite_nao_oficial && <StatusNaoOficial nao_oficial={cfg.nao_oficial} />}
     </div>
+  );
+}
+
+/** Status (somente leitura) do WhatsApp não-oficial — quem conecta/desconecta é o super admin, é uma sessão única da plataforma. */
+function StatusNaoOficial({ nao_oficial }: { nao_oficial: ConfigWhatsApp['nao_oficial'] }) {
+  if (!nao_oficial.disponivel) {
+    return (
+      <Card className="border-dashed">
+        <CardContent className="p-5 space-y-2">
+          <div className="flex items-center gap-2">
+            <QrCode className="size-4 text-muted-foreground" />
+            <h2 className="font-bold">Não oficial (QR code)</h2>
+            <Badge variant="secondary" className="text-[10px]">indisponível</Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            A plataforma ainda não configurou esse método. Fale com o suporte.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const conectado = nao_oficial.status === 'conectado';
+
+  return (
+    <Card>
+      <CardContent className="p-5 flex items-center gap-3">
+        <div className={cn(
+          'flex size-11 items-center justify-center rounded-2xl shrink-0',
+          conectado ? 'bg-[#25D366]/10 text-[#25D366]' : 'bg-muted text-muted-foreground',
+        )}>
+          <Smartphone className="size-5" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <h2 className="font-bold">Não oficial (QR code)</h2>
+            {conectado
+              ? <Badge variant="success" className="text-[10px]"><CheckCircle2 className="size-3" /> conectado</Badge>
+              : <Badge variant="secondary" className="text-[10px]">desconectado</Badge>}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {conectado
+              ? 'O WhatsApp compartilhado da plataforma está conectado — sua loja já pode usar esse método.'
+              : 'Esse é um número de WhatsApp único, compartilhado por toda a plataforma. A conexão é feita pelo suporte/admin.'}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

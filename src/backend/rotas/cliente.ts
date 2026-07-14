@@ -546,17 +546,19 @@ router.get('/pedidos/:id/mensagens', (req, res, next) => {
     const mensagens = db.prepare(
       'SELECT id, remetente, texto, criado_em FROM mensagens_pedido WHERE pedido_id = ? ORDER BY id'
     ).all(pedido.id);
-    db.prepare("UPDATE mensagens_pedido SET lida = 1 WHERE pedido_id = ? AND remetente = 'entregador'").run(pedido.id);
+    db.prepare("UPDATE mensagens_pedido SET lida = 1 WHERE pedido_id = ? AND remetente IN ('entregador','loja')").run(pedido.id);
     res.json({ mensagens });
   } catch (err) { next(err); }
 });
 
+// Antes de ter entregador atribuído o cliente fala com a LOJA; depois passa a
+// falar com o entregador — mas é sempre a mesma thread, sem trava por status.
 router.post('/pedidos/:id/mensagens', (req, res, next) => {
   try {
-    const pedido = db.prepare('SELECT id, entregador_id FROM pedidos WHERE id = ? AND cliente_id = ?')
-      .get(req.params.id, req.usuario!.id) as { id: number; entregador_id: number | null } | undefined;
+    const pedido = db.prepare("SELECT id, status FROM pedidos WHERE id = ? AND cliente_id = ?")
+      .get(req.params.id, req.usuario!.id) as { id: number; status: string } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
-    if (!pedido.entregador_id) throw erroHttp(409, 'Ainda não tem entregador atribuído a este pedido.');
+    if (['cancelado', 'recusado'].includes(pedido.status)) throw erroHttp(409, 'Este pedido já foi encerrado.');
     const texto = textoLimpo(req.body.texto, 500);
     if (!texto) throw erroHttp(400, 'Escreva uma mensagem.');
     const info = db.prepare(

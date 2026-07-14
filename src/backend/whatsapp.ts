@@ -11,6 +11,7 @@
  */
 import { descriptografar } from './cripto';
 import db from './db';
+import { enviarTextoNaoOficial } from './whatsapp-nao-oficial';
 
 const brl = (centavos: number) => `R$ ${(centavos / 100).toFixed(2).replace('.', ',')}`;
 
@@ -114,8 +115,9 @@ export async function testarCredenciaisOficial(phoneNumberId: string, tokenCript
  * WhatsApp SE a loja tiver o envio automático ligado e um método
  * configurado. Nunca lança — é best-effort, igual ao push/e-mail: uma
  * falha aqui não pode derrubar a criação do pedido, que já aconteceu.
- * O método 'nao_oficial' (sessão por QR) ainda não está implementado —
- * silenciosamente ignorado até essa parte ser construída.
+ * Suporta os dois métodos: 'oficial' (template aprovado na Meta) e
+ * 'nao_oficial' (texto livre via sessão WBAPI/QR — sem restrição de janela
+ * de 24h porque não passa pela Meta).
  */
 export async function notificarPedidoWhatsApp(pedidoId: number): Promise<void> {
   try {
@@ -128,18 +130,23 @@ export async function notificarPedidoWhatsApp(pedidoId: number): Promise<void> {
 
     const loja = db.prepare('SELECT * FROM lojas WHERE id = ?').get(pedido.loja_id) as any;
     if (!loja || !loja.whatsapp_enviar_confirmacao) return;
-    if (loja.whatsapp_metodo_ativo !== 'oficial') return; // não_oficial: ainda não implementado
 
-    const r = await enviarTemplateOficial(
-      {
-        phoneNumberId: loja.whatsapp_oficial_phone_id || '',
-        tokenCriptografado: loja.whatsapp_oficial_token || '',
-        templateNome: loja.whatsapp_oficial_template || 'confirmacao_pedido',
-      },
-      pedido.cliente_telefone,
-      [pedido.cliente_nome, `#${pedido.id}`, brl(pedido.total_centavos)],
-    );
-    if (!r.ok) console.warn(`[WhatsApp] Falha ao notificar pedido #${pedido.id} (loja ${pedido.loja_id}): ${r.erro}`);
+    if (loja.whatsapp_metodo_ativo === 'oficial') {
+      const r = await enviarTemplateOficial(
+        {
+          phoneNumberId: loja.whatsapp_oficial_phone_id || '',
+          tokenCriptografado: loja.whatsapp_oficial_token || '',
+          templateNome: loja.whatsapp_oficial_template || 'confirmacao_pedido',
+        },
+        pedido.cliente_telefone,
+        [pedido.cliente_nome, `#${pedido.id}`, brl(pedido.total_centavos)],
+      );
+      if (!r.ok) console.warn(`[WhatsApp] Falha ao notificar pedido #${pedido.id} (loja ${pedido.loja_id}): ${r.erro}`);
+    } else if (loja.whatsapp_metodo_ativo === 'nao_oficial') {
+      const texto = `Olá, ${pedido.cliente_nome}! Seu pedido #${pedido.id} de ${brl(pedido.total_centavos)} foi recebido pela ${loja.nome}. Acompanhe o status pelo app.`;
+      const r = await enviarTextoNaoOficial(pedido.cliente_telefone, texto);
+      if (!r.ok) console.warn(`[WhatsApp] Falha ao notificar pedido #${pedido.id} (loja ${pedido.loja_id}): ${r.erro}`);
+    }
   } catch (e) {
     console.warn('[WhatsApp] Erro inesperado ao notificar pedido:', e);
   }

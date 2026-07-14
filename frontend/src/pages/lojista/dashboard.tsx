@@ -9,7 +9,7 @@ import {
   Bell, TrendingUp, ShoppingBag,
   Clock, ArrowRight, Users, Printer, ChefHat, CheckCircle2,
   XCircle, Package, Bike, Box, UtensilsCrossed, Settings, BarChart3, Ticket, Star, Eye,
-  Store, ChevronRight,
+  Store, ChevronRight, MessagesSquare,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useToast } from '@/components/ui/toast';
+import { ChatPedido } from '@/components/chat-pedido';
 import { api, ApiError } from '@/lib/api';
 import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
@@ -356,6 +357,7 @@ function CardPedidoDash({
   const [recusando, setRecusando] = useState(false);
   const [motivoRecusa, setMotivoRecusa] = useState('');
   const [carregando, setCarregando] = useState(false);
+  const [chatAberto, setChatAberto] = useState(false);
 
   async function acao(tipo: 'aceitar' | 'recusar' | 'preparar' | 'pronto', motivo?: string) {
     setCarregando(true);
@@ -474,6 +476,18 @@ function CardPedidoDash({
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <button
+              onClick={() => setChatAberto(true)}
+              className="relative p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
+              title="Chat com o cliente"
+            >
+              <MessagesSquare className="size-4" />
+              {!!p.mensagens_nao_lidas && (
+                <span className="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-destructive text-[8px] font-bold text-white">
+                  {p.mensagens_nao_lidas > 9 ? '9+' : p.mensagens_nao_lidas}
+                </span>
+              )}
+            </button>
+            <button
               onClick={() => imprimirPedido(p)}
               className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
               title="Imprimir pedido"
@@ -538,6 +552,14 @@ function CardPedidoDash({
           </div>
         )}
       </CardContent>
+
+      <ChatPedido
+        basePath={`/api/lojista/pedidos/${p.id}`}
+        remetenteProprio="loja"
+        nomeContato={p.cliente_nome || 'Cliente'}
+        aberto={chatAberto}
+        onFechar={() => setChatAberto(false)}
+      />
     </Card>
   );
 }

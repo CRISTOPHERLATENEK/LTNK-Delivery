@@ -59,6 +59,9 @@ export interface Loja {
   favicon_url?: string;
   cor_marca?: string;
   cor_secundaria?: string;
+  /** Coordenadas geocodificadas do endereço (melhor esforço; podem ser null). */
+  lat?: number | null;
+  lon?: number | null;
   criado_em: string;
 }
 

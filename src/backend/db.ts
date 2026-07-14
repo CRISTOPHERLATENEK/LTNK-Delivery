@@ -683,26 +683,68 @@ CREATE INDEX IF NOT EXISTS idx_avaliacoes_entregador ON avaliacoes_entregador(en
 garantirColuna('usuarios', 'nota_media', 'nota_media REAL NOT NULL DEFAULT 0');
 garantirColuna('usuarios', 'nota_qtd', 'nota_qtd INTEGER NOT NULL DEFAULT 0');
 
-// ----- Chat do pedido (cliente ↔ entregador) --------------------------------
-// Só existe enquanto o pedido está com entregador atribuído; não some depois,
-// fica como histórico. Polling simples (mesmo padrão de rastreio ao vivo),
-// sem WebSocket — consistente com o resto do app.
+// ----- Chat do pedido (cliente ↔ loja/entregador) ----------------------------
+// Uma única thread por pedido: antes de ter entregador atribuído, o cliente
+// fala com a LOJA; depois que o entregador é atribuído, passa a falar com
+// ele. Fica como histórico, não some. Polling simples (mesmo padrão de
+// rastreio ao vivo), sem WebSocket — consistente com o resto do app.
 db.exec(`
 CREATE TABLE IF NOT EXISTS mensagens_pedido (
   id          INTEGER PRIMARY KEY,
   pedido_id   INTEGER NOT NULL REFERENCES pedidos(id),
-  remetente   TEXT    NOT NULL CHECK (remetente IN ('cliente','entregador')),
+  remetente   TEXT    NOT NULL CHECK (remetente IN ('cliente','entregador','loja')),
   texto       TEXT    NOT NULL,
   lida        INTEGER NOT NULL DEFAULT 0,
   criado_em   TEXT    NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_mensagens_pedido ON mensagens_pedido(pedido_id, id);
 `);
+// Bancos criados antes desta mudança têm o CHECK antigo (só cliente/entregador)
+// — SQLite não suporta ALTER CHECK, então recriamos a tabela preservando dados.
+{
+  const info = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='mensagens_pedido'").get() as { sql: string } | undefined;
+  if (info && !info.sql.includes("'loja'")) {
+    db.exec(`
+      CREATE TABLE mensagens_pedido_v2 (
+        id          INTEGER PRIMARY KEY,
+        pedido_id   INTEGER NOT NULL REFERENCES pedidos(id),
+        remetente   TEXT    NOT NULL CHECK (remetente IN ('cliente','entregador','loja')),
+        texto       TEXT    NOT NULL,
+        lida        INTEGER NOT NULL DEFAULT 0,
+        criado_em   TEXT    NOT NULL
+      );
+      INSERT INTO mensagens_pedido_v2 SELECT * FROM mensagens_pedido;
+      DROP TABLE mensagens_pedido;
+      ALTER TABLE mensagens_pedido_v2 RENAME TO mensagens_pedido;
+      CREATE INDEX IF NOT EXISTS idx_mensagens_pedido ON mensagens_pedido(pedido_id, id);
+    `);
+  }
+}
 
 // Preferência do entregador: conversar pelo chat interno do app ou pelo
 // próprio WhatsApp dele (a plataforma nunca guarda o número do cliente pro
 // entregador nesse segundo caso — só abre um link wa.me no navegador).
 garantirColuna('usuarios', 'entregador_chat_metodo', "entregador_chat_metodo TEXT NOT NULL DEFAULT 'app'"); // 'app' | 'whatsapp'
+
+// Coordenadas da loja (geocodificadas a partir do endereço em texto livre) —
+// permitem desenhar o ponto de retirada no mapa de rota do entregador.
+garantirColuna('lojas', 'lat', 'lat REAL');
+garantirColuna('lojas', 'lon', 'lon REAL');
+
+// Etapa fina da entrega (dentro do status amplo 'em_entrega'): o entregador
+// vai marcando manualmente conforme avança, pra dar a mesma granularidade de
+// um app de delivery de verdade. Histórico com horário de cada etapa fica em
+// etapas_entrega; a etapa atual também é cacheada em pedidos pra consulta rápida.
+garantirColuna('pedidos', 'entregador_etapa', "entregador_etapa TEXT NOT NULL DEFAULT ''");
+db.exec(`
+CREATE TABLE IF NOT EXISTS etapas_entrega (
+  id         INTEGER PRIMARY KEY,
+  pedido_id  INTEGER NOT NULL REFERENCES pedidos(id),
+  etapa      TEXT    NOT NULL,
+  criado_em  TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_etapas_entrega ON etapas_entrega(pedido_id, id);
+`);
 
 // Marca da plataforma (sobrescrita global) — chaves padrão criadas só na primeira vez
 const padroes: Array<[string, string]> = [

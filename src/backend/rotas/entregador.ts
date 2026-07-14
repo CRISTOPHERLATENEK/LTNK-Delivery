@@ -48,24 +48,64 @@ router.post('/corridas/:id/aceitar', (req, res, next) => {
 
     db.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
       .run(req.params.id, 'em_entrega', agora);
+    db.prepare("UPDATE pedidos SET entregador_etapa = 'aceita' WHERE id = ?").run(req.params.id);
+    db.prepare('INSERT INTO etapas_entrega (pedido_id, etapa, criado_em) VALUES (?, ?, ?)')
+      .run(req.params.id, 'aceita', agora);
     registrarEvento(Number(req.params.id), 'saiu_para_entrega');
 
     res.json({ ok: true, mensagem: 'Corrida aceita! Boa entrega.' });
   } catch (e) { next(e); }
 });
 
+/** Sequência válida das etapas manuais que o entregador vai marcando durante a corrida. */
+const SEQUENCIA_ETAPAS = ['aceita', 'a_caminho_loja', 'chegou_loja', 'saiu_loja'] as const;
+type EtapaEntrega = typeof SEQUENCIA_ETAPAS[number];
+
+router.post('/corridas/:id/etapa', (req, res, next) => {
+  try {
+    const etapa = String(req.body.etapa || '') as EtapaEntrega;
+    const indice = SEQUENCIA_ETAPAS.indexOf(etapa);
+    if (indice < 1) throw erroHttp(400, 'Etapa inválida.');
+
+    const pedido = db.prepare(
+      "SELECT id, entregador_etapa FROM pedidos WHERE id = ? AND entregador_id = ? AND status = 'em_entrega'"
+    ).get(req.params.id, req.usuario!.id) as { id: number; entregador_etapa: string } | undefined;
+    if (!pedido) throw erroHttp(409, 'Esta entrega não está em andamento com você.');
+
+    // Entregas aceitas antes desta versão não têm entregador_etapa salva — trata como 'aceita'.
+    const indiceAtual = Math.max(0, SEQUENCIA_ETAPAS.indexOf(pedido.entregador_etapa as EtapaEntrega));
+    if (indice !== indiceAtual + 1) {
+      throw erroHttp(409, 'Etapa fora de ordem — atualize a tela e tente de novo.');
+    }
+
+    const agora = agoraUTC();
+    db.prepare('UPDATE pedidos SET entregador_etapa = ? WHERE id = ?').run(etapa, pedido.id);
+    db.prepare('INSERT INTO etapas_entrega (pedido_id, etapa, criado_em) VALUES (?, ?, ?)')
+      .run(pedido.id, etapa, agora);
+
+    res.json({ ok: true, etapa });
+  } catch (e) { next(e); }
+});
+
 router.get('/atual', (req, res) => {
   const pedido = db.prepare(
     `SELECT p.id, p.endereco_entrega, p.entrega_lat, p.entrega_lon, p.taxa_entrega_centavos, p.total_centavos,
-            p.forma_pagamento, p.troco_para_centavos, p.observacoes,
-            l.nome AS loja_nome, l.endereco AS loja_endereco,
+            p.forma_pagamento, p.troco_para_centavos, p.observacoes, p.entregador_etapa, p.criado_em,
+            l.nome AS loja_nome, l.endereco AS loja_endereco, l.lat AS loja_lat, l.lon AS loja_lon,
             u.nome AS cliente_nome, u.telefone AS cliente_telefone
        FROM pedidos p
        JOIN lojas l ON l.id = p.loja_id
        JOIN usuarios u ON u.id = p.cliente_id
       WHERE p.entregador_id = ? AND p.status = 'em_entrega'`
-  ).get(req.usuario!.id);
-  res.json({ pedido: pedido || null });
+  ).get(req.usuario!.id) as { id: number } | undefined;
+
+  if (!pedido) { res.json({ pedido: null }); return; }
+
+  const etapas = db.prepare(
+    'SELECT etapa, criado_em FROM etapas_entrega WHERE pedido_id = ? ORDER BY id'
+  ).all(pedido.id);
+
+  res.json({ pedido: { ...pedido, etapas } });
 });
 
 /**
@@ -124,6 +164,13 @@ router.post('/corridas/:id/chegando', async (req, res, next) => {
 
 router.post('/corridas/:id/entregar', (req, res, next) => {
   try {
+    const emCurso = db.prepare(
+      "SELECT entregador_etapa FROM pedidos WHERE id = ? AND entregador_id = ? AND status = 'em_entrega'"
+    ).get(req.params.id, req.usuario!.id) as { entregador_etapa: string } | undefined;
+    if (emCurso && emCurso.entregador_etapa !== 'saiu_loja') {
+      throw erroHttp(409, 'Marque que já saiu da loja antes de confirmar a entrega.');
+    }
+
     const agora = agoraUTC();
     const resultado = db.prepare(
       `UPDATE pedidos SET status = 'entregue', atualizado_em = ?

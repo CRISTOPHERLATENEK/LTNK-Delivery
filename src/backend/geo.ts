@@ -22,6 +22,42 @@ export interface EnderecoParaGeo {
   cep?: string;
 }
 
+/**
+ * Geocodifica um endereço em texto livre (ex.: o campo único `lojas.endereco`,
+ * que não é estruturado em rua/número/cidade/UF como o endereço do cliente).
+ * Mesma lógica best-effort de `geocodificar`, só troca os parâmetros de busca.
+ */
+export async function geocodificarTexto(endereco: string): Promise<Coordenadas | null> {
+  const q = endereco.trim();
+  if (!q) return null;
+  try {
+    const params = new URLSearchParams({
+      format: 'jsonv2',
+      limit: '1',
+      countrycodes: 'br',
+      q,
+    });
+
+    const controlador = new AbortController();
+    const timer = setTimeout(() => controlador.abort(), 6000);
+    const resp = await fetch(`${BASE}?${params.toString()}`, {
+      headers: { 'User-Agent': USER_AGENT, 'Accept-Language': 'pt-BR' },
+      signal: controlador.signal,
+    });
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+
+    const arr = await resp.json();
+    if (!Array.isArray(arr) || !arr[0]) return null;
+    const lat = parseFloat(arr[0].lat);
+    const lon = parseFloat(arr[0].lon);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return { lat, lon };
+  } catch {
+    return null;
+  }
+}
+
 export async function geocodificar(e: EnderecoParaGeo): Promise<Coordenadas | null> {
   if (!e.rua || !e.cidade || !e.uf) return null;
   try {

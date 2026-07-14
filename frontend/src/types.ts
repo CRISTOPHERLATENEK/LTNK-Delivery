@@ -316,6 +316,8 @@ export interface Pedido {
   motivo_recusa?: string | null;
   criado_em: string;
   atualizado_em?: string;
+  /** Só na listagem do lojista: mensagens do cliente ainda não lidas pela loja. */
+  mensagens_nao_lidas?: number;
 }
 
 export interface ItemPedido {

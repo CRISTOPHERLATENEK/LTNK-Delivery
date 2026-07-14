@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs';
 import { autenticar, exigirPerfil, exigirSuperAdmin } from '../auth';
 import { textoLimpo, inteiroPositivo, erroHttp, agoraUTC, emailValido, cpfValido, cpfDigitos, telefoneDigitos } from '../util';
 import { criptografar } from '../cripto';
+import { garantirSessaoPlataforma, obterQrPlataforma, solicitarCodigoPlataforma, statusSessaoPlataforma, desconectarPlataforma } from '../whatsapp-nao-oficial';
 import { validarCertificado, } from '../assinatura';
 import { caminhoCertificado } from './lojista';
 import * as fs from 'fs';
@@ -959,6 +960,10 @@ router.get('/configuracoes-gerais', (_req, res) => {
     suporte_email:    valor('suporte_email'),
     suporte_telefone: valor('suporte_telefone'),
     termos_url:       valor('termos_url'),
+    wbapi_server:      valor('wbapi_server'),
+    wbapi_session_id:  valor('wbapi_session_id'),
+    // A chave nunca é devolvida — só se está configurada ou não (mesmo padrão do token oficial da Meta).
+    wbapi_configurado: !!valor('wbapi_api_key'),
   });
 });
 
@@ -981,7 +986,58 @@ router.put('/configuracoes-gerais', exigirSuperAdmin, (req, res, next) => {
       if (v && !/^https?:\/\//i.test(v)) throw erroHttp(400, 'URL dos termos de uso inválida (use https://…).');
       upsert('termos_url', v);
     }
+    if (req.body.wbapi_server !== undefined) {
+      const v = textoLimpo(req.body.wbapi_server, 300);
+      if (v && !/^https?:\/\//i.test(v)) throw erroHttp(400, 'URL do servidor WBAPI inválida (use https://…).');
+      upsert('wbapi_server', v);
+    }
+    if (req.body.wbapi_session_id !== undefined) {
+      upsert('wbapi_session_id', textoLimpo(req.body.wbapi_session_id, 100));
+    }
+    // Só re-criptografa e salva se veio um valor novo não-vazio — campo em branco no form significa "não mexer".
+    if (typeof req.body.wbapi_api_key === 'string' && req.body.wbapi_api_key.trim()) {
+      upsert('wbapi_api_key', criptografar(req.body.wbapi_api_key.trim()));
+    }
     registrarAuditoria(req, 'configuracoes.editar');
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ----- WhatsApp não-oficial (WBAPI) — sessão única compartilhada da plataforma ---
+
+router.post('/whatsapp-nao-oficial/conectar', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const inicio = await garantirSessaoPlataforma(baseUrl);
+    if (!inicio.ok) throw erroHttp(400, inicio.erro || 'Falha ao iniciar a sessão do WhatsApp.');
+    const qr = await obterQrPlataforma();
+    if (!qr.ok) throw erroHttp(400, qr.erro || 'Falha ao obter o QR code.');
+    res.json({ ok: true, qr: qr.qr });
+  } catch (e) { next(e); }
+});
+
+router.post('/whatsapp-nao-oficial/codigo', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    const telefone = textoLimpo(req.body.telefone, 20);
+    if (!telefone.replace(/\D/g, '')) throw erroHttp(400, 'Informe o número do WhatsApp.');
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    await garantirSessaoPlataforma(baseUrl);
+    const r = await solicitarCodigoPlataforma(telefone);
+    if (!r.ok) throw erroHttp(400, r.erro || 'Falha ao solicitar o código.');
+    res.json({ ok: true, codigo: r.codigo });
+  } catch (e) { next(e); }
+});
+
+router.get('/whatsapp-nao-oficial/status', exigirSuperAdmin, async (_req, res, next) => {
+  try {
+    const r = await statusSessaoPlataforma();
+    res.json({ status: r.conectado ? 'conectado' : 'desconectado', numero: r.numero || null });
+  } catch (e) { next(e); }
+});
+
+router.post('/whatsapp-nao-oficial/desconectar', exigirSuperAdmin, async (_req, res, next) => {
+  try {
+    await desconectarPlataforma();
     res.json({ ok: true });
   } catch (e) { next(e); }
 });

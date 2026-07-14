@@ -2,12 +2,13 @@
  * Painel do entregador — corridas disponíveis, entrega ativa e ganhos.
  * Gerencia seu próprio login (sem Guard externo), padrão igual ao lojista.
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { Routes, Route, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
   Bike, MapPin, Phone, Store, CheckCircle2, ExternalLink,
   Activity, DollarSign, Home, TrendingUp, Clock, ArrowRight, Navigation, Bell, MessagesSquare,
+  Check, AlertTriangle, Wallet, Route as RouteIcon, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { AppLayout } from '@/components/app-layout';
 import { ChatPedido } from '@/components/chat-pedido';
@@ -22,6 +23,8 @@ import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, sessaoUsuario, salvarSessao } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
 import { cn } from '@/lib/utils';
+
+const MapaRota = lazy(() => import('@/components/mapa-rota').then(m => ({ default: m.MapaRota })));
 
 const ITENS_NAV = [
   { rota: '/entregador', icone: Home, rotulo: 'Corridas' },
@@ -42,11 +45,34 @@ interface Corrida {
   loja_endereco: string;
 }
 
+type EtapaEntrega = 'aceita' | 'a_caminho_loja' | 'chegou_loja' | 'saiu_loja';
+
 interface PedidoAtivo extends Corrida {
   cliente_nome: string;
   cliente_telefone?: string | null;
   observacoes?: string;
+  loja_lat?: number | null;
+  loja_lon?: number | null;
+  entregador_etapa: EtapaEntrega;
+  etapas: { etapa: EtapaEntrega; criado_em: string }[];
 }
+
+/** As 6 etapas exibidas no rastreador — as 2 últimas são derivadas (sem toque manual). */
+const ETAPAS_STEPPER: { chave: EtapaEntrega | 'a_caminho_cliente' | 'entregue'; rotulo: string }[] = [
+  { chave: 'aceita', rotulo: 'Aceita' },
+  { chave: 'a_caminho_loja', rotulo: 'A caminho da loja' },
+  { chave: 'chegou_loja', rotulo: 'Cheguei na loja' },
+  { chave: 'saiu_loja', rotulo: 'Sai da loja' },
+  { chave: 'a_caminho_cliente', rotulo: 'A caminho do cliente' },
+  { chave: 'entregue', rotulo: 'Entregue' },
+];
+const SEQUENCIA_ETAPAS: EtapaEntrega[] = ['aceita', 'a_caminho_loja', 'chegou_loja', 'saiu_loja'];
+const PROXIMA_ACAO: Record<EtapaEntrega, { proxima: EtapaEntrega; rotulo: string }> = {
+  aceita: { proxima: 'a_caminho_loja', rotulo: 'Estou indo até a loja' },
+  a_caminho_loja: { proxima: 'chegou_loja', rotulo: 'Cheguei na loja' },
+  chegou_loja: { proxima: 'saiu_loja', rotulo: 'Saí da loja, indo entregar' },
+  saiu_loja: { proxima: 'saiu_loja', rotulo: '' }, // última etapa manual — a partir daqui usa os botões de chegada/entrega
+};
 
 interface Entrega {
   id: number;
@@ -211,8 +237,9 @@ function CorridasDisponiveis() {
  */
 type EstadoGPS = 'inativo' | 'aguardando' | 'ativo' | 'negado' | 'indisponivel';
 
-function useCompartilharLocalizacao(pedidoId: number | undefined): EstadoGPS {
+function useCompartilharLocalizacao(pedidoId: number | undefined): { estado: EstadoGPS; posicao: { lat: number; lng: number } | null } {
   const [estado, setEstado] = useState<EstadoGPS>('inativo');
+  const [posicao, setPosicao] = useState<{ lat: number; lng: number } | null>(null);
   const ultimoEnvio = useRef(0);
 
   useEffect(() => {
@@ -222,11 +249,12 @@ function useCompartilharLocalizacao(pedidoId: number | undefined): EstadoGPS {
     setEstado('aguardando');
     const watchId = navigator.geolocation.watchPosition(
       pos => {
+        setEstado('ativo');
+        setPosicao({ lat: pos.coords.latitude, lng: pos.coords.longitude });
         const agora = Date.now();
         // Throttle: no máximo 1 envio a cada 8 segundos.
         if (agora - ultimoEnvio.current < 8000) return;
         ultimoEnvio.current = agora;
-        setEstado('ativo');
         api('POST', `/api/entregador/corridas/${pedidoId}/localizacao`, {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
@@ -241,7 +269,7 @@ function useCompartilharLocalizacao(pedidoId: number | undefined): EstadoGPS {
     return () => navigator.geolocation.clearWatch(watchId);
   }, [pedidoId]);
 
-  return estado;
+  return { estado, posicao };
 }
 
 function EntregaAtiva() {
@@ -255,10 +283,33 @@ function EntregaAtiva() {
     refetchInterval: 5000,
   });
 
-  const estadoGPS = useCompartilharLocalizacao(consulta.data?.id);
+  const { estado: estadoGPS, posicao } = useCompartilharLocalizacao(consulta.data?.id);
   const [avisando, setAvisando] = useState(false);
   const [avisou, setAvisou] = useState(false);
   const [chatAberto, setChatAberto] = useState(false);
+  const [avancando, setAvancando] = useState(false);
+  const [detalhesAbertos, setDetalhesAbertos] = useState(false);
+  const [rota, setRota] = useState<{ distanciaKm: number; duracaoMin: number } | null>(null);
+  const [problemaAberto, setProblemaAberto] = useState(false);
+
+  async function avancarEtapa(id: number, proxima: EtapaEntrega) {
+    setAvancando(true);
+    try {
+      await api('POST', `/api/entregador/corridas/${id}/etapa`, { etapa: proxima });
+      // Espera o refetch trazer a etapa nova antes de reabilitar o botão —
+      // senão um clique duplo rápido reenvia a MESMA etapa (já superada) e
+      // o backend recusa como "fora de ordem".
+      await consulta.refetch();
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+      // Se deu "fora de ordem" é porque o servidor já está numa etapa
+      // diferente da que a tela mostrava — busca o estado real de novo em
+      // vez de deixar o botão errado na tela até um reload manual.
+      await consulta.refetch();
+    } finally {
+      setAvancando(false);
+    }
+  }
 
   async function confirmar(id: number) {
     if (!(await pedirConfirmacao({ titulo: 'Confirmar entrega?', descricao: 'Confirme que o pedido foi entregue ao cliente.', confirmar: 'Confirmar entrega' }))) return;
@@ -284,7 +335,7 @@ function EntregaAtiva() {
     }
   }
 
-  if (consulta.isLoading) return <Skeleton className="h-64 rounded-2xl" />;
+  if (consulta.isLoading) return <Skeleton className="h-96 rounded-2xl" />;
 
   if (!consulta.data) {
     return (
@@ -304,6 +355,15 @@ function EntregaAtiva() {
       ? `https://www.google.com/maps/search/?api=1&query=${lat},${lon}`
       : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(end)}`;
 
+  const temMapa = p.loja_lat != null && p.loja_lon != null && p.entrega_lat != null && p.entrega_lon != null;
+  // Entregas aceitas antes desta versão não têm entregador_etapa salva — trata como 'aceita'.
+  const etapaAtual: EtapaEntrega = SEQUENCIA_ETAPAS.includes(p.entregador_etapa) ? p.entregador_etapa : 'aceita';
+  const indiceEtapa = SEQUENCIA_ETAPAS.indexOf(etapaAtual); // 0..3
+  const indiceAtualStepper = indiceEtapa + 1; // próximo item do ETAPAS_STEPPER ainda "em andamento"
+  const tempoEtapa = (chave: EtapaEntrega) => p.etapas.find(e => e.etapa === chave)?.criado_em;
+  const proximaAcao = PROXIMA_ACAO[etapaAtual];
+  const chegouAoCliente = etapaAtual === 'saiu_loja';
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -314,32 +374,79 @@ function EntregaAtiva() {
         <Badge variant="info">#{String(p.id).padStart(4, '0')}</Badge>
       </div>
 
-      <Card>
-        <CardContent className="p-5 space-y-4">
-          <div className="text-center py-3 rounded-2xl bg-success/10 border border-success/20">
+      {/* Frete + estatísticas da corrida */}
+      <Card className="border-success/30 bg-success/5 overflow-hidden">
+        <CardContent className="p-4 flex flex-wrap items-center gap-4">
+          <div>
             <div className="text-xs text-muted-foreground font-medium">Seu frete</div>
-            <div className="text-3xl font-extrabold text-success tabular-nums mt-0.5">
+            <div className="text-2xl font-extrabold text-success tabular-nums mt-0.5">
               {brl(p.taxa_entrega_centavos)}
             </div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {p.forma_pagamento === 'pix' && 'Pagamento via Pix'}
+              {p.forma_pagamento === 'dinheiro' && 'Pagamento em dinheiro'}
+              {p.forma_pagamento === 'cartao_entrega' && 'Pagamento na entrega'}
+            </div>
           </div>
-
-          {/* Status do rastreamento GPS */}
-          <div className={cn(
-            'flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm',
-            estadoGPS === 'ativo' && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
-            estadoGPS === 'aguardando' && 'bg-blue-500/10 text-blue-700 dark:text-blue-300',
-            (estadoGPS === 'negado' || estadoGPS === 'indisponivel') && 'bg-amber-500/10 text-amber-700 dark:text-amber-300',
-          )}>
-            <Navigation className={cn('size-4 shrink-0', estadoGPS === 'ativo' && 'animate-pulse')} />
-            <span className="flex-1">
-              {estadoGPS === 'ativo' && 'Localização sendo compartilhada com o cliente em tempo real.'}
-              {estadoGPS === 'aguardando' && 'Obtendo sua localização…'}
-              {estadoGPS === 'negado' && 'Permissão de localização negada. O cliente não verá você no mapa.'}
-              {estadoGPS === 'indisponivel' && 'GPS indisponível neste dispositivo.'}
-              {estadoGPS === 'inativo' && 'Rastreamento inativo.'}
-            </span>
+          <div className="flex flex-1 flex-wrap items-center gap-x-6 gap-y-2 justify-end">
+            <div className="flex items-center gap-2">
+              <RouteIcon className="size-4 text-muted-foreground" />
+              <div>
+                <div className="text-[11px] text-muted-foreground leading-none">Distância total</div>
+                <div className="text-sm font-bold tabular-nums mt-0.5">{rota ? `${rota.distanciaKm.toFixed(1)} km` : '—'}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock className="size-4 text-muted-foreground" />
+              <div>
+                <div className="text-[11px] text-muted-foreground leading-none">Tempo estimado</div>
+                <div className="text-sm font-bold tabular-nums mt-0.5">{rota ? `${Math.round(rota.duracaoMin)} min` : '—'}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Wallet className="size-4 text-muted-foreground" />
+              <div>
+                <div className="text-[11px] text-muted-foreground leading-none">Ganhos da corrida</div>
+                <div className="text-sm font-bold tabular-nums mt-0.5 text-success">{brl(p.taxa_entrega_centavos)}</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDetalhesAbertos(v => !v)}
+              className="inline-flex items-center gap-1 text-xs font-bold text-primary shrink-0"
+            >
+              Mais detalhes {detalhesAbertos ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+            </button>
           </div>
+        </CardContent>
+      </Card>
 
+      {/* Status do rastreamento GPS */}
+      <div className={cn(
+        'flex items-center gap-2.5 rounded-xl px-4 py-2.5 text-sm border',
+        estadoGPS === 'ativo' && 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-300',
+        estadoGPS === 'aguardando' && 'bg-blue-500/10 border-blue-500/20 text-blue-700 dark:text-blue-300',
+        (estadoGPS === 'negado' || estadoGPS === 'indisponivel') && 'bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-300',
+      )}>
+        <Navigation className={cn('size-4 shrink-0', estadoGPS === 'ativo' && 'animate-pulse')} />
+        <span className="flex-1">
+          <span className="font-bold">{estadoGPS === 'ativo' ? 'Localização ao vivo' : 'Localização'}</span>
+          <span className="text-muted-foreground"> · {estadoGPS === 'ativo' && 'Compartilhada com o cliente em tempo real'}
+          {estadoGPS === 'aguardando' && 'Obtendo sua localização…'}
+          {estadoGPS === 'negado' && 'Permissão negada — o cliente não verá você no mapa'}
+          {estadoGPS === 'indisponivel' && 'GPS indisponível neste dispositivo'}
+          {estadoGPS === 'inativo' && 'Rastreamento inativo'}</span>
+        </span>
+        {estadoGPS === 'ativo' && (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-bold shrink-0">
+            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" /> GPS ativo
+          </span>
+        )}
+      </div>
+
+      {/* Pontos + mapa lado a lado */}
+      <div className="lg:grid lg:grid-cols-[320px_1fr] lg:gap-4 lg:items-start space-y-4 lg:space-y-0">
+        <div className="space-y-4">
           <div className="rounded-xl bg-amber-500/10 p-4 space-y-1.5">
             <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
               <Store className="size-3.5" /> Ponto 1 — Retirada
@@ -348,7 +455,7 @@ function EntregaAtiva() {
             {p.loja_endereco && (
               <>
                 <div className="text-sm text-muted-foreground">{p.loja_endereco}</div>
-                <a href={mapa(p.loja_endereco)} target="_blank" rel="noopener noreferrer"
+                <a href={mapa(p.loja_endereco, p.loja_lat, p.loja_lon)} target="_blank" rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-600 dark:text-amber-400">
                   <ExternalLink className="size-3" /> Ver no mapa
                 </a>
@@ -361,7 +468,7 @@ function EntregaAtiva() {
               <MapPin className="size-3.5" /> Ponto 2 — Entrega
             </div>
             <div className="font-bold">{p.cliente_nome}</div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
               {p.cliente_telefone && (
                 <a href={`tel:${p.cliente_telefone}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary">
                   <Phone className="size-3.5" /> {p.cliente_telefone}
@@ -370,9 +477,9 @@ function EntregaAtiva() {
               <button
                 type="button"
                 onClick={() => setChatAberto(true)}
-                className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary"
+                className="inline-flex items-center gap-1.5 rounded-full bg-primary text-primary-foreground px-3 py-1.5 text-sm font-bold shadow-sm hover:brightness-105 active:scale-95 transition-all"
               >
-                <MessagesSquare className="size-3.5" /> Chat
+                <MessagesSquare className="size-4" /> Chat
               </button>
             </div>
             <div className="text-sm text-muted-foreground">{p.endereco_entrega}</div>
@@ -388,43 +495,145 @@ function EntregaAtiva() {
             </div>
           )}
 
-          <div className="border-t pt-3 space-y-2 text-sm">
-            <div className="flex justify-between text-muted-foreground">
-              <span>Total do pedido</span>
-              <span className="tabular-nums font-semibold text-foreground">{brl(p.total_centavos)}</span>
-            </div>
-            <div className="flex justify-between text-muted-foreground">
-              <span>Pagamento</span>
-              <span className="font-semibold text-foreground">
-                {p.forma_pagamento === 'pix' && '🔑 Pix'}
-                {p.forma_pagamento === 'dinheiro' && '💵 Dinheiro'}
-                {p.forma_pagamento === 'cartao_entrega' && '💳 Cartão'}
-              </span>
-            </div>
-            {p.troco_para_centavos && (
+          {detalhesAbertos && (
+            <div className="rounded-xl border border-border p-4 space-y-2 text-sm">
               <div className="flex justify-between text-muted-foreground">
-                <span>Troco para</span>
-                <span className="tabular-nums font-semibold text-foreground">{brl(p.troco_para_centavos)}</span>
+                <span>Total do pedido</span>
+                <span className="tabular-nums font-semibold text-foreground">{brl(p.total_centavos)}</span>
+              </div>
+              <div className="flex justify-between text-muted-foreground">
+                <span>Pagamento</span>
+                <span className="font-semibold text-foreground">
+                  {p.forma_pagamento === 'pix' && 'Pix'}
+                  {p.forma_pagamento === 'dinheiro' && 'Dinheiro'}
+                  {p.forma_pagamento === 'cartao_entrega' && 'Cartão'}
+                </span>
+              </div>
+              {p.troco_para_centavos && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Troco para</span>
+                  <span className="tabular-nums font-semibold text-foreground">{brl(p.troco_para_centavos)}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Mapa com a rota real */}
+        <Card className="overflow-hidden">
+          <div className="h-72 lg:h-full lg:min-h-[380px] w-full bg-muted">
+            {temMapa ? (
+              <Suspense fallback={<div className="h-full w-full animate-pulse bg-muted" />}>
+                <MapaRota
+                  origem={{ lat: p.loja_lat!, lng: p.loja_lon!, rotulo: p.loja_nome }}
+                  destino={{ lat: p.entrega_lat!, lng: p.entrega_lon!, rotulo: p.cliente_nome }}
+                  entregador={posicao}
+                  onRota={setRota}
+                />
+              </Suspense>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center gap-2 p-6">
+                <MapPin className="size-8 text-muted-foreground" />
+                <p className="text-sm font-semibold">Mapa indisponível</p>
+                <p className="text-xs text-muted-foreground max-w-[240px]">
+                  Faltam coordenadas da loja ou do endereço de entrega pra desenhar a rota.
+                </p>
               </div>
             )}
           </div>
+        </Card>
+      </div>
 
-          <Button
-            variant={avisou ? 'outline' : 'default'}
-            size="lg"
-            className="w-full rounded-2xl"
-            onClick={() => avisarChegada(p.id)}
-            disabled={avisando || avisou}
-          >
-            <Bell className="size-4" />
-            {avisou ? 'Cliente já avisado ✓' : avisando ? 'Avisando…' : 'Avisar que estou chegando'}
-          </Button>
-
-          <Button variant="success" size="xl" className="w-full rounded-2xl h-14 text-base font-bold" onClick={() => confirmar(p.id)}>
-            <CheckCircle2 className="size-5" /> Confirmar entrega realizada
-          </Button>
+      {/* Rastreador de etapas da entrega */}
+      <Card>
+        <CardContent className="p-5 overflow-x-auto">
+          <div className="flex items-center min-w-[560px]">
+            {ETAPAS_STEPPER.map((etapa, i) => {
+              const estado = i < indiceAtualStepper ? 'feito' : i === indiceAtualStepper ? 'atual' : 'futuro';
+              const isLast = i === ETAPAS_STEPPER.length - 1;
+              const horario = i < 4 ? tempoEtapa(ETAPAS_STEPPER[i].chave as EtapaEntrega) : undefined;
+              return (
+                <div key={etapa.chave} className="flex items-center" style={{ flex: isLast ? '0 0 auto' : '1 1 0%' }}>
+                  <div className="flex flex-col items-center gap-1.5 shrink-0">
+                    <div className={cn(
+                      'flex size-8 items-center justify-center rounded-full border-2 shrink-0 transition-all',
+                      estado === 'feito' && 'border-emerald-500 bg-emerald-500 text-white',
+                      estado === 'atual' && 'border-primary bg-primary text-primary-foreground',
+                      estado === 'futuro' && 'border-border bg-muted text-muted-foreground/50',
+                    )}>
+                      {estado === 'feito' && <Check className="size-4" strokeWidth={3} />}
+                      {estado === 'atual' && <Bike className="size-4" />}
+                      {estado === 'futuro' && <div className="size-2 rounded-full bg-current" />}
+                    </div>
+                    <div className="text-center">
+                      <div className={cn(
+                        'text-[11px] font-bold whitespace-nowrap',
+                        estado === 'futuro' ? 'text-muted-foreground' : estado === 'atual' ? 'text-primary' : 'text-emerald-600 dark:text-emerald-400',
+                      )}>
+                        {etapa.rotulo}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {horario ? new Date(horario).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : ''}
+                      </div>
+                    </div>
+                  </div>
+                  {!isLast && (
+                    <div className={cn('h-0.5 flex-1 mx-1 rounded-full mb-5', i < indiceAtualStepper ? 'bg-emerald-500' : 'bg-border')} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
+
+      {/* Ações */}
+      <div className="space-y-2">
+        {!chegouAoCliente ? (
+          <Button
+            size="xl" className="w-full rounded-2xl h-14 text-base font-bold"
+            onClick={() => avancarEtapa(p.id, proximaAcao.proxima)}
+            disabled={avancando}
+          >
+            <ArrowRight className="size-5" /> {avancando ? 'Atualizando…' : proximaAcao.rotulo}
+          </Button>
+        ) : (
+          <div className="flex flex-col sm:flex-row gap-2">
+            <Button
+              variant={avisou ? 'outline' : 'default'}
+              size="xl"
+              className="flex-1 rounded-2xl h-14 text-base font-bold"
+              onClick={() => avisarChegada(p.id)}
+              disabled={avisando || avisou}
+            >
+              <Bell className="size-4" />
+              {avisou ? 'Cliente já avisado ✓' : avisando ? 'Avisando…' : 'Avisar que estou chegando'}
+            </Button>
+            <Button variant="success" size="xl" className="flex-1 rounded-2xl h-14 text-base font-bold" onClick={() => confirmar(p.id)}>
+              <CheckCircle2 className="size-5" /> Confirmar entrega realizada
+            </Button>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setProblemaAberto(v => !v)}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm font-semibold text-amber-700 dark:text-amber-400 hover:bg-amber-500/10 transition-colors"
+        >
+          <AlertTriangle className="size-4" /> Problemas na entrega
+        </button>
+        {problemaAberto && (
+          <div className="rounded-2xl border border-border bg-card p-4 text-sm space-y-2">
+            <p className="text-muted-foreground">
+              Endereço errado, cliente não atende, item faltando? Fale direto com o cliente pelo chat,
+              ou entre em contato com a loja pelo telefone dela.
+            </p>
+            <Button size="sm" variant="outline" className="rounded-xl" onClick={() => setChatAberto(true)}>
+              <MessagesSquare className="size-3.5" /> Abrir chat com o cliente
+            </Button>
+          </div>
+        )}
+      </div>
 
       <ChatPedido
         basePath={`/api/entregador/corridas/${p.id}`}
