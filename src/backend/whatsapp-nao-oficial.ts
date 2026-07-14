@@ -171,19 +171,46 @@ export async function desconectarPlataforma(): Promise<ResultadoChamada> {
   return chamar(`/api/sessions/${cred.sessionId}/logout`, 'POST');
 }
 
-/** Normaliza telefone BR pro formato que o WBAPI espera no chatId (E.164 + "@c.us"). */
-function chatId(telefoneDigitos: string): string | null {
+/** Normaliza um telefone BR pra E.164 sem "+" (ex.: 5547999998888). */
+function paraE164(telefoneDigitos: string): string | null {
   const d = telefoneDigitos.replace(/\D/g, '');
   if (!d) return null;
-  const e164 = d.startsWith('55') && (d.length === 12 || d.length === 13) ? d
-    : (d.length === 10 || d.length === 11) ? `55${d}` : null;
-  return e164 ? `${e164}@c.us` : null;
+  if (d.startsWith('55') && (d.length === 12 || d.length === 13)) return d;
+  if (d.length === 10 || d.length === 11) return `55${d}`;
+  return null;
+}
+
+/**
+ * Resolve o chatId REAL de um número via a própria API do WhatsApp — crucial
+ * pro Brasil por causa do "nono dígito": números de celular têm o 9 na frente
+ * (ex.: 47 99784-3478), mas internamente o WhatsApp registra muitos SEM esse 9
+ * (554784173970). Se a gente adivinhar o formato errado, a API aceita o envio
+ * mas a mensagem nunca chega. check-exists devolve o chatId certo pra usar.
+ * Se o número não existir no WhatsApp, devolve null (não adianta tentar enviar).
+ */
+async function resolverChatId(telefoneDestino: string): Promise<{ chatId: string | null; existe: boolean }> {
+  const cred = credenciaisPlataforma();
+  const e164 = paraE164(telefoneDestino);
+  if (!cred || !e164) return { chatId: null, existe: false };
+
+  const r = await chamar(`/api/contacts/check-exists?phone=${e164}&session=${cred.sessionId}`, 'GET');
+  if (r.ok && r.dados && typeof r.dados === 'object') {
+    if (r.dados.numberExists === false) return { chatId: null, existe: false };
+    if (typeof r.dados.chatId === 'string' && r.dados.chatId.includes('@')) {
+      return { chatId: r.dados.chatId, existe: true };
+    }
+  }
+  // Fallback: se check-exists falhar (rede/formato inesperado), usa o E.164 direto —
+  // pode não entregar pra números que dependem do desdobramento do 9, mas é melhor que abortar.
+  return { chatId: `${e164}@c.us`, existe: true };
 }
 
 export async function enviarTextoNaoOficial(telefoneDestino: string, texto: string): Promise<ResultadoChamada> {
   const cred = credenciaisPlataforma();
   if (!cred) return { ok: false, status: 0, dados: null, erro: 'WhatsApp não-oficial não configurado pela plataforma.' };
-  const id = chatId(telefoneDestino);
-  if (!id) return { ok: false, status: 0, dados: null, erro: 'Telefone do cliente inválido.' };
+  const { chatId: id, existe } = await resolverChatId(telefoneDestino);
+  if (!id) {
+    return { ok: false, status: 0, dados: null, erro: existe ? 'Telefone do cliente inválido.' : 'Este número não tem WhatsApp.' };
+  }
   return chamar('/api/sendText', 'POST', { session: cred.sessionId, chatId: id, reply_to: null, text: texto });
 }
