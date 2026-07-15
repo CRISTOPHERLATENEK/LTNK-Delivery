@@ -24,8 +24,8 @@ import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
 import { ErroHttp, lojaAbertaPorAgenda, agoraUTC } from './util';
-import db, { comTenant } from './db';
-import { resolverPorHost, tenantPadrao, listarTenants } from './tenants';
+import db, { comTenant } from './db-mysql';
+import { inicializarCentral, resolverPorHost, tenantPadrao, listarTenants } from './tenants-mysql';
 import { capturarErro } from './monitoramento';
 
 /**
@@ -68,8 +68,10 @@ app.use((req, res, next) => {
 // Sem match (localhost / domínio não cadastrado) usa o tenant padrão.
 // Todo o restante do request roda dentro do contexto desse tenant.
 app.use((req, _res, next) => {
-  const tenant = resolverPorHost(req.headers.host) ?? tenantPadrao();
-  comTenant(tenant.db_arquivo, () => next());
+  (async () => {
+    const tenant = (await resolverPorHost(req.headers.host)) ?? (await tenantPadrao());
+    await comTenant(tenant.db_nome, async () => { next(); });
+  })().catch(next);
 });
 
 app.use('/api/auth', autenticacaoRoutes);
@@ -139,42 +141,49 @@ app.use(tratadorErros);
  * Tick de horário automático — a cada minuto, abre/fecha as lojas que ativaram
  * o modo automático conforme a agenda semanal. Respeita pausa temporária.
  */
-function sincronizarHorariosDoTenant(): void {
-  const lojas = db.prepare(
+async function sincronizarHorariosDoTenant(): Promise<void> {
+  const lojas = await db.prepare(
     `SELECT id, aberta, horario_json, pausado_ate FROM lojas WHERE auto_horario = 1`
   ).all() as Array<{ id: number; aberta: number; horario_json: string; pausado_ate: string }>;
   const agora = agoraUTC();
-  const atualizar = db.prepare('UPDATE lojas SET aberta = ? WHERE id = ?');
   for (const loja of lojas) {
     let deveAbrir = lojaAbertaPorAgenda(loja.horario_json);
     if (deveAbrir === null) continue; // sem agenda válida, não mexe
     // Pausa temporária força fechado.
     if (loja.pausado_ate && loja.pausado_ate > agora) deveAbrir = false;
     const alvo = deveAbrir ? 1 : 0;
-    if (loja.aberta !== alvo) atualizar.run(alvo, loja.id);
+    if (loja.aberta !== alvo) await db.prepare('UPDATE lojas SET aberta = ? WHERE id = ?').run(alvo, loja.id);
   }
 }
 
-/** Roda o tick de horário para CADA tenant (cada um no seu próprio .db). */
-function sincronizarHorarios(): void {
-  for (const tenant of listarTenants()) {
+/** Roda o tick de horário para CADA tenant (cada um no seu próprio banco). */
+async function sincronizarHorarios(): Promise<void> {
+  for (const tenant of await listarTenants()) {
     if (!tenant.ativo) continue;
     try {
-      comTenant(tenant.db_arquivo, sincronizarHorariosDoTenant);
+      await comTenant(tenant.db_nome, sincronizarHorariosDoTenant);
     } catch (e) {
       console.error(`[HORARIO AUTO] falha no tenant ${tenant.slug}:`, e);
     }
   }
 }
-sincronizarHorarios();
-setInterval(sincronizarHorarios, 60_000);
 
 const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, () => {
-  // Esta mensagem é só informativa (endereço LOCAL do processo). Em produção,
-  // é a plataforma de hospedagem (ex.: Hostinger) que encaminha o SEU DOMÍNIO
-  // pra esta porta por trás dos panos — "localhost" aqui não significa que o
-  // app está preso à máquina local.
-  console.log(`✅ Delivery Multi-lojas ouvindo na porta ${PORT} (acesse pelo seu domínio em produção)`);
-  console.log('   Local p/ testes: http://localhost:' + PORT + '/');
+
+(async () => {
+  await inicializarCentral();
+  sincronizarHorarios().catch(e => console.error('[HORARIO AUTO] falha:', e));
+  setInterval(() => { sincronizarHorarios().catch(e => console.error('[HORARIO AUTO] falha:', e)); }, 60_000);
+
+  app.listen(PORT, () => {
+    // Esta mensagem é só informativa (endereço LOCAL do processo). Em produção,
+    // é a plataforma de hospedagem (ex.: Hostinger) que encaminha o SEU DOMÍNIO
+    // pra esta porta por trás dos panos — "localhost" aqui não significa que o
+    // app está preso à máquina local.
+    console.log(`✅ Delivery Multi-lojas ouvindo na porta ${PORT} (acesse pelo seu domínio em produção)`);
+    console.log('   Local p/ testes: http://localhost:' + PORT + '/');
+  });
+})().catch(e => {
+  console.error('❌ Falha fatal ao inicializar (registro central de tenants):', e);
+  process.exit(1);
 });

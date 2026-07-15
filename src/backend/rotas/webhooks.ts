@@ -4,7 +4,7 @@
  * validação é por um token no query string.
  */
 import { Router } from 'express';
-import db from '../db';
+import db from '../db-mysql';
 import { agoraUTC } from '../util';
 import { segredoWebhook } from '../whatsapp-nao-oficial';
 
@@ -21,7 +21,7 @@ const router = Router();
  * abaixo são best-effort (nomes mais comuns em APIs estilo WAHA/Baileys) e
  * podem precisar de ajuste ao ver um evento real chegando.
  */
-router.post('/whatsapp', (req, res) => {
+router.post('/whatsapp', async (req, res) => {
   res.status(200).json({ ok: true }); // responde rápido — o provedor não deve re-tentar por nossa causa
   try {
     const token = String(req.query.token || '');
@@ -42,7 +42,7 @@ router.post('/whatsapp', (req, res) => {
     if (!digitos) return;
     const semDDI = digitos.startsWith('55') ? digitos.slice(2) : digitos;
 
-    const pedido = db.prepare(
+    const pedido = await db.prepare(
       `SELECT p.id FROM pedidos p JOIN usuarios u ON u.id = p.cliente_id
         WHERE (u.telefone = ? OR u.telefone = ?)
           AND p.status NOT IN ('entregue', 'cancelado', 'recusado')
@@ -50,7 +50,7 @@ router.post('/whatsapp', (req, res) => {
     ).get(digitos, semDDI) as { id: number } | undefined;
     if (!pedido) return;
 
-    db.prepare(
+    await db.prepare(
       `INSERT INTO mensagens_pedido (pedido_id, remetente, texto, criado_em) VALUES (?, 'cliente', ?, ?)`
     ).run(pedido.id, texto.slice(0, 500), agoraUTC());
   } catch (e) {

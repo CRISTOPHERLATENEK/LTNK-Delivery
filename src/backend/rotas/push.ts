@@ -10,18 +10,18 @@ const router = Router();
 router.use(autenticar);
 
 /** Registra a inscrição de push do dispositivo atual. */
-router.post('/inscrever', (req, res, next) => {
+router.post('/inscrever', async (req, res, next) => {
   try {
-    salvarInscricao(req.usuario!.id, req.body?.inscricao);
+    await salvarInscricao(req.usuario!.id, req.body?.inscricao);
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
 /** Remove a inscrição (usuário desativou notificações neste dispositivo). */
-router.post('/cancelar', (req, res, next) => {
+router.post('/cancelar', async (req, res, next) => {
   try {
     const endpoint = req.body?.endpoint;
-    if (endpoint) removerInscricao(endpoint);
+    if (endpoint) await removerInscricao(endpoint);
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

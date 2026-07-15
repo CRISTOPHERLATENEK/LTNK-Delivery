@@ -6,7 +6,7 @@
  * automaticamente ao falhar o envio.
  */
 import webpush from 'web-push';
-import db from './db';
+import db from './db-mysql';
 import { agoraUTC } from './util';
 
 const PUBLIC = process.env.VAPID_PUBLIC_KEY || '';
@@ -52,23 +52,23 @@ interface InscricaoBruta {
 }
 
 /** Salva (ou atualiza) uma inscrição de push para o usuário. */
-export function salvarInscricao(usuarioId: number, sub: InscricaoBruta): void {
+export async function salvarInscricao(usuarioId: number, sub: InscricaoBruta): Promise<void> {
   if (!sub?.endpoint || !sub?.keys?.p256dh || !sub?.keys?.auth) {
     throw Object.assign(new Error('Inscrição de push inválida.'), { statusHttp: 400 });
   }
-  db.prepare(
+  await db.prepare(
     `INSERT INTO push_inscricoes (usuario_id, endpoint, p256dh, auth, criado_em)
      VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT(endpoint) DO UPDATE SET
-       usuario_id = excluded.usuario_id,
-       p256dh     = excluded.p256dh,
-       auth       = excluded.auth`
+     ON DUPLICATE KEY UPDATE
+       usuario_id = VALUES(usuario_id),
+       p256dh     = VALUES(p256dh),
+       auth       = VALUES(auth)`
   ).run(usuarioId, sub.endpoint, sub.keys.p256dh, sub.keys.auth, agoraUTC());
 }
 
 /** Remove uma inscrição (ex.: usuário desativou notificações). */
-export function removerInscricao(endpoint: string): void {
-  db.prepare('DELETE FROM push_inscricoes WHERE endpoint = ?').run(endpoint);
+export async function removerInscricao(endpoint: string): Promise<void> {
+  await db.prepare('DELETE FROM push_inscricoes WHERE endpoint = ?').run(endpoint);
 }
 
 interface PayloadPush {
@@ -85,7 +85,7 @@ interface PayloadPush {
 export async function enviarPush(usuarioId: number, payload: PayloadPush): Promise<number> {
   if (!pushHabilitado) return 0;
 
-  const inscricoes = db.prepare(
+  const inscricoes = await db.prepare(
     'SELECT endpoint, p256dh, auth FROM push_inscricoes WHERE usuario_id = ?'
   ).all(usuarioId) as Array<{ endpoint: string; p256dh: string; auth: string }>;
 
@@ -102,7 +102,7 @@ export async function enviarPush(usuarioId: number, payload: PayloadPush): Promi
     } catch (e: any) {
       // 404/410 = inscrição expirada/cancelada: limpa do banco.
       if (e?.statusCode === 404 || e?.statusCode === 410) {
-        removerInscricao(i.endpoint);
+        await removerInscricao(i.endpoint);
       } else {
         console.error('[PUSH] falha ao enviar:', e?.statusCode || e?.message);
       }

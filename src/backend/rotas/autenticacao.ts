@@ -5,7 +5,7 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
-import db from '../db';
+import db from '../db-mysql';
 import { gerarToken, autenticar } from '../auth';
 import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, telefoneDigitos, erroHttp } from '../util';
 import { enviarEmail, emailRedefinirSenha, emailHabilitado } from '../email';
@@ -34,7 +34,7 @@ const limiteEsqueciSenha = rateLimit({
 
 const PERFIS_PUBLICOS: Perfil[] = ['cliente', 'lojista', 'entregador'];
 
-router.post('/registrar', (req, res, next) => {
+router.post('/registrar', async (req, res, next) => {
   try {
     const nome = textoLimpo(req.body.nome, 120);
     const email = textoLimpo(req.body.email, 200).toLowerCase();
@@ -55,10 +55,10 @@ router.post('/registrar', (req, res, next) => {
     if (ehCliente) {
       if (!cpfValido(cpf)) throw erroHttp(400, 'Informe um CPF válido.');
       if (email && !emailValido(email)) throw erroHttp(400, 'E-mail inválido.');
-      const cpfExiste = db.prepare('SELECT id FROM usuarios WHERE cpf = ?').get(cpf);
+      const cpfExiste = await db.prepare('SELECT id FROM usuarios WHERE cpf = ?').get(cpf);
       if (cpfExiste) throw erroHttp(409, 'Já existe uma conta com este CPF.');
       if (telefone) {
-        const telExiste = db.prepare('SELECT id FROM usuarios WHERE telefone = ?').get(telefone);
+        const telExiste = await db.prepare('SELECT id FROM usuarios WHERE telefone = ?').get(telefone);
         if (telExiste) throw erroHttp(409, 'Já existe uma conta com este telefone.');
       }
     } else if (!emailValido(email)) {
@@ -68,14 +68,14 @@ router.post('/registrar', (req, res, next) => {
     // A coluna email é NOT NULL UNIQUE: se o cliente não informou, gera um
     // sintético a partir do CPF (não é usado pra login, só satisfaz o schema).
     const emailFinal = email || (ehCliente ? `${cpf}@cliente.local` : '');
-    const jaExiste = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(emailFinal);
+    const jaExiste = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(emailFinal);
     if (jaExiste) throw erroHttp(409, 'Já existe uma conta com este e-mail.');
 
     const senhaHash = bcrypt.hashSync(senha, 10);
     // Clientes podem ser associados a uma loja específica (white label)
     const lojaId = (ehCliente && req.body.loja_id) ? Number(req.body.loja_id) : null;
     const cpfFinal = ehCliente ? cpf : null;
-    const info = db.prepare(
+    const info = await db.prepare(
       `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, cpf, criado_em)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(nome, emailFinal, senhaHash, perfil, telefone, lojaId, cpfFinal, agoraUTC());
@@ -84,7 +84,7 @@ router.post('/registrar', (req, res, next) => {
 
     // Lojistas recebem uma loja vazia automaticamente ao se cadastrar
     if (perfil === 'lojista') {
-      db.prepare(
+      await db.prepare(
         `INSERT INTO lojas (usuario_id, nome, descricao, categoria, endereco,
                             taxa_entrega_centavos, tempo_estimado_min, horario_funcionamento,
                             status_aprovacao, aberta, criado_em)
@@ -97,7 +97,7 @@ router.post('/registrar', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.post('/login', limiteLogin, (req, res, next) => {
+router.post('/login', limiteLogin, async (req, res, next) => {
   try {
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
     // Cliente entra por e-mail ou telefone (tela nova); lojista/entregador/
@@ -114,16 +114,16 @@ router.post('/login', limiteLogin, (req, res, next) => {
 
     let usuario: Usuario | undefined;
     if (porTelefone) {
-      usuario = db.prepare('SELECT * FROM usuarios WHERE telefone = ?').get(telefone) as Usuario | undefined;
+      usuario = await db.prepare('SELECT * FROM usuarios WHERE telefone = ?').get(telefone) as Usuario | undefined;
       // Um telefone de 11 dígitos é ambíguo com CPF (mesmo tamanho) — se não
       // achou por telefone, tenta como CPF antes de desistir (contas antigas).
       if (!usuario && telefone.length === 11) {
-        usuario = db.prepare('SELECT * FROM usuarios WHERE cpf = ?').get(telefone) as Usuario | undefined;
+        usuario = await db.prepare('SELECT * FROM usuarios WHERE cpf = ?').get(telefone) as Usuario | undefined;
       }
     } else if (porCpf) {
-      usuario = db.prepare('SELECT * FROM usuarios WHERE cpf = ?').get(cpf) as Usuario | undefined;
+      usuario = await db.prepare('SELECT * FROM usuarios WHERE cpf = ?').get(cpf) as Usuario | undefined;
     } else {
-      usuario = db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email) as Usuario | undefined;
+      usuario = await db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email) as Usuario | undefined;
     }
     if (!usuario || !bcrypt.compareSync(senha, usuario.senha_hash)) {
       throw erroHttp(401, credErrada);
@@ -164,7 +164,7 @@ router.post('/esqueci-senha', limiteEsqueciSenha, async (req, res, next) => {
     // logam por CPF sem informar e-mail de verdade — não recebem nada.
     if (email.endsWith('@cliente.local')) return res.json(mensagemGenerica);
 
-    const usuario = db.prepare('SELECT id, nome, email, bloqueado FROM usuarios WHERE email = ?')
+    const usuario = await db.prepare('SELECT id, nome, email, bloqueado FROM usuarios WHERE email = ?')
       .get(email) as { id: number; nome: string; email: string; bloqueado: number } | undefined;
 
     // Log só do servidor (nunca vai pra resposta HTTP) — a mensagem pro
@@ -177,7 +177,7 @@ router.post('/esqueci-senha', limiteEsqueciSenha, async (req, res, next) => {
       const token = crypto.randomBytes(32).toString('hex');
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
       const expira = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-      db.prepare('UPDATE usuarios SET reset_token_hash = ?, reset_token_expira = ? WHERE id = ?')
+      await db.prepare('UPDATE usuarios SET reset_token_hash = ?, reset_token_expira = ? WHERE id = ?')
         .run(tokenHash, expira, usuario.id);
 
       const origem = `${req.protocol}://${req.get('host')}`;
@@ -193,7 +193,7 @@ router.post('/esqueci-senha', limiteEsqueciSenha, async (req, res, next) => {
 });
 
 /** Confirma a redefinição: token válido e não expirado + nova senha. */
-router.post('/redefinir-senha', (req, res, next) => {
+router.post('/redefinir-senha', async (req, res, next) => {
   try {
     const token = textoLimpo(req.body.token, 128);
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
@@ -201,7 +201,7 @@ router.post('/redefinir-senha', (req, res, next) => {
     if (senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
 
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-    const usuario = db.prepare(
+    const usuario = await db.prepare(
       'SELECT id, reset_token_expira FROM usuarios WHERE reset_token_hash = ?'
     ).get(tokenHash) as { id: number; reset_token_expira: string } | undefined;
 
@@ -210,7 +210,7 @@ router.post('/redefinir-senha', (req, res, next) => {
     }
 
     const senhaHash = bcrypt.hashSync(senha, 10);
-    db.prepare('UPDATE usuarios SET senha_hash = ?, reset_token_hash = NULL, reset_token_expira = NULL WHERE id = ?')
+    await db.prepare('UPDATE usuarios SET senha_hash = ?, reset_token_hash = NULL, reset_token_expira = NULL WHERE id = ?')
       .run(senhaHash, usuario.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
