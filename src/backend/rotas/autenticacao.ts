@@ -32,7 +32,7 @@ const limiteEsqueciSenha = rateLimit({
   message: { erro: 'Muitos pedidos de redefinição. Aguarde 15 minutos e tente novamente.' },
 });
 
-const PERFIS_PUBLICOS: Perfil[] = ['cliente', 'lojista', 'entregador'];
+const PERFIS_PUBLICOS: Perfil[] = ['cliente', 'entregador'];
 
 router.post('/registrar', async (req, res, next) => {
   try {
@@ -45,6 +45,11 @@ router.post('/registrar', async (req, res, next) => {
 
     if (nome.length < 2) throw erroHttp(400, 'Informe seu nome completo.');
     if (senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
+    // Lojista não se autocadastra: cada lojista novo ganha um banco isolado,
+    // criado pelo admin em Clientes (Tenants) — ver POST /api/admin/tenants.
+    if (perfil === 'lojista') {
+      throw erroHttp(403, 'Cadastro de lojista é feito pela nossa equipe. Entre em contato pra abrir sua loja.');
+    }
     if (!PERFIS_PUBLICOS.includes(perfil)) throw erroHttp(400, 'Perfil inválido.');
 
     // Cliente entra por e-mail ou telefone (CPF continua sendo aceito no
@@ -81,17 +86,6 @@ router.post('/registrar', async (req, res, next) => {
     ).run(nome, emailFinal, senhaHash, perfil, telefone, lojaId, cpfFinal, agoraUTC());
 
     const novoId = Number(info.lastInsertRowid);
-
-    // Lojistas recebem uma loja vazia automaticamente ao se cadastrar
-    if (perfil === 'lojista') {
-      await db.prepare(
-        `INSERT INTO lojas (usuario_id, nome, descricao, categoria, endereco,
-                            taxa_entrega_centavos, tempo_estimado_min, horario_funcionamento,
-                            status_aprovacao, aberta, criado_em)
-         VALUES (?, ?, '', 'Outros', '', 0, 40, '', 'pendente', 0, ?)`
-      ).run(novoId, nome, agoraUTC());
-    }
-
     const usuario = { id: novoId, nome, email: emailFinal, perfil, telefone, cpf: cpfFinal };
     res.status(201).json({ token: gerarToken(usuario), usuario });
   } catch (e) { next(e); }

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Store, CheckCircle2, XCircle, Clock, Search, Plus, Trash2,
+  Store, CheckCircle2, XCircle, Clock, Search, Building2, Trash2,
   ChevronDown, TrendingUp, Receipt, Ticket, Activity,
   FileText, ShieldCheck, Upload, Package, Save, ChevronUp, Globe, Loader2,
 } from 'lucide-react';
@@ -53,7 +54,6 @@ const CATEGORIAS = ['Pizzaria', 'Hamburgueria', 'Japonesa', 'Brasileira', 'Doces
 export function TelaLojas() {
   const [filtro, setFiltro] = useState<Filtro>('todas');
   const [busca, setBusca] = useState('');
-  const [criando, setCriando] = useState(false);
   const [selecionada, setSelecionada] = useState<number | null>(null);
   const { mostrar } = useToast();
   const confirmar = useConfirm();
@@ -127,19 +127,13 @@ export function TelaLojas() {
             </p>
           </div>
           {superAdmin && (
-            <Button onClick={() => setCriando(c => !c)}>
-              <Plus className="size-4" /> Nova loja
-            </Button>
+            <Link to="/painel-admin/clientes">
+              <Button>
+                <Building2 className="size-4" /> Nova loja (via Clientes)
+              </Button>
+            </Link>
           )}
         </div>
-
-        {/* Form de criação */}
-        {criando && superAdmin && (
-          <FormNovaLoja
-            onCancelar={() => setCriando(false)}
-            onCriada={() => { setCriando(false); qc.invalidateQueries({ queryKey: ['admin-lojas'] }); }}
-          />
-        )}
 
         {/* Busca + filtros */}
         <div className="flex flex-col sm:flex-row gap-3">
@@ -394,108 +388,6 @@ function WhatsAppPermissoesEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () =
         O lojista só vê e pode configurar os métodos marcados aqui, na tela de WhatsApp do painel dele.
       </p>
     </div>
-  );
-}
-
-/* ───────────────────────── Form nova loja ───────────────────────── */
-
-function FormNovaLoja({ onCancelar, onCriada }: { onCancelar: () => void; onCriada: () => void }) {
-  const { mostrar } = useToast();
-  const [form, setForm] = useState({
-    nome: '', categoria: 'Outros', dono_nome: '', email: '', senha: '', telefone: '',
-    descricao: '', endereco: '', taxa_entrega: '', tempo_estimado_min: '40',
-  });
-  const [enviando, setEnviando] = useState(false);
-  const up = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm(f => ({ ...f, [k]: e.target.value }));
-
-  async function salvar(e: React.FormEvent) {
-    e.preventDefault();
-    setEnviando(true);
-    try {
-      await api('POST', '/api/admin/lojas', {
-        ...form,
-        taxa_entrega_centavos: Math.round((Number(form.taxa_entrega.replace(',', '.')) || 0) * 100),
-        tempo_estimado_min: Number(form.tempo_estimado_min) || 40,
-      });
-      mostrar({ tipo: 'sucesso', titulo: 'Loja criada!', descricao: `${form.nome} já está aprovada.` });
-      onCriada();
-    } catch (err) {
-      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
-    } finally {
-      setEnviando(false);
-    }
-  }
-
-  return (
-    <Card className="border-primary/30">
-      <CardContent className="p-5">
-        <h2 className="font-bold mb-4 flex items-center gap-2"><Plus className="size-4 text-primary" /> Nova loja</h2>
-        <form onSubmit={salvar} className="grid gap-3 sm:grid-cols-2">
-          <div className="sm:col-span-2">
-            <Label>Nome da loja *</Label>
-            <Input required value={form.nome} onChange={up('nome')} placeholder="Ex.: Pizzaria do João" />
-          </div>
-          <div>
-            <Label>Categoria</Label>
-            <select value={form.categoria} onChange={up('categoria')}
-              className="w-full h-10 px-3 rounded-xl border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring">
-              {CATEGORIAS.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-          <div>
-            <Label>Telefone (opcional)</Label>
-            <Input value={form.telefone} onChange={up('telefone')} placeholder="(00) 00000-0000" />
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Descrição (opcional)</Label>
-            <textarea value={form.descricao} onChange={up('descricao')} rows={2} maxLength={300}
-              placeholder="Uma frase sobre a loja — aparece no perfil dela."
-              className="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
-          </div>
-
-          <div className="sm:col-span-2 mt-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            Configuração inicial de entrega
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Endereço</Label>
-            <Input value={form.endereco} onChange={up('endereco')} placeholder="Rua, número, bairro, cidade - UF" />
-            <p className="mt-1 text-[11px] text-muted-foreground">Sem endereço a loja não aparece bem no mapa/distância — o lojista pode ajustar depois.</p>
-          </div>
-          <div>
-            <Label>Taxa de entrega inicial (R$)</Label>
-            <Input value={form.taxa_entrega} onChange={up('taxa_entrega')} placeholder="0,00" inputMode="decimal" />
-          </div>
-          <div>
-            <Label>Tempo estimado (min)</Label>
-            <Input type="number" min={1} value={form.tempo_estimado_min} onChange={up('tempo_estimado_min')} />
-          </div>
-
-          <div className="sm:col-span-2 mt-1 text-xs font-bold uppercase tracking-wider text-muted-foreground">
-            Acesso do responsável
-          </div>
-          <div>
-            <Label>Nome do responsável *</Label>
-            <Input required value={form.dono_nome} onChange={up('dono_nome')} />
-          </div>
-          <div>
-            <Label>E-mail de acesso *</Label>
-            <Input type="email" required value={form.email} onChange={up('email')} />
-          </div>
-          <div className="sm:col-span-2">
-            <Label>Senha inicial (mín. 6) *</Label>
-            <Input type="password" minLength={6} required value={form.senha} onChange={up('senha')} />
-          </div>
-
-          <div className="sm:col-span-2 flex gap-3">
-            <Button type="submit" className="flex-1" disabled={enviando}>
-              {enviando ? 'Criando…' : 'Criar loja'}
-            </Button>
-            <Button type="button" variant="outline" onClick={onCancelar}>Cancelar</Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
   );
 }
 
