@@ -1026,6 +1026,72 @@ router.put('/configuracoes-gerais', exigirSuperAdmin, async (req, res, next) => 
   } catch (e) { next(e); }
 });
 
+// ----- Landing page do produto (domínio principal, sem loja padrão) -----
+
+const LANDING_ICONES = ['store', 'palette', 'bike', 'chefhat', 'receipt', 'smartphone', 'check', 'star', 'shield', 'users'] as const;
+
+const LANDING_RECURSOS_PADRAO = [
+  { icone: 'store', titulo: 'Multi-lojas', desc: 'Cada loja com seu próprio painel, cardápio e domínio.' },
+  { icone: 'palette', titulo: 'White label', desc: 'Cores, logo e visual totalmente personalizáveis por loja.' },
+  { icone: 'bike', titulo: 'Rastreio ao vivo', desc: 'Entregador com GPS em tempo real, do jeito que o cliente vê no mapa.' },
+  { icone: 'chefhat', titulo: 'Cozinha (KDS)', desc: 'Painel de produção próprio, sem misturar com o financeiro.' },
+  { icone: 'receipt', titulo: 'NFC-e integrada', desc: 'Emissão fiscal direto na venda, sem depender de outro sistema.' },
+  { icone: 'smartphone', titulo: 'PDV + Comandas', desc: 'Venda no balcão e mesas do salão, tudo no mesmo lugar.' },
+];
+
+const LANDING_BENEFICIOS_PADRAO = ['Sem taxa de setup', 'Cada loja com domínio próprio', 'Suporte a Pix, cartão e dinheiro'];
+
+router.get('/landing', async (_req, res, next) => {
+  try {
+    const valor = async (chave: string): Promise<string> => {
+      const r = await db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
+      return r?.valor ?? '';
+    };
+    const recursosRaw = await valor('landing_recursos_json');
+    const beneficiosRaw = await valor('landing_beneficios_json');
+    res.json({
+      cta_texto: (await valor('landing_cta_texto')) || 'Ver demonstração',
+      recursos: recursosRaw ? JSON.parse(recursosRaw) : LANDING_RECURSOS_PADRAO,
+      beneficios: beneficiosRaw ? JSON.parse(beneficiosRaw) : LANDING_BENEFICIOS_PADRAO,
+    });
+  } catch (e) { next(e); }
+});
+
+router.put('/landing', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    const upsert = (chave: string, valor: string) =>
+      db.prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)')
+        .run(chave, valor);
+
+    if (req.body.cta_texto !== undefined) {
+      await upsert('landing_cta_texto', textoLimpo(req.body.cta_texto, 60));
+    }
+    if (req.body.recursos !== undefined) {
+      if (!Array.isArray(req.body.recursos) || req.body.recursos.length > 9) {
+        throw erroHttp(400, 'Lista de recursos inválida (máximo 9 itens).');
+      }
+      const recursos = req.body.recursos.map((r: unknown) => {
+        const item = r as { icone?: unknown; titulo?: unknown; desc?: unknown };
+        const icone = LANDING_ICONES.includes(item.icone as typeof LANDING_ICONES[number]) ? item.icone : 'store';
+        const titulo = textoLimpo(item.titulo, 60);
+        const desc = textoLimpo(item.desc, 160);
+        if (!titulo) throw erroHttp(400, 'Todo recurso precisa de um título.');
+        return { icone, titulo, desc };
+      });
+      await upsert('landing_recursos_json', JSON.stringify(recursos));
+    }
+    if (req.body.beneficios !== undefined) {
+      if (!Array.isArray(req.body.beneficios) || req.body.beneficios.length > 6) {
+        throw erroHttp(400, 'Lista de benefícios inválida (máximo 6 itens).');
+      }
+      const beneficios = req.body.beneficios.map((b: unknown) => textoLimpo(b, 80)).filter(Boolean);
+      await upsert('landing_beneficios_json', JSON.stringify(beneficios));
+    }
+    await registrarAuditoria(req, 'landing.editar');
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 // ----- WhatsApp não-oficial (WBAPI) — sessão única compartilhada da plataforma ---
 
 router.post('/whatsapp-nao-oficial/conectar', exigirSuperAdmin, async (req, res, next) => {

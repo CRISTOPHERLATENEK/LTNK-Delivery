@@ -49,6 +49,12 @@ router.get('/tema', async (req, res, next) => {
       const loja = await db.prepare('SELECT favicon_url FROM lojas WHERE id = ?').get(lojaId) as { favicon_url: string } | undefined;
       favicon = loja?.favicon_url || '';
     }
+
+    // Conteúdo da landing page do produto (só relevante quando lojaId=0, mas
+    // sempre incluído — barato e evita um segundo round-trip no boot).
+    const recursosRaw = await valor('landing_recursos_json');
+    const beneficiosRaw = await valor('landing_beneficios_json');
+
     res.json({
       nome:              await valor('marca_nome', 'Delivery Já'),
       slogan:            await valor('marca_slogan', 'Peça das melhores lojas da sua região'),
@@ -57,6 +63,9 @@ router.get('/tema', async (req, res, next) => {
       cor_primaria:      await valor('marca_cor_primaria', '#dc2640'),
       login_banner_url:  await valor('marca_login_banner_url'),
       loja_id:           lojaId,
+      landing_cta_texto:   (await valor('landing_cta_texto')) || 'Ver demonstração',
+      landing_recursos:    recursosRaw ? JSON.parse(recursosRaw) : null,
+      landing_beneficios:  beneficiosRaw ? JSON.parse(beneficiosRaw) : null,
     });
   } catch (e) { next(e); }
 });

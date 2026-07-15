@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2 } from 'lucide-react';
+import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2 } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -18,7 +18,8 @@ import { useToast } from '@/components/ui/toast';
 import { api, ApiError, tokenSessao } from '@/lib/api';
 import { useTema, FONTES, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
-import type { TemaMarca, RaioMarca, FonteMarca } from '@/types';
+import { ICONES_LANDING } from '@/pages/cliente/landing';
+import type { TemaMarca, RaioMarca, FonteMarca, LandingRecurso, LandingIcone } from '@/types';
 
 const RAIO_OPCOES: { valor: RaioMarca; label: string; classe: string }[] = [
   { valor: 'reto', label: 'Reto', classe: 'rounded-[3px]' },
@@ -181,14 +182,14 @@ export function TelaMarca() {
           {/* Modo de exibição: loja única (white label) ou marketplace */}
           <Secao icone={Eye} titulo="Modo de exibição">
             <div className="space-y-2">
-              {/* Marketplace */}
+              {/* Landing page do produto */}
               <button type="button" onClick={() => up('loja_id', 0)}
                 className={cn('w-full flex items-start gap-3 rounded-xl border-2 p-3 text-left transition-colors',
                   form.loja_id === 0 ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40')}>
                 <Store className="size-5 text-primary shrink-0 mt-0.5" />
                 <div>
-                  <div className="font-semibold text-sm">Marketplace (várias lojas)</div>
-                  <div className="text-xs text-muted-foreground">A home mostra todas as lojas, ofertas e categorias (estilo iFood).</div>
+                  <div className="font-semibold text-sm">Landing page do produto</div>
+                  <div className="text-xs text-muted-foreground">A home vende a plataforma (recursos + botão "Ver demonstração"), sem listar lojas de terceiros.</div>
                 </div>
               </button>
               {/* Loja única */}
@@ -236,6 +237,7 @@ export function TelaMarca() {
         </div>
       </form>
 
+      <SecaoLanding />
       <SecaoConfiguracoesGerais />
       <SecaoBackup />
     </div>
@@ -494,6 +496,154 @@ function ConexaoWbapi() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+interface LandingConfig {
+  cta_texto: string;
+  recursos: LandingRecurso[];
+  beneficios: string[];
+}
+
+const ICONES_DISPONIVEIS = Object.keys(ICONES_LANDING) as LandingIcone[];
+
+/**
+ * Conteúdo editável da landing page do produto (domínio principal quando não
+ * há loja padrão — ver "Modo de exibição" acima e frontend/src/pages/cliente/landing.tsx).
+ */
+function SecaoLanding() {
+  const { mostrar } = useToast();
+  const consulta = useQuery({
+    queryKey: ['admin-landing'],
+    queryFn: () => api<LandingConfig>('GET', '/api/admin/landing'),
+  });
+  const [form, setForm] = useState<LandingConfig>({ cta_texto: 'Ver demonstração', recursos: [], beneficios: [] });
+  const [enviando, setEnviando] = useState(false);
+
+  useEffect(() => { if (consulta.data) setForm(consulta.data); }, [consulta.data]);
+
+  function upRecurso(i: number, campo: keyof LandingRecurso, valor: string) {
+    setForm(f => ({ ...f, recursos: f.recursos.map((r, idx) => idx === i ? { ...r, [campo]: valor } as LandingRecurso : r) }));
+  }
+
+  function adicionarRecurso() {
+    if (form.recursos.length >= 9) return;
+    setForm(f => ({ ...f, recursos: [...f.recursos, { icone: 'store', titulo: '', desc: '' }] }));
+  }
+
+  function removerRecurso(i: number) {
+    setForm(f => ({ ...f, recursos: f.recursos.filter((_, idx) => idx !== i) }));
+  }
+
+  function upBeneficio(i: number, valor: string) {
+    setForm(f => ({ ...f, beneficios: f.beneficios.map((b, idx) => idx === i ? valor : b) }));
+  }
+
+  function adicionarBeneficio() {
+    if (form.beneficios.length >= 6) return;
+    setForm(f => ({ ...f, beneficios: [...f.beneficios, ''] }));
+  }
+
+  function removerBeneficio(i: number) {
+    setForm(f => ({ ...f, beneficios: f.beneficios.filter((_, idx) => idx !== i) }));
+  }
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    if (form.recursos.some(r => !r.titulo.trim())) {
+      mostrar({ tipo: 'erro', titulo: 'Todo recurso precisa de um título.' });
+      return;
+    }
+    setEnviando(true);
+    try {
+      await api('PUT', '/api/admin/landing', {
+        cta_texto: form.cta_texto,
+        recursos: form.recursos,
+        beneficios: form.beneficios.filter(b => b.trim()),
+      });
+      mostrar({ tipo: 'sucesso', titulo: 'Landing page atualizada!' });
+      consulta.refetch();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <form onSubmit={salvar} className="max-w-2xl">
+      <Secao icone={LayoutTemplate} titulo="Landing page do produto">
+        <p className="text-xs text-muted-foreground -mt-2">
+          Só aparece quando o "Modo de exibição" acima está em "Landing page do produto" (loja_id = 0).
+          O botão "Ver demonstração" leva pra primeira loja aprovada automaticamente.
+        </p>
+
+        <div>
+          <Label htmlFor="cta_texto">Texto do botão principal</Label>
+          <Input id="cta_texto" maxLength={60} value={form.cta_texto}
+            onChange={e => setForm(f => ({ ...f, cta_texto: e.target.value }))}
+            placeholder="Ver demonstração" />
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Label className="mb-0">Recursos (cards da grade)</Label>
+            <Button type="button" variant="outline" size="sm" onClick={adicionarRecurso} disabled={form.recursos.length >= 9}>
+              <Plus className="size-3.5" /> Adicionar
+            </Button>
+          </div>
+          {form.recursos.map((r, i) => {
+            const Icone = ICONES_LANDING[r.icone] || Store;
+            return (
+              <div key={i} className="rounded-xl border border-border p-3 space-y-2">
+                <div className="flex items-center gap-2">
+                  <select value={r.icone} onChange={e => upRecurso(i, 'icone', e.target.value)}
+                    className="h-10 px-2 rounded-lg border border-input bg-background text-sm shrink-0">
+                    {ICONES_DISPONIVEIS.map(k => <option key={k} value={k}>{k}</option>)}
+                  </select>
+                  <Icone className="size-4 text-primary shrink-0" />
+                  <Input value={r.titulo} maxLength={60} placeholder="Título"
+                    onChange={e => upRecurso(i, 'titulo', e.target.value)} />
+                  <Button type="button" variant="ghost" size="icon" onClick={() => removerRecurso(i)}>
+                    <Trash2 className="size-4 text-destructive" />
+                  </Button>
+                </div>
+                <Input value={r.desc} maxLength={160} placeholder="Descrição curta"
+                  onChange={e => upRecurso(i, 'desc', e.target.value)} />
+              </div>
+            );
+          })}
+          {form.recursos.length === 0 && (
+            <p className="text-xs text-muted-foreground">Nenhum recurso — usando os padrões embutidos.</p>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Label className="mb-0">Benefícios (checklist no rodapé)</Label>
+            <Button type="button" variant="outline" size="sm" onClick={adicionarBeneficio} disabled={form.beneficios.length >= 6}>
+              <Plus className="size-3.5" /> Adicionar
+            </Button>
+          </div>
+          {form.beneficios.map((b, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input value={b} maxLength={80} onChange={e => upBeneficio(i, e.target.value)} />
+              <Button type="button" variant="ghost" size="icon" onClick={() => removerBeneficio(i)}>
+                <Trash2 className="size-4 text-destructive" />
+              </Button>
+            </div>
+          ))}
+          {form.beneficios.length === 0 && (
+            <p className="text-xs text-muted-foreground">Nenhum benefício — usando os padrões embutidos.</p>
+          )}
+        </div>
+      </Secao>
+
+      <Button type="submit" disabled={enviando}>
+        <Save className="size-4" />
+        {enviando ? 'Salvando…' : 'Salvar landing page'}
+      </Button>
+    </form>
   );
 }
 

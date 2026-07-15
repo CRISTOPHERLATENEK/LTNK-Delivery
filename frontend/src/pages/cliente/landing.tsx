@@ -8,23 +8,34 @@
  */
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check } from 'lucide-react';
+import { Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star, Shield, Users, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTema } from '@/lib/tema';
 import { api } from '@/lib/api';
-import type { Loja } from '@/types';
+import type { Loja, LandingRecurso, LandingIcone } from '@/types';
 
-const RECURSOS = [
-  { icone: Store, titulo: 'Multi-lojas', desc: 'Cada loja com seu próprio painel, cardápio e domínio.' },
-  { icone: Palette, titulo: 'White label', desc: 'Cores, logo e visual totalmente personalizáveis por loja.' },
-  { icone: Bike, titulo: 'Rastreio ao vivo', desc: 'Entregador com GPS em tempo real, do jeito que o cliente vê no mapa.' },
-  { icone: ChefHat, titulo: 'Cozinha (KDS)', desc: 'Painel de produção próprio, sem misturar com o financeiro.' },
-  { icone: Receipt, titulo: 'NFC-e integrada', desc: 'Emissão fiscal direto na venda, sem depender de outro sistema.' },
-  { icone: Smartphone, titulo: 'PDV + Comandas', desc: 'Venda no balcão e mesas do salão, tudo no mesmo lugar.' },
+/** Mapa de ícones disponíveis pro admin escolher na edição da landing (ver PUT /admin/landing). */
+export const ICONES_LANDING: Record<LandingIcone, LucideIcon> = {
+  store: Store, palette: Palette, bike: Bike, chefhat: ChefHat, receipt: Receipt,
+  smartphone: Smartphone, check: Check, star: Star, shield: Shield, users: Users,
+};
+
+const RECURSOS_PADRAO: LandingRecurso[] = [
+  { icone: 'store', titulo: 'Multi-lojas', desc: 'Cada loja com seu próprio painel, cardápio e domínio.' },
+  { icone: 'palette', titulo: 'White label', desc: 'Cores, logo e visual totalmente personalizáveis por loja.' },
+  { icone: 'bike', titulo: 'Rastreio ao vivo', desc: 'Entregador com GPS em tempo real, do jeito que o cliente vê no mapa.' },
+  { icone: 'chefhat', titulo: 'Cozinha (KDS)', desc: 'Painel de produção próprio, sem misturar com o financeiro.' },
+  { icone: 'receipt', titulo: 'NFC-e integrada', desc: 'Emissão fiscal direto na venda, sem depender de outro sistema.' },
+  { icone: 'smartphone', titulo: 'PDV + Comandas', desc: 'Venda no balcão e mesas do salão, tudo no mesmo lugar.' },
 ];
+
+const BENEFICIOS_PADRAO = ['Sem taxa de setup', 'Cada loja com domínio próprio', 'Suporte a Pix, cartão e dinheiro'];
 
 export function PaginaLanding() {
   const { marca } = useTema();
+  const recursos = marca.landing_recursos?.length ? marca.landing_recursos : RECURSOS_PADRAO;
+  const beneficios = marca.landing_beneficios?.length ? marca.landing_beneficios : BENEFICIOS_PADRAO;
+  const ctaTexto = marca.landing_cta_texto || 'Ver demonstração';
 
   const demo = useQuery({
     queryKey: ['landing-loja-demo'],
@@ -57,10 +68,10 @@ export function PaginaLanding() {
             <Button size="xl" asChild disabled={!linkDemo}>
               {linkDemo ? (
                 <Link to={linkDemo}>
-                  Ver demonstração <ArrowRight className="h-4 w-4" />
+                  {ctaTexto} <ArrowRight className="h-4 w-4" />
                 </Link>
               ) : (
-                <span>Ver demonstração</span>
+                <span>{ctaTexto}</span>
               )}
             </Button>
             <Button size="xl" variant="outline" asChild>
@@ -74,15 +85,18 @@ export function PaginaLanding() {
       <section className="mx-auto max-w-6xl px-6 py-16">
         <h2 className="text-center text-2xl font-bold sm:text-3xl">Tudo que uma operação de delivery precisa</h2>
         <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {RECURSOS.map(({ icone: Icone, titulo, desc }) => (
-            <div key={titulo} className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-foreground">
-                <Icone className="h-5 w-5" />
+          {recursos.map(({ icone, titulo, desc }) => {
+            const Icone = ICONES_LANDING[icone] || Store;
+            return (
+              <div key={titulo} className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+                  <Icone className="h-5 w-5" />
+                </div>
+                <h3 className="mt-4 font-semibold">{titulo}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
               </div>
-              <h3 className="mt-4 font-semibold">{titulo}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
@@ -95,11 +109,11 @@ export function PaginaLanding() {
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Button size="lg" asChild disabled={!linkDemo}>
-              {linkDemo ? <Link to={linkDemo}>Ver demonstração</Link> : <span>Ver demonstração</span>}
+              {linkDemo ? <Link to={linkDemo}>{ctaTexto}</Link> : <span>{ctaTexto}</span>}
             </Button>
           </div>
           <ul className="mx-auto mt-8 flex max-w-md flex-col gap-2 text-left text-sm text-muted-foreground">
-            {['Sem taxa de setup', 'Cada loja com domínio próprio', 'Suporte a Pix, cartão e dinheiro'].map(item => (
+            {beneficios.map(item => (
               <li key={item} className="flex items-center gap-2">
                 <Check className="h-4 w-4 shrink-0 text-primary" /> {item}
               </li>

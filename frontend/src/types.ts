@@ -188,6 +188,21 @@ export interface TemaMarca {
   login_banner_url: string;
   /** ID da loja padrão (0 = modo marketplace, >0 = white label single-store) */
   loja_id: number;
+  /** Texto do botão de CTA na landing page do produto. */
+  landing_cta_texto?: string;
+  /** Grade de recursos da landing page (null = usa os padrões embutidos no front). */
+  landing_recursos?: LandingRecurso[] | null;
+  /** Lista de benefícios (checklist) no rodapé da landing page. */
+  landing_beneficios?: string[] | null;
+}
+
+/** Ícones disponíveis para os cards de recursos da landing page (ver ÍCONES_LANDING em landing.tsx). */
+export type LandingIcone = 'store' | 'palette' | 'bike' | 'chefhat' | 'receipt' | 'smartphone' | 'check' | 'star' | 'shield' | 'users';
+
+export interface LandingRecurso {
+  icone: LandingIcone;
+  titulo: string;
+  desc: string;
 }
 
 export interface OpcaoItem {
