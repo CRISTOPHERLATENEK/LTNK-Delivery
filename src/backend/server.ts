@@ -34,11 +34,9 @@ import { capturarErro } from './monitoramento';
  * ambiente pra rodar o seed automaticamente no primeiro boot. `seed.ts` é
  * idempotente (não duplica nada) — seguro mesmo que fique ligado por engano
  * em boots seguintes. Recomendado remover a variável depois do 1º login.
+ * A chamada de verdade acontece dentro do IIFE assíncrono de boot, mais
+ * abaixo (precisa rodar depois de inicializarCentral()).
  */
-if (process.env.SEED_ON_START === '1') {
-  console.log('🌱 SEED_ON_START=1 — rodando seed inicial (idempotente)...');
-  require('./seed');
-}
 
 const app = express();
 app.disable('x-powered-by');
@@ -172,6 +170,11 @@ const PORT = Number(process.env.PORT) || 3000;
 
 (async () => {
   await inicializarCentral();
+  if (process.env.SEED_ON_START === '1') {
+    console.log('🌱 SEED_ON_START=1 — rodando seed inicial (idempotente)...');
+    const { seed } = await import('./seed');
+    await seed();
+  }
   sincronizarHorarios().catch(e => console.error('[HORARIO AUTO] falha:', e));
   setInterval(() => { sincronizarHorarios().catch(e => console.error('[HORARIO AUTO] falha:', e)); }, 60_000);
 
