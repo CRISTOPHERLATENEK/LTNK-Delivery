@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2 } from 'lucide-react';
+import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2, Check } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -571,81 +571,175 @@ function SecaoLanding() {
   }
 
   return (
-    <form onSubmit={salvar} className="max-w-2xl">
-      <Secao icone={LayoutTemplate} titulo="Landing page do produto">
-        <p className="text-xs text-muted-foreground -mt-2">
-          Só aparece quando o "Modo de exibição" acima está em "Landing page do produto" (loja_id = 0).
-          O botão "Ver demonstração" leva pra primeira loja aprovada automaticamente.
-        </p>
+    <form onSubmit={salvar} className="grid gap-5 lg:grid-cols-[1fr_360px] max-w-5xl">
+      <div className="space-y-5 order-2 lg:order-1">
+        <Secao icone={LayoutTemplate} titulo="Landing page do produto">
+          <p className="text-xs text-muted-foreground -mt-2">
+            Só aparece quando o "Modo de exibição" acima está em "Landing page do produto" (loja_id = 0).
+            O botão "Ver demonstração" leva pra primeira loja aprovada automaticamente.
+          </p>
 
-        <div>
-          <Label htmlFor="cta_texto">Texto do botão principal</Label>
-          <Input id="cta_texto" maxLength={60} value={form.cta_texto}
-            onChange={e => setForm(f => ({ ...f, cta_texto: e.target.value }))}
-            placeholder="Ver demonstração" />
-        </div>
-
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <Label className="mb-0">Recursos (cards da grade)</Label>
-            <Button type="button" variant="outline" size="sm" onClick={adicionarRecurso} disabled={form.recursos.length >= 9}>
-              <Plus className="size-3.5" /> Adicionar
-            </Button>
+          <div>
+            <Label htmlFor="cta_texto">Texto do botão principal</Label>
+            <Input id="cta_texto" maxLength={60} value={form.cta_texto}
+              onChange={e => setForm(f => ({ ...f, cta_texto: e.target.value }))}
+              placeholder="Ver demonstração" />
           </div>
-          {form.recursos.map((r, i) => {
-            const Icone = ICONES_LANDING[r.icone] || Store;
-            return (
-              <div key={i} className="rounded-xl border border-border p-3 space-y-2">
-                <div className="flex items-center gap-2">
-                  <select value={r.icone} onChange={e => upRecurso(i, 'icone', e.target.value)}
-                    className="h-10 px-2 rounded-lg border border-input bg-background text-sm shrink-0">
-                    {ICONES_DISPONIVEIS.map(k => <option key={k} value={k}>{k}</option>)}
-                  </select>
-                  <Icone className="size-4 text-primary shrink-0" />
-                  <Input value={r.titulo} maxLength={60} placeholder="Título"
-                    onChange={e => upRecurso(i, 'titulo', e.target.value)} />
-                  <Button type="button" variant="ghost" size="icon" onClick={() => removerRecurso(i)}>
-                    <Trash2 className="size-4 text-destructive" />
-                  </Button>
-                </div>
-                <Input value={r.desc} maxLength={160} placeholder="Descrição curta"
-                  onChange={e => upRecurso(i, 'desc', e.target.value)} />
-              </div>
-            );
-          })}
-          {form.recursos.length === 0 && (
-            <p className="text-xs text-muted-foreground">Nenhum recurso — usando os padrões embutidos.</p>
-          )}
-        </div>
 
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <Label className="mb-0">Benefícios (checklist no rodapé)</Label>
-            <Button type="button" variant="outline" size="sm" onClick={adicionarBeneficio} disabled={form.beneficios.length >= 6}>
-              <Plus className="size-3.5" /> Adicionar
-            </Button>
-          </div>
-          {form.beneficios.map((b, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <Input value={b} maxLength={80} onChange={e => upBeneficio(i, e.target.value)} />
-              <Button type="button" variant="ghost" size="icon" onClick={() => removerBeneficio(i)}>
-                <Trash2 className="size-4 text-destructive" />
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="mb-0">Recursos (cards da grade)</Label>
+              <Button type="button" variant="outline" size="sm" onClick={adicionarRecurso} disabled={form.recursos.length >= 9}>
+                <Plus className="size-3.5" /> Adicionar
               </Button>
             </div>
-          ))}
-          {form.beneficios.length === 0 && (
-            <p className="text-xs text-muted-foreground">Nenhum benefício — usando os padrões embutidos.</p>
-          )}
-        </div>
-      </Secao>
+            {form.recursos.map((r, i) => {
+              const Icone = ICONES_LANDING[r.icone] || Store;
+              return (
+                <div key={i} className="rounded-xl border border-border p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <select value={r.icone} onChange={e => upRecurso(i, 'icone', e.target.value)}
+                      className="h-10 px-2 rounded-lg border border-input bg-background text-sm shrink-0">
+                      {ICONES_DISPONIVEIS.map(k => <option key={k} value={k}>{k}</option>)}
+                    </select>
+                    <Icone className="size-4 text-primary shrink-0" />
+                    <Input value={r.titulo} maxLength={60} placeholder="Título"
+                      onChange={e => upRecurso(i, 'titulo', e.target.value)} />
+                    <Button type="button" variant="ghost" size="icon" onClick={() => removerRecurso(i)}>
+                      <Trash2 className="size-4 text-destructive" />
+                    </Button>
+                  </div>
+                  <Input value={r.desc} maxLength={160} placeholder="Descrição curta"
+                    onChange={e => upRecurso(i, 'desc', e.target.value)} />
+                </div>
+              );
+            })}
+            {form.recursos.length === 0 && (
+              <p className="text-xs text-muted-foreground">Nenhum recurso — usando os padrões embutidos.</p>
+            )}
+          </div>
 
-      <Button type="submit" disabled={enviando}>
-        <Save className="size-4" />
-        {enviando ? 'Salvando…' : 'Salvar landing page'}
-      </Button>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <Label className="mb-0">Benefícios (checklist no rodapé)</Label>
+              <Button type="button" variant="outline" size="sm" onClick={adicionarBeneficio} disabled={form.beneficios.length >= 6}>
+                <Plus className="size-3.5" /> Adicionar
+              </Button>
+            </div>
+            {form.beneficios.map((b, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input value={b} maxLength={80} onChange={e => upBeneficio(i, e.target.value)} />
+                <Button type="button" variant="ghost" size="icon" onClick={() => removerBeneficio(i)}>
+                  <Trash2 className="size-4 text-destructive" />
+                </Button>
+              </div>
+            ))}
+            {form.beneficios.length === 0 && (
+              <p className="text-xs text-muted-foreground">Nenhum benefício — usando os padrões embutidos.</p>
+            )}
+          </div>
+        </Secao>
+
+        <Button type="submit" disabled={enviando}>
+          <Save className="size-4" />
+          {enviando ? 'Salvando…' : 'Salvar landing page'}
+        </Button>
+      </div>
+
+      <div className="order-1 lg:order-2">
+        <div className="lg:sticky lg:top-4 space-y-2">
+          <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <Eye className="size-3.5" /> Pré-visualização ao vivo
+          </div>
+          <PreviewLanding form={form} />
+        </div>
+      </div>
     </form>
   );
 }
+
+/** Mock em miniatura da landing pública, reagindo ao form em tempo real. */
+function PreviewLanding({ form }: { form: LandingConfig }) {
+  const { marca } = useTema();
+  const recursos = form.recursos.length ? form.recursos : null;
+  const beneficios = form.beneficios.filter(b => b.trim()).length ? form.beneficios.filter(b => b.trim()) : null;
+
+  return (
+    <div className="rounded-2xl border-2 border-dashed border-border p-3 bg-muted/30">
+      <div className="rounded-xl overflow-hidden border border-border bg-background shadow-sm max-h-[70vh] overflow-y-auto">
+        {/* Hero */}
+        <div className="text-center px-4 py-6 border-b border-border bg-gradient-to-br from-primary/10 via-background to-background">
+          {marca.logo_url ? (
+            <img src={marca.logo_url} alt="" className="mx-auto mb-2 h-8 w-auto" />
+          ) : (
+            <div className="mx-auto mb-2 flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+              <Store className="size-4" />
+            </div>
+          )}
+          <div className="font-extrabold text-sm">{marca.nome || 'Nome da marca'}</div>
+          <div className="text-[10px] text-muted-foreground mt-1 px-2">
+            {marca.slogan || 'Peça das melhores lojas'}
+          </div>
+          <div className="mt-3 flex justify-center gap-1.5">
+            <span className="rounded-lg bg-primary text-primary-foreground text-[10px] font-bold px-2.5 py-1.5">
+              {form.cta_texto || 'Ver demonstração'}
+            </span>
+            <span className="rounded-lg border border-border text-[10px] font-bold px-2.5 py-1.5">
+              Sou lojista
+            </span>
+          </div>
+        </div>
+
+        {/* Recursos */}
+        <div className="p-3">
+          <div className="text-center text-[11px] font-bold mb-2">Tudo que uma operação de delivery precisa</div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {(recursos ?? RECURSOS_PADRAO_PREVIEW).slice(0, 6).map((r, i) => {
+              const Icone = ICONES_LANDING[r.icone] || Store;
+              return (
+                <div key={i} className="rounded-lg border border-border p-1.5">
+                  <div className="flex size-5 items-center justify-center rounded-md bg-accent text-accent-foreground">
+                    <Icone className="size-3" />
+                  </div>
+                  <div className="mt-1 text-[9px] font-semibold leading-tight truncate">{r.titulo || 'Título'}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* CTA final */}
+        <div className="border-t border-border bg-accent/40 p-3 text-center">
+          <div className="text-[11px] font-bold">Quer ver funcionando na prática?</div>
+          <span className="mt-2 inline-block rounded-lg bg-primary text-primary-foreground text-[10px] font-bold px-2.5 py-1.5">
+            {form.cta_texto || 'Ver demonstração'}
+          </span>
+          <ul className="mt-2 space-y-1 text-left mx-auto w-fit">
+            {(beneficios ?? BENEFICIOS_PADRAO_PREVIEW).map((b, i) => (
+              <li key={i} className="flex items-center gap-1 text-[9px] text-muted-foreground">
+                <Check className="size-2.5 text-primary shrink-0" /> {b}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+      <p className="text-[10px] text-center text-muted-foreground mt-2">
+        É assim que a landing pública fica.
+      </p>
+    </div>
+  );
+}
+
+const RECURSOS_PADRAO_PREVIEW: LandingRecurso[] = [
+  { icone: 'store', titulo: 'Multi-lojas', desc: '' },
+  { icone: 'palette', titulo: 'White label', desc: '' },
+  { icone: 'bike', titulo: 'Rastreio ao vivo', desc: '' },
+  { icone: 'chefhat', titulo: 'Cozinha (KDS)', desc: '' },
+  { icone: 'receipt', titulo: 'NFC-e integrada', desc: '' },
+  { icone: 'smartphone', titulo: 'PDV + Comandas', desc: '' },
+];
+
+const BENEFICIOS_PADRAO_PREVIEW = ['Sem taxa de setup', 'Cada loja com domínio próprio', 'Suporte a Pix, cartão e dinheiro'];
 
 /**
  * Backup manual da pasta `dados/` (todos os bancos SQLite + certificados A1).
