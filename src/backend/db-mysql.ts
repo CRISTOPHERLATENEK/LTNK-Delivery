@@ -191,6 +191,23 @@ export async function garantirIndice(pool: Pool, database: string, tabela: strin
   }
 }
 
+/**
+ * Cria um banco novo se ele ainda não existir. Só funciona se o usuário do
+ * MySQL tiver privilégio CREATE pro nome em questão — no VPS, o usuário do
+ * app só tem esse privilégio pra bancos com o prefixo de tenant (ver
+ * MYSQL_TENANT_PREFIX e o GRANT feito em `tenant\_%`), então isto SEMPRE
+ * deve ser chamado só com nomes já validados/prefixados (ver
+ * dbNomeDoTenant em rotas/admin.ts) — nunca com entrada solta do usuário.
+ */
+export async function criarBancoSeNaoExiste(nomeBanco: string): Promise<void> {
+  const conn = await mysql.createConnection(CONFIG_BASE);
+  try {
+    await conn.query(`CREATE DATABASE IF NOT EXISTS \`${nomeBanco}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
+  } finally {
+    await conn.end();
+  }
+}
+
 /** Fecha todos os pools (testes/shutdown gracioso). */
 export async function fecharTudo(): Promise<void> {
   await Promise.all([...pools.values()].map(p => p.end().catch(() => {})));

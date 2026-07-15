@@ -15,9 +15,18 @@
  * de silenciosamente deixar o tenant quebrado.
  */
 import { Pool } from 'mysql2/promise';
-import { abrirPool, garantirColuna } from './db-mysql';
+import { abrirPool, garantirColuna, criarBancoSeNaoExiste } from './db-mysql';
 import { inicializarSchema } from './schema-mysql';
 import { agoraUTC } from './util';
+
+/**
+ * Prefixo obrigatório do nome do banco de qualquer tenant provisionado
+ * automaticamente. Existe porque o usuário MySQL do app só tem privilégio
+ * CREATE/DROP escopado a esse padrão (`tenant\_%`, ver GRANT no servidor) —
+ * nunca privilégio geral. Provisionamento automático só é tentado quando o
+ * nome bate com esse prefixo; fora disso, cai no fluxo manual de sempre.
+ */
+const PREFIXO_AUTO_CRIACAO = process.env.MYSQL_TENANT_PREFIX || 'tenant_';
 
 const BANCO_CENTRAL = process.env.MYSQL_DATABASE_CENTRAL || process.env.MYSQL_DATABASE || '';
 const BANCO_PADRAO = process.env.MYSQL_DATABASE || '';
@@ -133,20 +142,28 @@ async function bancoAlcancavel(dbNome: string): Promise<boolean> {
 }
 
 /**
- * Registra um tenant novo. NÃO cria o banco MySQL (o usuário da Hostinger não
- * tem privilégio CREATE DATABASE) — o banco precisa já existir, criado
- * manualmente no hPanel com o nome `db_nome` esperado, ANTES de chamar isto.
- * Se alcançável, roda o schema completo nele (idempotente).
+ * Registra um tenant novo. Se o banco MySQL de destino já tem o prefixo
+ * de auto-criação (`MYSQL_TENANT_PREFIX`, ver acima), tenta criá-lo sozinho
+ * (o usuário do app tem privilégio CREATE escopado a esse padrão). Fora
+ * desse padrão — ex.: MySQL gerenciado sem privilégio CREATE nenhum, como
+ * era na Hostinger — exige que o banco já exista, criado manualmente antes.
+ * De qualquer forma, roda o schema completo nele (idempotente) no final.
  */
 export async function criarTenant(dados: { nome: string; slug: string; dominio?: string | null; dbNome: string }): Promise<Tenant> {
   const slug = dados.slug.toLowerCase().replace(/[^a-z0-9-]/g, '');
   if (slug.length < 2) throw new Error('Slug inválido.');
 
-  const alcancavel = await bancoAlcancavel(dados.dbNome);
+  let alcancavel = await bancoAlcancavel(dados.dbNome);
+  if (!alcancavel && dados.dbNome.startsWith(PREFIXO_AUTO_CRIACAO)) {
+    try {
+      await criarBancoSeNaoExiste(dados.dbNome);
+      alcancavel = await bancoAlcancavel(dados.dbNome);
+    } catch { /* segue pro erro claro abaixo se ainda não alcançável */ }
+  }
   if (!alcancavel) {
     throw new Error(
-      `O banco MySQL "${dados.dbNome}" não existe ou não está alcançável. Crie-o manualmente no hPanel ` +
-      `(Bancos de dados → Gerenciamento) com este nome exato antes de cadastrar o tenant.`,
+      `O banco MySQL "${dados.dbNome}" não existe ou não está alcançável. Crie-o manualmente ` +
+      `(hPanel ou terminal do servidor) com este nome exato antes de cadastrar o tenant.`,
     );
   }
 

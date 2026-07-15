@@ -1257,9 +1257,14 @@ function exigirMaster(): void {
   }
 }
 
-/** Deriva o nome do banco MySQL do tenant a partir do slug (sanitizado). */
+/**
+ * Deriva o nome do banco MySQL do tenant a partir do slug (sanitizado).
+ * O prefixo padrão ('tenant_') precisa bater com o GRANT feito pro usuário
+ * do app no servidor (CREATE/DROP escopado a `tenant\_%`) — é o que permite
+ * criarTenant() provisionar o banco sozinho (ver tenants-mysql.ts).
+ */
 function dbNomeDoTenant(slug: string): string {
-  const prefixo = process.env.MYSQL_TENANT_PREFIX || '';
+  const prefixo = process.env.MYSQL_TENANT_PREFIX || 'tenant_';
   return `${prefixo}${slug.replace(/-/g, '_')}`;
 }
 
