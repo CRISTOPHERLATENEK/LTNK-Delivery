@@ -587,8 +587,8 @@ router.post('/admins/:id/rebaixar', exigirSuperAdmin, async (req, res, next) => 
 router.get('/comissao', async (_req, res, next) => {
   try {
     const r = await db.prepare("SELECT valor FROM configuracoes WHERE chave = 'comissao_percentual'")
-      .get() as { valor: string };
-    res.json({ comissao_percentual: Number(r.valor) });
+      .get() as { valor: string } | undefined;
+    res.json({ comissao_percentual: Number(r?.valor ?? '10') });
   } catch (e) { next(e); }
 });
 
@@ -598,7 +598,9 @@ router.put('/comissao', exigirSuperAdmin, async (req, res, next) => {
     if (!Number.isFinite(pct) || pct < 0 || pct > 50) {
       throw erroHttp(400, 'Informe um percentual entre 0 e 50.');
     }
-    await db.prepare("UPDATE configuracoes SET valor = ? WHERE chave = 'comissao_percentual'").run(String(pct));
+    // Upsert: a chave pode não existir se a linha padrão nunca foi criada (ex.: banco recém-provisionado).
+    await db.prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)')
+      .run('comissao_percentual', String(pct));
     await registrarAuditoria(req, 'comissao.alterar', { detalhes: `nova comissão global: ${pct}%` });
     res.json({ ok: true, comissao_percentual: pct });
   } catch (e) { next(e); }
@@ -930,7 +932,12 @@ router.get('/tema', async (_req, res, next) => {
 /** PUT /api/admin/tema — só o super admin edita a marca da plataforma. */
 router.put('/tema', exigirSuperAdmin, async (req, res, next) => {
   try {
-    const set = (valor: string, chave: string) => db.prepare('UPDATE configuracoes SET valor = ? WHERE chave = ?').run(valor, chave);
+    // Upsert: as chaves padrão só existem depois de rodar o provisionamento de tenant
+    // (inicializarSchema) — um UPDATE puro falha silenciosamente (0 linhas afetadas)
+    // se a chave nunca foi criada, então sempre criamos a linha se faltar.
+    const set = (valor: string, chave: string) =>
+      db.prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)')
+        .run(chave, valor);
 
     const nome = textoLimpo(req.body.nome, 60);
     if (req.body.nome !== undefined && nome.length < 2) throw erroHttp(400, 'Informe um nome de marca.');
