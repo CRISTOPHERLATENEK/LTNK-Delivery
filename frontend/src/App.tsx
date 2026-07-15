@@ -98,7 +98,10 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/" element={<ClienteLayout><PaginaVitrine /></ClienteLayout>} />
+      {/* Sem ClienteLayout: "/" tanto pode ser a landing do produto (sem nav de
+          compras — carrinho/pedidos não fazem sentido numa página de marketing)
+          quanto um redirect pra /loja/:id (que aí sim usa o layout de compras). */}
+      <Route path="/" element={<PaginaVitrine />} />
       <Route path="/loja/:id" element={<ClienteLayout><PaginaLoja /></ClienteLayout>} />
       <Route path="/carrinho" element={<ClienteLayout><PaginaCarrinho /></ClienteLayout>} />
       <Route path="/pedidos" element={<ClienteLayout><PaginaPedidos /></ClienteLayout>} />

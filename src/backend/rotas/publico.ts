@@ -66,6 +66,10 @@ router.get('/tema', async (req, res, next) => {
       landing_cta_texto:   (await valor('landing_cta_texto')) || 'Ver demonstração',
       landing_recursos:    recursosRaw ? JSON.parse(recursosRaw) : null,
       landing_beneficios:  beneficiosRaw ? JSON.parse(beneficiosRaw) : null,
+      // Usados no rodapé da landing — mesmos campos já editáveis em Marca → Configurações gerais.
+      suporte_email:     await valor('suporte_email'),
+      suporte_telefone:  await valor('suporte_telefone'),
+      termos_url:        await valor('termos_url'),
     });
   } catch (e) { next(e); }
 });

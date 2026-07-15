@@ -194,6 +194,10 @@ export interface TemaMarca {
   landing_recursos?: LandingRecurso[] | null;
   /** Lista de benefícios (checklist) no rodapé da landing page. */
   landing_beneficios?: string[] | null;
+  /** Contato de suporte e link de termos — reaproveitados no rodapé da landing (mesmos campos de Marca → Configurações gerais). */
+  suporte_email?: string;
+  suporte_telefone?: string;
+  termos_url?: string;
 }
 
 /** Ícones disponíveis para os cards de recursos da landing page (ver ÍCONES_LANDING em landing.tsx). */

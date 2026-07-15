@@ -8,7 +8,7 @@
  */
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star, Shield, Users, type LucideIcon } from 'lucide-react';
+import { Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star, Shield, Users, Mail, Phone, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTema } from '@/lib/tema';
 import { api } from '@/lib/api';
@@ -46,7 +46,31 @@ export function PaginaLanding() {
   const linkDemo = demo.data ? `/loja/${demo.data.id}` : undefined;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background flex flex-col">
+      {/* Header */}
+      <header className="sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
+          <div className="flex items-center gap-2">
+            {marca.logo_url ? (
+              <img src={marca.logo_url} alt={marca.nome} className="h-8 w-auto" />
+            ) : (
+              <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+                <Store className="h-4 w-4" />
+              </div>
+            )}
+            <span className="font-extrabold">{marca.nome}</span>
+          </div>
+          <nav className="flex items-center gap-2">
+            <Link to="/lojista" className="hidden sm:block text-sm font-semibold text-muted-foreground hover:text-foreground px-3 py-2">
+              Sou lojista
+            </Link>
+            <Button size="sm" asChild disabled={!linkDemo}>
+              {linkDemo ? <Link to={linkDemo}>{ctaTexto}</Link> : <span>{ctaTexto}</span>}
+            </Button>
+          </nav>
+        </div>
+      </header>
+
       {/* Hero */}
       <section className="relative overflow-hidden border-b border-border">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-background" />
@@ -121,6 +145,61 @@ export function PaginaLanding() {
           </ul>
         </div>
       </section>
+
+      {/* Rodapé */}
+      <footer className="mt-auto border-t border-border">
+        <div className="mx-auto max-w-6xl px-6 py-10 grid gap-8 sm:grid-cols-3">
+          <div>
+            <div className="flex items-center gap-2 font-extrabold">
+              {marca.logo_url ? (
+                <img src={marca.logo_url} alt={marca.nome} className="h-6 w-auto" />
+              ) : (
+                <Store className="h-5 w-5 text-primary" />
+              )}
+              {marca.nome}
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {marca.slogan || 'A plataforma completa de delivery multi-lojas.'}
+            </p>
+          </div>
+
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Plataforma</div>
+            <ul className="mt-3 space-y-2 text-sm">
+              {linkDemo && (
+                <li><Link to={linkDemo} className="text-muted-foreground hover:text-foreground">Ver demonstração</Link></li>
+              )}
+              <li><Link to="/lojista" className="text-muted-foreground hover:text-foreground">Sou lojista</Link></li>
+              {marca.termos_url && (
+                <li><a href={marca.termos_url} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground">Termos de uso</a></li>
+              )}
+            </ul>
+          </div>
+
+          {(marca.suporte_email || marca.suporte_telefone) && (
+            <div>
+              <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Contato</div>
+              <ul className="mt-3 space-y-2 text-sm">
+                {marca.suporte_email && (
+                  <li>
+                    <a href={`mailto:${marca.suporte_email}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
+                      <Mail className="h-3.5 w-3.5 shrink-0" /> {marca.suporte_email}
+                    </a>
+                  </li>
+                )}
+                {marca.suporte_telefone && (
+                  <li className="flex items-center gap-1.5 text-muted-foreground">
+                    <Phone className="h-3.5 w-3.5 shrink-0" /> {marca.suporte_telefone}
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
+        </div>
+        <div className="border-t border-border px-6 py-4 text-center text-xs text-muted-foreground">
+          © {new Date().getFullYear()} {marca.nome}. Todos os direitos reservados.
+        </div>
+      </footer>
     </div>
   );
 }

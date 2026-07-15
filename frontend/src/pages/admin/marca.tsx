@@ -667,6 +667,21 @@ function PreviewLanding({ form }: { form: LandingConfig }) {
   return (
     <div className="rounded-2xl border-2 border-dashed border-border p-3 bg-muted/30">
       <div className="rounded-xl overflow-hidden border border-border bg-background shadow-sm max-h-[70vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+          <div className="flex items-center gap-1.5">
+            {marca.logo_url ? (
+              <img src={marca.logo_url} alt="" className="h-4 w-auto" />
+            ) : (
+              <Store className="size-3.5 text-primary" />
+            )}
+            <span className="text-[10px] font-extrabold">{marca.nome || 'Nome da marca'}</span>
+          </div>
+          <span className="rounded-md bg-primary text-primary-foreground text-[9px] font-bold px-2 py-1">
+            {form.cta_texto || 'Ver demonstração'}
+          </span>
+        </div>
+
         {/* Hero */}
         <div className="text-center px-4 py-6 border-b border-border bg-gradient-to-br from-primary/10 via-background to-background">
           {marca.logo_url ? (
@@ -721,6 +736,14 @@ function PreviewLanding({ form }: { form: LandingConfig }) {
               </li>
             ))}
           </ul>
+        </div>
+
+        {/* Rodapé */}
+        <div className="border-t border-border px-3 py-3 text-center">
+          <div className="text-[9px] font-bold">{marca.nome || 'Nome da marca'}</div>
+          <div className="text-[8px] text-muted-foreground mt-0.5">
+            © {new Date().getFullYear()} — Ver demonstração · Sou lojista{marca.termos_url ? ' · Termos de uso' : ''}
+          </div>
         </div>
       </div>
       <p className="text-[10px] text-center text-muted-foreground mt-2">
