@@ -7,7 +7,7 @@
  * Fase 2: um worker lê os eventos com enviado = 0 e dispara pelo canal
  * configurado (WhatsApp Cloud API ou Web Push).
  */
-import db from './db';
+import db from './db-mysql';
 import { agoraUTC } from './util';
 import { enviarPush } from './push';
 
@@ -39,8 +39,8 @@ function canalConfigurado(): string {
 }
 
 /** Registra um evento de notificação na fila (chamado pela máquina de estados). */
-export function registrarEvento(pedidoId: number, evento: string): void {
-  const pedido = db.prepare(
+export async function registrarEvento(pedidoId: number, evento: string): Promise<void> {
+  const pedido = await db.prepare(
     `SELECT p.id, p.cliente_id, u.nome AS cliente_nome, u.telefone
        FROM pedidos p JOIN usuarios u ON u.id = p.cliente_id WHERE p.id = ?`
   ).get(pedidoId) as ConteudoEvento | undefined;
@@ -49,7 +49,7 @@ export function registrarEvento(pedidoId: number, evento: string): void {
   const fnMensagem = MENSAGENS[evento];
   const texto = fnMensagem ? fnMensagem(pedido) : `Atualização do pedido #${pedido.id}`;
 
-  db.prepare(
+  await db.prepare(
     `INSERT INTO eventos_notificacao (pedido_id, evento, canal, payload, criado_em)
      VALUES (?, ?, ?, ?, ?)`
   ).run(pedidoId, evento, canalConfigurado(), JSON.stringify({
@@ -70,8 +70,8 @@ export function registrarEvento(pedidoId: number, evento: string): void {
 }
 
 /** Avisa o lojista que entrou um pedido novo (push best-effort). */
-export function notificarLojistaNovoPedido(pedidoId: number): void {
-  const info = db.prepare(
+export async function notificarLojistaNovoPedido(pedidoId: number): Promise<void> {
+  const info = await db.prepare(
     `SELECT p.id, p.total_centavos, l.usuario_id
        FROM pedidos p JOIN lojas l ON l.id = p.loja_id WHERE p.id = ?`
   ).get(pedidoId) as { id: number; total_centavos: number; usuario_id: number } | undefined;

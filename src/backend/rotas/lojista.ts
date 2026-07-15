@@ -929,7 +929,7 @@ const PAGAMENTO_BALCAO: Record<string, 'pix' | 'dinheiro' | 'cartao_entrega'> = 
  * banco (nunca confia no cliente), aplica desconto e grava como um pedido
  * `origem='balcao'` já `entregue` — assim entra no faturamento/relatórios.
  */
-router.post('/balcao', (req, res, next) => {
+router.post('/balcao', async (req, res, next) => {
   try {
     const loja = minhaLoja(req);
     const itensReq = Array.isArray(req.body.itens) ? req.body.itens : [];
@@ -969,7 +969,7 @@ router.post('/balcao', (req, res, next) => {
     const desconto = Math.min(Math.max(inteiroPositivo(req.body.desconto_centavos) || 0, 0), subtotal);
     const total = subtotal - desconto;
 
-    const comissaoPct = comissaoPercentualDaLoja(loja.id);
+    const comissaoPct = await comissaoPercentualDaLoja(loja.id);
     const comissao = Math.round(total * comissaoPct / 100);
 
     const consumidor = consumidorBalcao(loja);
@@ -1059,7 +1059,7 @@ const ACOES_LOJISTA: Record<string, 'aceito' | 'recusado' | 'preparando' | 'pron
   pronto:   'pronto',
 };
 
-router.post('/pedidos/:id/acao', (req, res, next) => {
+router.post('/pedidos/:id/acao', async (req, res, next) => {
   try {
     const loja = minhaLoja(req);
     const acao = textoLimpo(req.body.acao, 20);
@@ -1074,7 +1074,7 @@ router.post('/pedidos/:id/acao', (req, res, next) => {
     if (acao === 'recusar') {
       extras.motivo_recusa = textoLimpo(req.body.motivo, 200) || 'Recusado pela loja';
     }
-    const atualizado = transicionarStatus(pedido.id, novoStatus, { camposExtras: extras });
+    const atualizado = await transicionarStatus(pedido.id, novoStatus, { camposExtras: extras });
     res.json({ pedido: atualizado });
   } catch (e) { next(e); }
 });
@@ -1202,7 +1202,7 @@ router.put('/entregadores/cadastro/:id', (req, res, next) => {
  * 'em_entrega' (mesma transição do auto-atendimento) e avisa o entregador
  * por push. Só funciona quando o pedido está "pronto" e ainda é da loja.
  */
-router.post('/pedidos/:id/atribuir-entregador', (req, res, next) => {
+router.post('/pedidos/:id/atribuir-entregador', async (req, res, next) => {
   try {
     const loja = minhaLoja(req);
     const entregadorId = inteiroPositivo(req.body.entregador_id);
@@ -1222,7 +1222,7 @@ router.post('/pedidos/:id/atribuir-entregador', (req, res, next) => {
       throw erroHttp(409, 'Só é possível atribuir um entregador quando o pedido está "Pronto".');
     }
 
-    const atualizado = transicionarStatus(pedido.id, 'em_entrega', {
+    const atualizado = await transicionarStatus(pedido.id, 'em_entrega', {
       camposExtras: { entregador_id: entregadorId },
     });
 
@@ -2477,7 +2477,7 @@ const PAGAMENTO_COMANDA: Record<string, 'pix' | 'dinheiro' | 'cartao_entrega'> =
   pix: 'pix', dinheiro: 'dinheiro', cartao: 'cartao_entrega',
 };
 
-router.post('/comandas/:id/fechar', (req, res, next) => {
+router.post('/comandas/:id/fechar', async (req, res, next) => {
   try {
     const loja = minhaLoja(req);
     type ComandaRow = { id: number; mesa_id: number; total_centavos: number };
@@ -2499,7 +2499,7 @@ router.post('/comandas/:id/fechar', (req, res, next) => {
       'SELECT produto_id, nome_produto, preco_unit_centavos, quantidade FROM comanda_itens WHERE comanda_id = ?'
     ).all(comanda.id) as ItemRow[];
 
-    const comissaoPct = comissaoPercentualDaLoja(loja.id);
+    const comissaoPct = await comissaoPercentualDaLoja(loja.id);
     const comissao = Math.round(comanda.total_centavos * comissaoPct / 100);
     const consumidor = consumidorBalcao(loja);
     const agora = agoraUTC();
@@ -2629,7 +2629,7 @@ router.get('/whatsapp', async (req, res, next) => {
       },
       nao_oficial: {
         status: naoOficial.conectado ? 'conectado' : 'desconectado',
-        disponivel: wbapiConfigurado(),
+        disponivel: await wbapiConfigurado(),
       },
     });
   } catch (e) { next(e); }

@@ -25,7 +25,7 @@ router.post('/whatsapp', async (req, res) => {
   res.status(200).json({ ok: true }); // responde rápido — o provedor não deve re-tentar por nossa causa
   try {
     const token = String(req.query.token || '');
-    if (!token || token !== segredoWebhook()) return;
+    if (!token || token !== await segredoWebhook()) return;
 
     const corpo: any = req.body || {};
     const evento = corpo.event ?? corpo.type;

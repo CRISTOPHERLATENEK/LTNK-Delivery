@@ -3,7 +3,7 @@
  *   pendente -> aceito -> preparando -> pronto -> em_entrega -> entregue
  * Terminais alternativos: cancelado (pelo cliente, só em pendente) e recusado (pelo lojista).
  */
-import db from './db';
+import db from './db-mysql';
 import { agoraUTC, erroHttp } from './util';
 import { registrarEvento } from './notificacoes';
 import { Pedido, StatusPedido } from '../tipos/modelos';
@@ -45,12 +45,12 @@ interface OpcoesTransicao {
  *  - UPDATE condicional (WHERE status = ?) evita corrida entre abas
  *  - registra na linha do tempo e enfileira notificação quando aplicável
  */
-export function transicionarStatus(
+export async function transicionarStatus(
   pedidoId: number,
   novoStatus: StatusPedido,
   opcoes: OpcoesTransicao = {},
-): Pedido & Record<string, unknown> {
-  const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as Pedido | undefined;
+): Promise<Pedido & Record<string, unknown>> {
+  const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as Pedido | undefined;
   if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
 
   const permitidos = TRANSICOES[pedido.status];
@@ -66,30 +66,31 @@ export function transicionarStatus(
 
   const sql = `UPDATE pedidos SET status = ?, atualizado_em = ?${setExtras ? ', ' + setExtras : ''}
                WHERE id = ? AND status = ?`;
-  const resultado = db.prepare(sql).run(
+  const resultado = await db.prepare(sql).run(
     novoStatus, agora, ...camposExtras.map(c => extras[c]), pedidoId, pedido.status,
   );
   if (resultado.changes === 0) {
     throw erroHttp(409, 'O pedido foi atualizado por outra pessoa. Recarregue e tente de novo.');
   }
 
-  db.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
+  await db.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
     .run(pedidoId, novoStatus, agora);
 
   // Pedido não vai mais acontecer: devolve ao estoque o que havia sido reservado
   // (só produtos que controlam estoque).
   if (novoStatus === 'cancelado' || novoStatus === 'recusado') {
-    const itens = db.prepare(
+    const itens = await db.prepare(
       'SELECT produto_id, quantidade FROM itens_pedido WHERE pedido_id = ?'
     ).all(pedidoId) as Array<{ produto_id: number; quantidade: number }>;
-    const devolver = db.prepare(
-      'UPDATE produtos SET estoque = estoque + ? WHERE id = ? AND controla_estoque = 1'
-    );
-    for (const it of itens) devolver.run(it.quantidade, it.produto_id);
+    for (const it of itens) {
+      await db.prepare(
+        'UPDATE produtos SET estoque = estoque + ? WHERE id = ? AND controla_estoque = 1'
+      ).run(it.quantidade, it.produto_id);
+    }
   }
 
   const eventoFila = EVENTOS_NOTIFICAVEIS[novoStatus];
-  if (eventoFila) registrarEvento(pedidoId, eventoFila);
+  if (eventoFila) await registrarEvento(pedidoId, eventoFila);
 
   return { ...pedido, status: novoStatus, atualizado_em: agora, ...extras };
 }

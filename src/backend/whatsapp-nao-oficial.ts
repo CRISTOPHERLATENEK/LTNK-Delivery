@@ -17,19 +17,19 @@
  */
 import crypto from 'crypto';
 import { descriptografar } from './cripto';
-import db from './db';
+import db from './db-mysql';
 
 interface Credenciais { server: string; apiKey: string; sessionId: string }
 
-function lerConfig(chave: string): string {
-  const r = db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
+async function lerConfig(chave: string): Promise<string> {
+  const r = await db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
   return r?.valor ?? '';
 }
 
-function credenciaisPlataforma(): Credenciais | null {
-  const server = lerConfig('wbapi_server').replace(/\/+$/, '');
-  const chaveCripto = lerConfig('wbapi_api_key');
-  const sessionId = lerConfig('wbapi_session_id');
+async function credenciaisPlataforma(): Promise<Credenciais | null> {
+  const server = (await lerConfig('wbapi_server')).replace(/\/+$/, '');
+  const chaveCripto = await lerConfig('wbapi_api_key');
+  const sessionId = await lerConfig('wbapi_session_id');
   if (!server || !chaveCripto || !sessionId) return null;
   try {
     return { server, apiKey: descriptografar(chaveCripto), sessionId };
@@ -38,16 +38,16 @@ function credenciaisPlataforma(): Credenciais | null {
   }
 }
 
-export function wbapiConfigurado(): boolean {
-  return credenciaisPlataforma() !== null;
+export async function wbapiConfigurado(): Promise<boolean> {
+  return (await credenciaisPlataforma()) !== null;
 }
 
 /** Token fixo (gerado uma vez) que valida as chamadas do webhook — evita que qualquer um poste no endpoint. */
-export function segredoWebhook(): string {
-  let s = lerConfig('wbapi_webhook_secret');
+export async function segredoWebhook(): Promise<string> {
+  let s = await lerConfig('wbapi_webhook_secret');
   if (!s) {
     s = crypto.randomBytes(24).toString('hex');
-    db.prepare("INSERT INTO configuracoes (chave, valor) VALUES ('wbapi_webhook_secret', ?) ON CONFLICT(chave) DO UPDATE SET valor = excluded.valor")
+    await db.prepare("INSERT INTO configuracoes (chave, valor) VALUES ('wbapi_webhook_secret', ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)")
       .run(s);
   }
   return s;
@@ -59,9 +59,9 @@ export function segredoWebhook(): string {
  * só atualiza a config da sessão, não afeta a conexão em si.
  */
 async function registrarWebhook(baseUrl: string): Promise<void> {
-  const cred = credenciaisPlataforma();
+  const cred = await credenciaisPlataforma();
   if (!cred) return;
-  const url = `${baseUrl.replace(/\/+$/, '')}/api/webhooks/whatsapp?token=${segredoWebhook()}`;
+  const url = `${baseUrl.replace(/\/+$/, '')}/api/webhooks/whatsapp?token=${await segredoWebhook()}`;
   await chamar(`/api/sessions/${cred.sessionId}`, 'PUT', {
     config: { webhooks: [{ url, events: ['message'] }] },
   });
@@ -70,7 +70,7 @@ async function registrarWebhook(baseUrl: string): Promise<void> {
 interface ResultadoChamada { ok: boolean; status: number; dados: any; erro?: string }
 
 async function chamar(path: string, metodo: string, corpo?: unknown): Promise<ResultadoChamada> {
-  const cred = credenciaisPlataforma();
+  const cred = await credenciaisPlataforma();
   if (!cred) return { ok: false, status: 0, dados: null, erro: 'WhatsApp não-oficial não configurado pela plataforma (peça ao admin).' };
   try {
     const controlador = new AbortController();
@@ -102,7 +102,7 @@ async function chamar(path: string, metodo: string, corpo?: unknown): Promise<Re
  * status is not as expected") — nesse caso precisa de `/restart`.
  */
 export async function garantirSessaoPlataforma(baseUrl?: string): Promise<ResultadoChamada> {
-  const cred = credenciaisPlataforma();
+  const cred = await credenciaisPlataforma();
   if (!cred) return { ok: false, status: 0, dados: null, erro: 'WhatsApp não-oficial não configurado pela plataforma.' };
 
   if (baseUrl) await registrarWebhook(baseUrl);
@@ -121,7 +121,7 @@ export async function garantirSessaoPlataforma(baseUrl?: string): Promise<Result
  * diretamente em vez de reusar o helper `chamar()` (que assume JSON/texto).
  */
 export async function obterQrPlataforma(): Promise<{ ok: boolean; qr?: string; erro?: string }> {
-  const cred = credenciaisPlataforma();
+  const cred = await credenciaisPlataforma();
   if (!cred) return { ok: false, erro: 'WhatsApp não-oficial não configurado pela plataforma.' };
   try {
     const controlador = new AbortController();
@@ -145,7 +145,7 @@ export async function obterQrPlataforma(): Promise<{ ok: boolean; qr?: string; e
 
 /** Alternativa ao QR: pareamento digitando um código no próprio WhatsApp. */
 export async function solicitarCodigoPlataforma(telefoneDigitos: string): Promise<{ ok: boolean; codigo?: string; erro?: string }> {
-  const cred = credenciaisPlataforma();
+  const cred = await credenciaisPlataforma();
   if (!cred) return { ok: false, erro: 'WhatsApp não-oficial não configurado pela plataforma.' };
   const digitos = telefoneDigitos.replace(/\D/g, '');
   const numero = digitos.startsWith('55') ? digitos : `55${digitos}`;
@@ -157,7 +157,7 @@ export async function solicitarCodigoPlataforma(telefoneDigitos: string): Promis
 
 /** Estado da sessão — usado tanto pra polling durante o pareamento quanto pra exibir "conectado". */
 export async function statusSessaoPlataforma(): Promise<{ conectado: boolean; numero?: string }> {
-  const cred = credenciaisPlataforma();
+  const cred = await credenciaisPlataforma();
   if (!cred) return { conectado: false };
   const r = await chamar(`/api/sessions/${cred.sessionId}/me`, 'GET');
   if (!r.ok || !r.dados) return { conectado: false };
@@ -166,7 +166,7 @@ export async function statusSessaoPlataforma(): Promise<{ conectado: boolean; nu
 }
 
 export async function desconectarPlataforma(): Promise<ResultadoChamada> {
-  const cred = credenciaisPlataforma();
+  const cred = await credenciaisPlataforma();
   if (!cred) return { ok: false, status: 0, dados: null, erro: 'WhatsApp não-oficial não configurado pela plataforma.' };
   return chamar(`/api/sessions/${cred.sessionId}/logout`, 'POST');
 }
@@ -189,7 +189,7 @@ function paraE164(telefoneDigitos: string): string | null {
  * Se o número não existir no WhatsApp, devolve null (não adianta tentar enviar).
  */
 async function resolverChatId(telefoneDestino: string): Promise<{ chatId: string | null; existe: boolean }> {
-  const cred = credenciaisPlataforma();
+  const cred = await credenciaisPlataforma();
   const e164 = paraE164(telefoneDestino);
   if (!cred || !e164) return { chatId: null, existe: false };
 
@@ -206,7 +206,7 @@ async function resolverChatId(telefoneDestino: string): Promise<{ chatId: string
 }
 
 export async function enviarTextoNaoOficial(telefoneDestino: string, texto: string): Promise<ResultadoChamada> {
-  const cred = credenciaisPlataforma();
+  const cred = await credenciaisPlataforma();
   if (!cred) return { ok: false, status: 0, dados: null, erro: 'WhatsApp não-oficial não configurado pela plataforma.' };
   const { chatId: id, existe } = await resolverChatId(telefoneDestino);
   if (!id) {

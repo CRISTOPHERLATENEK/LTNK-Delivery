@@ -312,7 +312,7 @@ router.post('/pedidos', async (req, res, next) => {
 
     // Pix online exige a integração ativa. Checado só agora, depois de validar
     // loja, endereço e itens — para não mascarar o motivo real da recusa.
-    if (pixOnline && !pagamentoOnlineAtivo(lojaId)) {
+    if (pixOnline && !(await pagamentoOnlineAtivo(lojaId))) {
       throw erroHttp(503, 'Pagamento via Pix online indisponível no momento. Escolha pagar na entrega.');
     }
 
@@ -350,7 +350,7 @@ router.post('/pedidos', async (req, res, next) => {
       }
     }
 
-    const comissaoPct = comissaoPercentualDaLoja(lojaId);
+    const comissaoPct = await comissaoPercentualDaLoja(lojaId);
     // Comissão incide sobre o valor líquido (subtotal já com o desconto do cupom).
     const comissao = Math.round(subtotalComDesconto * comissaoPct / 100);
 
@@ -568,7 +568,7 @@ router.post('/pedidos/:id/mensagens', (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/pedidos/:id/cancelar', (req, res, next) => {
+router.post('/pedidos/:id/cancelar', async (req, res, next) => {
   try {
     const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ? AND cliente_id = ?')
       .get(req.params.id, req.usuario!.id) as { id: number; status: string } | undefined;
@@ -576,7 +576,7 @@ router.post('/pedidos/:id/cancelar', (req, res, next) => {
     if (pedido.status !== 'pendente') {
       throw erroHttp(409, 'Este pedido já foi aceito pela loja e não pode mais ser cancelado.');
     }
-    transicionarStatus(pedido.id, 'cancelado');
+    await transicionarStatus(pedido.id, 'cancelado');
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

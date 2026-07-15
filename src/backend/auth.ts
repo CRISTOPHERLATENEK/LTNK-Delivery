@@ -4,7 +4,7 @@
  */
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import db from './db';
+import db from './db-mysql';
 import { erroHttp } from './util';
 import { Perfil, Usuario } from '../tipos/modelos';
 
@@ -44,7 +44,7 @@ export function gerarToken(usuario: Pick<Usuario, 'id' | 'perfil'>): string {
  * Recarrega o usuário do banco a cada requisição para respeitar bloqueios
  * feitos pelo admin DEPOIS da emissão do token.
  */
-export const autenticar: RequestHandler = (req, _res, next) => {
+export const autenticar: RequestHandler = async (req, _res, next) => {
   const cabecalho = req.headers.authorization || '';
   const token = cabecalho.startsWith('Bearer ') ? cabecalho.slice(7) : null;
   if (!token) return next(erroHttp(401, 'Faça login para continuar.'));
@@ -56,7 +56,7 @@ export const autenticar: RequestHandler = (req, _res, next) => {
     return next(erroHttp(401, 'Sessão inválida ou expirada. Faça login novamente.'));
   }
 
-  const usuario = db.prepare(
+  const usuario = await db.prepare(
     'SELECT id, nome, email, perfil, telefone, cpf, bloqueado, super_admin FROM usuarios WHERE id = ?'
   ).get(dados.sub) as UsuarioAutenticado | undefined;
 
@@ -82,7 +82,7 @@ export function gerarTokenCozinha(conta: { id: number; loja_id: number }): strin
  * Exige um token de cozinha válido. Recarrega a conta do banco a cada
  * requisição (respeita bloqueio feito pelo lojista depois da emissão).
  */
-export const autenticarCozinha: RequestHandler = (req, _res, next) => {
+export const autenticarCozinha: RequestHandler = async (req, _res, next) => {
   const cabecalho = req.headers.authorization || '';
   const token = cabecalho.startsWith('Bearer ') ? cabecalho.slice(7) : null;
   if (!token) return next(erroHttp(401, 'Faça login para continuar.'));
@@ -95,7 +95,7 @@ export const autenticarCozinha: RequestHandler = (req, _res, next) => {
   }
   if (dados.tipo !== 'cozinha') return next(erroHttp(403, 'Este acesso é exclusivo da cozinha.'));
 
-  const conta = db.prepare(
+  const conta = await db.prepare(
     'SELECT id, nome, loja_id, bloqueado FROM cozinha_contas WHERE id = ?'
   ).get(dados.sub) as { id: number; nome: string; loja_id: number; bloqueado: number } | undefined;
 
