@@ -5,7 +5,7 @@
  */
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import db from '../db';
+import db, { comTransacao } from '../db-mysql';
 import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, telefoneDigitos, erroHttp, normalizarBairro } from '../util';
 import { transicionarStatus } from '../fluxoPedido';
@@ -21,11 +21,13 @@ router.use(autenticar, exigirPerfil('cliente'));
 
 // ----- Endereços -----------------------------------------------------------
 
-router.get('/enderecos', (req, res) => {
-  const enderecos = db.prepare(
-    'SELECT * FROM enderecos WHERE usuario_id = ? ORDER BY id DESC'
-  ).all(req.usuario!.id);
-  res.json({ enderecos });
+router.get('/enderecos', async (req, res, next) => {
+  try {
+    const enderecos = await db.prepare(
+      'SELECT * FROM enderecos WHERE usuario_id = ? ORDER BY id DESC'
+    ).all(req.usuario!.id);
+    res.json({ enderecos });
+  } catch (err) { next(err); }
 });
 
 router.post('/enderecos', async (req, res, next) => {
@@ -45,7 +47,7 @@ router.post('/enderecos', async (req, res, next) => {
       throw erroHttp(400, 'Preencha rua, número, bairro, cidade e UF.');
     }
     const coord = await geocodificar(e); // best-effort: null se não achar
-    const info = db.prepare(
+    const info = await db.prepare(
       `INSERT INTO enderecos (usuario_id, rotulo, rua, numero, complemento, bairro, cidade, uf, cep, referencia, lat, lon, criado_em)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(req.usuario!.id, e.rotulo, e.rua, e.numero, e.complemento, e.bairro, e.cidade, e.uf, e.cep, e.referencia,
@@ -56,7 +58,7 @@ router.post('/enderecos', async (req, res, next) => {
 
 router.put('/enderecos/:id', async (req, res, next) => {
   try {
-    const atual = db.prepare('SELECT id FROM enderecos WHERE id = ? AND usuario_id = ?')
+    const atual = await db.prepare('SELECT id FROM enderecos WHERE id = ? AND usuario_id = ?')
       .get(req.params.id, req.usuario!.id) as { id: number } | undefined;
     if (!atual) throw erroHttp(404, 'Endereço não encontrado.');
     const e = {
@@ -74,7 +76,7 @@ router.put('/enderecos/:id', async (req, res, next) => {
       throw erroHttp(400, 'Preencha rua, número, bairro, cidade e UF.');
     }
     const coord = await geocodificar(e); // re-geocodifica: o endereço pode ter mudado
-    db.prepare(
+    await db.prepare(
       `UPDATE enderecos SET rotulo=?, rua=?, numero=?, complemento=?, bairro=?, cidade=?, uf=?, cep=?, referencia=?, lat=?, lon=?
         WHERE id = ?`
     ).run(e.rotulo, e.rua, e.numero, e.complemento, e.bairro, e.cidade, e.uf, e.cep, e.referencia,
@@ -83,9 +85,9 @@ router.put('/enderecos/:id', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.delete('/enderecos/:id', (req, res, next) => {
+router.delete('/enderecos/:id', async (req, res, next) => {
   try {
-    const info = db.prepare(
+    const info = await db.prepare(
       'DELETE FROM enderecos WHERE id = ? AND usuario_id = ?'
     ).run(req.params.id, req.usuario!.id);
     if (info.changes === 0) throw erroHttp(404, 'Endereço não encontrado.');
@@ -95,35 +97,35 @@ router.delete('/enderecos/:id', (req, res, next) => {
 
 // ----- Perfil --------------------------------------------------------------
 
-router.put('/perfil', (req, res, next) => {
+router.put('/perfil', async (req, res, next) => {
   try {
     const nome = textoLimpo(req.body.nome, 120);
     const telefone = telefoneDigitos(req.body.telefone);
     if (nome.length < 2) throw erroHttp(400, 'Informe seu nome completo.');
     // Telefone agora também é chave de login — não pode colidir com outra conta.
     if (telefone) {
-      const dono = db.prepare('SELECT id FROM usuarios WHERE telefone = ? AND id != ?')
+      const dono = await db.prepare('SELECT id FROM usuarios WHERE telefone = ? AND id != ?')
         .get(telefone, req.usuario!.id);
       if (dono) throw erroHttp(409, 'Esse telefone já está em uso por outra conta.');
     }
-    db.prepare('UPDATE usuarios SET nome = ?, telefone = ? WHERE id = ?')
+    await db.prepare('UPDATE usuarios SET nome = ?, telefone = ? WHERE id = ?')
       .run(nome, telefone, req.usuario!.id);
     res.json({ usuario: { id: req.usuario!.id, nome, telefone, email: req.usuario!.email, perfil: 'cliente' } });
   } catch (err) { next(err); }
 });
 
-router.put('/senha', (req, res, next) => {
+router.put('/senha', async (req, res, next) => {
   try {
     const atual = typeof req.body.senha_atual === 'string' ? req.body.senha_atual : '';
     const nova = typeof req.body.senha_nova === 'string' ? req.body.senha_nova : '';
     if (nova.length < 6) throw erroHttp(400, 'A nova senha precisa ter pelo menos 6 caracteres.');
 
-    const u = db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?')
+    const u = await db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?')
       .get(req.usuario!.id) as { senha_hash: string } | undefined;
     if (!u || !bcrypt.compareSync(atual, u.senha_hash)) {
       throw erroHttp(400, 'Senha atual incorreta.');
     }
-    db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?')
+    await db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?')
       .run(bcrypt.hashSync(nova, 10), req.usuario!.id);
     res.json({ ok: true });
   } catch (err) { next(err); }
@@ -137,11 +139,11 @@ interface CupomAplicado { id: number; codigo: string; tipo: 'percentual' | 'fixo
  * Valida um cupom da loja contra o subtotal. Lança erro com mensagem clara se
  * inválido/expirado/esgotado/abaixo do mínimo. Retorna null se nenhum código.
  */
-function validarCupom(lojaId: number, codigoRaw: string, subtotal: number): CupomAplicado | null {
+async function validarCupom(lojaId: number, codigoRaw: string, subtotal: number): Promise<CupomAplicado | null> {
   const codigo = textoLimpo(codigoRaw, 30).toUpperCase().replace(/\s+/g, '');
   if (!codigo) return null;
 
-  const cupom = db.prepare(
+  const cupom = await db.prepare(
     'SELECT * FROM cupons WHERE loja_id = ? AND codigo = ? AND ativo = 1'
   ).get(lojaId, codigo) as Record<string, any> | undefined;
   if (!cupom) throw erroHttp(400, 'Cupom inválido ou inativo.');
@@ -168,12 +170,12 @@ function validarCupom(lojaId: number, codigoRaw: string, subtotal: number): Cupo
 }
 
 /** Pré-validação do cupom no checkout (mostra o desconto antes de fechar). */
-router.post('/cupons/validar', (req, res, next) => {
+router.post('/cupons/validar', async (req, res, next) => {
   try {
     const lojaId = inteiroPositivo(req.body.loja_id);
     const subtotal = inteiroPositivo(req.body.subtotal) || inteiroPositivo(req.body.subtotal_centavos) || 0;
     if (!lojaId) throw erroHttp(400, 'Loja inválida.');
-    const cupom = validarCupom(lojaId, String(req.body.codigo || ''), subtotal);
+    const cupom = await validarCupom(lojaId, String(req.body.codigo || ''), subtotal);
     if (!cupom) throw erroHttp(400, 'Informe um código de cupom.');
     res.json(cupom);
   } catch (err) { next(err); }
@@ -197,17 +199,14 @@ interface ResultadoOpcoes {
   opcoesIds: number[];
 }
 
-function validarOpcoesDoItem(produto: Produto, opcoesEscolhidas: number[] | undefined): ResultadoOpcoes {
+async function validarOpcoesDoItem(produto: Produto, opcoesEscolhidas: number[] | undefined): Promise<ResultadoOpcoes> {
   const ids = Array.isArray(opcoesEscolhidas)
     ? [...new Set(opcoesEscolhidas.map(v => inteiroPositivo(v)).filter((v): v is number => v !== null))]
     : [];
 
-  const grupos = db.prepare(
+  const grupos = await db.prepare(
     'SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id'
   ).all(produto.id) as GrupoOpcao[];
-  const buscarOpcoes = db.prepare(
-    'SELECT * FROM opcoes_itens WHERE grupo_id = ? AND disponivel = 1'
-  );
 
   let precoUnit = (produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0)
     ? produto.preco_promocional_centavos : produto.preco_centavos;
@@ -215,7 +214,9 @@ function validarOpcoesDoItem(produto: Produto, opcoesEscolhidas: number[] | unde
   const idsReconhecidos = new Set<number>();
 
   for (const grupo of grupos) {
-    const opcoesDoGrupo = buscarOpcoes.all(grupo.id) as OpcaoItem[];
+    const opcoesDoGrupo = await db.prepare(
+      'SELECT * FROM opcoes_itens WHERE grupo_id = ? AND disponivel = 1'
+    ).all(grupo.id) as OpcaoItem[];
     if (opcoesDoGrupo.length === 0) continue;
     const escolhidas = opcoesDoGrupo.filter(o => ids.includes(o.id));
     for (const o of escolhidas) idsReconhecidos.add(o.id);
@@ -268,11 +269,11 @@ router.post('/pedidos', async (req, res, next) => {
     // inválido) em vez de "Pix indisponível" mascarando o motivo real.
     const pixOnline = formaPagamento === 'pix';
 
-    const loja = db.prepare('SELECT * FROM lojas WHERE id = ?').get(lojaId) as Loja | undefined;
+    const loja = await db.prepare('SELECT * FROM lojas WHERE id = ?').get(lojaId) as Loja | undefined;
     if (!loja || loja.status_aprovacao !== 'aprovada') throw erroHttp(404, 'Loja não encontrada.');
     if (!loja.aberta) throw erroHttp(409, 'Esta loja está fechada no momento e não pode receber pedidos.');
 
-    const endereco = db.prepare('SELECT * FROM enderecos WHERE id = ? AND usuario_id = ?')
+    const endereco = await db.prepare('SELECT * FROM enderecos WHERE id = ? AND usuario_id = ?')
       .get(enderecoId, req.usuario!.id) as Endereco | undefined;
     if (!endereco) throw erroHttp(400, 'Selecione um endereço de entrega válido.');
 
@@ -284,12 +285,12 @@ router.post('/pedidos', async (req, res, next) => {
       if (!produtoId || !quantidade || quantidade > 50) {
         throw erroHttp(400, 'Itens do carrinho inválidos.');
       }
-      const produto = db.prepare('SELECT * FROM produtos WHERE id = ? AND loja_id = ?')
+      const produto = await db.prepare('SELECT * FROM produtos WHERE id = ? AND loja_id = ?')
         .get(produtoId, lojaId) as Produto | undefined;
       if (!produto || produto.excluido) throw erroHttp(400, 'Um dos itens não existe mais no cardápio.');
       if (!produto.disponivel) throw erroHttp(409, `O item "${produto.nome}" está pausado no momento. Remova-o do carrinho.`);
 
-      const { precoUnit, opcoesTexto, opcoesIds } = validarOpcoesDoItem(produto, item.opcoes);
+      const { precoUnit, opcoesTexto, opcoesIds } = await validarOpcoesDoItem(produto, item.opcoes);
       subtotal += precoUnit * quantidade;
       itensValidados.push({ produto, quantidade, precoUnit, opcoesTexto, opcoesIds });
     }
@@ -327,7 +328,7 @@ router.post('/pedidos', async (req, res, next) => {
     // Comparação tolerante (normalizarBairro) — o bairro do cliente vem do
     // ViaCEP e pode variar de grafia em relação ao que o lojista digitou
     // (ex.: "Jd. Sofia" vs "Jardim Sofia").
-    const zonasLoja = db.prepare(
+    const zonasLoja = await db.prepare(
       'SELECT bairro, taxa_centavos FROM zonas_entrega WHERE loja_id = ?'
     ).all(lojaId) as { bairro: string; taxa_centavos: number }[];
     const bairroCliente = normalizarBairro(endereco.bairro);
@@ -336,7 +337,7 @@ router.post('/pedidos', async (req, res, next) => {
 
     // Cupom (opcional): valida no servidor e desconta do subtotal.
     const cupom = req.body.cupom_codigo
-      ? validarCupom(lojaId, String(req.body.cupom_codigo), subtotal)
+      ? await validarCupom(lojaId, String(req.body.cupom_codigo), subtotal)
       : null;
     const descontoCupom = cupom?.desconto_centavos || 0;
     const subtotalComDesconto = subtotal - descontoCupom;
@@ -355,8 +356,8 @@ router.post('/pedidos', async (req, res, next) => {
     const comissao = Math.round(subtotalComDesconto * comissaoPct / 100);
 
     const agora = agoraUTC();
-    const criar = db.transaction(() => {
-      const info = db.prepare(
+    const pedidoId = await comTransacao(async (tx) => {
+      const info = await tx.prepare(
         `INSERT INTO pedidos (cliente_id, loja_id, status, endereco_entrega, entrega_lat, entrega_lon, forma_pagamento,
                               troco_para_centavos, observacoes, subtotal_centavos,
                               taxa_entrega_centavos, desconto_centavos, cupom_codigo, total_centavos,
@@ -367,83 +368,82 @@ router.post('/pedidos', async (req, res, next) => {
             trocoPara, observacoes, subtotal, taxaEntrega, descontoCupom, cupom?.codigo || '',
             total, comissaoPct, comissao, pixOnline ? 'aguardando' : 'na_entrega', agora, agora);
 
-      const pedidoId = Number(info.lastInsertRowid);
+      const novoPedidoId = Number(info.lastInsertRowid);
 
       // Consome um uso do cupom (dentro da transação, evita corrida).
-      if (cupom) db.prepare('UPDATE cupons SET usos_count = usos_count + 1 WHERE id = ?').run(cupom.id);
-      const inserirItem = db.prepare(
-        `INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos, quantidade, opcoes_texto, opcoes_ids)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      );
+      if (cupom) await tx.prepare('UPDATE cupons SET usos_count = usos_count + 1 WHERE id = ?').run(cupom.id);
       for (const { produto, quantidade, precoUnit, opcoesTexto, opcoesIds } of itensValidados) {
-        inserirItem.run(pedidoId, produto.id, produto.nome, precoUnit, quantidade, opcoesTexto, JSON.stringify(opcoesIds));
+        await tx.prepare(
+          `INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos, quantidade, opcoes_texto, opcoes_ids)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run(novoPedidoId, produto.id, produto.nome, precoUnit, quantidade, opcoesTexto, JSON.stringify(opcoesIds));
       }
       // Baixa de estoque (só produtos que controlam). UPDATE condicional: se outro
       // pedido esgotou entre a validação e aqui, changes=0 e desfazemos tudo.
-      const baixar = db.prepare(
-        'UPDATE produtos SET estoque = estoque - ? WHERE id = ? AND controla_estoque = 1 AND estoque >= ?'
-      );
       for (const [produtoId, qtd] of qtdPorProduto) {
         const alvo = itensValidados.find(i => i.produto.id === produtoId)!.produto;
         if (!(alvo as any).controla_estoque) continue;
-        const r = baixar.run(qtd, produtoId, qtd);
+        const r = await tx.prepare(
+          'UPDATE produtos SET estoque = estoque - ? WHERE id = ? AND controla_estoque = 1 AND estoque >= ?'
+        ).run(qtd, produtoId, qtd);
         if (r.changes === 0) throw erroHttp(409, `O item "${alvo.nome}" acabou de esgotar. Ajuste o carrinho.`);
       }
-      db.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
-        .run(pedidoId, 'pendente', agora);
-      return pedidoId;
+      await tx.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
+        .run(novoPedidoId, 'pendente', agora);
+      return novoPedidoId;
     });
-
-    const pedidoId = criar();
 
     // Pix online: gera a cobrança no Mercado Pago e devolve o QR. O lojista só
     // é avisado quando o pagamento for aprovado (pelo webhook). Se a cobrança
     // falhar, desfaz o pedido pra não deixar lixo.
     if (pixOnline) {
       try {
-        const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as Pedido;
+        const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as Pedido;
         const pix = await criarPagamentoMercadoPago(lojaId, pedido, { email: req.usuario!.email });
-        db.prepare(
+        await db.prepare(
           "UPDATE pedidos SET pagamento_gateway = 'mercadopago', pagamento_gateway_id = ? WHERE id = ?"
         ).run(pix.pagamento_id, pedidoId);
-        notificarPedidoWhatsApp(pedidoId, `${req.protocol}://${req.get('host')}`);
+        notificarPedidoWhatsApp(pedidoId, `${req.protocol}://${req.get('host')}`).catch(() => { /* best-effort */ });
         return res.status(201).json({ pedido_id: pedidoId, total_centavos: total, pix });
       } catch (e) {
         // Limpa o pedido recém-criado (e devolve estoque + uso do cupom).
-        db.transaction(() => {
-          if (cupom) db.prepare('UPDATE cupons SET usos_count = MAX(usos_count - 1, 0) WHERE id = ?').run(cupom.id);
-          const devolver = db.prepare(
-            'UPDATE produtos SET estoque = estoque + ? WHERE id = ? AND controla_estoque = 1'
-          );
-          for (const [produtoId, qtd] of qtdPorProduto) devolver.run(qtd, produtoId);
-          db.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?').run(pedidoId);
-          db.prepare('DELETE FROM historico_status WHERE pedido_id = ?').run(pedidoId);
-          db.prepare('DELETE FROM pedidos WHERE id = ?').run(pedidoId);
-        })();
+        await comTransacao(async (tx) => {
+          if (cupom) await tx.prepare('UPDATE cupons SET usos_count = GREATEST(usos_count - 1, 0) WHERE id = ?').run(cupom.id);
+          for (const [produtoId, qtd] of qtdPorProduto) {
+            await tx.prepare(
+              'UPDATE produtos SET estoque = estoque + ? WHERE id = ? AND controla_estoque = 1'
+            ).run(qtd, produtoId);
+          }
+          await tx.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?').run(pedidoId);
+          await tx.prepare('DELETE FROM historico_status WHERE pedido_id = ?').run(pedidoId);
+          await tx.prepare('DELETE FROM pedidos WHERE id = ?').run(pedidoId);
+        });
         throw erroHttp(502, 'Não foi possível gerar o Pix agora. Tente de novo ou escolha pagar na entrega.');
       }
     }
 
     // Pagamento na entrega: o lojista é avisado na hora.
-    notificarLojistaNovoPedido(pedidoId);
-    notificarPedidoWhatsApp(pedidoId, `${req.protocol}://${req.get('host')}`);
+    notificarLojistaNovoPedido(pedidoId).catch(() => { /* best-effort */ });
+    notificarPedidoWhatsApp(pedidoId, `${req.protocol}://${req.get('host')}`).catch(() => { /* best-effort */ });
     res.status(201).json({ pedido_id: pedidoId, total_centavos: total });
   } catch (err) { next(err); }
 });
 
-router.get('/pedidos', (req, res) => {
-  const pedidos = db.prepare(
-    `SELECT p.*, l.nome AS loja_nome
-       FROM pedidos p JOIN lojas l ON l.id = p.loja_id
-      WHERE p.cliente_id = ?
-      ORDER BY p.id DESC LIMIT 100`
-  ).all(req.usuario!.id);
-  res.json({ pedidos });
+router.get('/pedidos', async (req, res, next) => {
+  try {
+    const pedidos = await db.prepare(
+      `SELECT p.*, l.nome AS loja_nome
+         FROM pedidos p JOIN lojas l ON l.id = p.loja_id
+        WHERE p.cliente_id = ?
+        ORDER BY p.id DESC LIMIT 100`
+    ).all(req.usuario!.id);
+    res.json({ pedidos });
+  } catch (err) { next(err); }
 });
 
-router.get('/pedidos/:id', (req, res, next) => {
+router.get('/pedidos/:id', async (req, res, next) => {
   try {
-    const pedido = db.prepare(
+    const pedido = await db.prepare(
       `SELECT p.*, l.nome AS loja_nome, l.tempo_estimado_min,
               l.cor_marca AS loja_cor_marca, l.cor_secundaria AS loja_cor_secundaria,
               u.nome AS entregador_nome, u.telefone AS entregador_telefone,
@@ -456,14 +456,14 @@ router.get('/pedidos/:id', (req, res, next) => {
     ).get(req.params.id, req.usuario!.id);
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
 
-    const itens = db.prepare('SELECT * FROM itens_pedido WHERE pedido_id = ?').all((pedido as any).id);
-    const historico = db.prepare(
+    const itens = await db.prepare('SELECT * FROM itens_pedido WHERE pedido_id = ?').all((pedido as any).id);
+    const historico = await db.prepare(
       'SELECT status, criado_em FROM historico_status WHERE pedido_id = ? ORDER BY id'
     ).all((pedido as any).id);
-    const avaliacao = db.prepare(
+    const avaliacao = await db.prepare(
       'SELECT nota, comentario, resposta FROM avaliacoes WHERE pedido_id = ?'
     ).get((pedido as any).id) || null;
-    const avaliacaoEntregador = db.prepare(
+    const avaliacaoEntregador = await db.prepare(
       'SELECT nota, comentario FROM avaliacoes_entregador WHERE pedido_id = ?'
     ).get((pedido as any).id) || null;
     res.json({ pedido, itens, historico, avaliacao, avaliacaoEntregador });
@@ -471,17 +471,17 @@ router.get('/pedidos/:id', (req, res, next) => {
 });
 
 /** Recalcula e grava a nota média/quantidade da loja após uma avaliação. */
-function recalcularNotaLoja(lojaId: number): void {
-  const agg = db.prepare(
+async function recalcularNotaLoja(lojaId: number): Promise<void> {
+  const agg = await db.prepare(
     'SELECT AVG(nota) AS media, COUNT(*) AS qtd FROM avaliacoes WHERE loja_id = ?'
   ).get(lojaId) as { media: number | null; qtd: number };
-  db.prepare('UPDATE lojas SET nota_media = ?, nota_qtd = ? WHERE id = ?')
+  await db.prepare('UPDATE lojas SET nota_media = ?, nota_qtd = ? WHERE id = ?')
     .run(agg.media ? Math.round(agg.media * 10) / 10 : 0, agg.qtd, lojaId);
 }
 
-router.post('/pedidos/:id/avaliar', (req, res, next) => {
+router.post('/pedidos/:id/avaliar', async (req, res, next) => {
   try {
-    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ? AND cliente_id = ?')
+    const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND cliente_id = ?')
       .get(req.params.id, req.usuario!.id) as { id: number; loja_id: number; status: string } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
     if (pedido.status !== 'entregue') {
@@ -491,30 +491,30 @@ router.post('/pedidos/:id/avaliar', (req, res, next) => {
     if (!nota || nota < 1 || nota > 5) throw erroHttp(400, 'Dê uma nota de 1 a 5 estrelas.');
     const comentario = textoLimpo(req.body.comentario, 500);
 
-    const jaTem = db.prepare('SELECT id FROM avaliacoes WHERE pedido_id = ?').get(pedido.id);
+    const jaTem = await db.prepare('SELECT id FROM avaliacoes WHERE pedido_id = ?').get(pedido.id);
     if (jaTem) throw erroHttp(409, 'Você já avaliou este pedido.');
 
-    db.prepare(
+    await db.prepare(
       `INSERT INTO avaliacoes (pedido_id, loja_id, cliente_id, nota, comentario, criado_em)
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(pedido.id, pedido.loja_id, req.usuario!.id, nota, comentario, agoraUTC());
-    recalcularNotaLoja(pedido.loja_id);
+    await recalcularNotaLoja(pedido.loja_id);
     res.status(201).json({ ok: true });
   } catch (err) { next(err); }
 });
 
 /** Recalcula e grava a nota média/quantidade do entregador (mesmo padrão da loja). */
-function recalcularNotaEntregador(entregadorId: number): void {
-  const agg = db.prepare(
+async function recalcularNotaEntregador(entregadorId: number): Promise<void> {
+  const agg = await db.prepare(
     'SELECT AVG(nota) AS media, COUNT(*) AS qtd FROM avaliacoes_entregador WHERE entregador_id = ?'
   ).get(entregadorId) as { media: number | null; qtd: number };
-  db.prepare('UPDATE usuarios SET nota_media = ?, nota_qtd = ? WHERE id = ?')
+  await db.prepare('UPDATE usuarios SET nota_media = ?, nota_qtd = ? WHERE id = ?')
     .run(agg.media ? Math.round(agg.media * 10) / 10 : 0, agg.qtd, entregadorId);
 }
 
-router.post('/pedidos/:id/avaliar-entregador', (req, res, next) => {
+router.post('/pedidos/:id/avaliar-entregador', async (req, res, next) => {
   try {
-    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ? AND cliente_id = ?')
+    const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND cliente_id = ?')
       .get(req.params.id, req.usuario!.id) as { id: number; entregador_id: number | null; status: string } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
     if (pedido.status !== 'entregue') throw erroHttp(409, 'Você só pode avaliar pedidos que já foram entregues.');
@@ -524,44 +524,44 @@ router.post('/pedidos/:id/avaliar-entregador', (req, res, next) => {
     if (!nota || nota < 1 || nota > 5) throw erroHttp(400, 'Dê uma nota de 1 a 5 estrelas.');
     const comentario = textoLimpo(req.body.comentario, 500);
 
-    const jaTem = db.prepare('SELECT id FROM avaliacoes_entregador WHERE pedido_id = ?').get(pedido.id);
+    const jaTem = await db.prepare('SELECT id FROM avaliacoes_entregador WHERE pedido_id = ?').get(pedido.id);
     if (jaTem) throw erroHttp(409, 'Você já avaliou este entregador.');
 
-    db.prepare(
+    await db.prepare(
       `INSERT INTO avaliacoes_entregador (pedido_id, entregador_id, cliente_id, nota, comentario, criado_em)
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(pedido.id, pedido.entregador_id, req.usuario!.id, nota, comentario, agoraUTC());
-    recalcularNotaEntregador(pedido.entregador_id);
+    await recalcularNotaEntregador(pedido.entregador_id);
     res.status(201).json({ ok: true });
   } catch (err) { next(err); }
 });
 
 // ----- Chat do pedido --------------------------------------------------------
 
-router.get('/pedidos/:id/mensagens', (req, res, next) => {
+router.get('/pedidos/:id/mensagens', async (req, res, next) => {
   try {
-    const pedido = db.prepare('SELECT id FROM pedidos WHERE id = ? AND cliente_id = ?')
+    const pedido = await db.prepare('SELECT id FROM pedidos WHERE id = ? AND cliente_id = ?')
       .get(req.params.id, req.usuario!.id) as { id: number } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
-    const mensagens = db.prepare(
+    const mensagens = await db.prepare(
       'SELECT id, remetente, texto, criado_em FROM mensagens_pedido WHERE pedido_id = ? ORDER BY id'
     ).all(pedido.id);
-    db.prepare("UPDATE mensagens_pedido SET lida = 1 WHERE pedido_id = ? AND remetente IN ('entregador','loja')").run(pedido.id);
+    await db.prepare("UPDATE mensagens_pedido SET lida = 1 WHERE pedido_id = ? AND remetente IN ('entregador','loja')").run(pedido.id);
     res.json({ mensagens });
   } catch (err) { next(err); }
 });
 
 // Antes de ter entregador atribuído o cliente fala com a LOJA; depois passa a
 // falar com o entregador — mas é sempre a mesma thread, sem trava por status.
-router.post('/pedidos/:id/mensagens', (req, res, next) => {
+router.post('/pedidos/:id/mensagens', async (req, res, next) => {
   try {
-    const pedido = db.prepare("SELECT id, status FROM pedidos WHERE id = ? AND cliente_id = ?")
+    const pedido = await db.prepare("SELECT id, status FROM pedidos WHERE id = ? AND cliente_id = ?")
       .get(req.params.id, req.usuario!.id) as { id: number; status: string } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
     if (['cancelado', 'recusado'].includes(pedido.status)) throw erroHttp(409, 'Este pedido já foi encerrado.');
     const texto = textoLimpo(req.body.texto, 500);
     if (!texto) throw erroHttp(400, 'Escreva uma mensagem.');
-    const info = db.prepare(
+    const info = await db.prepare(
       `INSERT INTO mensagens_pedido (pedido_id, remetente, texto, criado_em) VALUES (?, 'cliente', ?, ?)`
     ).run(pedido.id, texto, agoraUTC());
     res.status(201).json({ mensagem_id: Number(info.lastInsertRowid) });
@@ -570,7 +570,7 @@ router.post('/pedidos/:id/mensagens', (req, res, next) => {
 
 router.post('/pedidos/:id/cancelar', async (req, res, next) => {
   try {
-    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ? AND cliente_id = ?')
+    const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND cliente_id = ?')
       .get(req.params.id, req.usuario!.id) as { id: number; status: string } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
     if (pedido.status !== 'pendente') {
@@ -581,9 +581,9 @@ router.post('/pedidos/:id/cancelar', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get('/pedidos/:id/repetir', (req, res, next) => {
+router.get('/pedidos/:id/repetir', async (req, res, next) => {
   try {
-    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ? AND cliente_id = ?')
+    const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND cliente_id = ?')
       .get(req.params.id, req.usuario!.id) as { id: number; loja_id: number } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
 
@@ -592,37 +592,38 @@ router.get('/pedidos/:id/repetir', (req, res, next) => {
       nome: string; preco_centavos: number; preco_promocional_centavos: number | null;
       disponivel: number; excluido: number;
     };
-    const itens = db.prepare(
+    const itens = await db.prepare(
       `SELECT i.produto_id, i.quantidade, i.opcoes_ids, i.opcoes_texto,
               pr.nome, pr.preco_centavos, pr.preco_promocional_centavos, pr.disponivel, pr.excluido
          FROM itens_pedido i JOIN produtos pr ON pr.id = i.produto_id
         WHERE i.pedido_id = ?`
     ).all(pedido.id) as ItemAntigo[];
 
-    const opcaoAindaExiste = db.prepare(
-      `SELECT o.id, o.nome, o.preco_adicional_centavos, g.nome AS grupo_nome
-         FROM opcoes_itens o JOIN grupos_opcoes g ON g.id = o.grupo_id
-        WHERE o.id = ? AND g.produto_id = ? AND o.disponivel = 1`
-    );
-
-    const disponiveis = itens.filter(i => i.disponivel && !i.excluido).map(i => {
+    type OpcaoExistente = { id: number; nome: string; preco_adicional_centavos: number; grupo_nome: string };
+    const disponiveis = [];
+    for (const i of itens.filter(i => i.disponivel && !i.excluido)) {
       let idsAntigos: number[] = [];
       try { idsAntigos = JSON.parse(i.opcoes_ids); } catch { /* pedido antigo sem opções */ }
-      type OpcaoExistente = { id: number; nome: string; preco_adicional_centavos: number; grupo_nome: string };
-      const opcoes = idsAntigos
-        .map(id => opcaoAindaExiste.get(id, i.produto_id) as OpcaoExistente | undefined)
-        .filter((o): o is OpcaoExistente => !!o);
+      const opcoes: OpcaoExistente[] = [];
+      for (const id of idsAntigos) {
+        const opcao = await db.prepare(
+          `SELECT o.id, o.nome, o.preco_adicional_centavos, g.nome AS grupo_nome
+             FROM opcoes_itens o JOIN grupos_opcoes g ON g.id = o.grupo_id
+            WHERE o.id = ? AND g.produto_id = ? AND o.disponivel = 1`
+        ).get(id, i.produto_id) as OpcaoExistente | undefined;
+        if (opcao) opcoes.push(opcao);
+      }
       const precoBase = (i.preco_promocional_centavos && i.preco_promocional_centavos > 0)
         ? i.preco_promocional_centavos : i.preco_centavos;
-      return {
+      disponiveis.push({
         produto_id: i.produto_id,
         nome: i.nome,
         quantidade: i.quantidade,
         opcoes: opcoes.map(o => o.id),
         opcoes_texto: opcoes.map(o => `${o.grupo_nome}: ${o.nome}`).join(' · '),
         preco_centavos: precoBase + opcoes.reduce((s, o) => s + o.preco_adicional_centavos, 0),
-      };
-    });
+      });
+    }
     const indisponiveis = itens.filter(i => !i.disponivel || i.excluido).map(i => i.nome);
 
     res.json({ loja_id: pedido.loja_id, itens: disponiveis, indisponiveis });
@@ -632,38 +633,40 @@ router.get('/pedidos/:id/repetir', (req, res, next) => {
 // ----- Favoritos -----------------------------------------------------------
 
 /** Lojas favoritas do cliente (cards completos + lista de ids). */
-router.get('/favoritos', (req, res) => {
-  const lojas = db.prepare(
-    `SELECT l.id, l.nome, l.descricao, l.categoria, l.taxa_entrega_centavos,
-            l.tempo_estimado_min, l.aberta, l.logo_url, l.capa_url,
-            l.nota_media, l.nota_qtd
-       FROM favoritos f JOIN lojas l ON l.id = f.loja_id
-      WHERE f.usuario_id = ? AND l.status_aprovacao = 'aprovada'
-      ORDER BY f.criado_em DESC`
-  ).all(req.usuario!.id) as Array<{ id: number }>;
-  res.json({ lojas, ids: lojas.map(l => l.id) });
+router.get('/favoritos', async (req, res, next) => {
+  try {
+    const lojas = await db.prepare(
+      `SELECT l.id, l.nome, l.descricao, l.categoria, l.taxa_entrega_centavos,
+              l.tempo_estimado_min, l.aberta, l.logo_url, l.capa_url,
+              l.nota_media, l.nota_qtd
+         FROM favoritos f JOIN lojas l ON l.id = f.loja_id
+        WHERE f.usuario_id = ? AND l.status_aprovacao = 'aprovada'
+        ORDER BY f.criado_em DESC`
+    ).all(req.usuario!.id) as Array<{ id: number }>;
+    res.json({ lojas, ids: lojas.map(l => l.id) });
+  } catch (err) { next(err); }
 });
 
 /** Adiciona uma loja aos favoritos (idempotente). */
-router.post('/favoritos/:lojaId', (req, res, next) => {
+router.post('/favoritos/:lojaId', async (req, res, next) => {
   try {
     const lojaId = inteiroPositivo(req.params.lojaId);
     if (!lojaId) throw erroHttp(400, 'Loja inválida.');
-    const existe = db.prepare("SELECT id FROM lojas WHERE id = ? AND status_aprovacao = 'aprovada'").get(lojaId);
+    const existe = await db.prepare("SELECT id FROM lojas WHERE id = ? AND status_aprovacao = 'aprovada'").get(lojaId);
     if (!existe) throw erroHttp(404, 'Loja não encontrada.');
-    db.prepare(
-      'INSERT OR IGNORE INTO favoritos (usuario_id, loja_id, criado_em) VALUES (?, ?, ?)'
+    await db.prepare(
+      'INSERT IGNORE INTO favoritos (usuario_id, loja_id, criado_em) VALUES (?, ?, ?)'
     ).run(req.usuario!.id, lojaId, agoraUTC());
     res.json({ ok: true, favorito: true });
   } catch (err) { next(err); }
 });
 
 /** Remove uma loja dos favoritos. */
-router.delete('/favoritos/:lojaId', (req, res, next) => {
+router.delete('/favoritos/:lojaId', async (req, res, next) => {
   try {
     const lojaId = inteiroPositivo(req.params.lojaId);
     if (!lojaId) throw erroHttp(400, 'Loja inválida.');
-    db.prepare('DELETE FROM favoritos WHERE usuario_id = ? AND loja_id = ?')
+    await db.prepare('DELETE FROM favoritos WHERE usuario_id = ? AND loja_id = ?')
       .run(req.usuario!.id, lojaId);
     res.json({ ok: true, favorito: false });
   } catch (err) { next(err); }
