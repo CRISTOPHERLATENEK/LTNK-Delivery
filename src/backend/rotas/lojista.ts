@@ -7,7 +7,7 @@ import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import db, { arquivoTenantAtual } from '../db';
+import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
 import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido, normalizarBairro } from '../util';
 import { transicionarStatus } from '../fluxoPedido';
@@ -28,7 +28,7 @@ import { GrupoOpcao, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
 
 /** Pasta protegida do certificado de uma loja (namespeada por tenant). */
 export function caminhoCertificado(lojaId: number): string {
-  const base = path.basename(arquivoTenantAtual()).replace(/\.db$/, '');
+  const base = bancoTenantAtual();
   const dir = path.resolve('./dados/certificados');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, `${base}__loja-${lojaId}.pfx`);
@@ -40,15 +40,15 @@ const uploadCert = multer({ storage: multer.memoryStorage(), limits: { fileSize:
 const router = Router();
 router.use(autenticar, exigirPerfil('lojista'));
 
-function minhaLoja(req: Request, obrigatoria = true): Loja {
-  const loja = db.prepare('SELECT * FROM lojas WHERE usuario_id = ?')
+async function minhaLoja(req: Request, obrigatoria = true): Promise<Loja> {
+  const loja = await db.prepare('SELECT * FROM lojas WHERE usuario_id = ?')
     .get(req.usuario!.id) as Loja | undefined;
   if (!loja && obrigatoria) throw erroHttp(404, 'Você ainda não cadastrou sua loja.');
   return loja as Loja;
 }
 
-function meuProduto(loja: Loja, produtoId: number | string): Produto {
-  const produto = db.prepare(
+async function meuProduto(loja: Loja, produtoId: number | string): Promise<Produto> {
+  const produto = await db.prepare(
     'SELECT * FROM produtos WHERE id = ? AND loja_id = ? AND excluido = 0'
   ).get(produtoId, loja.id) as Produto | undefined;
   if (!produto) throw erroHttp(404, 'Produto não encontrado.');
@@ -57,13 +57,13 @@ function meuProduto(loja: Loja, produtoId: number | string): Produto {
 
 // ----- Loja ----------------------------------------------------------------
 
-router.get('/loja', (req, res, next) => {
-  try { res.json({ loja: minhaLoja(req) }); } catch (e) { next(e); }
+router.get('/loja', async (req, res, next) => {
+  try { res.json({ loja: await minhaLoja(req) }); } catch (e) { next(e); }
 });
 
 router.post('/loja', async (req, res, next) => {
   try {
-    if (minhaLoja(req, false)) throw erroHttp(409, 'Você já tem uma loja cadastrada.');
+    if (await minhaLoja(req, false)) throw erroHttp(409, 'Você já tem uma loja cadastrada.');
 
     const nome = textoLimpo(req.body.nome, 100);
     if (nome.length < 2) throw erroHttp(400, 'Informe o nome da loja.');
@@ -73,7 +73,7 @@ router.post('/loja', async (req, res, next) => {
     const endereco = textoLimpo(req.body.endereco, 200);
     const coord = endereco ? await geocodificarTexto(endereco) : null; // best-effort
 
-    const info = db.prepare(
+    const info = await db.prepare(
       `INSERT INTO lojas (usuario_id, nome, descricao, categoria, endereco, lat, lon,
                           taxa_entrega_centavos, tempo_estimado_min, horario_funcionamento,
                           status_aprovacao, aberta, criado_em)
@@ -91,7 +91,7 @@ router.post('/loja', async (req, res, next) => {
 
 router.put('/loja', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const nome = textoLimpo(req.body.nome, 100) || loja.nome;
     const taxa = req.body.taxa_entrega !== undefined
       ? reaisParaCentavos(req.body.taxa_entrega) : loja.taxa_entrega_centavos;
@@ -123,7 +123,7 @@ router.put('/loja', async (req, res, next) => {
         throw erroHttp(400, 'Slug inválido: use apenas letras minúsculas, números e hífens (mín. 3 chars).');
       }
       if (s) {
-        const conflito = db.prepare('SELECT id FROM lojas WHERE slug = ? AND id != ?').get(s, loja.id);
+        const conflito = await db.prepare('SELECT id FROM lojas WHERE slug = ? AND id != ?').get(s, loja.id);
         if (conflito) throw erroHttp(409, 'Este slug já está sendo usado por outra loja.');
       }
       slug = s || null;
@@ -139,7 +139,7 @@ router.put('/loja', async (req, res, next) => {
         throw erroHttp(400, 'Domínio inválido. Use o formato "suaempresa.com.br", sem https:// nem barras.');
       }
       if (d) {
-        const conflito = db.prepare('SELECT id FROM lojas WHERE dominio_personalizado = ? AND id != ?').get(d, loja.id);
+        const conflito = await db.prepare('SELECT id FROM lojas WHERE dominio_personalizado = ? AND id != ?').get(d, loja.id);
         if (conflito) throw erroHttp(409, 'Este domínio já está sendo usado por outra loja.');
       }
       dominioPersonalizado = d || null;
@@ -188,7 +188,7 @@ router.put('/loja', async (req, res, next) => {
       lon = coord?.lon ?? null;
     }
 
-    db.prepare(
+    await db.prepare(
       `UPDATE lojas SET nome = ?, descricao = ?, categoria = ?, endereco = ?, lat = ?, lon = ?,
               taxa_entrega_centavos = ?, tempo_estimado_min = ?, horario_funcionamento = ?,
               logo_url = ?, capa_url = ?, favicon_url = ?, cor_marca = ?, cor_secundaria = ?, slug = ?,
@@ -215,9 +215,9 @@ router.put('/loja', async (req, res, next) => {
     // Se acabou de ligar o automático, aplica a agenda na hora.
     if (autoHorario) {
       const deve = lojaAbertaPorAgenda(horarioJson);
-      if (deve !== null) db.prepare('UPDATE lojas SET aberta = ? WHERE id = ?').run(deve ? 1 : 0, loja.id);
+      if (deve !== null) await db.prepare('UPDATE lojas SET aberta = ? WHERE id = ?').run(deve ? 1 : 0, loja.id);
     }
-    res.json({ loja: minhaLoja(req) });
+    res.json({ loja: await minhaLoja(req) });
   } catch (e) { next(e); }
 });
 
@@ -391,9 +391,9 @@ function validarUrlSolta(v: unknown, atual: string): string {
   return atual;
 }
 
-router.post('/loja/abrir-fechar', (req, res, next) => {
+router.post('/loja/abrir-fechar', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     if (loja.status_aprovacao !== 'aprovada') {
       throw erroHttp(409, 'Sua loja ainda não foi aprovada pelo admin, então não pode abrir.');
     }
@@ -406,12 +406,12 @@ router.post('/loja/abrir-fechar', (req, res, next) => {
       if (novo === 0) {
         // Pausa por 2h (ou até o fim do expediente, o tick reavalia).
         const ate = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
-        db.prepare('UPDATE lojas SET aberta = 0, pausado_ate = ? WHERE id = ?').run(ate, loja.id);
+        await db.prepare('UPDATE lojas SET aberta = 0, pausado_ate = ? WHERE id = ?').run(ate, loja.id);
       } else {
-        db.prepare("UPDATE lojas SET aberta = 1, pausado_ate = '' WHERE id = ?").run(loja.id);
+        await db.prepare("UPDATE lojas SET aberta = 1, pausado_ate = '' WHERE id = ?").run(loja.id);
       }
     } else {
-      db.prepare('UPDATE lojas SET aberta = ? WHERE id = ?').run(novo, loja.id);
+      await db.prepare('UPDATE lojas SET aberta = ? WHERE id = ?').run(novo, loja.id);
     }
     res.json({ aberta: !!novo });
   } catch (e) { next(e); }
@@ -419,41 +419,41 @@ router.post('/loja/abrir-fechar', (req, res, next) => {
 
 // ----- Zonas de entrega (taxa por bairro) ----------------------------------
 
-router.get('/zonas', (req, res, next) => {
+router.get('/zonas', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const zonas = db.prepare(
+    const loja = await minhaLoja(req);
+    const zonas = await db.prepare(
       'SELECT id, bairro, taxa_centavos FROM zonas_entrega WHERE loja_id = ? ORDER BY bairro'
     ).all(loja.id);
     res.json({ zonas });
   } catch (e) { next(e); }
 });
 
-router.post('/zonas', (req, res, next) => {
+router.post('/zonas', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const bairro = textoLimpo(req.body.bairro, 80);
     if (bairro.length < 2) throw erroHttp(400, 'Informe o nome do bairro.');
     const taxa = reaisParaCentavos(req.body.taxa);
     if (taxa === null || taxa < 0) throw erroHttp(400, 'Informe uma taxa válida (use 0 para grátis).');
     // Evita bairro duplicado na mesma loja (comparação tolerante — "Jd. Sofia"
     // e "Jardim Sofia" contam como o mesmo bairro).
-    const existentes = db.prepare('SELECT bairro FROM zonas_entrega WHERE loja_id = ?').all(loja.id) as { bairro: string }[];
+    const existentes = await db.prepare('SELECT bairro FROM zonas_entrega WHERE loja_id = ?').all(loja.id) as { bairro: string }[];
     const bairroNorm = normalizarBairro(bairro);
     if (existentes.some(z => normalizarBairro(z.bairro) === bairroNorm)) {
       throw erroHttp(409, 'Esse bairro já tem uma taxa cadastrada.');
     }
-    const info = db.prepare(
+    const info = await db.prepare(
       'INSERT INTO zonas_entrega (loja_id, bairro, taxa_centavos, criado_em) VALUES (?, ?, ?, ?)'
     ).run(loja.id, bairro, taxa, agoraUTC());
     res.status(201).json({ zona_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
 
-router.put('/zonas/:id', (req, res, next) => {
+router.put('/zonas/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const zona = db.prepare('SELECT * FROM zonas_entrega WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req);
+    const zona = await db.prepare('SELECT * FROM zonas_entrega WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id) as { id: number; bairro: string; taxa_centavos: number } | undefined;
     if (!zona) throw erroHttp(404, 'Zona não encontrada.');
     const bairro = req.body.bairro !== undefined ? textoLimpo(req.body.bairro, 80) : zona.bairro;
@@ -461,22 +461,22 @@ router.put('/zonas/:id', (req, res, next) => {
     const taxa = req.body.taxa !== undefined ? reaisParaCentavos(req.body.taxa) : zona.taxa_centavos;
     if (taxa === null || taxa < 0) throw erroHttp(400, 'Taxa inválida.');
     if (req.body.bairro !== undefined) {
-      const outras = db.prepare('SELECT bairro FROM zonas_entrega WHERE loja_id = ? AND id != ?').all(loja.id, zona.id) as { bairro: string }[];
+      const outras = await db.prepare('SELECT bairro FROM zonas_entrega WHERE loja_id = ? AND id != ?').all(loja.id, zona.id) as { bairro: string }[];
       const bairroNorm = normalizarBairro(bairro);
       if (outras.some(z => normalizarBairro(z.bairro) === bairroNorm)) {
         throw erroHttp(409, 'Esse bairro já tem uma taxa cadastrada.');
       }
     }
-    db.prepare('UPDATE zonas_entrega SET bairro = ?, taxa_centavos = ? WHERE id = ?')
+    await db.prepare('UPDATE zonas_entrega SET bairro = ?, taxa_centavos = ? WHERE id = ?')
       .run(bairro, taxa, zona.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
-router.delete('/zonas/:id', (req, res, next) => {
+router.delete('/zonas/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const r = db.prepare('DELETE FROM zonas_entrega WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req);
+    const r = await db.prepare('DELETE FROM zonas_entrega WHERE id = ? AND loja_id = ?')
       .run(req.params.id, loja.id);
     if (r.changes === 0) throw erroHttp(404, 'Zona não encontrada.');
     res.json({ ok: true });
@@ -485,10 +485,10 @@ router.delete('/zonas/:id', (req, res, next) => {
 
 // ----- Avaliações ----------------------------------------------------------
 
-router.get('/avaliacoes', (req, res, next) => {
+router.get('/avaliacoes', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const avaliacoes = db.prepare(
+    const loja = await minhaLoja(req);
+    const avaliacoes = await db.prepare(
       `SELECT a.id, a.pedido_id, a.nota, a.comentario, a.resposta, a.criado_em,
               u.nome AS cliente_nome
          FROM avaliacoes a
@@ -505,24 +505,24 @@ router.get('/avaliacoes', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.post('/avaliacoes/:id/responder', (req, res, next) => {
+router.post('/avaliacoes/:id/responder', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const av = db.prepare('SELECT * FROM avaliacoes WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req);
+    const av = await db.prepare('SELECT * FROM avaliacoes WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id) as { id: number } | undefined;
     if (!av) throw erroHttp(404, 'Avaliação não encontrada.');
     const resposta = textoLimpo(req.body.resposta, 500);
-    db.prepare('UPDATE avaliacoes SET resposta = ? WHERE id = ?').run(resposta, av.id);
+    await db.prepare('UPDATE avaliacoes SET resposta = ? WHERE id = ?').run(resposta, av.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
 // ----- Clientes da loja ----------------------------------------------------
 
-router.get('/clientes', (req, res, next) => {
+router.get('/clientes', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const clientes = db.prepare(
+    const loja = await minhaLoja(req);
+    const clientes = await db.prepare(
       `SELECT id, nome, email, telefone, criado_em
          FROM usuarios
         WHERE loja_id = ? AND perfil = 'cliente'
@@ -534,21 +534,22 @@ router.get('/clientes', (req, res, next) => {
 
 // ----- Produtos (CRUD com exclusão lógica + grupos de opções) --------------
 
-router.get('/produtos', (req, res, next) => {
+router.get('/produtos', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     type ProdutoFull = Produto & { grupos: Array<GrupoOpcao & { opcoes: OpcaoItem[] }> };
-    const produtos = db.prepare(
+    const produtos = await db.prepare(
       'SELECT * FROM produtos WHERE loja_id = ? AND excluido = 0 ORDER BY categoria, destaque DESC, nome'
     ).all(loja.id) as ProdutoFull[];
 
-    const buscarGrupos = db.prepare(
-      'SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id');
-    const buscarOpcoes = db.prepare(
-      'SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id');
     for (const p of produtos) {
-      p.grupos = (buscarGrupos.all(p.id) as GrupoOpcao[])
-        .map(g => ({ ...g, opcoes: buscarOpcoes.all(g.id) as OpcaoItem[] }));
+      const grupos = await db.prepare('SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id').all(p.id) as GrupoOpcao[];
+      const comOpcoes = [];
+      for (const g of grupos) {
+        const opcoes = await db.prepare('SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id').all(g.id) as OpcaoItem[];
+        comOpcoes.push({ ...g, opcoes });
+      }
+      p.grupos = comOpcoes;
     }
     res.json({ produtos });
   } catch (e) { next(e); }
@@ -612,11 +613,11 @@ function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProdut
   };
 }
 
-router.post('/produtos', (req, res, next) => {
+router.post('/produtos', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const c = camposProduto(req);
-    const info = db.prepare(
+    const info = await db.prepare(
       `INSERT INTO produtos (loja_id, nome, descricao, categoria, subcategoria, preco_centavos,
                              preco_promocional_centavos, serve_pessoas, destaque,
                              foto_url, disponivel, vendido_por, codigo_barras,
@@ -629,12 +630,12 @@ router.post('/produtos', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.put('/produtos/:id', (req, res, next) => {
+router.put('/produtos/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const produto = meuProduto(loja, req.params.id);
+    const loja = await minhaLoja(req);
+    const produto = await meuProduto(loja, req.params.id);
     const c = camposProduto(req, produto);
-    db.prepare(
+    await db.prepare(
       `UPDATE produtos SET nome = ?, descricao = ?, categoria = ?, subcategoria = ?, preco_centavos = ?,
               preco_promocional_centavos = ?, serve_pessoas = ?, destaque = ?,
               foto_url = ?, disponivel = ?, vendido_por = ?, codigo_barras = ?,
@@ -646,10 +647,10 @@ router.put('/produtos/:id', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.delete('/produtos/:id', (req, res, next) => {
+router.delete('/produtos/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const info = db.prepare(
+    const loja = await minhaLoja(req);
+    const info = await db.prepare(
       'UPDATE produtos SET excluido = 1, disponivel = 0 WHERE id = ? AND loja_id = ? AND excluido = 0'
     ).run(req.params.id, loja.id);
     if (info.changes === 0) throw erroHttp(404, 'Produto não encontrado.');
@@ -663,13 +664,13 @@ router.delete('/produtos/:id', (req, res, next) => {
  * rápidas (ex.: mesmo lanche em tamanho diferente) sem redigitar tudo.
  * O clone nasce indisponível — o lojista revisa/ajusta antes de publicar.
  */
-router.post('/produtos/:id/duplicar', (req, res, next) => {
+router.post('/produtos/:id/duplicar', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const original = meuProduto(loja, req.params.id) as any;
+    const loja = await minhaLoja(req);
+    const original = await meuProduto(loja, req.params.id) as any;
 
-    const clonar = db.transaction(() => {
-      const info = db.prepare(
+    const produto_id = await comTransacao(async (tx) => {
+      const info = await tx.prepare(
         `INSERT INTO produtos (loja_id, nome, descricao, categoria, subcategoria, preco_centavos,
                                preco_promocional_centavos, serve_pessoas, destaque,
                                foto_url, disponivel, vendido_por, codigo_barras,
@@ -686,16 +687,16 @@ router.post('/produtos/:id/duplicar', (req, res, next) => {
       );
       const novoId = Number(info.lastInsertRowid);
 
-      const grupos = db.prepare('SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id').all(original.id) as any[];
+      const grupos = await tx.prepare('SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id').all(original.id) as any[];
       for (const g of grupos) {
-        const gInfo = db.prepare(
+        const gInfo = await tx.prepare(
           `INSERT INTO grupos_opcoes (produto_id, nome, tipo, obrigatorio, max_escolhas, ordem)
            VALUES (?, ?, ?, ?, ?, ?)`
         ).run(novoId, g.nome, g.tipo, g.obrigatorio, g.max_escolhas, g.ordem);
         const novoGrupoId = Number(gInfo.lastInsertRowid);
-        const opcoes = db.prepare('SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id').all(g.id) as any[];
+        const opcoes = await tx.prepare('SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id').all(g.id) as any[];
         for (const o of opcoes) {
-          db.prepare(
+          await tx.prepare(
             `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem)
              VALUES (?, ?, ?, ?, ?)`
           ).run(novoGrupoId, o.nome, o.preco_adicional_centavos, o.disponivel, o.ordem);
@@ -704,7 +705,6 @@ router.post('/produtos/:id/duplicar', (req, res, next) => {
       return novoId;
     });
 
-    const produto_id = clonar();
     res.status(201).json({ produto_id });
   } catch (e) { next(e); }
 });
@@ -714,9 +714,9 @@ router.post('/produtos/:id/duplicar', (req, res, next) => {
  * Sempre restrito à loja do lojista autenticado (o IN (...) filtra por
  * loja_id, então IDs de outra loja são simplesmente ignorados).
  */
-router.post('/produtos/bulk', (req, res, next) => {
+router.post('/produtos/bulk', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter((n: number) => Number.isInteger(n) && n > 0) : [];
     const acao = String(req.body.acao || '');
     if (ids.length === 0) throw erroHttp(400, 'Selecione ao menos um produto.');
@@ -725,13 +725,13 @@ router.post('/produtos/bulk', (req, res, next) => {
     const placeholders = ids.map(() => '?').join(',');
     let info;
     if (acao === 'ativar') {
-      info = db.prepare(`UPDATE produtos SET disponivel = 1 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
+      info = await db.prepare(`UPDATE produtos SET disponivel = 1 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
         .run(loja.id, ...ids);
     } else if (acao === 'desativar') {
-      info = db.prepare(`UPDATE produtos SET disponivel = 0 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
+      info = await db.prepare(`UPDATE produtos SET disponivel = 0 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
         .run(loja.id, ...ids);
     } else {
-      info = db.prepare(`UPDATE produtos SET excluido = 1, disponivel = 0 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
+      info = await db.prepare(`UPDATE produtos SET excluido = 1, disponivel = 0 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
         .run(loja.id, ...ids);
     }
     res.json({ ok: true, afetados: info.changes });
@@ -740,8 +740,8 @@ router.post('/produtos/bulk', (req, res, next) => {
 
 // ----- Grupos e opções -----------------------------------------------------
 
-function meuGrupo(loja: Loja, grupoId: number | string): GrupoOpcao {
-  const grupo = db.prepare(
+async function meuGrupo(loja: Loja, grupoId: number | string): Promise<GrupoOpcao> {
+  const grupo = await db.prepare(
     `SELECT g.* FROM grupos_opcoes g
        JOIN produtos p ON p.id = g.produto_id
       WHERE g.id = ? AND p.loja_id = ?`
@@ -750,8 +750,8 @@ function meuGrupo(loja: Loja, grupoId: number | string): GrupoOpcao {
   return grupo;
 }
 
-function minhaOpcao(loja: Loja, opcaoId: number | string): OpcaoItem {
-  const opcao = db.prepare(
+async function minhaOpcao(loja: Loja, opcaoId: number | string): Promise<OpcaoItem> {
+  const opcao = await db.prepare(
     `SELECT o.* FROM opcoes_itens o
        JOIN grupos_opcoes g ON g.id = o.grupo_id
        JOIN produtos p ON p.id = g.produto_id
@@ -761,32 +761,32 @@ function minhaOpcao(loja: Loja, opcaoId: number | string): OpcaoItem {
   return opcao;
 }
 
-router.get('/produtos/:id/grupos', (req, res, next) => {
+router.get('/produtos/:id/grupos', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const produto = meuProduto(loja, req.params.id);
-    const grupos = (db.prepare(
+    const loja = await minhaLoja(req);
+    const produto = await meuProduto(loja, req.params.id);
+    const gruposBrutos = await db.prepare(
       'SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id'
-    ).all(produto.id) as GrupoOpcao[]).map(g => ({
-      ...g,
-      opcoes: db.prepare(
-        'SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id'
-      ).all(g.id) as OpcaoItem[],
-    }));
+    ).all(produto.id) as GrupoOpcao[];
+    const grupos = [];
+    for (const g of gruposBrutos) {
+      const opcoes = await db.prepare('SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id').all(g.id) as OpcaoItem[];
+      grupos.push({ ...g, opcoes });
+    }
     res.json({ grupos });
   } catch (e) { next(e); }
 });
 
-router.post('/produtos/:id/grupos', (req, res, next) => {
+router.post('/produtos/:id/grupos', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const produto = meuProduto(loja, req.params.id);
+    const loja = await minhaLoja(req);
+    const produto = await meuProduto(loja, req.params.id);
 
     const nome = textoLimpo(req.body.nome, 60);
     const tipo = req.body.tipo === 'multiplo' ? 'multiplo' : 'unico';
     if (nome.length < 2) throw erroHttp(400, 'Informe o nome do grupo (ex.: Tamanho, Borda, Adicionais).');
 
-    const info = db.prepare(
+    const info = await db.prepare(
       `INSERT INTO grupos_opcoes (produto_id, nome, tipo, obrigatorio, max_escolhas, ordem)
        VALUES (?, ?, ?, ?, ?, ?)`
     ).run(produto.id, nome, tipo,
@@ -797,13 +797,13 @@ router.post('/produtos/:id/grupos', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.put('/grupos/:id', (req, res, next) => {
+router.put('/grupos/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const grupo = meuGrupo(loja, req.params.id);
+    const loja = await minhaLoja(req);
+    const grupo = await meuGrupo(loja, req.params.id);
     const nome = req.body.nome !== undefined ? textoLimpo(req.body.nome, 60) : grupo.nome;
     if (nome.length < 2) throw erroHttp(400, 'Nome do grupo inválido.');
-    db.prepare(
+    await db.prepare(
       'UPDATE grupos_opcoes SET nome = ?, tipo = ?, obrigatorio = ?, max_escolhas = ? WHERE id = ?'
     ).run(nome,
           req.body.tipo !== undefined ? (req.body.tipo === 'multiplo' ? 'multiplo' : 'unico') : grupo.tipo,
@@ -814,28 +814,28 @@ router.put('/grupos/:id', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.delete('/grupos/:id', (req, res, next) => {
+router.delete('/grupos/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const grupo = meuGrupo(loja, req.params.id);
-    db.transaction(() => {
-      db.prepare('DELETE FROM opcoes_itens WHERE grupo_id = ?').run(grupo.id);
-      db.prepare('DELETE FROM grupos_opcoes WHERE id = ?').run(grupo.id);
-    })();
+    const loja = await minhaLoja(req);
+    const grupo = await meuGrupo(loja, req.params.id);
+    await comTransacao(async (tx) => {
+      await tx.prepare('DELETE FROM opcoes_itens WHERE grupo_id = ?').run(grupo.id);
+      await tx.prepare('DELETE FROM grupos_opcoes WHERE id = ?').run(grupo.id);
+    });
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
-router.post('/grupos/:id/opcoes', (req, res, next) => {
+router.post('/grupos/:id/opcoes', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const grupo = meuGrupo(loja, req.params.id);
+    const loja = await minhaLoja(req);
+    const grupo = await meuGrupo(loja, req.params.id);
     const nome = textoLimpo(req.body.nome, 80);
     if (nome.length < 1) throw erroHttp(400, 'Informe o nome da opção.');
     const precoAdicional = req.body.preco_adicional ? reaisParaCentavos(req.body.preco_adicional) : 0;
     if (precoAdicional === null || precoAdicional < 0) throw erroHttp(400, 'Preço adicional inválido.');
 
-    const info = db.prepare(
+    const info = await db.prepare(
       `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem)
        VALUES (?, ?, ?, 1, ?)`
     ).run(grupo.id, nome, precoAdicional, inteiroPositivo(req.body.ordem) || 0);
@@ -843,10 +843,10 @@ router.post('/grupos/:id/opcoes', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.put('/opcoes/:id', (req, res, next) => {
+router.put('/opcoes/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const opcao = minhaOpcao(loja, req.params.id);
+    const loja = await minhaLoja(req);
+    const opcao = await minhaOpcao(loja, req.params.id);
     const nome = req.body.nome !== undefined ? textoLimpo(req.body.nome, 80) : opcao.nome;
     if (nome.length < 1) throw erroHttp(400, 'Nome da opção inválido.');
     let precoAdicional = opcao.preco_adicional_centavos;
@@ -855,7 +855,7 @@ router.put('/opcoes/:id', (req, res, next) => {
       if (v === null || v < 0) throw erroHttp(400, 'Preço adicional inválido.');
       precoAdicional = v;
     }
-    db.prepare('UPDATE opcoes_itens SET nome = ?, preco_adicional_centavos = ?, disponivel = ? WHERE id = ?')
+    await db.prepare('UPDATE opcoes_itens SET nome = ?, preco_adicional_centavos = ?, disponivel = ? WHERE id = ?')
       .run(nome, precoAdicional,
            req.body.disponivel !== undefined ? (req.body.disponivel ? 1 : 0) : opcao.disponivel,
            opcao.id);
@@ -863,20 +863,20 @@ router.put('/opcoes/:id', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.delete('/opcoes/:id', (req, res, next) => {
+router.delete('/opcoes/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const opcao = minhaOpcao(loja, req.params.id);
-    db.prepare('DELETE FROM opcoes_itens WHERE id = ?').run(opcao.id);
+    const loja = await minhaLoja(req);
+    const opcao = await minhaOpcao(loja, req.params.id);
+    await db.prepare('DELETE FROM opcoes_itens WHERE id = ?').run(opcao.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
 // ----- Pedidos do lojista --------------------------------------------------
 
-router.get('/pedidos', (req, res, next) => {
+router.get('/pedidos', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     let sql = `SELECT p.*, u.nome AS cliente_nome, u.telefone AS cliente_telefone
                  FROM pedidos p JOIN usuarios u ON u.id = p.cliente_id
                 WHERE p.loja_id = ? AND p.origem = 'app'
@@ -886,21 +886,19 @@ router.get('/pedidos', (req, res, next) => {
     sql += ' ORDER BY p.id DESC LIMIT 200';
 
     type PedidoLojista = Record<string, unknown> & { id: number };
-    const pedidos = db.prepare(sql).all(...params) as PedidoLojista[];
+    const pedidos = await db.prepare(sql).all(...params) as PedidoLojista[];
     // JOIN com produtos pra trazer a categoria de cada item — usada pra rotear
     // a impressão por setor (Cozinha/Bar) quando o pedido chega pelo app.
-    const buscarItens = db.prepare(
-      `SELECT ip.*, p.categoria AS categoria
-         FROM itens_pedido ip
-         LEFT JOIN produtos p ON p.id = ip.produto_id
-        WHERE ip.pedido_id = ?`
-    );
-    const contarNaoLidas = db.prepare(
-      "SELECT COUNT(*) AS n FROM mensagens_pedido WHERE pedido_id = ? AND remetente = 'cliente' AND lida = 0"
-    );
     for (const p of pedidos) {
-      p.itens = buscarItens.all(p.id);
-      p.mensagens_nao_lidas = (contarNaoLidas.get(p.id) as { n: number }).n;
+      p.itens = await db.prepare(
+        `SELECT ip.*, p.categoria AS categoria
+           FROM itens_pedido ip
+           LEFT JOIN produtos p ON p.id = ip.produto_id
+          WHERE ip.pedido_id = ?`
+      ).all(p.id);
+      p.mensagens_nao_lidas = (await db.prepare(
+        "SELECT COUNT(*) AS n FROM mensagens_pedido WHERE pedido_id = ? AND remetente = 'cliente' AND lida = 0"
+      ).get(p.id) as { n: number }).n;
     }
     res.json({ pedidos });
   } catch (e) { next(e); }
@@ -909,11 +907,11 @@ router.get('/pedidos', (req, res, next) => {
 // ----- PDV / Balcão (venda rápida no caixa) --------------------------------
 
 /** Consumidor genérico da loja para registrar vendas de balcão (sem cliente real). */
-function consumidorBalcao(loja: Loja): number {
+async function consumidorBalcao(loja: Loja): Promise<number> {
   const email = `balcao.loja${loja.id}@local`;
-  const existente = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email) as { id: number } | undefined;
+  const existente = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email) as { id: number } | undefined;
   if (existente) return existente.id;
-  const info = db.prepare(
+  const info = await db.prepare(
     `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, criado_em)
      VALUES ('Consumidor (Balcão)', ?, '!', 'cliente', '', ?)`
   ).run(email, agoraUTC());
@@ -931,7 +929,7 @@ const PAGAMENTO_BALCAO: Record<string, 'pix' | 'dinheiro' | 'cartao_entrega'> = 
  */
 router.post('/balcao', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const itensReq = Array.isArray(req.body.itens) ? req.body.itens : [];
     if (itensReq.length === 0) throw erroHttp(400, 'Adicione ao menos um item à venda.');
 
@@ -942,7 +940,7 @@ router.post('/balcao', async (req, res, next) => {
     let subtotal = 0;
     const itensValidados: { produto: Produto; quantidade: number; precoUnit: number; detalhe: string }[] = [];
     for (const it of itensReq) {
-      const produto = meuProduto(loja, it.produto_id);
+      const produto = await meuProduto(loja, it.produto_id);
       const precoBase = (produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0)
         ? produto.preco_promocional_centavos : produto.preco_centavos;
 
@@ -972,11 +970,11 @@ router.post('/balcao', async (req, res, next) => {
     const comissaoPct = await comissaoPercentualDaLoja(loja.id);
     const comissao = Math.round(total * comissaoPct / 100);
 
-    const consumidor = consumidorBalcao(loja);
+    const consumidor = await consumidorBalcao(loja);
     const agora = agoraUTC();
 
-    const criar = db.transaction(() => {
-      const info = db.prepare(
+    const pedidoId = await comTransacao(async (tx) => {
+      const info = await tx.prepare(
         `INSERT INTO pedidos (cliente_id, loja_id, status, endereco_entrega, forma_pagamento,
                               observacoes, subtotal_centavos, taxa_entrega_centavos, total_centavos,
                               comissao_percentual, comissao_centavos, pagamento_status, origem,
@@ -984,30 +982,28 @@ router.post('/balcao', async (req, res, next) => {
          VALUES (?, ?, 'entregue', 'Venda no balcão', ?, ?, ?, 0, ?, ?, ?, 'aprovado', 'balcao', ?, ?)`
       ).run(consumidor, loja.id, formaPagamento, textoLimpo(req.body.observacoes || '', 200),
             subtotal, total, comissaoPct, comissao, agora, agora);
-      const pedidoId = Number(info.lastInsertRowid);
-      const inserir = db.prepare(
-        `INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos, quantidade, opcoes_texto, opcoes_ids)
-         VALUES (?, ?, ?, ?, ?, ?, '[]')`
-      );
+      const novoPedidoId = Number(info.lastInsertRowid);
       for (const { produto, quantidade, precoUnit, detalhe } of itensValidados) {
-        inserir.run(pedidoId, produto.id, produto.nome, precoUnit, quantidade, detalhe);
+        await tx.prepare(
+          `INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos, quantidade, opcoes_texto, opcoes_ids)
+           VALUES (?, ?, ?, ?, ?, ?, '[]')`
+        ).run(novoPedidoId, produto.id, produto.nome, precoUnit, quantidade, detalhe);
       }
-      db.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
-        .run(pedidoId, 'entregue', agora);
-      return pedidoId;
+      await tx.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
+        .run(novoPedidoId, 'entregue', agora);
+      return novoPedidoId;
     });
 
-    const pedidoId = criar();
     res.status(201).json({ pedido_id: pedidoId, subtotal_centavos: subtotal, desconto_centavos: desconto, total_centavos: total });
   } catch (e) { next(e); }
 });
 
 /** Vendas de balcão de hoje (lista curta + total) para o histórico do PDV. */
-router.get('/balcao/hoje', (req, res, next) => {
+router.get('/balcao/hoje', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const hoje = new Date().toISOString().slice(0, 10);
-    const vendas = db.prepare(
+    const vendas = await db.prepare(
       `SELECT id, total_centavos, forma_pagamento, criado_em
          FROM pedidos
         WHERE loja_id = ? AND origem = 'balcao' AND criado_em >= ?
@@ -1022,9 +1018,9 @@ router.get('/balcao/hoje', (req, res, next) => {
  * Envia os itens do PDV para a cozinha (KDS) sem fechar a venda.
  * O caixa continua registrando o pagamento normalmente depois, via POST /balcao.
  */
-router.post('/balcao/enviar-cozinha', (req, res, next) => {
+router.post('/balcao/enviar-cozinha', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const itensReq = Array.isArray(req.body.itens) ? req.body.itens : [];
     if (itensReq.length === 0) throw erroHttp(400, 'Adicione itens antes de enviar à cozinha.');
 
@@ -1032,21 +1028,23 @@ router.post('/balcao/enviar-cozinha', (req, res, next) => {
     for (const it of itensReq) {
       const quantidade = inteiroPositivo(it.quantidade);
       if (!quantidade) throw erroHttp(400, 'Quantidade inválida.');
-      const produto = meuProduto(loja, it.produto_id); // valida que o produto é da loja
+      const produto = await meuProduto(loja, it.produto_id); // valida que o produto é da loja
       itens.push({ nome_produto: produto.nome, quantidade });
     }
     const observacao = textoLimpo(req.body.observacoes || '', 200);
     const agora = agoraUTC();
 
-    const ticketId = db.transaction(() => {
-      const info = db.prepare(
+    const ticketId = await comTransacao(async (tx) => {
+      const info = await tx.prepare(
         "INSERT INTO cozinha_tickets (loja_id, origem, referencia, status, observacao, criado_em) VALUES (?, 'balcao', 'Balcão', 'na_fila', ?, ?)"
       ).run(loja.id, observacao, agora);
       const tid = Number(info.lastInsertRowid);
-      const inserir = db.prepare("INSERT INTO cozinha_ticket_itens (ticket_id, nome_produto, quantidade) VALUES (?, ?, ?)");
-      for (const it of itens) inserir.run(tid, it.nome_produto, it.quantidade);
+      for (const it of itens) {
+        await tx.prepare("INSERT INTO cozinha_ticket_itens (ticket_id, nome_produto, quantidade) VALUES (?, ?, ?)")
+          .run(tid, it.nome_produto, it.quantidade);
+      }
       return tid;
-    })();
+    });
 
     res.status(201).json({ ticket_id: ticketId, itens_enviados: itens.length });
   } catch (e) { next(e); }
@@ -1061,12 +1059,12 @@ const ACOES_LOJISTA: Record<string, 'aceito' | 'recusado' | 'preparando' | 'pron
 
 router.post('/pedidos/:id/acao', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const acao = textoLimpo(req.body.acao, 20);
     const novoStatus = ACOES_LOJISTA[acao];
     if (!novoStatus) throw erroHttp(400, 'Ação inválida. Use: aceitar, recusar, preparar ou pronto.');
 
-    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ? AND loja_id = ?')
+    const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id) as { id: number } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
 
@@ -1081,29 +1079,29 @@ router.post('/pedidos/:id/acao', async (req, res, next) => {
 
 // ----- Chat do pedido (loja fala com o cliente enquanto não tem entregador) -
 
-router.get('/pedidos/:id/mensagens', (req, res, next) => {
+router.get('/pedidos/:id/mensagens', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const pedido = db.prepare('SELECT id FROM pedidos WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req);
+    const pedido = await db.prepare('SELECT id FROM pedidos WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id) as { id: number } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
-    const mensagens = db.prepare(
+    const mensagens = await db.prepare(
       'SELECT id, remetente, texto, criado_em FROM mensagens_pedido WHERE pedido_id = ? ORDER BY id'
     ).all(pedido.id);
-    db.prepare("UPDATE mensagens_pedido SET lida = 1 WHERE pedido_id = ? AND remetente = 'cliente'").run(pedido.id);
+    await db.prepare("UPDATE mensagens_pedido SET lida = 1 WHERE pedido_id = ? AND remetente = 'cliente'").run(pedido.id);
     res.json({ mensagens });
   } catch (e) { next(e); }
 });
 
-router.post('/pedidos/:id/mensagens', (req, res, next) => {
+router.post('/pedidos/:id/mensagens', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const pedido = db.prepare('SELECT id FROM pedidos WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req);
+    const pedido = await db.prepare('SELECT id FROM pedidos WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id) as { id: number } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
     const texto = textoLimpo(req.body.texto, 500);
     if (!texto) throw erroHttp(400, 'Escreva uma mensagem.');
-    const info = db.prepare(
+    const info = await db.prepare(
       `INSERT INTO mensagens_pedido (pedido_id, remetente, texto, criado_em) VALUES (?, 'loja', ?, ?)`
     ).run(pedido.id, texto, agoraUTC());
     res.status(201).json({ mensagem_id: Number(info.lastInsertRowid) });
@@ -1117,10 +1115,10 @@ router.post('/pedidos/:id/mensagens', (req, res, next) => {
  * os cadastrados exclusivamente por esta loja + os que se auto-cadastraram
  * (loja_id nulo, compartilhados entre lojas do mesmo tenant).
  */
-router.get('/entregadores', (req, res, next) => {
+router.get('/entregadores', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const entregadores = db.prepare(
+    const loja = await minhaLoja(req);
+    const entregadores = await db.prepare(
       `SELECT id, nome, telefone FROM usuarios
        WHERE perfil = 'entregador' AND bloqueado = 0 AND (loja_id IS NULL OR loja_id = ?)
        ORDER BY nome`
@@ -1130,10 +1128,10 @@ router.get('/entregadores', (req, res, next) => {
 });
 
 /** Entregadores cadastrados diretamente por esta loja (exclusivos dela). */
-router.get('/entregadores/cadastro', (req, res, next) => {
+router.get('/entregadores/cadastro', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const entregadores = db.prepare(
+    const loja = await minhaLoja(req);
+    const entregadores = await db.prepare(
       `SELECT id, nome, email, telefone, bloqueado FROM usuarios
        WHERE perfil = 'entregador' AND loja_id = ? ORDER BY nome`
     ).all(loja.id);
@@ -1142,9 +1140,9 @@ router.get('/entregadores/cadastro', (req, res, next) => {
 });
 
 /** Cadastra um novo entregador (motoboy) exclusivo desta loja. */
-router.post('/entregadores/cadastro', (req, res, next) => {
+router.post('/entregadores/cadastro', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const nome = textoLimpo(req.body.nome, 120);
     const telefone = textoLimpo(req.body.telefone, 30);
     const email = textoLimpo(req.body.email, 200).toLowerCase();
@@ -1153,11 +1151,11 @@ router.post('/entregadores/cadastro', (req, res, next) => {
     if (!emailValido(email)) throw erroHttp(400, 'Informe um e-mail válido (login do entregador).');
     if (senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
 
-    const jaExiste = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
+    const jaExiste = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
     if (jaExiste) throw erroHttp(409, 'Já existe uma conta com este e-mail.');
 
     const senhaHash = bcrypt.hashSync(senha, 10);
-    const info = db.prepare(
+    const info = await db.prepare(
       `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, criado_em)
        VALUES (?, ?, ?, 'entregador', ?, ?, ?)`
     ).run(nome, email, senhaHash, telefone, loja.id, agoraUTC());
@@ -1166,10 +1164,10 @@ router.post('/entregadores/cadastro', (req, res, next) => {
 });
 
 /** Edita nome/telefone/senha ou bloqueia/desbloqueia um entregador desta loja. */
-router.put('/entregadores/cadastro/:id', (req, res, next) => {
+router.put('/entregadores/cadastro/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const entregador = db.prepare(
+    const loja = await minhaLoja(req);
+    const entregador = await db.prepare(
       "SELECT id FROM usuarios WHERE id = ? AND perfil = 'entregador' AND loja_id = ?"
     ).get(req.params.id, loja.id) as { id: number } | undefined;
     if (!entregador) throw erroHttp(404, 'Entregador não encontrado.');
@@ -1177,20 +1175,20 @@ router.put('/entregadores/cadastro/:id', (req, res, next) => {
     if (req.body.nome !== undefined) {
       const nome = textoLimpo(req.body.nome, 120);
       if (nome.length < 2) throw erroHttp(400, 'Nome inválido.');
-      db.prepare('UPDATE usuarios SET nome = ? WHERE id = ?').run(nome, entregador.id);
+      await db.prepare('UPDATE usuarios SET nome = ? WHERE id = ?').run(nome, entregador.id);
     }
     if (req.body.telefone !== undefined) {
-      db.prepare('UPDATE usuarios SET telefone = ? WHERE id = ?')
+      await db.prepare('UPDATE usuarios SET telefone = ? WHERE id = ?')
         .run(textoLimpo(req.body.telefone, 30), entregador.id);
     }
     if (req.body.bloqueado !== undefined) {
-      db.prepare('UPDATE usuarios SET bloqueado = ? WHERE id = ?')
+      await db.prepare('UPDATE usuarios SET bloqueado = ? WHERE id = ?')
         .run(req.body.bloqueado ? 1 : 0, entregador.id);
     }
     if (req.body.senha !== undefined) {
       const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
       if (senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
-      db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?')
+      await db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?')
         .run(bcrypt.hashSync(senha, 10), entregador.id);
     }
     res.json({ ok: true });
@@ -1204,17 +1202,17 @@ router.put('/entregadores/cadastro/:id', (req, res, next) => {
  */
 router.post('/pedidos/:id/atribuir-entregador', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const entregadorId = inteiroPositivo(req.body.entregador_id);
     if (!entregadorId) throw erroHttp(400, 'Informe o entregador.');
 
-    const entregador = db.prepare(
+    const entregador = await db.prepare(
       `SELECT id FROM usuarios WHERE id = ? AND perfil = 'entregador' AND bloqueado = 0
        AND (loja_id IS NULL OR loja_id = ?)`
     ).get(entregadorId, loja.id) as { id: number } | undefined;
     if (!entregador) throw erroHttp(404, 'Entregador não encontrado ou indisponível.');
 
-    const pedido = db.prepare(
+    const pedido = await db.prepare(
       "SELECT id, status FROM pedidos WHERE id = ? AND loja_id = ? AND origem = 'app'"
     ).get(req.params.id, loja.id) as { id: number; status: string } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
@@ -1241,10 +1239,10 @@ router.post('/pedidos/:id/atribuir-entregador', async (req, res, next) => {
 // ----- Contas de cozinha (KDS) — gerenciadas pelo lojista ------------------
 
 /** Lista as contas de cozinha da loja (sem expor o hash da senha). */
-router.get('/cozinha-contas', (req, res, next) => {
+router.get('/cozinha-contas', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const contas = db.prepare(
+    const loja = await minhaLoja(req);
+    const contas = await db.prepare(
       'SELECT id, nome, email, bloqueado, criado_em FROM cozinha_contas WHERE loja_id = ? ORDER BY nome'
     ).all(loja.id);
     res.json({ contas });
@@ -1252,9 +1250,9 @@ router.get('/cozinha-contas', (req, res, next) => {
 });
 
 /** Cria uma conta de cozinha (login independente) para a loja. */
-router.post('/cozinha-contas', (req, res, next) => {
+router.post('/cozinha-contas', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const nome = textoLimpo(req.body.nome, 80);
     const email = textoLimpo(req.body.email, 200).toLowerCase();
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
@@ -1264,11 +1262,11 @@ router.post('/cozinha-contas', (req, res, next) => {
     if (senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
 
     // E-mail é único globalmente (entre contas de cozinha e usuários da plataforma).
-    const colideUsuario = db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
-    const colideCozinha = db.prepare('SELECT id FROM cozinha_contas WHERE email = ?').get(email);
+    const colideUsuario = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
+    const colideCozinha = await db.prepare('SELECT id FROM cozinha_contas WHERE email = ?').get(email);
     if (colideUsuario || colideCozinha) throw erroHttp(409, 'Já existe uma conta com este e-mail.');
 
-    const info = db.prepare(
+    const info = await db.prepare(
       'INSERT INTO cozinha_contas (loja_id, nome, email, senha_hash, criado_em) VALUES (?, ?, ?, ?, ?)'
     ).run(loja.id, nome, email, bcrypt.hashSync(senha, 10), agoraUTC());
     res.status(201).json({ id: Number(info.lastInsertRowid), nome, email });
@@ -1276,26 +1274,26 @@ router.post('/cozinha-contas', (req, res, next) => {
 });
 
 /** Atualiza uma conta de cozinha: renomear, bloquear/desbloquear ou trocar senha. */
-router.put('/cozinha-contas/:id', (req, res, next) => {
+router.put('/cozinha-contas/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const conta = db.prepare('SELECT id FROM cozinha_contas WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req);
+    const conta = await db.prepare('SELECT id FROM cozinha_contas WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id) as { id: number } | undefined;
     if (!conta) throw erroHttp(404, 'Conta de cozinha não encontrada.');
 
     if (req.body.nome !== undefined) {
       const nome = textoLimpo(req.body.nome, 80);
       if (nome.length < 2) throw erroHttp(400, 'Nome inválido.');
-      db.prepare('UPDATE cozinha_contas SET nome = ? WHERE id = ?').run(nome, conta.id);
+      await db.prepare('UPDATE cozinha_contas SET nome = ? WHERE id = ?').run(nome, conta.id);
     }
     if (req.body.bloqueado !== undefined) {
-      db.prepare('UPDATE cozinha_contas SET bloqueado = ? WHERE id = ?')
+      await db.prepare('UPDATE cozinha_contas SET bloqueado = ? WHERE id = ?')
         .run(req.body.bloqueado ? 1 : 0, conta.id);
     }
     if (req.body.senha !== undefined) {
       const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
       if (senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
-      db.prepare('UPDATE cozinha_contas SET senha_hash = ? WHERE id = ?')
+      await db.prepare('UPDATE cozinha_contas SET senha_hash = ? WHERE id = ?')
         .run(bcrypt.hashSync(senha, 10), conta.id);
     }
     res.json({ ok: true });
@@ -1303,10 +1301,10 @@ router.put('/cozinha-contas/:id', (req, res, next) => {
 });
 
 /** Remove uma conta de cozinha. */
-router.delete('/cozinha-contas/:id', (req, res, next) => {
+router.delete('/cozinha-contas/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const info = db.prepare('DELETE FROM cozinha_contas WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req);
+    const info = await db.prepare('DELETE FROM cozinha_contas WHERE id = ? AND loja_id = ?')
       .run(req.params.id, loja.id);
     if (info.changes === 0) throw erroHttp(404, 'Conta de cozinha não encontrada.');
     res.json({ ok: true });
@@ -1316,10 +1314,10 @@ router.delete('/cozinha-contas/:id', (req, res, next) => {
 // ----- Pagamentos (Mercado Pago por loja) ---------------------------------
 
 /** Retorna se o Pix online está ativo para a loja e o token mascarado. */
-router.get('/pagamentos', (req, res, next) => {
+router.get('/pagamentos', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const row = db.prepare('SELECT mercadopago_token FROM lojas WHERE id = ?').get(loja.id) as
+    const loja = await minhaLoja(req);
+    const row = await db.prepare('SELECT mercadopago_token FROM lojas WHERE id = ?').get(loja.id) as
       { mercadopago_token: string | null } | undefined;
     const cifrado = row?.mercadopago_token || null;
     let token: string | null = null;
@@ -1330,12 +1328,12 @@ router.get('/pagamentos', (req, res, next) => {
 });
 
 /** Salva ou limpa o token do Mercado Pago da loja. */
-router.put('/pagamentos', (req, res, next) => {
+router.put('/pagamentos', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const token = typeof req.body.token === 'string' ? req.body.token.trim() : '';
     // Token de pagamento é segredo: gravado CRIPTOGRAFADO (nunca volta no GET).
-    db.prepare('UPDATE lojas SET mercadopago_token = ? WHERE id = ?')
+    await db.prepare('UPDATE lojas SET mercadopago_token = ? WHERE id = ?')
       .run(token ? criptografar(token) : null, loja.id);
     const mascarado = token ? '****' + token.slice(-8) : null;
     res.json({ ok: true, ativo: !!token, token_mascarado: mascarado });
@@ -1345,9 +1343,9 @@ router.put('/pagamentos', (req, res, next) => {
 // ----- NFC-e (dados fiscais + certificado A1) -----------------------------
 
 /** Retorna a configuração fiscal da loja + status do certificado (sem segredos). */
-router.get('/nfce', (req, res, next) => {
+router.get('/nfce', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req) as any;
+    const loja = await minhaLoja(req) as any;
     const temCert = fs.existsSync(caminhoCertificado(loja.id));
     res.json({
       config: {
@@ -1373,12 +1371,12 @@ router.get('/nfce', (req, res, next) => {
 });
 
 /** Salva os dados fiscais da loja. */
-router.put('/nfce', (req, res, next) => {
+router.put('/nfce', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const b = req.body;
     const txt = (v: unknown, n: number) => textoLimpo(v, n);
-    db.prepare(
+    await db.prepare(
       `UPDATE lojas SET
          nfce_ativo = ?, nfce_cnpj = ?, nfce_ie = ?, nfce_razao_social = ?, nfce_nome_fantasia = ?,
          nfce_crt = ?, nfce_uf = ?, nfce_cmun = ?, nfce_municipio = ?,
@@ -1399,17 +1397,17 @@ router.put('/nfce', (req, res, next) => {
     );
     // CSC é segredo fiscal: gravado CRIPTOGRAFADO (nunca volta no GET).
     if (typeof b.csc === 'string' && b.csc.trim()) {
-      db.prepare('UPDATE lojas SET nfce_csc = ? WHERE id = ?').run(criptografar(b.csc.trim()), loja.id);
+      await db.prepare('UPDATE lojas SET nfce_csc = ? WHERE id = ?').run(criptografar(b.csc.trim()), loja.id);
     }
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
 /** Lista todos os produtos com seus campos fiscais (NCM, CFOP, CSOSN…). */
-router.get('/fiscal/produtos', (req, res, next) => {
+router.get('/fiscal/produtos', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const produtos = db.prepare(
+    const loja = await minhaLoja(req);
+    const produtos = await db.prepare(
       `SELECT id, nome, categoria, ncm, cfop, csosn, origem, unidade_comercial, cest
          FROM produtos WHERE loja_id = ? AND excluido = 0 ORDER BY categoria, nome`
     ).all(loja.id);
@@ -1418,12 +1416,12 @@ router.get('/fiscal/produtos', (req, res, next) => {
 });
 
 /** Atualiza os campos fiscais de um produto específico. */
-router.put('/fiscal/produtos/:id', (req, res, next) => {
+router.put('/fiscal/produtos/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const produto = meuProduto(loja, req.params.id);
+    const loja = await minhaLoja(req);
+    const produto = await meuProduto(loja, req.params.id);
     const txt = (v: unknown, n: number) => textoLimpo(v, n);
-    db.prepare(
+    await db.prepare(
       `UPDATE produtos SET ncm = ?, cfop = ?, csosn = ?, origem = ?, unidade_comercial = ?, cest = ? WHERE id = ?`
     ).run(
       txt(req.body.ncm, 8).replace(/\D/g, ''),
@@ -1439,9 +1437,9 @@ router.put('/fiscal/produtos/:id', (req, res, next) => {
 });
 
 /** Upload do certificado A1 (.pfx) + senha. Valida, grava em pasta protegida. */
-router.post('/nfce/certificado', uploadCert.single('certificado'), (req, res, next) => {
+router.post('/nfce/certificado', uploadCert.single('certificado'), async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     if (!req.file) throw erroHttp(400, 'Envie o arquivo do certificado (.pfx).');
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
     if (!senha) throw erroHttp(400, 'Informe a senha do certificado.');
@@ -1456,7 +1454,7 @@ router.post('/nfce/certificado', uploadCert.single('certificado'), (req, res, ne
 
     // Grava o .pfx em pasta protegida (fora da web) e a senha criptografada.
     fs.writeFileSync(caminhoCertificado(loja.id), req.file.buffer);
-    db.prepare(
+    await db.prepare(
       'UPDATE lojas SET nfce_cert_senha = ?, nfce_cert_titular = ?, nfce_cert_validade = ? WHERE id = ?'
     ).run(criptografar(senha), cert.titular, cert.validade, loja.id);
 
@@ -1560,7 +1558,7 @@ async function respostaNfce(loja: any, emit: EmitenteNfce, venda: VendaNfce) {
  */
 router.post('/nfce/teste', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req) as any;
+    const loja = await minhaLoja(req) as any;
     const emit = emitenteDaLoja(loja);
     const venda: VendaNfce = {
       numero: loja.nfce_proximo_numero || 1,
@@ -1580,8 +1578,8 @@ router.post('/nfce/teste', async (req, res, next) => {
 });
 
 /** Monta a VendaNfce a partir de um pedido real (itens + pagamento + total). */
-function vendaDoPedido(loja: any, pedido: any, numero: number): VendaNfce {
-  const itens = db.prepare(
+async function vendaDoPedido(loja: any, pedido: any, numero: number): Promise<VendaNfce> {
+  const itens = await db.prepare(
     `SELECT i.nome_produto, i.preco_unit_centavos, i.quantidade,
             p.ncm, p.cfop, p.csosn, p.origem, p.unidade_comercial
        FROM itens_pedido i LEFT JOIN produtos p ON p.id = i.produto_id
@@ -1613,13 +1611,13 @@ function vendaDoPedido(loja: any, pedido: any, numero: number): VendaNfce {
  */
 router.post('/nfce/gerar/:pedidoId', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req) as any;
-    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req) as any;
+    const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND loja_id = ?')
       .get(req.params.pedidoId, loja.id) as any;
     if (!pedido) throw erroHttp(404, 'Venda não encontrada.');
 
     const emit = emitenteDaLoja(loja);
-    const venda = vendaDoPedido(loja, pedido, loja.nfce_proximo_numero || 1);
+    const venda = await vendaDoPedido(loja, pedido, loja.nfce_proximo_numero || 1);
     res.json(await respostaNfce(loja, emit, venda));
   } catch (e) { next(e); }
 });
@@ -1642,13 +1640,13 @@ function certificadoParaTls(loja: any): CertificadoLido {
 }
 
 /** Reserva o próximo número da loja de forma atômica (evita números duplicados). */
-function reservarNumero(lojaId: number): number {
-  return db.transaction(() => {
-    const row = db.prepare('SELECT nfce_proximo_numero AS n FROM lojas WHERE id = ?').get(lojaId) as { n: number };
+async function reservarNumero(lojaId: number): Promise<number> {
+  return comTransacao(async (tx) => {
+    const row = await tx.prepare('SELECT nfce_proximo_numero AS n FROM lojas WHERE id = ?').get(lojaId) as { n: number };
     const numero = row?.n || 1;
-    db.prepare('UPDATE lojas SET nfce_proximo_numero = ? WHERE id = ?').run(numero + 1, lojaId);
+    await tx.prepare('UPDATE lojas SET nfce_proximo_numero = ? WHERE id = ?').run(numero + 1, lojaId);
     return numero;
-  })();
+  });
 }
 
 /**
@@ -1677,7 +1675,7 @@ async function emitirVendaNfce(loja: any, venda: VendaNfce, pedidoId: number | n
       uf: emit.uf, ambiente: emit.ambiente, key: certA1.chavePrivadaPem, cert: certA1.certificadoPem, chave,
     });
   } catch (e: any) {
-    db.prepare(
+    await db.prepare(
       `INSERT INTO notas_fiscais (loja_id, pedido_id, modelo, serie, numero, chave, ambiente,
                                   status, motivo, xml, qr_url, total_centavos, criado_em)
        VALUES (?, ?, '65', ?, ?, ?, ?, 'erro', ?, ?, ?, ?, ?)`
@@ -1687,7 +1685,7 @@ async function emitirVendaNfce(loja: any, venda: VendaNfce, pedidoId: number | n
   }
 
   const status = resultado.autorizada ? 'autorizada' : 'rejeitada';
-  const info = db.prepare(
+  const info = await db.prepare(
     `INSERT INTO notas_fiscais (loja_id, pedido_id, modelo, serie, numero, chave, ambiente,
                                 status, c_stat, motivo, protocolo, xml, qr_url, total_centavos,
                                 criado_em, autorizada_em)
@@ -1718,16 +1716,16 @@ async function emitirVendaNfce(loja: any, venda: VendaNfce, pedidoId: number | n
  */
 export async function emitirNfcePedido(pedidoId: number): Promise<{ autorizada: boolean } | null> {
   try {
-    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as any;
+    const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as any;
     if (!pedido) return null;
-    const loja = db.prepare('SELECT * FROM lojas WHERE id = ?').get(pedido.loja_id) as any;
+    const loja = await db.prepare('SELECT * FROM lojas WHERE id = ?').get(pedido.loja_id) as any;
     if (!loja || !loja.nfce_ativo) return null;
-    const ja = db.prepare("SELECT id FROM notas_fiscais WHERE pedido_id = ? AND status = 'autorizada'").get(pedidoId);
+    const ja = await db.prepare("SELECT id FROM notas_fiscais WHERE pedido_id = ? AND status = 'autorizada'").get(pedidoId);
     if (ja) return null;
     const pfxPath = caminhoCertificado(loja.id);
     if (!fs.existsSync(pfxPath) || !loja.nfce_cert_senha) return null; // sem certificado: não dá pra emitir
-    const numero = reservarNumero(loja.id);
-    const venda = vendaDoPedido(loja, pedido, numero);
+    const numero = await reservarNumero(loja.id);
+    const venda = await vendaDoPedido(loja, pedido, numero);
     return await emitirVendaNfce(loja, venda, pedidoId);
   } catch { return null; }
 }
@@ -1737,20 +1735,20 @@ export async function emitirNfcePedido(pedidoId: number): Promise<{ autorizada: 
  */
 router.post('/nfce/emitir/:pedidoId', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req) as any;
+    const loja = await minhaLoja(req) as any;
     if (!loja.nfce_ativo) throw erroHttp(400, 'Ative a emissão de NFC-e na aba Fiscal.');
 
-    const pedido = db.prepare('SELECT * FROM pedidos WHERE id = ? AND loja_id = ?')
+    const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND loja_id = ?')
       .get(req.params.pedidoId, loja.id) as any;
     if (!pedido) throw erroHttp(404, 'Venda não encontrada.');
 
-    const jaAutorizada = db.prepare(
+    const jaAutorizada = await db.prepare(
       "SELECT id, chave FROM notas_fiscais WHERE pedido_id = ? AND status = 'autorizada'"
     ).get(pedido.id) as any;
     if (jaAutorizada) throw erroHttp(409, `Esta venda já tem NFC-e autorizada (chave ${jaAutorizada.chave}).`);
 
-    const numero = reservarNumero(loja.id);
-    const venda = vendaDoPedido(loja, pedido, numero);
+    const numero = await reservarNumero(loja.id);
+    const venda = await vendaDoPedido(loja, pedido, numero);
     const r = await emitirVendaNfce(loja, venda, pedido.id);
     res.status(r.autorizada ? 201 : 422).json(r);
   } catch (e) { next(e); }
@@ -1762,9 +1760,9 @@ router.post('/nfce/emitir/:pedidoId', async (req, res, next) => {
  */
 router.post('/nfce/testar-sefaz', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req) as any;
+    const loja = await minhaLoja(req) as any;
     if (!loja.nfce_ativo) throw erroHttp(400, 'Ative a emissão de NFC-e na aba Fiscal.');
-    const numero = reservarNumero(loja.id);
+    const numero = await reservarNumero(loja.id);
     const venda: VendaNfce = {
       numero,
       dataEmissao: new Date(),
@@ -1787,10 +1785,10 @@ router.post('/nfce/testar-sefaz', async (req, res, next) => {
  * Pedidos de DELIVERY entregues + o status da NFC-e de cada um (janela para
  * emitir/reemitir a nota de cada venda de delivery).
  */
-router.get('/nfce/pedidos-delivery', (req, res, next) => {
+router.get('/nfce/pedidos-delivery', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const pedidos = db.prepare(
+    const loja = await minhaLoja(req);
+    const pedidos = await db.prepare(
       `SELECT p.id, u.nome AS cliente_nome, p.total_centavos, p.forma_pagamento,
               p.criado_em,
               nf.id AS nota_id, nf.status AS nota_status, nf.numero AS nota_numero,
@@ -1810,10 +1808,10 @@ router.get('/nfce/pedidos-delivery', (req, res, next) => {
 });
 
 /** Lista as NFC-e emitidas da loja (mais recentes primeiro). */
-router.get('/nfce/notas', (req, res, next) => {
+router.get('/nfce/notas', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const notas = db.prepare(
+    const loja = await minhaLoja(req);
+    const notas = await db.prepare(
       `SELECT id, pedido_id, serie, numero, chave, ambiente, status, c_stat, motivo,
               protocolo, total_centavos, criado_em, autorizada_em
          FROM notas_fiscais WHERE loja_id = ? ORDER BY id DESC LIMIT 200`
@@ -1823,10 +1821,10 @@ router.get('/nfce/notas', (req, res, next) => {
 });
 
 /** Detalhe de uma nota (inclui o XML autorizado para download/impressão). */
-router.get('/nfce/notas/:id', (req, res, next) => {
+router.get('/nfce/notas/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const nota = db.prepare('SELECT * FROM notas_fiscais WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req);
+    const nota = await db.prepare('SELECT * FROM notas_fiscais WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id);
     if (!nota) throw erroHttp(404, 'Nota não encontrada.');
     res.json({ nota });
@@ -1839,8 +1837,8 @@ router.get('/nfce/notas/:id', (req, res, next) => {
  */
 router.post('/nfce/notas/:id/cancelar', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req) as any;
-    const nota = db.prepare('SELECT * FROM notas_fiscais WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req) as any;
+    const nota = await db.prepare('SELECT * FROM notas_fiscais WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id) as any;
     if (!nota) throw erroHttp(404, 'Nota não encontrada.');
     if (nota.status !== 'autorizada') throw erroHttp(409, 'Só é possível cancelar uma nota autorizada.');
@@ -1873,7 +1871,7 @@ router.post('/nfce/notas/:id/cancelar', async (req, res, next) => {
     }
 
     if (r.ok) {
-      db.prepare(
+      await db.prepare(
         "UPDATE notas_fiscais SET status = 'cancelada', c_stat = ?, motivo = ?, xml = ? WHERE id = ?"
       ).run(r.cStat, r.motivo, r.xmlProc, nota.id);
     }
@@ -1889,7 +1887,7 @@ router.post('/nfce/notas/:id/cancelar', async (req, res, next) => {
  */
 router.post('/nfce/inutilizar', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req) as any;
+    const loja = await minhaLoja(req) as any;
     if (!loja.nfce_ativo) throw erroHttp(400, 'Ative a emissão de NFC-e na aba Fiscal.');
 
     const serie = inteiroPositivo(req.body.serie) ?? loja.nfce_serie ?? 1;
@@ -1931,10 +1929,10 @@ router.post('/nfce/inutilizar', async (req, res, next) => {
 // ----- Setores de produção (Cozinha, Bar...) — roteiam a impressão --------
 
 /** Lista os setores da loja, com a quantidade de categorias vinculadas. */
-router.get('/setores', (req, res, next) => {
+router.get('/setores', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const setores = db.prepare(
+    const loja = await minhaLoja(req);
+    const setores = await db.prepare(
       `SELECT s.id, s.nome,
               (SELECT COUNT(*) FROM categorias c WHERE c.setor_id = s.id) AS categorias
          FROM setores s WHERE s.loja_id = ? ORDER BY s.nome`
@@ -1943,14 +1941,14 @@ router.get('/setores', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.post('/setores', (req, res, next) => {
+router.post('/setores', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const nome = textoLimpo(req.body.nome, 50);
     if (!nome) throw erroHttp(400, 'Informe o nome do setor.');
     let id: number;
     try {
-      const info = db.prepare(
+      const info = await db.prepare(
         'INSERT INTO setores (loja_id, nome, criado_em) VALUES (?, ?, ?)'
       ).run(loja.id, nome, agoraUTC());
       id = Number(info.lastInsertRowid);
@@ -1961,26 +1959,25 @@ router.post('/setores', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.put('/setores/:id', (req, res, next) => {
+router.put('/setores/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const nome = textoLimpo(req.body.nome, 50);
     if (!nome) throw erroHttp(400, 'Informe o nome do setor.');
-    const r = db.prepare('UPDATE setores SET nome = ? WHERE id = ? AND loja_id = ?').run(nome, req.params.id, loja.id);
+    const r = await db.prepare('UPDATE setores SET nome = ? WHERE id = ? AND loja_id = ?').run(nome, req.params.id, loja.id);
     if (r.changes === 0) throw erroHttp(404, 'Setor não encontrado.');
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
 /** Exclui o setor; categorias vinculadas voltam a ficar sem setor (setor_id = NULL). */
-router.delete('/setores/:id', (req, res, next) => {
+router.delete('/setores/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const excluir = db.transaction(() => {
-      db.prepare('UPDATE categorias SET setor_id = NULL WHERE setor_id = ? AND loja_id = ?').run(req.params.id, loja.id);
-      return db.prepare('DELETE FROM setores WHERE id = ? AND loja_id = ?').run(req.params.id, loja.id);
+    const loja = await minhaLoja(req);
+    const r = await comTransacao(async (tx) => {
+      await tx.prepare('UPDATE categorias SET setor_id = NULL WHERE setor_id = ? AND loja_id = ?').run(req.params.id, loja.id);
+      return tx.prepare('DELETE FROM setores WHERE id = ? AND loja_id = ?').run(req.params.id, loja.id);
     });
-    const r = excluir();
     if (r.changes === 0) throw erroHttp(404, 'Setor não encontrado.');
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -1989,14 +1986,14 @@ router.delete('/setores/:id', (req, res, next) => {
 // ----- Categorias do cardápio ---------------------------------------------
 
 /** Lista categorias (registro + as que existem só nos produtos) + estilo. */
-router.get('/categorias', (req, res, next) => {
+router.get('/categorias', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req) as any;
-    const registro = db.prepare(
+    const loja = await minhaLoja(req) as any;
+    const registro = await db.prepare(
       'SELECT nome, icone, ordem, setor_id FROM categorias WHERE loja_id = ? ORDER BY ordem, nome'
     ).all(loja.id) as Array<{ nome: string; icone: string; ordem: number; setor_id: number | null }>;
     const mapa = new Map(registro.map(r => [r.nome, r]));
-    const doProduto = db.prepare(
+    const doProduto = await db.prepare(
       "SELECT DISTINCT categoria FROM produtos WHERE loja_id = ? AND excluido = 0 AND categoria != ''"
     ).all(loja.id) as Array<{ categoria: string }>;
     for (const { categoria } of doProduto) {
@@ -2012,52 +2009,49 @@ router.get('/categorias', (req, res, next) => {
 });
 
 /** Salva ícone/ordem/renome/setor das categorias + o estilo de exibição. */
-router.put('/categorias', (req, res, next) => {
+router.put('/categorias', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const estilo = req.body.estilo === 'chips' ? 'chips' : 'cards';
     const itens: any[] = Array.isArray(req.body.itens) ? req.body.itens : [];
 
-    const upsert = db.prepare(
-      `INSERT INTO categorias (loja_id, nome, icone, ordem, setor_id, criado_em) VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT(loja_id, nome) DO UPDATE SET icone = excluded.icone, ordem = excluded.ordem, setor_id = excluded.setor_id`
-    );
-    const renomearProdutos = db.prepare('UPDATE produtos SET categoria = ? WHERE loja_id = ? AND categoria = ?');
-    const apagarRegistro = db.prepare('DELETE FROM categorias WHERE loja_id = ? AND nome = ?');
-
-    db.transaction(() => {
-      db.prepare('UPDATE lojas SET categoria_estilo = ? WHERE id = ?').run(estilo, loja.id);
-      itens.forEach((it, i) => {
+    await comTransacao(async (tx) => {
+      await tx.prepare('UPDATE lojas SET categoria_estilo = ? WHERE id = ?').run(estilo, loja.id);
+      for (let i = 0; i < itens.length; i++) {
+        const it = itens[i];
         const nome = textoLimpo(it.nome, 50);
-        if (!nome) return;
+        if (!nome) continue;
         const icone = textoLimpo(it.icone, 16);
         const ordem = Number.isFinite(Number(it.ordem)) ? Number(it.ordem) : i;
         const setorId = it.setor_id ? Number(it.setor_id) : null;
         const novo = textoLimpo(it.renomear_para, 50);
         const nomeFinal = novo || nome;
         if (novo && novo !== nome) {
-          renomearProdutos.run(nomeFinal, loja.id, nome);
-          apagarRegistro.run(loja.id, nome);
+          await tx.prepare('UPDATE produtos SET categoria = ? WHERE loja_id = ? AND categoria = ?').run(nomeFinal, loja.id, nome);
+          await tx.prepare('DELETE FROM categorias WHERE loja_id = ? AND nome = ?').run(loja.id, nome);
         }
-        upsert.run(loja.id, nomeFinal, icone, ordem, setorId, agoraUTC());
-      });
-    })();
+        await tx.prepare(
+          `INSERT INTO categorias (loja_id, nome, icone, ordem, setor_id, criado_em) VALUES (?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE icone = VALUES(icone), ordem = VALUES(ordem), setor_id = VALUES(setor_id)`
+        ).run(loja.id, nomeFinal, icone, ordem, setorId, agoraUTC());
+      }
+    });
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
 // ----- Relatórios ---------------------------------------------------------
 
-router.get('/relatorios', (req, res, next) => {
+router.get('/relatorios', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const periodo = ['dia', 'semana', 'mes'].includes(req.query.periodo as string)
       ? (req.query.periodo as 'dia' | 'semana' | 'mes') : 'dia';
     const dias = { dia: 1, semana: 7, mes: 30 }[periodo];
     const inicio = new Date(Date.now() - dias * 24 * 60 * 60 * 1000).toISOString();
 
     type Resumo = { pedidos: number; faturamento_centavos: number; comissao_centavos: number; ticket_medio_centavos: number };
-    const resumo = db.prepare(
+    const resumo = await db.prepare(
       `SELECT COUNT(*) AS pedidos,
               COALESCE(SUM(total_centavos), 0)    AS faturamento_centavos,
               COALESCE(SUM(comissao_centavos), 0) AS comissao_centavos,
@@ -2066,7 +2060,7 @@ router.get('/relatorios', (req, res, next) => {
         WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ?`
     ).get(loja.id, inicio) as Resumo;
 
-    const maisVendidos = db.prepare(
+    const maisVendidos = await db.prepare(
       `SELECT i.nome_produto, SUM(i.quantidade) AS quantidade,
               SUM(i.quantidade * i.preco_unit_centavos) AS total_centavos
          FROM itens_pedido i
@@ -2077,7 +2071,7 @@ router.get('/relatorios', (req, res, next) => {
     ).all(loja.id, inicio);
 
     // Faturamento por forma de pagamento (só entregues).
-    const porPagamento = db.prepare(
+    const porPagamento = await db.prepare(
       `SELECT forma_pagamento, COUNT(*) AS qtd, COALESCE(SUM(total_centavos),0) AS total_centavos
          FROM pedidos
         WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ?
@@ -2085,7 +2079,7 @@ router.get('/relatorios', (req, res, next) => {
     ).all(loja.id, inicio);
 
     // Taxa de cancelamento (cancelados + recusados sobre o total de pedidos do período).
-    const contagem = db.prepare(
+    const contagem = await db.prepare(
       `SELECT
           SUM(CASE WHEN status IN ('cancelado','recusado') THEN 1 ELSE 0 END) AS cancelados,
           COUNT(*) AS total
@@ -2095,8 +2089,10 @@ router.get('/relatorios', (req, res, next) => {
       ? Math.round((contagem.cancelados / contagem.total) * 1000) / 10 : 0;
 
     // Horário de pico — distribuição por hora (Brasília, UTC-3), só entregues.
-    const porHora = db.prepare(
-      `SELECT CAST(strftime('%H', criado_em, '-3 hours') AS INTEGER) AS hora,
+    // criado_em é ISO-8601 em UTC guardado como string; STR_TO_DATE ignora o
+    // sufixo ".000Z" (trailing) e SUBTIME aplica o deslocamento de fuso.
+    const porHora = await db.prepare(
+      `SELECT HOUR(SUBTIME(STR_TO_DATE(criado_em, '%Y-%m-%dT%H:%i:%s'), '03:00:00')) AS hora,
               COUNT(*) AS qtd
          FROM pedidos
         WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ?
@@ -2126,10 +2122,10 @@ router.get('/relatorios', (req, res, next) => {
 
 // ----- Banners da loja (gerenciados pelo próprio lojista) ------------------
 
-router.get('/banners', (req, res, next) => {
+router.get('/banners', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const banners = db.prepare(
+    const loja = await minhaLoja(req);
+    const banners = await db.prepare(
       `SELECT b.id, b.titulo, b.subtitulo, b.imagem, b.produto_id, b.link_url, b.ordem, b.ativo,
               b.botao_texto, p.nome AS produto_nome
          FROM banners b
@@ -2141,9 +2137,9 @@ router.get('/banners', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.post('/banners', (req, res, next) => {
+router.post('/banners', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const titulo = textoLimpo(req.body.titulo, 120);
     if (titulo.length < 2) throw erroHttp(400, 'Informe um título para o banner.');
     const imagem = textoLimpo(req.body.imagem, 500);
@@ -2153,15 +2149,15 @@ router.post('/banners', (req, res, next) => {
 
     const produtoId = inteiroPositivo(req.body.produto_id) || null;
     if (produtoId) {
-      const existe = db.prepare('SELECT 1 FROM produtos WHERE id = ? AND loja_id = ? AND excluido = 0').get(produtoId, loja.id);
+      const existe = await db.prepare('SELECT 1 FROM produtos WHERE id = ? AND loja_id = ? AND excluido = 0').get(produtoId, loja.id);
       if (!existe) throw erroHttp(400, 'Produto não encontrado na sua loja.');
     }
 
-    const ativos = (db.prepare('SELECT COUNT(*) AS n FROM banners WHERE loja_id = ? AND ativo = 1')
+    const ativos = (await db.prepare('SELECT COUNT(*) AS n FROM banners WHERE loja_id = ? AND ativo = 1')
       .get(loja.id) as { n: number }).n;
     if (ativos >= 5) throw erroHttp(400, 'Máximo de 5 banners ativos. Desative um antes de criar outro.');
 
-    const info = db.prepare(
+    const info = await db.prepare(
       `INSERT INTO banners (titulo, subtitulo, imagem, loja_id, produto_id, link_url, ordem, ativo, botao_texto, criado_em)
        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     ).run(
@@ -2179,10 +2175,10 @@ router.post('/banners', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.put('/banners/:id', (req, res, next) => {
+router.put('/banners/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const banner = db.prepare('SELECT * FROM banners WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req);
+    const banner = await db.prepare('SELECT * FROM banners WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id) as any | undefined;
     if (!banner) throw erroHttp(404, 'Banner não encontrado.');
 
@@ -2201,12 +2197,12 @@ router.put('/banners/:id', (req, res, next) => {
 
     const novoAtivo = req.body.ativo !== undefined ? (req.body.ativo ? 1 : 0) : banner.ativo;
     if (novoAtivo === 1 && banner.ativo === 0) {
-      const ativos = (db.prepare('SELECT COUNT(*) AS n FROM banners WHERE loja_id = ? AND ativo = 1')
+      const ativos = (await db.prepare('SELECT COUNT(*) AS n FROM banners WHERE loja_id = ? AND ativo = 1')
         .get(loja.id) as { n: number }).n;
       if (ativos >= 5) throw erroHttp(400, 'Máximo de 5 banners ativos. Desative outro antes de ativar este.');
     }
 
-    db.prepare(
+    await db.prepare(
       `UPDATE banners SET titulo = ?, subtitulo = ?, imagem = ?, produto_id = ?, link_url = ?, ordem = ?, ativo = ?, botao_texto = ?
         WHERE id = ?`
     ).run(
@@ -2224,10 +2220,10 @@ router.put('/banners/:id', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.delete('/banners/:id', (req, res, next) => {
+router.delete('/banners/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const info = db.prepare('DELETE FROM banners WHERE id = ? AND loja_id = ?').run(req.params.id, loja.id);
+    const loja = await minhaLoja(req);
+    const info = await db.prepare('DELETE FROM banners WHERE id = ? AND loja_id = ?').run(req.params.id, loja.id);
     if (info.changes === 0) throw erroHttp(404, 'Banner não encontrado.');
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -2247,17 +2243,17 @@ function parseValorCupom(tipo: string, valorRaw: unknown): number {
   return c;
 }
 
-router.get('/cupons', (req, res, next) => {
+router.get('/cupons', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const cupons = db.prepare('SELECT * FROM cupons WHERE loja_id = ? ORDER BY id DESC').all(loja.id);
+    const loja = await minhaLoja(req);
+    const cupons = await db.prepare('SELECT * FROM cupons WHERE loja_id = ? ORDER BY id DESC').all(loja.id);
     res.json({ cupons });
   } catch (e) { next(e); }
 });
 
-router.post('/cupons', (req, res, next) => {
+router.post('/cupons', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const codigo = textoLimpo(req.body.codigo, 30).toUpperCase().replace(/\s+/g, '');
     if (codigo.length < 3) throw erroHttp(400, 'O código precisa ter ao menos 3 caracteres.');
     const tipo = req.body.tipo === 'fixo' ? 'fixo' : 'percentual';
@@ -2266,10 +2262,10 @@ router.post('/cupons', (req, res, next) => {
     const usosMax = req.body.usos_max !== undefined ? (inteiroPositivo(req.body.usos_max) || 0) : 0;
     const validade = textoLimpo(req.body.validade || '', 30) || null;
 
-    const existe = db.prepare('SELECT id FROM cupons WHERE loja_id = ? AND codigo = ?').get(loja.id, codigo);
+    const existe = await db.prepare('SELECT id FROM cupons WHERE loja_id = ? AND codigo = ?').get(loja.id, codigo);
     if (existe) throw erroHttp(409, `Já existe um cupom "${codigo}".`);
 
-    const info = db.prepare(
+    const info = await db.prepare(
       `INSERT INTO cupons (loja_id, codigo, tipo, valor, minimo_centavos, usos_max, usos_count, validade, ativo, criado_em)
        VALUES (?, ?, ?, ?, ?, ?, 0, ?, 1, ?)`
     ).run(loja.id, codigo, tipo, valor, minimo, usosMax, validade, agoraUTC());
@@ -2277,16 +2273,16 @@ router.post('/cupons', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.put('/cupons/:id', (req, res, next) => {
+router.put('/cupons/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const cupom = db.prepare('SELECT * FROM cupons WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req);
+    const cupom = await db.prepare('SELECT * FROM cupons WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id) as Record<string, unknown> | undefined;
     if (!cupom) throw erroHttp(404, 'Cupom não encontrado.');
 
     // Toggle rápido de ativo (a tela manda só { ativo }).
     if (req.body.ativo !== undefined && req.body.codigo === undefined) {
-      db.prepare('UPDATE cupons SET ativo = ? WHERE id = ?').run(req.body.ativo ? 1 : 0, cupom.id);
+      await db.prepare('UPDATE cupons SET ativo = ? WHERE id = ?').run(req.body.ativo ? 1 : 0, cupom.id);
       return res.json({ ok: true });
     }
 
@@ -2297,17 +2293,17 @@ router.put('/cupons/:id', (req, res, next) => {
     const usosMax = req.body.usos_max !== undefined ? (inteiroPositivo(req.body.usos_max) || 0) : Number(cupom.usos_max);
     const validade = req.body.validade !== undefined ? (textoLimpo(req.body.validade, 30) || null) : (cupom.validade as string | null);
 
-    db.prepare(
+    await db.prepare(
       'UPDATE cupons SET codigo = ?, tipo = ?, valor = ?, minimo_centavos = ?, usos_max = ?, validade = ? WHERE id = ?'
     ).run(codigo, tipo, valor, minimo, usosMax, validade, cupom.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
-router.delete('/cupons/:id', (req, res, next) => {
+router.delete('/cupons/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const info = db.prepare('DELETE FROM cupons WHERE id = ? AND loja_id = ?').run(req.params.id, loja.id);
+    const loja = await minhaLoja(req);
+    const info = await db.prepare('DELETE FROM cupons WHERE id = ? AND loja_id = ?').run(req.params.id, loja.id);
     if (info.changes === 0) throw erroHttp(404, 'Cupom não encontrado.');
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -2315,10 +2311,10 @@ router.delete('/cupons/:id', (req, res, next) => {
 
 // ----- Mesas e Comandas (dine-in / salão) ----------------------------------
 
-router.get('/mesas', (req, res, next) => {
+router.get('/mesas', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const mesas = db.prepare(`
+    const loja = await minhaLoja(req);
+    const mesas = await db.prepare(`
       SELECT m.id, m.numero, m.status,
              c.id AS comanda_id,
              COALESCE(t.total_centavos, 0) AS comanda_total,
@@ -2333,64 +2329,64 @@ router.get('/mesas', (req, res, next) => {
             FROM comanda_itens GROUP BY comanda_id
         ) t ON t.comanda_id = c.id
        WHERE m.loja_id = ? AND m.excluida = 0
-       ORDER BY CAST(m.numero AS INTEGER), m.numero
+       ORDER BY CAST(m.numero AS UNSIGNED), m.numero
     `).all(loja.id);
     res.json({ mesas });
   } catch (e) { next(e); }
 });
 
-router.post('/mesas', (req, res, next) => {
+router.post('/mesas', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     const numero = textoLimpo(req.body.numero, 20);
     if (!numero) throw erroHttp(400, 'Informe o número/nome da mesa.');
-    const existe = db.prepare('SELECT id FROM mesas WHERE loja_id = ? AND numero = ? AND excluida = 0').get(loja.id, numero);
+    const existe = await db.prepare('SELECT id FROM mesas WHERE loja_id = ? AND numero = ? AND excluida = 0').get(loja.id, numero);
     if (existe) throw erroHttp(409, `Já existe uma mesa "${numero}".`);
-    const info = db.prepare(
+    const info = await db.prepare(
       "INSERT INTO mesas (loja_id, numero, status, criado_em) VALUES (?, ?, 'livre', ?)"
     ).run(loja.id, numero, agoraUTC());
     res.status(201).json({ mesa_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
 
-router.delete('/mesas/:id', (req, res, next) => {
+router.delete('/mesas/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const mesa = db.prepare('SELECT id, status FROM mesas WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req);
+    const mesa = await db.prepare('SELECT id, status FROM mesas WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id) as { id: number; status: string } | undefined;
     if (!mesa) throw erroHttp(404, 'Mesa não encontrada.');
     if (mesa.status === 'ocupada') throw erroHttp(409, 'Feche a comanda antes de excluir a mesa.');
     // Soft delete: comandas históricas referenciam a mesa, então preservamos
     // o registro e apenas o ocultamos da listagem.
-    db.prepare("UPDATE mesas SET excluida = 1 WHERE id = ?").run(mesa.id);
+    await db.prepare("UPDATE mesas SET excluida = 1 WHERE id = ?").run(mesa.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
-router.post('/mesas/:id/abrir', (req, res, next) => {
+router.post('/mesas/:id/abrir', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const mesa = db.prepare('SELECT id, status FROM mesas WHERE id = ? AND loja_id = ?')
+    const loja = await minhaLoja(req);
+    const mesa = await db.prepare('SELECT id, status FROM mesas WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id) as { id: number; status: string } | undefined;
     if (!mesa) throw erroHttp(404, 'Mesa não encontrada.');
     if (mesa.status === 'ocupada') throw erroHttp(409, 'Esta mesa já está ocupada.');
 
-    const abrir = db.transaction(() => {
-      const info = db.prepare(
+    const comandaId = await comTransacao(async (tx) => {
+      const info = await tx.prepare(
         "INSERT INTO comandas (loja_id, mesa_id, status, total_centavos, aberto_em) VALUES (?, ?, 'aberta', 0, ?)"
       ).run(loja.id, mesa.id, agoraUTC());
-      db.prepare("UPDATE mesas SET status = 'ocupada' WHERE id = ?").run(mesa.id);
+      await tx.prepare("UPDATE mesas SET status = 'ocupada' WHERE id = ?").run(mesa.id);
       return Number(info.lastInsertRowid);
     });
 
-    res.json({ comanda_id: abrir() });
+    res.json({ comanda_id: comandaId });
   } catch (e) { next(e); }
 });
 
-router.get('/comandas/:id', (req, res, next) => {
+router.get('/comandas/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const comanda = db.prepare(`
+    const loja = await minhaLoja(req);
+    const comanda = await db.prepare(`
       SELECT c.id, c.status, c.forma_pagamento, c.fechado_em,
              c.aberto_em AS aberto_em,
              m.numero AS mesa_numero,
@@ -2402,7 +2398,7 @@ router.get('/comandas/:id', (req, res, next) => {
        GROUP BY c.id
     `).get(req.params.id, loja.id) as Record<string, unknown> | undefined;
     if (!comanda) throw erroHttp(404, 'Comanda não encontrada.');
-    const itens = db.prepare(
+    const itens = await db.prepare(
       `SELECT ci.*, p.categoria AS categoria
          FROM comanda_itens ci
          LEFT JOIN produtos p ON p.id = ci.produto_id
@@ -2412,10 +2408,10 @@ router.get('/comandas/:id', (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.post('/comandas/:id/itens', (req, res, next) => {
+router.post('/comandas/:id/itens', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const comanda = db.prepare("SELECT id, status FROM comandas WHERE id = ? AND loja_id = ?")
+    const loja = await minhaLoja(req);
+    const comanda = await db.prepare("SELECT id, status FROM comandas WHERE id = ? AND loja_id = ?")
       .get(req.params.id, loja.id) as { id: number; status: string } | undefined;
     if (!comanda) throw erroHttp(404, 'Comanda não encontrada.');
     if (comanda.status !== 'aberta') throw erroHttp(409, 'Esta comanda já foi fechada.');
@@ -2426,7 +2422,7 @@ router.post('/comandas/:id/itens', (req, res, next) => {
     let precoUnit: number;
 
     if (req.body.produto_id) {
-      const produto = meuProduto(loja, req.body.produto_id);
+      const produto = await meuProduto(loja, req.body.produto_id);
       nomeProduto = produto.nome;
       precoUnit = (produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0)
         ? produto.preco_promocional_centavos : produto.preco_centavos;
@@ -2436,17 +2432,17 @@ router.post('/comandas/:id/itens', (req, res, next) => {
       if (!nomeProduto) throw erroHttp(400, 'Informe o produto ou o nome do item.');
     }
 
-    const info = db.prepare(
+    const info = await db.prepare(
       'INSERT INTO comanda_itens (comanda_id, produto_id, nome_produto, preco_unit_centavos, quantidade, observacao) VALUES (?, ?, ?, ?, ?, ?)'
     ).run(comanda.id, req.body.produto_id || null, nomeProduto, precoUnit, quantidade, observacao);
     res.status(201).json({ item_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
 
-router.put('/itens-comanda/:id', (req, res, next) => {
+router.put('/itens-comanda/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const item = db.prepare(`
+    const loja = await minhaLoja(req);
+    const item = await db.prepare(`
       SELECT ci.id FROM comanda_itens ci
         JOIN comandas c ON c.id = ci.comanda_id
        WHERE ci.id = ? AND c.loja_id = ? AND c.status = 'aberta'
@@ -2454,21 +2450,21 @@ router.put('/itens-comanda/:id', (req, res, next) => {
     if (!item) throw erroHttp(404, 'Item não encontrado.');
     const quantidade = inteiroPositivo(req.body.quantidade);
     if (!quantidade) throw erroHttp(400, 'Quantidade inválida.');
-    db.prepare('UPDATE comanda_itens SET quantidade = ? WHERE id = ?').run(quantidade, item.id);
+    await db.prepare('UPDATE comanda_itens SET quantidade = ? WHERE id = ?').run(quantidade, item.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
-router.delete('/itens-comanda/:id', (req, res, next) => {
+router.delete('/itens-comanda/:id', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const item = db.prepare(`
+    const loja = await minhaLoja(req);
+    const item = await db.prepare(`
       SELECT ci.id FROM comanda_itens ci
         JOIN comandas c ON c.id = ci.comanda_id
        WHERE ci.id = ? AND c.loja_id = ? AND c.status = 'aberta'
     `).get(req.params.id, loja.id) as { id: number } | undefined;
     if (!item) throw erroHttp(404, 'Item não encontrado.');
-    db.prepare('DELETE FROM comanda_itens WHERE id = ?').run(item.id);
+    await db.prepare('DELETE FROM comanda_itens WHERE id = ?').run(item.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -2479,9 +2475,9 @@ const PAGAMENTO_COMANDA: Record<string, 'pix' | 'dinheiro' | 'cartao_entrega'> =
 
 router.post('/comandas/:id/fechar', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
+    const loja = await minhaLoja(req);
     type ComandaRow = { id: number; mesa_id: number; total_centavos: number };
-    const comanda = db.prepare(`
+    const comanda = await db.prepare(`
       SELECT c.id, c.mesa_id,
              COALESCE(SUM(ci.preco_unit_centavos * ci.quantidade), 0) AS total_centavos
         FROM comandas c
@@ -2495,19 +2491,19 @@ router.post('/comandas/:id/fechar', async (req, res, next) => {
     if (!formaPagamento) throw erroHttp(400, 'Forma de pagamento inválida.');
 
     type ItemRow = { produto_id: number | null; nome_produto: string; preco_unit_centavos: number; quantidade: number };
-    const itens = db.prepare(
+    const itens = await db.prepare(
       'SELECT produto_id, nome_produto, preco_unit_centavos, quantidade FROM comanda_itens WHERE comanda_id = ?'
     ).all(comanda.id) as ItemRow[];
 
     const comissaoPct = await comissaoPercentualDaLoja(loja.id);
     const comissao = Math.round(comanda.total_centavos * comissaoPct / 100);
-    const consumidor = consumidorBalcao(loja);
+    const consumidor = await consumidorBalcao(loja);
     const agora = agoraUTC();
 
-    const fechar = db.transaction(() => {
-      let pedidoId: number | null = null;
+    const pedidoId = await comTransacao(async (tx) => {
+      let novoPedidoId: number | null = null;
       if (comanda.total_centavos > 0 && itens.length > 0) {
-        const info = db.prepare(`
+        const info = await tx.prepare(`
           INSERT INTO pedidos
             (cliente_id, loja_id, status, endereco_entrega, forma_pagamento,
              observacoes, subtotal_centavos, taxa_entrega_centavos, total_centavos,
@@ -2517,38 +2513,38 @@ router.post('/comandas/:id/fechar', async (req, res, next) => {
         `).run(consumidor, loja.id, formaPagamento,
                comanda.total_centavos, comanda.total_centavos,
                comissaoPct, comissao, agora, agora);
-        pedidoId = Number(info.lastInsertRowid);
-        const inserirItem = db.prepare(
-          "INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos, quantidade, opcoes_texto, opcoes_ids) VALUES (?, ?, ?, ?, ?, '', '[]')"
-        );
-        for (const it of itens) inserirItem.run(pedidoId, it.produto_id, it.nome_produto, it.preco_unit_centavos, it.quantidade);
-        db.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
-          .run(pedidoId, 'entregue', agora);
+        novoPedidoId = Number(info.lastInsertRowid);
+        for (const it of itens) {
+          await tx.prepare(
+            "INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos, quantidade, opcoes_texto, opcoes_ids) VALUES (?, ?, ?, ?, ?, '', '[]')"
+          ).run(novoPedidoId, it.produto_id, it.nome_produto, it.preco_unit_centavos, it.quantidade);
+        }
+        await tx.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
+          .run(novoPedidoId, 'entregue', agora);
       }
-      db.prepare(
+      await tx.prepare(
         "UPDATE comandas SET status = 'fechada', total_centavos = ?, forma_pagamento = ?, pedido_id = ?, fechado_em = ? WHERE id = ?"
-      ).run(comanda.total_centavos, req.body.forma_pagamento, pedidoId, agora, comanda.id);
-      db.prepare("UPDATE mesas SET status = 'livre' WHERE id = ?").run(comanda.mesa_id);
-      return pedidoId;
+      ).run(comanda.total_centavos, req.body.forma_pagamento, novoPedidoId, agora, comanda.id);
+      await tx.prepare("UPDATE mesas SET status = 'livre' WHERE id = ?").run(comanda.mesa_id);
+      return novoPedidoId;
     });
 
-    const pedidoId = fechar();
     res.json({ ok: true, total_centavos: comanda.total_centavos, pedido_id: pedidoId });
   } catch (e) { next(e); }
 });
 
-router.post('/comandas/:id/cancelar', (req, res, next) => {
+router.post('/comandas/:id/cancelar', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const comanda = db.prepare(
+    const loja = await minhaLoja(req);
+    const comanda = await db.prepare(
       "SELECT id, mesa_id FROM comandas WHERE id = ? AND loja_id = ? AND status = 'aberta'"
     ).get(req.params.id, loja.id) as { id: number; mesa_id: number } | undefined;
     if (!comanda) throw erroHttp(404, 'Comanda aberta não encontrada.');
-    db.transaction(() => {
-      db.prepare('DELETE FROM comanda_itens WHERE comanda_id = ?').run(comanda.id);
-      db.prepare("UPDATE comandas SET status = 'cancelada', fechado_em = ? WHERE id = ?").run(agoraUTC(), comanda.id);
-      db.prepare("UPDATE mesas SET status = 'livre' WHERE id = ?").run(comanda.mesa_id);
-    })();
+    await comTransacao(async (tx) => {
+      await tx.prepare('DELETE FROM comanda_itens WHERE comanda_id = ?').run(comanda.id);
+      await tx.prepare("UPDATE comandas SET status = 'cancelada', fechado_em = ? WHERE id = ?").run(agoraUTC(), comanda.id);
+      await tx.prepare("UPDATE mesas SET status = 'livre' WHERE id = ?").run(comanda.mesa_id);
+    });
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -2557,41 +2553,43 @@ router.post('/comandas/:id/cancelar', (req, res, next) => {
  * Envia para a cozinha (KDS) os itens da comanda ainda não despachados.
  * Funciona em "rodadas": só manda o que tem enviado_cozinha = 0 e marca como enviado.
  */
-router.post('/comandas/:id/enviar-cozinha', (req, res, next) => {
+router.post('/comandas/:id/enviar-cozinha', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const comanda = db.prepare(
+    const loja = await minhaLoja(req);
+    const comanda = await db.prepare(
       `SELECT c.id, m.numero AS mesa_numero
          FROM comandas c JOIN mesas m ON m.id = c.mesa_id
         WHERE c.id = ? AND c.loja_id = ? AND c.status = 'aberta'`
     ).get(req.params.id, loja.id) as { id: number; mesa_numero: string } | undefined;
     if (!comanda) throw erroHttp(404, 'Comanda aberta não encontrada.');
 
-    const itens = db.prepare(
+    const itens = await db.prepare(
       'SELECT id, nome_produto, quantidade, observacao FROM comanda_itens WHERE comanda_id = ? AND enviado_cozinha = 0'
     ).all(comanda.id) as Array<{ id: number; nome_produto: string; quantidade: number; observacao: string }>;
     if (itens.length === 0) throw erroHttp(400, 'Nenhum item novo para enviar à cozinha.');
 
     const agora = agoraUTC();
-    const ticketId = db.transaction(() => {
-      const info = db.prepare(
+    const ticketId = await comTransacao(async (tx) => {
+      const info = await tx.prepare(
         "INSERT INTO cozinha_tickets (loja_id, origem, referencia, comanda_id, status, criado_em) VALUES (?, 'mesa', ?, ?, 'na_fila', ?)"
       ).run(loja.id, `Mesa ${comanda.mesa_numero}`, comanda.id, agora);
       const tid = Number(info.lastInsertRowid);
-      const inserir = db.prepare('INSERT INTO cozinha_ticket_itens (ticket_id, nome_produto, quantidade, observacao) VALUES (?, ?, ?, ?)');
-      const marcar = db.prepare('UPDATE comanda_itens SET enviado_cozinha = 1 WHERE id = ?');
-      for (const it of itens) { inserir.run(tid, it.nome_produto, it.quantidade, it.observacao || ''); marcar.run(it.id); }
+      for (const it of itens) {
+        await tx.prepare('INSERT INTO cozinha_ticket_itens (ticket_id, nome_produto, quantidade, observacao) VALUES (?, ?, ?, ?)')
+          .run(tid, it.nome_produto, it.quantidade, it.observacao || '');
+        await tx.prepare('UPDATE comanda_itens SET enviado_cozinha = 1 WHERE id = ?').run(it.id);
+      }
       return tid;
-    })();
+    });
 
     res.status(201).json({ ticket_id: ticketId, itens_enviados: itens.length });
   } catch (e) { next(e); }
 });
 
-router.get('/comandas-historico', (req, res, next) => {
+router.get('/comandas-historico', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req);
-    const comandas = db.prepare(`
+    const loja = await minhaLoja(req);
+    const comandas = await db.prepare(`
       SELECT c.id, c.status, c.total_centavos, c.forma_pagamento,
              c.aberto_em AS aberto_em, c.fechado_em,
              m.numero AS mesa_numero
@@ -2613,7 +2611,7 @@ router.get('/comandas-historico', (req, res, next) => {
  */
 router.get('/whatsapp', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req) as any;
+    const loja = await minhaLoja(req) as any;
     const naoOficial = loja.whatsapp_permite_nao_oficial ? await statusSessaoPlataforma() : { conectado: false };
     res.json({
       permite_oficial: !!loja.whatsapp_permite_oficial,
@@ -2636,9 +2634,9 @@ router.get('/whatsapp', async (req, res, next) => {
 });
 
 /** Salva a config do método oficial (Meta Cloud API). Token só é regravado se enviado (não vazio). */
-router.put('/whatsapp/oficial', (req, res, next) => {
+router.put('/whatsapp/oficial', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req) as any;
+    const loja = await minhaLoja(req) as any;
     if (!loja.whatsapp_permite_oficial) throw erroHttp(403, 'O WhatsApp oficial não está liberado pra esta loja. Fale com o suporte da plataforma.');
 
     const numero = textoLimpo(req.body.numero, 20).replace(/\D/g, '');
@@ -2648,13 +2646,13 @@ router.put('/whatsapp/oficial', (req, res, next) => {
     if (!phoneId) throw erroHttp(400, 'Informe o Phone Number ID (Meta Business).');
 
     if (typeof req.body.token === 'string' && req.body.token.trim()) {
-      db.prepare(
+      await db.prepare(
         `UPDATE lojas SET whatsapp_oficial_numero = ?, whatsapp_oficial_phone_id = ?,
                 whatsapp_oficial_business_id = ?, whatsapp_oficial_template = ?, whatsapp_oficial_token = ?
           WHERE id = ?`
       ).run(numero, phoneId, businessId, template, criptografar(req.body.token.trim()), loja.id);
     } else {
-      db.prepare(
+      await db.prepare(
         `UPDATE lojas SET whatsapp_oficial_numero = ?, whatsapp_oficial_phone_id = ?,
                 whatsapp_oficial_business_id = ?, whatsapp_oficial_template = ?
           WHERE id = ?`
@@ -2667,7 +2665,7 @@ router.put('/whatsapp/oficial', (req, res, next) => {
 /** Testa as credenciais oficiais salvas (chamada leve à Graph API). */
 router.post('/whatsapp/oficial/testar', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req) as any;
+    const loja = await minhaLoja(req) as any;
     const r = await testarCredenciaisOficial(loja.whatsapp_oficial_phone_id || '', loja.whatsapp_oficial_token || '');
     if (!r.ok) throw erroHttp(400, r.erro || 'Falha ao testar credenciais.');
     res.json({ ok: true });
@@ -2675,16 +2673,16 @@ router.post('/whatsapp/oficial/testar', async (req, res, next) => {
 });
 
 /** Escolhe qual método fica ativo (só entre os liberados pelo admin) e liga/desliga o envio automático. */
-router.put('/whatsapp/ativo', (req, res, next) => {
+router.put('/whatsapp/ativo', async (req, res, next) => {
   try {
-    const loja = minhaLoja(req) as any;
+    const loja = await minhaLoja(req) as any;
     const metodo = textoLimpo(req.body.metodo, 20);
     if (!['nenhum', 'oficial', 'nao_oficial'].includes(metodo)) throw erroHttp(400, 'Método inválido.');
     if (metodo === 'oficial' && !loja.whatsapp_permite_oficial) throw erroHttp(403, 'WhatsApp oficial não liberado pra esta loja.');
     if (metodo === 'nao_oficial' && !loja.whatsapp_permite_nao_oficial) throw erroHttp(403, 'WhatsApp não oficial não liberado pra esta loja.');
 
     const enviarConfirmacao = req.body.enviar_confirmacao !== undefined ? (req.body.enviar_confirmacao ? 1 : 0) : loja.whatsapp_enviar_confirmacao;
-    db.prepare('UPDATE lojas SET whatsapp_metodo_ativo = ?, whatsapp_enviar_confirmacao = ? WHERE id = ?')
+    await db.prepare('UPDATE lojas SET whatsapp_metodo_ativo = ?, whatsapp_enviar_confirmacao = ? WHERE id = ?')
       .run(metodo, enviarConfirmacao, loja.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
