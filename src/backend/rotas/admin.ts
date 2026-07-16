@@ -1056,8 +1056,8 @@ const LANDING_SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Pad
 const LANDING_DEPOIMENTOS_PADRAO: { texto: string; nome: string; negocio: string }[] = [];
 
 const LANDING_DESTAQUES_PADRAO: { imagem_url: string; titulo: string; desc: string }[] = [
-  { imagem_url: '', titulo: 'Painel completo em um só lugar', desc: 'Pedidos, cardápio, entregadores e financeiro organizados no painel — sem planilha, sem bagunça, sem sistema separado pra cada coisa.' },
-  { imagem_url: '', titulo: 'Cliente acompanha o pedido ao vivo', desc: 'Do aceite da loja até o entregador saindo pra entrega, o cliente vê tudo em tempo real, com mapa e status atualizado sozinho.' },
+  { imagem_url: '/landing/storefront-mobile.png', titulo: 'Seu cliente pede direto pelo celular', desc: 'Cardápio digital com foto, categorias e busca — sem app pra baixar. O cliente monta o pedido e finaliza em segundos, com Pix, cartão ou dinheiro.' },
+  { imagem_url: '/landing/storefront-desktop.png', titulo: 'Sua loja online com a sua cara', desc: 'Cores, logo e capa personalizados por loja. Cada negócio com seu próprio endereço, cardápio e visual — do jeito da marca.' },
   { imagem_url: '', titulo: 'Nota fiscal sem sair do sistema', desc: 'Emita a NFC-e direto na hora da venda, sem precisar de outro programa nem digitar os dados de novo.' },
 ];
 

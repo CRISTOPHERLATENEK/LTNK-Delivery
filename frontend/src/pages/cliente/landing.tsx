@@ -102,8 +102,8 @@ const COM_PADRAO = ['Agilidade e organização nos pedidos', 'Cada loja com sua 
 const SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria'];
 
 const DESTAQUES_PADRAO: LandingDestaque[] = [
-  { imagem_url: '', titulo: 'Painel completo em um só lugar', desc: 'Pedidos, cardápio, entregadores e financeiro organizados no painel — sem planilha, sem bagunça, sem sistema separado pra cada coisa.' },
-  { imagem_url: '', titulo: 'Cliente acompanha o pedido ao vivo', desc: 'Do aceite da loja até o entregador saindo pra entrega, o cliente vê tudo em tempo real, com mapa e status atualizado sozinho.' },
+  { imagem_url: '/landing/storefront-mobile.png', titulo: 'Seu cliente pede direto pelo celular', desc: 'Cardápio digital com foto, categorias e busca — sem app pra baixar. O cliente monta o pedido e finaliza em segundos, com Pix, cartão ou dinheiro.' },
+  { imagem_url: '/landing/storefront-desktop.png', titulo: 'Sua loja online com a sua cara', desc: 'Cores, logo e capa personalizados por loja. Cada negócio com seu próprio endereço, cardápio e visual — do jeito da marca.' },
   { imagem_url: '', titulo: 'Nota fiscal sem sair do sistema', desc: 'Emita a NFC-e direto na hora da venda, sem precisar de outro programa nem digitar os dados de novo.' },
 ];
 
@@ -121,7 +121,7 @@ export function PaginaLanding() {
   const heroEyebrow = marca.landing_hero_eyebrow || 'Sistema para deliveries e restaurantes';
   const heroTitulo = marca.landing_hero_titulo || `Gestão simples, fácil e eficiente para seu negócio`;
   const heroSubtitulo = marca.landing_hero_subtitulo || marca.slogan || 'Cardápio, pedidos, entrega e fiscal — tudo em um só sistema, do seu jeito.';
-  const heroImagem = marca.landing_hero_imagem || '';
+  const heroImagem = marca.landing_hero_imagem || '/landing/storefront-desktop.png';
 
   const demo = useQuery({
     queryKey: ['landing-loja-demo'],
@@ -249,20 +249,21 @@ export function PaginaLanding() {
 
       {/* Destaques (foto + texto, alternando lado) */}
       {destaques.length > 0 && (
-        <section className="mx-auto max-w-6xl px-6 py-16 space-y-20">
+        <section className="mx-auto max-w-6xl px-6 py-16 space-y-16 sm:space-y-24">
           {destaques.map((d, i) => (
             <Reveal key={i} className={cn('grid items-center gap-8 sm:grid-cols-2', i % 2 === 1 && 'sm:[&>*:first-child]:order-2')}>
-              <div className="aspect-video overflow-hidden rounded-2xl border border-border bg-accent/40">
-                {d.imagem_url ? (
-                  <img src={d.imagem_url} alt={d.titulo} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                    <Store className="h-10 w-10 opacity-30" />
-                  </div>
-                )}
-              </div>
-              <div>
-                <h3 className="text-2xl font-bold">{d.titulo}</h3>
+              {d.imagem_url ? (
+                <div className="rounded-2xl border border-border bg-gradient-to-br from-muted to-accent/30 p-3 shadow-xl shadow-primary/5 sm:p-5">
+                  <img src={d.imagem_url} alt={d.titulo}
+                    className="mx-auto max-h-[460px] w-auto rounded-lg border border-border/60 shadow-md" />
+                </div>
+              ) : (
+                <div className="flex aspect-video items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-accent/40">
+                  <Receipt className="h-16 w-16 text-primary/40" />
+                </div>
+              )}
+              <div className="text-center sm:text-left">
+                <h3 className="text-2xl font-bold sm:text-3xl">{d.titulo}</h3>
                 <p className="mt-3 text-muted-foreground">{d.desc}</p>
               </div>
             </Reveal>
