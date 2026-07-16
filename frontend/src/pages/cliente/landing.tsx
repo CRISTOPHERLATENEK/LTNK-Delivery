@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star, Shield, Users, Mail, Phone, X, Quote, type LucideIcon } from 'lucide-react';
+import { Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star, Shield, ShieldCheck, Users, Mail, Phone, X, Quote, Printer, QrCode, KeyRound, Cloud, BarChart3, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTema } from '@/lib/tema';
 import { api } from '@/lib/api';
@@ -132,7 +132,20 @@ const SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', '
 const DESTAQUES_PADRAO: LandingDestaque[] = [
   { imagem_url: '/landing/storefront-mobile.png', formato: 'celular', titulo: 'Seu cliente pede direto pelo celular', desc: 'Cardápio digital com foto, categorias e busca — sem app pra baixar. O cliente monta o pedido e finaliza em segundos, com Pix, cartão ou dinheiro.' },
   { imagem_url: '/landing/storefront-desktop.png', formato: 'navegador', titulo: 'Sua loja online com a sua cara', desc: 'Cores, logo e capa personalizados por loja. Cada negócio com seu próprio endereço, cardápio e visual — do jeito da marca.' },
-  { imagem_url: '/landing/cupom-fiscal.png', formato: 'livre', titulo: 'Cupom fiscal (NFC-e) na hora da venda', desc: 'A nota sai com itens, total, chave de acesso e QR code — direto do sistema, sem precisar de outro programa nem digitar os dados de novo.' },
+];
+
+const FISCAL_BULLETS: { icone: LucideIcon; titulo: string; desc: string }[] = [
+  { icone: Printer, titulo: 'Emissão automática', desc: 'NFC-e emitida na hora da finalização do pedido.' },
+  { icone: QrCode, titulo: 'QR Code para o cliente', desc: 'Mais praticidade e transparência na entrega.' },
+  { icone: KeyRound, titulo: 'Chave de acesso', desc: 'Consulta rápida em qualquer portal da SEFAZ.' },
+  { icone: Receipt, titulo: 'Impressão rápida e confiável', desc: 'Compatível com as principais impressoras do mercado.' },
+];
+
+const FISCAL_STATS: { icone: LucideIcon; titulo: string; desc: string }[] = [
+  { icone: ShieldCheck, titulo: 'NFC-e autorizada', desc: 'Autorização instantânea pela SEFAZ.' },
+  { icone: Shield, titulo: 'Segurança total', desc: 'Dados protegidos e transmitidos com segurança.' },
+  { icone: Cloud, titulo: 'Tudo integrado', desc: `Funciona 100% dentro do sistema.` },
+  { icone: BarChart3, titulo: 'Relatórios completos', desc: 'Acompanhe vendas e emissões em tempo real.' },
 ];
 
 export function PaginaLanding() {
@@ -301,6 +314,85 @@ export function PaginaLanding() {
           ))}
         </section>
       )}
+
+      {/* Destaque fiscal (NFC-e) — bloco rico com bullets, selo e card flutuante */}
+      <section className="relative overflow-hidden py-16 sm:py-24">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-accent/20" />
+        <Reveal className="relative mx-auto grid max-w-6xl items-center gap-12 px-6 lg:grid-cols-2">
+          <div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
+              <Receipt className="h-3.5 w-3.5" /> Emissão fiscal
+            </span>
+            <h2 className="mt-5 text-3xl font-extrabold leading-tight sm:text-4xl">
+              Cupom fiscal (NFC-e)<br /><span className="text-primary">na hora da venda</span>
+            </h2>
+            <p className="mt-4 max-w-md text-muted-foreground">
+              A nota sai com itens, total, chave de acesso e QR Code — direto do sistema, sem precisar de outro programa nem digitar os dados de novo.
+            </p>
+
+            <div className="mt-8 grid gap-5 sm:grid-cols-2">
+              {FISCAL_BULLETS.map(b => (
+                <div key={b.titulo} className="flex gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <b.icone className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold">{b.titulo}</div>
+                    <div className="text-xs text-muted-foreground">{b.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex items-center gap-3 rounded-2xl bg-primary/10 p-4">
+              <ShieldCheck className="h-7 w-7 shrink-0 text-primary" />
+              <div>
+                <div className="text-sm font-bold">100% em conformidade com a SEFAZ</div>
+                <div className="text-xs text-muted-foreground">Emissão segura, autorizada e sem complicação.</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Cupom + card flutuante de benefícios */}
+          <div className="relative mx-auto">
+            <img src="/landing/cupom-fiscal.png" alt="Cupom fiscal NFC-e"
+              className="mx-auto max-h-[480px] w-auto rounded-2xl shadow-2xl animar-flutuar" />
+            <div className="mt-6 grid grid-cols-2 gap-3 lg:absolute lg:-right-6 lg:top-6 lg:mt-0 lg:grid-cols-1 lg:w-48 lg:rounded-2xl lg:border lg:border-border lg:bg-card lg:p-4 lg:shadow-xl">
+              {FISCAL_STATS.map(s => (
+                <div key={s.titulo} className="flex items-start gap-2 rounded-xl border border-border bg-card p-2.5 lg:border-0 lg:bg-transparent lg:p-0">
+                  <s.icone className="h-4 w-4 shrink-0 text-primary" />
+                  <div>
+                    <div className="text-xs font-bold leading-tight">{s.titulo}</div>
+                    <div className="hidden text-[10px] text-muted-foreground sm:block">{s.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+
+        {/* Barra inferior */}
+        <Reveal className="relative mx-auto mt-14 max-w-6xl px-6">
+          <div className="flex flex-wrap items-center justify-between gap-5 rounded-2xl bg-primary/10 p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+                <Receipt className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-sm font-bold">Mais agilidade, menos erros, mais controle.</div>
+                <div className="text-xs text-muted-foreground">Emita NFC-e de forma simples, rápida e profissional.</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm font-medium">
+              {['SAT / NFC-e', 'QR Code', 'Chave de acesso', 'Impressão automática'].map(t => (
+                <span key={t} className="flex items-center gap-1.5">
+                  <Check className="h-4 w-4 text-primary" /> {t}
+                </span>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+      </section>
 
       {/* Recursos */}
       <section className="mx-auto max-w-6xl px-6 py-16">
