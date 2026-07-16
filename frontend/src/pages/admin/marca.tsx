@@ -631,120 +631,170 @@ function SecaoLanding() {
     }
   }
 
+  const ABAS_LANDING = [
+    { key: 'geral' as const, label: 'Geral', icone: LayoutTemplate },
+    { key: 'recursos' as const, label: 'Recursos', icone: Store, count: form.recursos.length },
+    { key: 'comparativo' as const, label: 'Comparativo', icone: Users, count: form.comparativo_sem.filter(s => s.trim()).length + form.comparativo_com.filter(s => s.trim()).length },
+    { key: 'segmentos' as const, label: 'Segmentos', icone: Store, count: form.segmentos.filter(s => s.trim()).length },
+    { key: 'depoimentos' as const, label: 'Depoimentos', icone: Star, count: form.depoimentos.length },
+    { key: 'destaques' as const, label: 'Destaques', icone: ImageIcon, count: form.destaques.length },
+  ];
+  type AbaLanding = typeof ABAS_LANDING[number]['key'];
+  const [aba, setAba] = useState<AbaLanding>('geral');
+
   return (
     <form onSubmit={salvar} className="grid gap-5 lg:grid-cols-[1fr_360px] max-w-5xl">
       <div className="space-y-5 order-2 lg:order-1">
-        <Secao icone={LayoutTemplate} titulo="Landing page do produto">
-          <p className="text-xs text-muted-foreground -mt-2">
-            Só aparece quando o "Modo de exibição" acima está em "Landing page do produto" (loja_id = 0).
-            O botão "Ver demonstração" leva pra primeira loja aprovada automaticamente.
-          </p>
+        <Card>
+          <CardContent className="p-5 space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Só aparece quando o "Modo de exibição" acima está em "Landing page do produto" (loja_id = 0).
+              O botão principal leva pra primeira loja aprovada automaticamente.
+            </p>
 
-          <div>
-            <Label htmlFor="cta_texto">Texto do botão principal</Label>
-            <Input id="cta_texto" maxLength={60} value={form.cta_texto}
-              onChange={e => setForm(f => ({ ...f, cta_texto: e.target.value }))}
-              placeholder="Ver demonstração" />
-          </div>
-
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label className="mb-0">Recursos (cards da grade)</Label>
-              <Button type="button" variant="outline" size="sm" onClick={adicionarRecurso} disabled={form.recursos.length >= 9}>
-                <Plus className="size-3.5" /> Adicionar
-              </Button>
+            {/* Abas */}
+            <div className="flex flex-wrap gap-1.5 border-b border-border pb-3 -mx-1 px-1 overflow-x-auto">
+              {ABAS_LANDING.map(a => (
+                <button key={a.key} type="button" onClick={() => setAba(a.key)}
+                  className={cn(
+                    'flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-bold transition-colors',
+                    aba === a.key ? 'bg-primary text-primary-foreground' : 'bg-accent text-muted-foreground hover:text-foreground',
+                  )}>
+                  <a.icone className="size-3.5" />
+                  {a.label}
+                  {a.count !== undefined && a.count > 0 && (
+                    <span className={cn(
+                      'rounded-full px-1.5 text-[10px] font-extrabold',
+                      aba === a.key ? 'bg-primary-foreground/20' : 'bg-background/60',
+                    )}>{a.count}</span>
+                  )}
+                </button>
+              ))}
             </div>
-            {form.recursos.map((r, i) => {
-              const Icone = ICONES_LANDING[r.icone] || Store;
-              return (
-                <div key={i} className="rounded-xl border border-border p-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <select value={r.icone} onChange={e => upRecurso(i, 'icone', e.target.value)}
-                      className="h-10 px-2 rounded-lg border border-input bg-background text-sm shrink-0">
-                      {ICONES_DISPONIVEIS.map(k => <option key={k} value={k}>{k}</option>)}
-                    </select>
-                    <Icone className="size-4 text-primary shrink-0" />
-                    <Input value={r.titulo} maxLength={60} placeholder="Título"
-                      onChange={e => upRecurso(i, 'titulo', e.target.value)} />
-                    <Button type="button" variant="ghost" size="icon" onClick={() => removerRecurso(i)}>
-                      <Trash2 className="size-4 text-destructive" />
-                    </Button>
-                  </div>
-                  <Input value={r.desc} maxLength={160} placeholder="Descrição curta"
-                    onChange={e => upRecurso(i, 'desc', e.target.value)} />
+
+            {aba === 'geral' && (
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="cta_texto">Texto do botão principal</Label>
+                  <Input id="cta_texto" maxLength={60} value={form.cta_texto}
+                    onChange={e => setForm(f => ({ ...f, cta_texto: e.target.value }))}
+                    placeholder="Ver demonstração" />
                 </div>
-              );
-            })}
-            {form.recursos.length === 0 && (
-              <p className="text-xs text-muted-foreground">Nenhum recurso — usando os padrões embutidos.</p>
+                <ListaTextoEditavel titulo="Benefícios (checklist no rodapé)" max={6}
+                  itens={form.beneficios} onChange={v => setForm(f => ({ ...f, beneficios: v }))} />
+              </div>
             )}
-          </div>
 
-          <ListaTextoEditavel titulo="Benefícios (checklist no rodapé)" max={6}
-            itens={form.beneficios} onChange={v => setForm(f => ({ ...f, beneficios: v }))} />
-        </Secao>
-
-        <Secao icone={Users} titulo="Comparativo (sem x com a plataforma)">
-          <ListaTextoEditavel titulo="Sem a plataforma (lado esquerdo)" max={6} placeholder="Ex.: Erros nos pedidos"
-            itens={form.comparativo_sem} onChange={v => setForm(f => ({ ...f, comparativo_sem: v }))} />
-          <ListaTextoEditavel titulo="Com a plataforma (lado direito)" max={6} placeholder="Ex.: Agilidade e organização"
-            itens={form.comparativo_com} onChange={v => setForm(f => ({ ...f, comparativo_com: v }))} />
-        </Secao>
-
-        <Secao icone={Store} titulo="Segmentos atendidos">
-          <ListaTextoEditavel titulo="Tipos de negócio" max={16} placeholder="Ex.: Pizzaria"
-            itens={form.segmentos} onChange={v => setForm(f => ({ ...f, segmentos: v }))} />
-        </Secao>
-
-        <Secao icone={Star} titulo="Depoimentos">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">Vazio = a seção de depoimentos some da landing.</p>
-            <Button type="button" variant="outline" size="sm" onClick={adicionarDepoimento} disabled={form.depoimentos.length >= 12}>
-              <Plus className="size-3.5" /> Adicionar
-            </Button>
-          </div>
-          {form.depoimentos.map((d, i) => (
-            <div key={i} className="rounded-xl border border-border p-3 space-y-2">
-              <div className="flex items-center gap-2">
-                <textarea value={d.texto} maxLength={300} rows={2} placeholder="Depoimento"
-                  onChange={e => upDepoimento(i, 'texto', e.target.value)}
-                  className="flex-1 px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
-                <Button type="button" variant="ghost" size="icon" onClick={() => removerDepoimento(i)}>
-                  <Trash2 className="size-4 text-destructive" />
-                </Button>
+            {aba === 'recursos' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">Cards da grade "Tudo que uma operação de delivery precisa". Máx. 9.</p>
+                  <Button type="button" variant="outline" size="sm" onClick={adicionarRecurso} disabled={form.recursos.length >= 9}>
+                    <Plus className="size-3.5" /> Adicionar
+                  </Button>
+                </div>
+                {form.recursos.map((r, i) => {
+                  const Icone = ICONES_LANDING[r.icone] || Store;
+                  return (
+                    <div key={i} className="rounded-xl border border-border p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <select value={r.icone} onChange={e => upRecurso(i, 'icone', e.target.value)}
+                          className="h-10 px-2 rounded-lg border border-input bg-background text-sm shrink-0">
+                          {ICONES_DISPONIVEIS.map(k => <option key={k} value={k}>{k}</option>)}
+                        </select>
+                        <Icone className="size-4 text-primary shrink-0" />
+                        <Input value={r.titulo} maxLength={60} placeholder="Título"
+                          onChange={e => upRecurso(i, 'titulo', e.target.value)} />
+                        <Button type="button" variant="ghost" size="icon" onClick={() => removerRecurso(i)}>
+                          <Trash2 className="size-4 text-destructive" />
+                        </Button>
+                      </div>
+                      <Input value={r.desc} maxLength={160} placeholder="Descrição curta"
+                        onChange={e => upRecurso(i, 'desc', e.target.value)} />
+                    </div>
+                  );
+                })}
+                {form.recursos.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Nenhum recurso — usando os padrões embutidos.</p>
+                )}
               </div>
-              <div className="flex gap-2">
-                <Input value={d.nome} maxLength={60} placeholder="Nome" onChange={e => upDepoimento(i, 'nome', e.target.value)} />
-                <Input value={d.negocio} maxLength={60} placeholder="Negócio (opcional)" onChange={e => upDepoimento(i, 'negocio', e.target.value)} />
-              </div>
-            </div>
-          ))}
-        </Secao>
+            )}
 
-        <Secao icone={ImageIcon} titulo="Destaques (foto + texto)">
-          <div className="flex items-center justify-between">
-            <p className="text-xs text-muted-foreground">Blocos grandes com imagem, tipo "vitrine" de uma funcionalidade. Máx. 4.</p>
-            <Button type="button" variant="outline" size="sm" onClick={adicionarDestaque} disabled={form.destaques.length >= 4}>
-              <Plus className="size-3.5" /> Adicionar
-            </Button>
-          </div>
-          {form.destaques.map((d, i) => (
-            <div key={i} className="rounded-xl border border-border p-3 space-y-2">
-              <div className="flex items-start justify-between gap-2">
-                <ImageUpload label="Imagem" value={d.imagem_url}
-                  onChange={v => upDestaque(i, 'imagem_url', v)} aspectRatio="wide" />
-                <Button type="button" variant="ghost" size="icon" onClick={() => removerDestaque(i)}>
-                  <Trash2 className="size-4 text-destructive" />
-                </Button>
+            {aba === 'comparativo' && (
+              <div className="space-y-5">
+                <ListaTextoEditavel titulo="Sem a plataforma (lado esquerdo)" max={6} placeholder="Ex.: Erros nos pedidos"
+                  itens={form.comparativo_sem} onChange={v => setForm(f => ({ ...f, comparativo_sem: v }))} />
+                <ListaTextoEditavel titulo="Com a plataforma (lado direito)" max={6} placeholder="Ex.: Agilidade e organização"
+                  itens={form.comparativo_com} onChange={v => setForm(f => ({ ...f, comparativo_com: v }))} />
               </div>
-              <Input value={d.titulo} maxLength={80} placeholder="Título"
-                onChange={e => upDestaque(i, 'titulo', e.target.value)} />
-              <textarea value={d.desc} maxLength={240} rows={2} placeholder="Descrição"
-                onChange={e => upDestaque(i, 'desc', e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
-            </div>
-          ))}
-        </Secao>
+            )}
+
+            {aba === 'segmentos' && (
+              <ListaTextoEditavel titulo="Tipos de negócio" max={16} placeholder="Ex.: Pizzaria"
+                itens={form.segmentos} onChange={v => setForm(f => ({ ...f, segmentos: v }))} />
+            )}
+
+            {aba === 'depoimentos' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">Vazio = a seção some da landing. Máx. 12.</p>
+                  <Button type="button" variant="outline" size="sm" onClick={adicionarDepoimento} disabled={form.depoimentos.length >= 12}>
+                    <Plus className="size-3.5" /> Adicionar
+                  </Button>
+                </div>
+                {form.depoimentos.map((d, i) => (
+                  <div key={i} className="rounded-xl border border-border p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <textarea value={d.texto} maxLength={300} rows={2} placeholder="Depoimento"
+                        onChange={e => upDepoimento(i, 'texto', e.target.value)}
+                        className="flex-1 px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+                      <Button type="button" variant="ghost" size="icon" onClick={() => removerDepoimento(i)}>
+                        <Trash2 className="size-4 text-destructive" />
+                      </Button>
+                    </div>
+                    <div className="flex gap-2">
+                      <Input value={d.nome} maxLength={60} placeholder="Nome" onChange={e => upDepoimento(i, 'nome', e.target.value)} />
+                      <Input value={d.negocio} maxLength={60} placeholder="Negócio (opcional)" onChange={e => upDepoimento(i, 'negocio', e.target.value)} />
+                    </div>
+                  </div>
+                ))}
+                {form.depoimentos.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Nenhum depoimento ainda.</p>
+                )}
+              </div>
+            )}
+
+            {aba === 'destaques' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">Blocos grandes com imagem, tipo "vitrine" de uma funcionalidade. Máx. 4.</p>
+                  <Button type="button" variant="outline" size="sm" onClick={adicionarDestaque} disabled={form.destaques.length >= 4}>
+                    <Plus className="size-3.5" /> Adicionar
+                  </Button>
+                </div>
+                {form.destaques.map((d, i) => (
+                  <div key={i} className="rounded-xl border border-border p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <ImageUpload label="Imagem" value={d.imagem_url}
+                        onChange={v => upDestaque(i, 'imagem_url', v)} aspectRatio="wide" />
+                      <Button type="button" variant="ghost" size="icon" onClick={() => removerDestaque(i)}>
+                        <Trash2 className="size-4 text-destructive" />
+                      </Button>
+                    </div>
+                    <Input value={d.titulo} maxLength={80} placeholder="Título"
+                      onChange={e => upDestaque(i, 'titulo', e.target.value)} />
+                    <textarea value={d.desc} maxLength={240} rows={2} placeholder="Descrição"
+                      onChange={e => upDestaque(i, 'desc', e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+                  </div>
+                ))}
+                {form.destaques.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Nenhum destaque ainda.</p>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Button type="submit" disabled={enviando}>
           <Save className="size-4" />
