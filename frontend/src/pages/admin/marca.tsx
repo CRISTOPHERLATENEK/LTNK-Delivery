@@ -599,12 +599,12 @@ function SecaoLanding() {
   }
 
   function upDestaque(i: number, campo: keyof LandingDestaque, valor: string) {
-    setForm(f => ({ ...f, destaques: f.destaques.map((d, idx) => idx === i ? { ...d, [campo]: valor } : d) }));
+    setForm(f => ({ ...f, destaques: f.destaques.map((d, idx) => idx === i ? { ...d, [campo]: valor } as LandingDestaque : d) }));
   }
 
   function adicionarDestaque() {
     if (form.destaques.length >= 4) return;
-    setForm(f => ({ ...f, destaques: [...f.destaques, { imagem_url: '', titulo: '', desc: '' }] }));
+    setForm(f => ({ ...f, destaques: [...f.destaques, { imagem_url: '', titulo: '', desc: '', formato: 'navegador' }] }));
   }
 
   function removerDestaque(i: number) {
@@ -831,6 +831,15 @@ function SecaoLanding() {
                       <Button type="button" variant="ghost" size="icon" onClick={() => removerDestaque(i)}>
                         <Trash2 className="size-4 text-destructive" />
                       </Button>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Moldura da imagem</Label>
+                      <select value={d.formato || 'navegador'} onChange={e => upDestaque(i, 'formato', e.target.value)}
+                        className="w-full h-10 px-2 rounded-lg border border-input bg-background text-sm">
+                        <option value="navegador">Navegador (desktop)</option>
+                        <option value="celular">Celular (mobile)</option>
+                        <option value="livre">Sem moldura (imagem solta)</option>
+                      </select>
                     </div>
                     <Input value={d.titulo} maxLength={80} placeholder="Título"
                       onChange={e => upDestaque(i, 'titulo', e.target.value)} />

@@ -1055,10 +1055,12 @@ const LANDING_SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Pad
 
 const LANDING_DEPOIMENTOS_PADRAO: { texto: string; nome: string; negocio: string }[] = [];
 
-const LANDING_DESTAQUES_PADRAO: { imagem_url: string; titulo: string; desc: string }[] = [
-  { imagem_url: '/landing/storefront-mobile.png', titulo: 'Seu cliente pede direto pelo celular', desc: 'Cardápio digital com foto, categorias e busca — sem app pra baixar. O cliente monta o pedido e finaliza em segundos, com Pix, cartão ou dinheiro.' },
-  { imagem_url: '/landing/storefront-desktop.png', titulo: 'Sua loja online com a sua cara', desc: 'Cores, logo e capa personalizados por loja. Cada negócio com seu próprio endereço, cardápio e visual — do jeito da marca.' },
-  { imagem_url: '', titulo: 'Nota fiscal sem sair do sistema', desc: 'Emita a NFC-e direto na hora da venda, sem precisar de outro programa nem digitar os dados de novo.' },
+const LANDING_FORMATOS = ['celular', 'navegador', 'livre'] as const;
+
+const LANDING_DESTAQUES_PADRAO: { imagem_url: string; titulo: string; desc: string; formato: string }[] = [
+  { imagem_url: '/landing/storefront-mobile.png', formato: 'celular', titulo: 'Seu cliente pede direto pelo celular', desc: 'Cardápio digital com foto, categorias e busca — sem app pra baixar. O cliente monta o pedido e finaliza em segundos, com Pix, cartão ou dinheiro.' },
+  { imagem_url: '/landing/storefront-desktop.png', formato: 'navegador', titulo: 'Sua loja online com a sua cara', desc: 'Cores, logo e capa personalizados por loja. Cada negócio com seu próprio endereço, cardápio e visual — do jeito da marca.' },
+  { imagem_url: '', formato: 'livre', titulo: 'Nota fiscal sem sair do sistema', desc: 'Emita a NFC-e direto na hora da venda, sem precisar de outro programa nem digitar os dados de novo.' },
 ];
 
 router.get('/landing', async (_req, res, next) => {
@@ -1162,12 +1164,13 @@ router.put('/landing', exigirSuperAdmin, async (req, res, next) => {
         throw erroHttp(400, 'Lista de destaques inválida (máximo 4 itens).');
       }
       const destaques = req.body.destaques.map((d: unknown) => {
-        const item = d as { imagem_url?: unknown; titulo?: unknown; desc?: unknown };
+        const item = d as { imagem_url?: unknown; titulo?: unknown; desc?: unknown; formato?: unknown };
         const imagemUrl = textoLimpo(item.imagem_url, 500);
         const titulo = textoLimpo(item.titulo, 80);
         const desc = textoLimpo(item.desc, 240);
+        const formato = LANDING_FORMATOS.includes(item.formato as typeof LANDING_FORMATOS[number]) ? item.formato : 'navegador';
         if (!titulo) throw erroHttp(400, 'Todo destaque precisa de um título.');
-        return { imagem_url: imagemUrl, titulo, desc };
+        return { imagem_url: imagemUrl, titulo, desc, formato };
       });
       await upsert('landing_destaques_json', JSON.stringify(destaques));
     }

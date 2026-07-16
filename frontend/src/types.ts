@@ -218,6 +218,8 @@ export interface LandingDestaque {
   imagem_url: string;
   titulo: string;
   desc: string;
+  /** Moldura da imagem: celular, navegador (desktop) ou solta (sem moldura). */
+  formato?: 'celular' | 'navegador' | 'livre';
 }
 
 /** Ícones disponíveis para os cards de recursos da landing page (ver ÍCONES_LANDING em landing.tsx). */

@@ -116,6 +116,16 @@
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
 
+/* Flutuação suave dos mockups na landing (celular/navegador) */
+@keyframes flutuar-landing {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-12px); }
+}
+.animar-flutuar { animation: flutuar-landing 6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .animar-flutuar { animation: none; }
+}
+
 /* Pulso do pino de rastreamento do entregador (Leaflet divIcon) */
 @keyframes pino-pulso {
   0%   { transform: scale(0.6); opacity: 0.7; }

@@ -52,11 +52,11 @@ function Reveal({ children, className }: { children: ReactNode; className?: stri
  * placeholder quando ainda não há imagem). Dá o ar de "produto de verdade"
  * das landings SaaS de referência.
  */
-function MockupNavegador({ src, nome }: { src?: string; nome: string }) {
+function MockupNavegador({ src, nome, flutuar }: { src?: string; nome: string; flutuar?: boolean }) {
   return (
     <div className="relative">
       <div className="absolute inset-0 -z-10 translate-y-6 scale-95 rounded-3xl bg-primary/20 blur-2xl" />
-      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-primary/10">
+      <div className={cn('overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-primary/10', flutuar && 'animar-flutuar')}>
         {/* Barra do navegador */}
         <div className="flex items-center gap-1.5 border-b border-border bg-muted/50 px-4 py-2.5">
           <span className="size-2.5 rounded-full bg-red-400" />
@@ -75,6 +75,34 @@ function MockupNavegador({ src, nome }: { src?: string; nome: string }) {
             <span className="text-xs">Prévia do app</span>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Moldura de celular (bezel escuro + notch) que emoldura um print vertical
+ * do app. Usada nos blocos de destaque marcados como formato "celular".
+ */
+function MolduraCelular({ src, flutuar }: { src?: string; flutuar?: boolean }) {
+  return (
+    <div className={cn('relative mx-auto w-[240px] max-w-full', flutuar && 'animar-flutuar')}>
+      <div className="absolute inset-0 -z-10 translate-y-8 scale-90 rounded-[3rem] bg-primary/20 blur-2xl" />
+      <div className="rounded-[2.4rem] border-[6px] border-neutral-800 bg-neutral-800 shadow-2xl shadow-primary/10">
+        {/* Notch */}
+        <div className="relative">
+          <div className="absolute left-1/2 top-1.5 z-10 h-4 w-24 -translate-x-1/2 rounded-b-2xl bg-neutral-800" />
+          <div className="overflow-hidden rounded-[2rem] bg-background">
+            {src ? (
+              <img src={src} alt="Prévia no celular" className="w-full object-cover" />
+            ) : (
+              <div className="aspect-[9/19] bg-gradient-to-br from-primary/5 to-muted flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                <Smartphone className="h-10 w-10 opacity-30" />
+                <span className="text-[11px]">Prévia no celular</span>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -102,9 +130,9 @@ const COM_PADRAO = ['Agilidade e organização nos pedidos', 'Cada loja com sua 
 const SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria'];
 
 const DESTAQUES_PADRAO: LandingDestaque[] = [
-  { imagem_url: '/landing/storefront-mobile.png', titulo: 'Seu cliente pede direto pelo celular', desc: 'Cardápio digital com foto, categorias e busca — sem app pra baixar. O cliente monta o pedido e finaliza em segundos, com Pix, cartão ou dinheiro.' },
-  { imagem_url: '/landing/storefront-desktop.png', titulo: 'Sua loja online com a sua cara', desc: 'Cores, logo e capa personalizados por loja. Cada negócio com seu próprio endereço, cardápio e visual — do jeito da marca.' },
-  { imagem_url: '', titulo: 'Nota fiscal sem sair do sistema', desc: 'Emita a NFC-e direto na hora da venda, sem precisar de outro programa nem digitar os dados de novo.' },
+  { imagem_url: '/landing/storefront-mobile.png', formato: 'celular', titulo: 'Seu cliente pede direto pelo celular', desc: 'Cardápio digital com foto, categorias e busca — sem app pra baixar. O cliente monta o pedido e finaliza em segundos, com Pix, cartão ou dinheiro.' },
+  { imagem_url: '/landing/storefront-desktop.png', formato: 'navegador', titulo: 'Sua loja online com a sua cara', desc: 'Cores, logo e capa personalizados por loja. Cada negócio com seu próprio endereço, cardápio e visual — do jeito da marca.' },
+  { imagem_url: '', formato: 'livre', titulo: 'Nota fiscal sem sair do sistema', desc: 'Emita a NFC-e direto na hora da venda, sem precisar de outro programa nem digitar os dados de novo.' },
 ];
 
 export function PaginaLanding() {
@@ -195,7 +223,7 @@ export function PaginaLanding() {
           </div>
 
           {/* Coluna de imagem (mockup de navegador) */}
-          <MockupNavegador src={heroImagem} nome={marca.nome} />
+          <MockupNavegador src={heroImagem} nome={marca.nome} flutuar />
         </div>
       </section>
 
@@ -252,16 +280,19 @@ export function PaginaLanding() {
         <section className="mx-auto max-w-6xl px-6 py-16 space-y-16 sm:space-y-24">
           {destaques.map((d, i) => (
             <Reveal key={i} className={cn('grid items-center gap-8 sm:grid-cols-2', i % 2 === 1 && 'sm:[&>*:first-child]:order-2')}>
-              {d.imagem_url ? (
-                <div className="rounded-2xl border border-border bg-gradient-to-br from-muted to-accent/30 p-3 shadow-xl shadow-primary/5 sm:p-5">
-                  <img src={d.imagem_url} alt={d.titulo}
-                    className="mx-auto max-h-[460px] w-auto rounded-lg border border-border/60 shadow-md" />
-                </div>
-              ) : (
-                <div className="flex aspect-video items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-accent/40">
-                  <Receipt className="h-16 w-16 text-primary/40" />
-                </div>
-              )}
+              <div className="flex justify-center">
+                {!d.imagem_url ? (
+                  <div className="flex aspect-video w-full items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-accent/40">
+                    <Receipt className="h-16 w-16 text-primary/40" />
+                  </div>
+                ) : d.formato === 'celular' ? (
+                  <MolduraCelular src={d.imagem_url} flutuar />
+                ) : d.formato === 'livre' ? (
+                  <img src={d.imagem_url} alt={d.titulo} className="w-full rounded-2xl border border-border shadow-xl" />
+                ) : (
+                  <MockupNavegador src={d.imagem_url} nome={marca.nome} flutuar />
+                )}
+              </div>
               <div className="text-center sm:text-left">
                 <h3 className="text-2xl font-bold sm:text-3xl">{d.titulo}</h3>
                 <p className="mt-3 text-muted-foreground">{d.desc}</p>
