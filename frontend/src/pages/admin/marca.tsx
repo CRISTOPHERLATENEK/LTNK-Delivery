@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2, Check } from 'lucide-react';
+import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2, Check, Users, Star } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ import { api, ApiError, tokenSessao } from '@/lib/api';
 import { useTema, FONTES, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
 import { ICONES_LANDING } from '@/pages/cliente/landing';
-import type { TemaMarca, RaioMarca, FonteMarca, LandingRecurso, LandingIcone } from '@/types';
+import type { TemaMarca, RaioMarca, FonteMarca, LandingRecurso, LandingIcone, LandingDepoimento } from '@/types';
 
 const RAIO_OPCOES: { valor: RaioMarca; label: string; classe: string }[] = [
   { valor: 'reto', label: 'Reto', classe: 'rounded-[3px]' },
@@ -503,9 +503,40 @@ interface LandingConfig {
   cta_texto: string;
   recursos: LandingRecurso[];
   beneficios: string[];
+  comparativo_sem: string[];
+  comparativo_com: string[];
+  segmentos: string[];
+  depoimentos: LandingDepoimento[];
 }
 
 const ICONES_DISPONIVEIS = Object.keys(ICONES_LANDING) as LandingIcone[];
+
+/** Editor genérico de uma lista de textos curtos (benefícios, comparativo, segmentos). */
+function ListaTextoEditavel({ titulo, itens, onChange, max, placeholder }: {
+  titulo: string; itens: string[]; onChange: (itens: string[]) => void; max: number; placeholder?: string;
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <Label className="mb-0">{titulo}</Label>
+        <Button type="button" variant="outline" size="sm"
+          onClick={() => itens.length < max && onChange([...itens, ''])} disabled={itens.length >= max}>
+          <Plus className="size-3.5" /> Adicionar
+        </Button>
+      </div>
+      {itens.map((v, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Input value={v} maxLength={80} placeholder={placeholder}
+            onChange={e => onChange(itens.map((x, idx) => idx === i ? e.target.value : x))} />
+          <Button type="button" variant="ghost" size="icon" onClick={() => onChange(itens.filter((_, idx) => idx !== i))}>
+            <Trash2 className="size-4 text-destructive" />
+          </Button>
+        </div>
+      ))}
+      {itens.length === 0 && <p className="text-xs text-muted-foreground">Nenhum item — usando os padrões embutidos.</p>}
+    </div>
+  );
+}
 
 /**
  * Conteúdo editável da landing page do produto (domínio principal quando não
@@ -517,7 +548,10 @@ function SecaoLanding() {
     queryKey: ['admin-landing'],
     queryFn: () => api<LandingConfig>('GET', '/api/admin/landing'),
   });
-  const [form, setForm] = useState<LandingConfig>({ cta_texto: 'Ver demonstração', recursos: [], beneficios: [] });
+  const [form, setForm] = useState<LandingConfig>({
+    cta_texto: 'Ver demonstração', recursos: [], beneficios: [],
+    comparativo_sem: [], comparativo_com: [], segmentos: [], depoimentos: [],
+  });
   const [enviando, setEnviando] = useState(false);
 
   useEffect(() => { if (consulta.data) setForm(consulta.data); }, [consulta.data]);
@@ -535,17 +569,17 @@ function SecaoLanding() {
     setForm(f => ({ ...f, recursos: f.recursos.filter((_, idx) => idx !== i) }));
   }
 
-  function upBeneficio(i: number, valor: string) {
-    setForm(f => ({ ...f, beneficios: f.beneficios.map((b, idx) => idx === i ? valor : b) }));
+  function upDepoimento(i: number, campo: keyof LandingDepoimento, valor: string) {
+    setForm(f => ({ ...f, depoimentos: f.depoimentos.map((d, idx) => idx === i ? { ...d, [campo]: valor } : d) }));
   }
 
-  function adicionarBeneficio() {
-    if (form.beneficios.length >= 6) return;
-    setForm(f => ({ ...f, beneficios: [...f.beneficios, ''] }));
+  function adicionarDepoimento() {
+    if (form.depoimentos.length >= 12) return;
+    setForm(f => ({ ...f, depoimentos: [...f.depoimentos, { texto: '', nome: '', negocio: '' }] }));
   }
 
-  function removerBeneficio(i: number) {
-    setForm(f => ({ ...f, beneficios: f.beneficios.filter((_, idx) => idx !== i) }));
+  function removerDepoimento(i: number) {
+    setForm(f => ({ ...f, depoimentos: f.depoimentos.filter((_, idx) => idx !== i) }));
   }
 
   async function salvar(e: React.FormEvent) {
@@ -554,12 +588,20 @@ function SecaoLanding() {
       mostrar({ tipo: 'erro', titulo: 'Todo recurso precisa de um título.' });
       return;
     }
+    if (form.depoimentos.some(d => !d.texto.trim() || !d.nome.trim())) {
+      mostrar({ tipo: 'erro', titulo: 'Todo depoimento precisa de texto e nome.' });
+      return;
+    }
     setEnviando(true);
     try {
       await api('PUT', '/api/admin/landing', {
         cta_texto: form.cta_texto,
         recursos: form.recursos,
         beneficios: form.beneficios.filter(b => b.trim()),
+        comparativo_sem: form.comparativo_sem.filter(b => b.trim()),
+        comparativo_com: form.comparativo_com.filter(b => b.trim()),
+        segmentos: form.segmentos.filter(b => b.trim()),
+        depoimentos: form.depoimentos,
       });
       mostrar({ tipo: 'sucesso', titulo: 'Landing page atualizada!' });
       consulta.refetch();
@@ -619,25 +661,45 @@ function SecaoLanding() {
             )}
           </div>
 
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label className="mb-0">Benefícios (checklist no rodapé)</Label>
-              <Button type="button" variant="outline" size="sm" onClick={adicionarBeneficio} disabled={form.beneficios.length >= 6}>
-                <Plus className="size-3.5" /> Adicionar
-              </Button>
-            </div>
-            {form.beneficios.map((b, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <Input value={b} maxLength={80} onChange={e => upBeneficio(i, e.target.value)} />
-                <Button type="button" variant="ghost" size="icon" onClick={() => removerBeneficio(i)}>
+          <ListaTextoEditavel titulo="Benefícios (checklist no rodapé)" max={6}
+            itens={form.beneficios} onChange={v => setForm(f => ({ ...f, beneficios: v }))} />
+        </Secao>
+
+        <Secao icone={Users} titulo="Comparativo (sem x com a plataforma)">
+          <ListaTextoEditavel titulo="Sem a plataforma (lado esquerdo)" max={6} placeholder="Ex.: Erros nos pedidos"
+            itens={form.comparativo_sem} onChange={v => setForm(f => ({ ...f, comparativo_sem: v }))} />
+          <ListaTextoEditavel titulo="Com a plataforma (lado direito)" max={6} placeholder="Ex.: Agilidade e organização"
+            itens={form.comparativo_com} onChange={v => setForm(f => ({ ...f, comparativo_com: v }))} />
+        </Secao>
+
+        <Secao icone={Store} titulo="Segmentos atendidos">
+          <ListaTextoEditavel titulo="Tipos de negócio" max={16} placeholder="Ex.: Pizzaria"
+            itens={form.segmentos} onChange={v => setForm(f => ({ ...f, segmentos: v }))} />
+        </Secao>
+
+        <Secao icone={Star} titulo="Depoimentos">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">Vazio = a seção de depoimentos some da landing.</p>
+            <Button type="button" variant="outline" size="sm" onClick={adicionarDepoimento} disabled={form.depoimentos.length >= 12}>
+              <Plus className="size-3.5" /> Adicionar
+            </Button>
+          </div>
+          {form.depoimentos.map((d, i) => (
+            <div key={i} className="rounded-xl border border-border p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <textarea value={d.texto} maxLength={300} rows={2} placeholder="Depoimento"
+                  onChange={e => upDepoimento(i, 'texto', e.target.value)}
+                  className="flex-1 px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+                <Button type="button" variant="ghost" size="icon" onClick={() => removerDepoimento(i)}>
                   <Trash2 className="size-4 text-destructive" />
                 </Button>
               </div>
-            ))}
-            {form.beneficios.length === 0 && (
-              <p className="text-xs text-muted-foreground">Nenhum benefício — usando os padrões embutidos.</p>
-            )}
-          </div>
+              <div className="flex gap-2">
+                <Input value={d.nome} maxLength={60} placeholder="Nome" onChange={e => upDepoimento(i, 'nome', e.target.value)} />
+                <Input value={d.negocio} maxLength={60} placeholder="Negócio (opcional)" onChange={e => upDepoimento(i, 'negocio', e.target.value)} />
+              </div>
+            </div>
+          ))}
         </Secao>
 
         <Button type="submit" disabled={enviando}>
@@ -663,6 +725,10 @@ function PreviewLanding({ form }: { form: LandingConfig }) {
   const { marca } = useTema();
   const recursos = form.recursos.length ? form.recursos : null;
   const beneficios = form.beneficios.filter(b => b.trim()).length ? form.beneficios.filter(b => b.trim()) : null;
+  const segmentos = form.segmentos.filter(s => s.trim()).length ? form.segmentos.filter(s => s.trim()) : SEGMENTOS_PADRAO_PREVIEW;
+  const sem = form.comparativo_sem.filter(s => s.trim()).length ? form.comparativo_sem.filter(s => s.trim()) : SEM_PADRAO_PREVIEW;
+  const com = form.comparativo_com.filter(s => s.trim()).length ? form.comparativo_com.filter(s => s.trim()) : COM_PADRAO_PREVIEW;
+  const depoimentos = form.depoimentos.filter(d => d.texto.trim());
 
   return (
     <div className="rounded-2xl border-2 border-dashed border-border p-3 bg-muted/30">
@@ -705,6 +771,29 @@ function PreviewLanding({ form }: { form: LandingConfig }) {
           </div>
         </div>
 
+        {/* Segmentos */}
+        <div className="border-b border-border bg-muted/30 p-3 flex flex-wrap justify-center gap-1">
+          {segmentos.slice(0, 8).map((s, i) => (
+            <span key={i} className="rounded-full border border-border bg-card text-[9px] font-semibold px-2 py-0.5">{s}</span>
+          ))}
+        </div>
+
+        {/* Comparativo */}
+        <div className="p-3 grid grid-cols-2 gap-1.5">
+          <div className="rounded-lg border border-border p-1.5">
+            <div className="text-[8px] font-bold text-muted-foreground">JEITO ANTIGO</div>
+            {sem.slice(0, 3).map((s, i) => (
+              <div key={i} className="mt-1 text-[8px] text-muted-foreground truncate">✕ {s}</div>
+            ))}
+          </div>
+          <div className="rounded-lg border-2 border-primary bg-primary/5 p-1.5">
+            <div className="text-[8px] font-bold text-primary">JEITO NOVO</div>
+            {com.slice(0, 3).map((s, i) => (
+              <div key={i} className="mt-1 text-[8px] font-medium truncate">✓ {s}</div>
+            ))}
+          </div>
+        </div>
+
         {/* Recursos */}
         <div className="p-3">
           <div className="text-center text-[11px] font-bold mb-2">Tudo que uma operação de delivery precisa</div>
@@ -722,6 +811,21 @@ function PreviewLanding({ form }: { form: LandingConfig }) {
             })}
           </div>
         </div>
+
+        {/* Depoimentos */}
+        {depoimentos.length > 0 && (
+          <div className="border-t border-border bg-muted/30 p-3">
+            <div className="text-center text-[11px] font-bold mb-2">O que dizem nossos clientes</div>
+            <div className="grid grid-cols-2 gap-1.5">
+              {depoimentos.slice(0, 4).map((d, i) => (
+                <div key={i} className="rounded-lg border border-border bg-card p-1.5">
+                  <div className="text-[8px] text-muted-foreground line-clamp-2">"{d.texto}"</div>
+                  <div className="mt-1 text-[8px] font-bold truncate">{d.nome}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* CTA final */}
         <div className="border-t border-border bg-accent/40 p-3 text-center">
@@ -763,6 +867,9 @@ const RECURSOS_PADRAO_PREVIEW: LandingRecurso[] = [
 ];
 
 const BENEFICIOS_PADRAO_PREVIEW = ['Sem taxa de setup', 'Cada loja com domínio próprio', 'Suporte a Pix, cartão e dinheiro'];
+const SEGMENTOS_PADRAO_PREVIEW = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria'];
+const SEM_PADRAO_PREVIEW = ['Desorganização no atendimento', 'Falhas de comunicação', 'Erros nos pedidos'];
+const COM_PADRAO_PREVIEW = ['Agilidade e organização', 'Cada loja com sua operação', 'Menos erro, mais venda'];
 
 /**
  * Backup manual da pasta `dados/` (todos os bancos SQLite + certificados A1).

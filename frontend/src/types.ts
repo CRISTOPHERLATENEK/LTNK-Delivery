@@ -198,6 +198,13 @@ export interface TemaMarca {
   suporte_email?: string;
   suporte_telefone?: string;
   termos_url?: string;
+  /** Comparativo "sem/com a plataforma" na landing. */
+  landing_comparativo_sem?: string[] | null;
+  landing_comparativo_com?: string[] | null;
+  /** Segmentos de negócio atendidos (pizzaria, açaiteria...) exibidos na landing. */
+  landing_segmentos?: string[] | null;
+  /** Depoimentos de clientes exibidos na landing. */
+  landing_depoimentos?: LandingDepoimento[] | null;
 }
 
 /** Ícones disponíveis para os cards de recursos da landing page (ver ÍCONES_LANDING em landing.tsx). */
@@ -207,6 +214,12 @@ export interface LandingRecurso {
   icone: LandingIcone;
   titulo: string;
   desc: string;
+}
+
+export interface LandingDepoimento {
+  texto: string;
+  nome: string;
+  negocio: string;
 }
 
 export interface OpcaoItem {

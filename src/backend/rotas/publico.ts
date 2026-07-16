@@ -54,6 +54,10 @@ router.get('/tema', async (req, res, next) => {
     // sempre incluído — barato e evita um segundo round-trip no boot).
     const recursosRaw = await valor('landing_recursos_json');
     const beneficiosRaw = await valor('landing_beneficios_json');
+    const semRaw = await valor('landing_comparativo_sem_json');
+    const comRaw = await valor('landing_comparativo_com_json');
+    const segmentosRaw = await valor('landing_segmentos_json');
+    const depoimentosRaw = await valor('landing_depoimentos_json');
 
     res.json({
       nome:              await valor('marca_nome', 'Delivery Já'),
@@ -63,9 +67,13 @@ router.get('/tema', async (req, res, next) => {
       cor_primaria:      await valor('marca_cor_primaria', '#dc2640'),
       login_banner_url:  await valor('marca_login_banner_url'),
       loja_id:           lojaId,
-      landing_cta_texto:   (await valor('landing_cta_texto')) || 'Ver demonstração',
-      landing_recursos:    recursosRaw ? JSON.parse(recursosRaw) : null,
-      landing_beneficios:  beneficiosRaw ? JSON.parse(beneficiosRaw) : null,
+      landing_cta_texto:      (await valor('landing_cta_texto')) || 'Ver demonstração',
+      landing_recursos:       recursosRaw ? JSON.parse(recursosRaw) : null,
+      landing_beneficios:     beneficiosRaw ? JSON.parse(beneficiosRaw) : null,
+      landing_comparativo_sem: semRaw ? JSON.parse(semRaw) : null,
+      landing_comparativo_com: comRaw ? JSON.parse(comRaw) : null,
+      landing_segmentos:      segmentosRaw ? JSON.parse(segmentosRaw) : null,
+      landing_depoimentos:    depoimentosRaw ? JSON.parse(depoimentosRaw) : null,
       // Usados no rodapé da landing — mesmos campos já editáveis em Marca → Configurações gerais.
       suporte_email:     await valor('suporte_email'),
       suporte_telefone:  await valor('suporte_telefone'),

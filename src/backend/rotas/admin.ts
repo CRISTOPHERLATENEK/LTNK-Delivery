@@ -1048,6 +1048,13 @@ const LANDING_RECURSOS_PADRAO = [
 
 const LANDING_BENEFICIOS_PADRAO = ['Sem taxa de setup', 'Cada loja com domínio próprio', 'Suporte a Pix, cartão e dinheiro'];
 
+const LANDING_SEM_PADRAO = ['Desorganização no atendimento', 'Falhas de comunicação', 'Erros nos pedidos'];
+const LANDING_COM_PADRAO = ['Agilidade e organização nos pedidos', 'Cada loja com sua própria operação', 'Menos erro, mais venda'];
+
+const LANDING_SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria'];
+
+const LANDING_DEPOIMENTOS_PADRAO: { texto: string; nome: string; negocio: string }[] = [];
+
 router.get('/landing', async (_req, res, next) => {
   try {
     const valor = async (chave: string): Promise<string> => {
@@ -1056,10 +1063,18 @@ router.get('/landing', async (_req, res, next) => {
     };
     const recursosRaw = await valor('landing_recursos_json');
     const beneficiosRaw = await valor('landing_beneficios_json');
+    const semRaw = await valor('landing_comparativo_sem_json');
+    const comRaw = await valor('landing_comparativo_com_json');
+    const segmentosRaw = await valor('landing_segmentos_json');
+    const depoimentosRaw = await valor('landing_depoimentos_json');
     res.json({
       cta_texto: (await valor('landing_cta_texto')) || 'Ver demonstração',
       recursos: recursosRaw ? JSON.parse(recursosRaw) : LANDING_RECURSOS_PADRAO,
       beneficios: beneficiosRaw ? JSON.parse(beneficiosRaw) : LANDING_BENEFICIOS_PADRAO,
+      comparativo_sem: semRaw ? JSON.parse(semRaw) : LANDING_SEM_PADRAO,
+      comparativo_com: comRaw ? JSON.parse(comRaw) : LANDING_COM_PADRAO,
+      segmentos: segmentosRaw ? JSON.parse(segmentosRaw) : LANDING_SEGMENTOS_PADRAO,
+      depoimentos: depoimentosRaw ? JSON.parse(depoimentosRaw) : LANDING_DEPOIMENTOS_PADRAO,
     });
   } catch (e) { next(e); }
 });
@@ -1093,6 +1108,38 @@ router.put('/landing', exigirSuperAdmin, async (req, res, next) => {
       }
       const beneficios = req.body.beneficios.map((b: unknown) => textoLimpo(b, 80)).filter(Boolean);
       await upsert('landing_beneficios_json', JSON.stringify(beneficios));
+    }
+    if (req.body.comparativo_sem !== undefined) {
+      if (!Array.isArray(req.body.comparativo_sem) || req.body.comparativo_sem.length > 6) {
+        throw erroHttp(400, 'Lista "sem a plataforma" inválida (máximo 6 itens).');
+      }
+      await upsert('landing_comparativo_sem_json', JSON.stringify(req.body.comparativo_sem.map((b: unknown) => textoLimpo(b, 80)).filter(Boolean)));
+    }
+    if (req.body.comparativo_com !== undefined) {
+      if (!Array.isArray(req.body.comparativo_com) || req.body.comparativo_com.length > 6) {
+        throw erroHttp(400, 'Lista "com a plataforma" inválida (máximo 6 itens).');
+      }
+      await upsert('landing_comparativo_com_json', JSON.stringify(req.body.comparativo_com.map((b: unknown) => textoLimpo(b, 80)).filter(Boolean)));
+    }
+    if (req.body.segmentos !== undefined) {
+      if (!Array.isArray(req.body.segmentos) || req.body.segmentos.length > 16) {
+        throw erroHttp(400, 'Lista de segmentos inválida (máximo 16 itens).');
+      }
+      await upsert('landing_segmentos_json', JSON.stringify(req.body.segmentos.map((s: unknown) => textoLimpo(s, 40)).filter(Boolean)));
+    }
+    if (req.body.depoimentos !== undefined) {
+      if (!Array.isArray(req.body.depoimentos) || req.body.depoimentos.length > 12) {
+        throw erroHttp(400, 'Lista de depoimentos inválida (máximo 12 itens).');
+      }
+      const depoimentos = req.body.depoimentos.map((d: unknown) => {
+        const item = d as { texto?: unknown; nome?: unknown; negocio?: unknown };
+        const texto = textoLimpo(item.texto, 300);
+        const nome = textoLimpo(item.nome, 60);
+        const negocio = textoLimpo(item.negocio, 60);
+        if (!texto || !nome) throw erroHttp(400, 'Todo depoimento precisa de texto e nome.');
+        return { texto, nome, negocio };
+      });
+      await upsert('landing_depoimentos_json', JSON.stringify(depoimentos));
     }
     await registrarAuditoria(req, 'landing.editar');
     res.json({ ok: true });

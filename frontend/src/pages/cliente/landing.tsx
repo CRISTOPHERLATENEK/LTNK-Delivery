@@ -8,11 +8,11 @@
  */
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star, Shield, Users, Mail, Phone, type LucideIcon } from 'lucide-react';
+import { Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star, Shield, Users, Mail, Phone, X, Quote, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTema } from '@/lib/tema';
 import { api } from '@/lib/api';
-import type { Loja, LandingRecurso, LandingIcone } from '@/types';
+import type { Loja, LandingRecurso, LandingIcone, LandingDepoimento } from '@/types';
 
 /** Mapa de ícones disponíveis pro admin escolher na edição da landing (ver PUT /admin/landing). */
 export const ICONES_LANDING: Record<LandingIcone, LucideIcon> = {
@@ -31,11 +31,19 @@ const RECURSOS_PADRAO: LandingRecurso[] = [
 
 const BENEFICIOS_PADRAO = ['Sem taxa de setup', 'Cada loja com domínio próprio', 'Suporte a Pix, cartão e dinheiro'];
 
+const SEM_PADRAO = ['Desorganização no atendimento', 'Falhas de comunicação', 'Erros nos pedidos'];
+const COM_PADRAO = ['Agilidade e organização nos pedidos', 'Cada loja com sua própria operação', 'Menos erro, mais venda'];
+const SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria'];
+
 export function PaginaLanding() {
   const { marca } = useTema();
   const recursos = marca.landing_recursos?.length ? marca.landing_recursos : RECURSOS_PADRAO;
   const beneficios = marca.landing_beneficios?.length ? marca.landing_beneficios : BENEFICIOS_PADRAO;
   const ctaTexto = marca.landing_cta_texto || 'Ver demonstração';
+  const semLista = marca.landing_comparativo_sem?.length ? marca.landing_comparativo_sem : SEM_PADRAO;
+  const comLista = marca.landing_comparativo_com?.length ? marca.landing_comparativo_com : COM_PADRAO;
+  const segmentos = marca.landing_segmentos?.length ? marca.landing_segmentos : SEGMENTOS_PADRAO;
+  const depoimentos: LandingDepoimento[] = marca.landing_depoimentos ?? [];
 
   const demo = useQuery({
     queryKey: ['landing-loja-demo'],
@@ -105,6 +113,52 @@ export function PaginaLanding() {
         </div>
       </section>
 
+      {/* Segmentos que atendem */}
+      <section className="border-b border-border bg-muted/30 py-8">
+        <div className="mx-auto max-w-6xl px-6">
+          <p className="text-center text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Feito para todo tipo de negócio
+          </p>
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            {segmentos.map(s => (
+              <span key={s} className="rounded-full border border-border bg-card px-4 py-1.5 text-sm font-semibold text-muted-foreground">
+                {s}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Comparativo sem/com */}
+      <section className="mx-auto max-w-5xl px-6 py-16">
+        <h2 className="text-center text-2xl font-bold sm:text-3xl">Diga adeus ao atendimento caótico</h2>
+        <p className="mx-auto mt-2 max-w-xl text-center text-muted-foreground">
+          O futuro é integrado, rápido e automatizado.
+        </p>
+        <div className="mt-10 grid gap-5 sm:grid-cols-2">
+          <div className="rounded-2xl border border-border bg-card p-6">
+            <div className="text-sm font-bold text-muted-foreground">O JEITO ANTIGO</div>
+            <ul className="mt-4 space-y-3">
+              {semLista.map(item => (
+                <li key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
+                  <X className="mt-0.5 h-4 w-4 shrink-0 text-destructive" /> {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-2xl border-2 border-primary bg-primary/5 p-6">
+            <div className="text-sm font-bold text-primary">O JEITO NOVO</div>
+            <ul className="mt-4 space-y-3">
+              {comLista.map(item => (
+                <li key={item} className="flex items-start gap-2 text-sm font-medium">
+                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" /> {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
+
       {/* Recursos */}
       <section className="mx-auto max-w-6xl px-6 py-16">
         <h2 className="text-center text-2xl font-bold sm:text-3xl">Tudo que uma operação de delivery precisa</h2>
@@ -123,6 +177,25 @@ export function PaginaLanding() {
           })}
         </div>
       </section>
+
+      {/* Depoimentos */}
+      {depoimentos.length > 0 && (
+        <section className="border-t border-border bg-muted/30 py-16">
+          <div className="mx-auto max-w-6xl px-6">
+            <h2 className="text-center text-2xl font-bold sm:text-3xl">Sucesso comprovado contado por quem usa</h2>
+            <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {depoimentos.map((d, i) => (
+                <div key={i} className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+                  <Quote className="h-5 w-5 text-primary" />
+                  <p className="mt-3 text-sm text-muted-foreground">{d.texto}</p>
+                  <div className="mt-4 font-semibold text-sm">{d.nome}</div>
+                  {d.negocio && <div className="text-xs text-muted-foreground">{d.negocio}</div>}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* CTA final */}
       <section className="border-t border-border bg-accent/40">
