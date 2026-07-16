@@ -76,6 +76,10 @@ router.get('/tema', async (req, res, next) => {
       landing_segmentos:      segmentosRaw ? JSON.parse(segmentosRaw) : null,
       landing_depoimentos:    depoimentosRaw ? JSON.parse(depoimentosRaw) : null,
       landing_destaques:      destaquesRaw ? JSON.parse(destaquesRaw) : null,
+      landing_hero_eyebrow:   await valor('landing_hero_eyebrow'),
+      landing_hero_titulo:    await valor('landing_hero_titulo'),
+      landing_hero_subtitulo: await valor('landing_hero_subtitulo'),
+      landing_hero_imagem:    await valor('landing_hero_imagem'),
       // Usados no rodapé da landing — mesmos campos já editáveis em Marca → Configurações gerais.
       suporte_email:     await valor('suporte_email'),
       suporte_telefone:  await valor('suporte_telefone'),

@@ -47,6 +47,39 @@ function Reveal({ children, className }: { children: ReactNode; className?: stri
   );
 }
 
+/**
+ * Moldura de janela de navegador que emoldura um print do app (ou um
+ * placeholder quando ainda não há imagem). Dá o ar de "produto de verdade"
+ * das landings SaaS de referência.
+ */
+function MockupNavegador({ src, nome }: { src?: string; nome: string }) {
+  return (
+    <div className="relative">
+      <div className="absolute inset-0 -z-10 translate-y-6 scale-95 rounded-3xl bg-primary/20 blur-2xl" />
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-primary/10">
+        {/* Barra do navegador */}
+        <div className="flex items-center gap-1.5 border-b border-border bg-muted/50 px-4 py-2.5">
+          <span className="size-2.5 rounded-full bg-red-400" />
+          <span className="size-2.5 rounded-full bg-yellow-400" />
+          <span className="size-2.5 rounded-full bg-green-400" />
+          <div className="ml-3 flex-1 rounded-md bg-background/60 px-3 py-1 text-[11px] text-muted-foreground truncate">
+            {nome ? `${nome.toLowerCase().replace(/\s+/g, '')}.com.br` : 'seudelivery.com.br'}
+          </div>
+        </div>
+        {/* Conteúdo */}
+        {src ? (
+          <img src={src} alt="Prévia do aplicativo" className="w-full object-cover" />
+        ) : (
+          <div className="aspect-[4/3] bg-gradient-to-br from-primary/5 to-muted flex flex-col items-center justify-center gap-3 text-muted-foreground">
+            <Store className="h-12 w-12 opacity-30" />
+            <span className="text-xs">Prévia do app</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Mapa de ícones disponíveis pro admin escolher na edição da landing (ver PUT /admin/landing). */
 export const ICONES_LANDING: Record<LandingIcone, LucideIcon> = {
   store: Store, palette: Palette, bike: Bike, chefhat: ChefHat, receipt: Receipt,
@@ -85,6 +118,11 @@ export function PaginaLanding() {
   const depoimentos: LandingDepoimento[] = marca.landing_depoimentos ?? [];
   const destaques = marca.landing_destaques?.length ? marca.landing_destaques : DESTAQUES_PADRAO;
 
+  const heroEyebrow = marca.landing_hero_eyebrow || 'Sistema para deliveries e restaurantes';
+  const heroTitulo = marca.landing_hero_titulo || `Gestão simples, fácil e eficiente para seu negócio`;
+  const heroSubtitulo = marca.landing_hero_subtitulo || marca.slogan || 'Cardápio, pedidos, entrega e fiscal — tudo em um só sistema, do seu jeito.';
+  const heroImagem = marca.landing_hero_imagem || '';
+
   const demo = useQuery({
     queryKey: ['landing-loja-demo'],
     queryFn: () => api<{ lojas: Loja[] }>('GET', '/api/lojas').then(r => r.lojas[0]),
@@ -122,34 +160,42 @@ export function PaginaLanding() {
       {/* Hero */}
       <section className="relative overflow-hidden border-b border-border">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-background" />
-        <div className="relative mx-auto max-w-4xl px-6 py-20 text-center sm:py-28">
-          {marca.logo_url ? (
-            <img src={marca.logo_url} alt={marca.nome} className="mx-auto mb-6 h-14 w-auto" />
-          ) : (
-            <div className="mx-auto mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-              <Store className="h-7 w-7" />
+        <div className="absolute -top-24 -right-24 h-80 w-80 rounded-full bg-primary/10 blur-3xl" />
+        <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-6 py-16 sm:py-24 lg:grid-cols-2">
+          {/* Coluna de texto */}
+          <div className="text-center lg:text-left">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
+              <Store className="h-3.5 w-3.5" /> {heroEyebrow}
+            </span>
+            <h1 className="mt-5 text-4xl font-extrabold leading-[1.1] tracking-tight sm:text-5xl lg:text-6xl">
+              {heroTitulo}
+            </h1>
+            <p className="mx-auto mt-5 max-w-xl text-lg text-muted-foreground lg:mx-0">
+              {heroSubtitulo}
+            </p>
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
+              <Button size="xl" asChild disabled={!linkDemo}>
+                {linkDemo ? (
+                  <Link to={linkDemo}>{ctaTexto} <ArrowRight className="h-4 w-4" /></Link>
+                ) : (
+                  <span>{ctaTexto}</span>
+                )}
+              </Button>
+              <Button size="xl" variant="outline" asChild>
+                <Link to="/lojista">Sou lojista, quero começar</Link>
+              </Button>
             </div>
-          )}
-          <h1 className="text-4xl font-extrabold tracking-tight sm:text-5xl">
-            {marca.nome}
-          </h1>
-          <p className="mx-auto mt-4 max-w-xl text-lg text-muted-foreground">
-            {marca.slogan || 'A plataforma completa de delivery multi-lojas: cardápio, pedidos, entrega e fiscal, tudo em um só lugar.'}
-          </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-            <Button size="xl" asChild disabled={!linkDemo}>
-              {linkDemo ? (
-                <Link to={linkDemo}>
-                  {ctaTexto} <ArrowRight className="h-4 w-4" />
-                </Link>
-              ) : (
-                <span>{ctaTexto}</span>
-              )}
-            </Button>
-            <Button size="xl" variant="outline" asChild>
-              <Link to="/lojista">Sou lojista, quero começar</Link>
-            </Button>
+            <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground lg:justify-start">
+              {beneficios.slice(0, 3).map(b => (
+                <li key={b} className="flex items-center gap-1.5">
+                  <Check className="h-4 w-4 text-primary" /> {b}
+                </li>
+              ))}
+            </ul>
           </div>
+
+          {/* Coluna de imagem (mockup de navegador) */}
+          <MockupNavegador src={heroImagem} nome={marca.nome} />
         </div>
       </section>
 

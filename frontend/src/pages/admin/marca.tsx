@@ -508,9 +508,23 @@ interface LandingConfig {
   segmentos: string[];
   depoimentos: LandingDepoimento[];
   destaques: LandingDestaque[];
+  hero_eyebrow: string;
+  hero_titulo: string;
+  hero_subtitulo: string;
+  hero_imagem: string;
 }
 
 const ICONES_DISPONIVEIS = Object.keys(ICONES_LANDING) as LandingIcone[];
+
+/** Cabeçalho de uma aba do editor: título + explicação curta do que ela controla. */
+function SecaoTituloEditor({ titulo, desc }: { titulo: string; desc: string }) {
+  return (
+    <div className="-mt-1">
+      <h3 className="text-sm font-bold">{titulo}</h3>
+      <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+    </div>
+  );
+}
 
 /** Editor genérico de uma lista de textos curtos (benefícios, comparativo, segmentos). */
 function ListaTextoEditavel({ titulo, itens, onChange, max, placeholder }: {
@@ -552,6 +566,7 @@ function SecaoLanding() {
   const [form, setForm] = useState<LandingConfig>({
     cta_texto: 'Ver demonstração', recursos: [], beneficios: [],
     comparativo_sem: [], comparativo_com: [], segmentos: [], depoimentos: [], destaques: [],
+    hero_eyebrow: '', hero_titulo: '', hero_subtitulo: '', hero_imagem: '',
   });
   const [enviando, setEnviando] = useState(false);
 
@@ -621,6 +636,10 @@ function SecaoLanding() {
         segmentos: form.segmentos.filter(b => b.trim()),
         depoimentos: form.depoimentos,
         destaques: form.destaques,
+        hero_eyebrow: form.hero_eyebrow,
+        hero_titulo: form.hero_titulo,
+        hero_subtitulo: form.hero_subtitulo,
+        hero_imagem: form.hero_imagem,
       });
       mostrar({ tipo: 'sucesso', titulo: 'Landing page atualizada!' });
       consulta.refetch();
@@ -632,55 +651,87 @@ function SecaoLanding() {
   }
 
   const ABAS_LANDING = [
-    { key: 'geral' as const, label: 'Geral', icone: LayoutTemplate },
+    { key: 'hero' as const, label: 'Topo', icone: LayoutTemplate },
+    { key: 'geral' as const, label: 'Botão & benefícios', icone: Check },
     { key: 'recursos' as const, label: 'Recursos', icone: Store, count: form.recursos.length },
+    { key: 'destaques' as const, label: 'Destaques', icone: ImageIcon, count: form.destaques.length },
     { key: 'comparativo' as const, label: 'Comparativo', icone: Users, count: form.comparativo_sem.filter(s => s.trim()).length + form.comparativo_com.filter(s => s.trim()).length },
     { key: 'segmentos' as const, label: 'Segmentos', icone: Store, count: form.segmentos.filter(s => s.trim()).length },
     { key: 'depoimentos' as const, label: 'Depoimentos', icone: Star, count: form.depoimentos.length },
-    { key: 'destaques' as const, label: 'Destaques', icone: ImageIcon, count: form.destaques.length },
   ];
   type AbaLanding = typeof ABAS_LANDING[number]['key'];
-  const [aba, setAba] = useState<AbaLanding>('geral');
+  const [aba, setAba] = useState<AbaLanding>('hero');
 
   return (
-    <form onSubmit={salvar} className="grid gap-5 lg:grid-cols-[1fr_360px]">
-      <div className="space-y-5 order-2 lg:order-1">
+    <form onSubmit={salvar} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="space-y-4 order-2 lg:order-1 min-w-0">
+        <p className="text-xs text-muted-foreground rounded-lg bg-accent/50 px-3 py-2">
+          Esta é a página que aparece no domínio principal (quando o "Modo de exibição" está em "Landing page do produto").
+          O botão principal leva pra loja de demonstração automaticamente.
+        </p>
+
+        {/* Abas de navegação das seções */}
+        <div className="flex flex-wrap gap-2">
+          {ABAS_LANDING.map(a => (
+            <button key={a.key} type="button" onClick={() => setAba(a.key)}
+              className={cn(
+                'flex shrink-0 items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-bold transition-all',
+                aba === a.key
+                  ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                  : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:text-foreground',
+              )}>
+              <a.icone className="size-4" />
+              {a.label}
+              {a.count !== undefined && a.count > 0 && (
+                <span className={cn(
+                  'rounded-full px-1.5 text-[10px] font-extrabold',
+                  aba === a.key ? 'bg-primary-foreground/20' : 'bg-accent',
+                )}>{a.count}</span>
+              )}
+            </button>
+          ))}
+        </div>
+
         <Card>
           <CardContent className="p-5 space-y-4">
-            <p className="text-xs text-muted-foreground">
-              Só aparece quando o "Modo de exibição" acima está em "Landing page do produto" (loja_id = 0).
-              O botão principal leva pra primeira loja aprovada automaticamente.
-            </p>
-
-            {/* Abas */}
-            <div className="flex flex-wrap gap-1.5 border-b border-border pb-3 -mx-1 px-1 overflow-x-auto">
-              {ABAS_LANDING.map(a => (
-                <button key={a.key} type="button" onClick={() => setAba(a.key)}
-                  className={cn(
-                    'flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-sm font-bold transition-colors',
-                    aba === a.key ? 'bg-primary text-primary-foreground' : 'bg-accent text-muted-foreground hover:text-foreground',
-                  )}>
-                  <a.icone className="size-3.5" />
-                  {a.label}
-                  {a.count !== undefined && a.count > 0 && (
-                    <span className={cn(
-                      'rounded-full px-1.5 text-[10px] font-extrabold',
-                      aba === a.key ? 'bg-primary-foreground/20' : 'bg-background/60',
-                    )}>{a.count}</span>
-                  )}
-                </button>
-              ))}
-            </div>
+            {aba === 'hero' && (
+              <div className="space-y-4">
+                <SecaoTituloEditor titulo="Topo da página (hero)" desc="A primeira coisa que o visitante vê: chamada grande, subtítulo e a imagem do produto." />
+                <div>
+                  <Label htmlFor="hero_eyebrow">Selo (texto pequeno acima do título)</Label>
+                  <Input id="hero_eyebrow" maxLength={80} value={form.hero_eyebrow}
+                    onChange={e => setForm(f => ({ ...f, hero_eyebrow: e.target.value }))}
+                    placeholder="Sistema para deliveries e restaurantes" />
+                </div>
+                <div>
+                  <Label htmlFor="hero_titulo">Título principal (chamada grande)</Label>
+                  <textarea id="hero_titulo" maxLength={120} rows={2} value={form.hero_titulo}
+                    onChange={e => setForm(f => ({ ...f, hero_titulo: e.target.value }))}
+                    placeholder="Gestão simples, fácil e eficiente para seu negócio"
+                    className="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+                </div>
+                <div>
+                  <Label htmlFor="hero_subtitulo">Subtítulo</Label>
+                  <textarea id="hero_subtitulo" maxLength={240} rows={2} value={form.hero_subtitulo}
+                    onChange={e => setForm(f => ({ ...f, hero_subtitulo: e.target.value }))}
+                    placeholder="Cardápio, pedidos, entrega e fiscal — tudo em um só sistema."
+                    className="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+                </div>
+                <ImageUpload label="Imagem do produto (aparece ao lado, dentro da moldura de navegador)"
+                  value={form.hero_imagem} onChange={v => setForm(f => ({ ...f, hero_imagem: v }))} aspectRatio="wide" />
+              </div>
+            )}
 
             {aba === 'geral' && (
               <div className="space-y-4">
+                <SecaoTituloEditor titulo="Botão e benefícios" desc="Texto do botão principal e a listinha de benefícios com check." />
                 <div>
                   <Label htmlFor="cta_texto">Texto do botão principal</Label>
                   <Input id="cta_texto" maxLength={60} value={form.cta_texto}
                     onChange={e => setForm(f => ({ ...f, cta_texto: e.target.value }))}
                     placeholder="Ver demonstração" />
                 </div>
-                <ListaTextoEditavel titulo="Benefícios (checklist no rodapé)" max={6}
+                <ListaTextoEditavel titulo="Benefícios (check no topo e no rodapé)" max={6}
                   itens={form.beneficios} onChange={v => setForm(f => ({ ...f, beneficios: v }))} />
               </div>
             )}
@@ -844,25 +895,36 @@ function PreviewLanding({ form }: { form: LandingConfig }) {
         </div>
 
         {/* Hero */}
-        <div className="text-center px-4 py-6 border-b border-border bg-gradient-to-br from-primary/10 via-background to-background">
-          {marca.logo_url ? (
-            <img src={marca.logo_url} alt="" className="mx-auto mb-2 h-8 w-auto" />
-          ) : (
-            <div className="mx-auto mb-2 flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <Store className="size-4" />
-            </div>
-          )}
-          <div className="font-extrabold text-sm">{marca.nome || 'Nome da marca'}</div>
-          <div className="text-[10px] text-muted-foreground mt-1 px-2">
-            {marca.slogan || 'Peça das melhores lojas'}
+        <div className="px-3 py-4 border-b border-border bg-gradient-to-br from-primary/10 via-background to-background">
+          <span className="inline-block rounded-full bg-primary/10 text-primary text-[7px] font-bold uppercase px-1.5 py-0.5">
+            {form.hero_eyebrow || 'Sistema para deliveries'}
+          </span>
+          <div className="font-extrabold text-[13px] leading-tight mt-1.5">
+            {form.hero_titulo || 'Gestão simples, fácil e eficiente'}
           </div>
-          <div className="mt-3 flex justify-center gap-1.5">
-            <span className="rounded-lg bg-primary text-primary-foreground text-[10px] font-bold px-2.5 py-1.5">
+          <div className="text-[9px] text-muted-foreground mt-1">
+            {form.hero_subtitulo || marca.slogan || 'Tudo em um só sistema.'}
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <span className="rounded-lg bg-primary text-primary-foreground text-[9px] font-bold px-2 py-1">
               {form.cta_texto || 'Ver demonstração'}
             </span>
-            <span className="rounded-lg border border-border text-[10px] font-bold px-2.5 py-1.5">
-              Sou lojista
-            </span>
+            <span className="rounded-lg border border-border text-[9px] font-bold px-2 py-1">Sou lojista</span>
+          </div>
+          {/* mockup mini */}
+          <div className="mt-2.5 overflow-hidden rounded-md border border-border bg-card">
+            <div className="flex gap-0.5 border-b border-border bg-muted/50 px-1.5 py-1">
+              <span className="size-1 rounded-full bg-red-400" />
+              <span className="size-1 rounded-full bg-yellow-400" />
+              <span className="size-1 rounded-full bg-green-400" />
+            </div>
+            {form.hero_imagem ? (
+              <img src={form.hero_imagem} alt="" className="w-full object-cover" />
+            ) : (
+              <div className="aspect-[5/3] flex items-center justify-center bg-gradient-to-br from-primary/5 to-muted">
+                <Store className="size-4 text-muted-foreground opacity-30" />
+              </div>
+            )}
           </div>
         </div>
 

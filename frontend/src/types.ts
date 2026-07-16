@@ -207,6 +207,11 @@ export interface TemaMarca {
   landing_depoimentos?: LandingDepoimento[] | null;
   /** Blocos de destaque com foto + texto na landing (estilo "feature highlight"). */
   landing_destaques?: LandingDestaque[] | null;
+  /** Hero da landing (título grande + imagem do produto ao lado, estilo SaaS). */
+  landing_hero_eyebrow?: string;
+  landing_hero_titulo?: string;
+  landing_hero_subtitulo?: string;
+  landing_hero_imagem?: string;
 }
 
 export interface LandingDestaque {
