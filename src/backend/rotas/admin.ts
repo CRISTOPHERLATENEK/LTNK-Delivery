@@ -1060,7 +1060,7 @@ const LANDING_FORMATOS = ['celular', 'navegador', 'livre'] as const;
 const LANDING_DESTAQUES_PADRAO: { imagem_url: string; titulo: string; desc: string; formato: string }[] = [
   { imagem_url: '/landing/storefront-mobile.png', formato: 'celular', titulo: 'Seu cliente pede direto pelo celular', desc: 'Cardápio digital com foto, categorias e busca — sem app pra baixar. O cliente monta o pedido e finaliza em segundos, com Pix, cartão ou dinheiro.' },
   { imagem_url: '/landing/storefront-desktop.png', formato: 'navegador', titulo: 'Sua loja online com a sua cara', desc: 'Cores, logo e capa personalizados por loja. Cada negócio com seu próprio endereço, cardápio e visual — do jeito da marca.' },
-  { imagem_url: '/landing/fiscal-desktop.png', formato: 'navegador', titulo: 'Nota fiscal sem sair do sistema', desc: 'Certificado A1, dados do emitente e emissão de NFC-e direto no painel — sem precisar de outro programa nem digitar os dados de novo.' },
+  { imagem_url: '/landing/cupom-fiscal.png', formato: 'livre', titulo: 'Cupom fiscal (NFC-e) na hora da venda', desc: 'A nota sai com itens, total, chave de acesso e QR code — direto do sistema, sem precisar de outro programa nem digitar os dados de novo.' },
 ];
 
 router.get('/landing', async (_req, res, next) => {

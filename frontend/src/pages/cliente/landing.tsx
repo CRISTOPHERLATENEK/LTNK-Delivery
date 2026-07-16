@@ -132,7 +132,7 @@ const SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', '
 const DESTAQUES_PADRAO: LandingDestaque[] = [
   { imagem_url: '/landing/storefront-mobile.png', formato: 'celular', titulo: 'Seu cliente pede direto pelo celular', desc: 'Cardápio digital com foto, categorias e busca — sem app pra baixar. O cliente monta o pedido e finaliza em segundos, com Pix, cartão ou dinheiro.' },
   { imagem_url: '/landing/storefront-desktop.png', formato: 'navegador', titulo: 'Sua loja online com a sua cara', desc: 'Cores, logo e capa personalizados por loja. Cada negócio com seu próprio endereço, cardápio e visual — do jeito da marca.' },
-  { imagem_url: '/landing/fiscal-desktop.png', formato: 'navegador', titulo: 'Nota fiscal sem sair do sistema', desc: 'Certificado A1, dados do emitente e emissão de NFC-e direto no painel — sem precisar de outro programa nem digitar os dados de novo.' },
+  { imagem_url: '/landing/cupom-fiscal.png', formato: 'livre', titulo: 'Cupom fiscal (NFC-e) na hora da venda', desc: 'A nota sai com itens, total, chave de acesso e QR code — direto do sistema, sem precisar de outro programa nem digitar os dados de novo.' },
 ];
 
 export function PaginaLanding() {
@@ -288,7 +288,7 @@ export function PaginaLanding() {
                 ) : d.formato === 'celular' ? (
                   <MolduraCelular src={d.imagem_url} flutuar />
                 ) : d.formato === 'livre' ? (
-                  <img src={d.imagem_url} alt={d.titulo} className="w-full rounded-2xl border border-border shadow-xl" />
+                  <img src={d.imagem_url} alt={d.titulo} className="mx-auto max-h-[520px] w-auto rounded-2xl shadow-xl animar-flutuar" />
                 ) : (
                   <MockupNavegador src={d.imagem_url} nome={marca.nome} flutuar />
                 )}
