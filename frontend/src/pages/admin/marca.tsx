@@ -70,7 +70,7 @@ export function TelaMarca() {
 
   return (
     <AdminLayout titulo="Marca">
-    <div className="space-y-5 pb-4 max-w-5xl">
+    <div className="space-y-5 pb-4 max-w-5xl mx-auto">
       {/* Cabeçalho */}
       <div className="flex items-center gap-3">
         <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
@@ -643,7 +643,7 @@ function SecaoLanding() {
   const [aba, setAba] = useState<AbaLanding>('geral');
 
   return (
-    <form onSubmit={salvar} className="grid gap-5 lg:grid-cols-[1fr_360px] max-w-5xl">
+    <form onSubmit={salvar} className="grid gap-5 lg:grid-cols-[1fr_360px]">
       <div className="space-y-5 order-2 lg:order-1">
         <Card>
           <CardContent className="p-5 space-y-4">

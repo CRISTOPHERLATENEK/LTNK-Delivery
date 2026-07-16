@@ -50,7 +50,7 @@ export function TelaEntregadores() {
 
   return (
     <AdminLayout titulo="Entregadores">
-      <div className="space-y-5 max-w-4xl">
+      <div className="space-y-5 max-w-4xl mx-auto">
         <div>
           <h1 className="text-2xl font-extrabold flex items-center gap-2">
             <Bike className="size-6 text-primary" /> Entregadores

@@ -96,7 +96,7 @@ export function TelaTenants() {
 
   return (
     <AdminLayout titulo="Clientes">
-      <div className="max-w-4xl space-y-5">
+      <div className="max-w-4xl space-y-5 mx-auto">
         {/* Cabeçalho */}
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div>

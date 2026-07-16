@@ -89,7 +89,7 @@ export function TelaRepasses() {
 
   return (
     <AdminLayout titulo="Repasses">
-      <div className="space-y-5 max-w-4xl">
+      <div className="space-y-5 max-w-4xl mx-auto">
         <div>
           <h1 className="text-2xl font-extrabold flex items-center gap-2">
             <TrendingUp className="size-6 text-primary" /> Comissão e repasses

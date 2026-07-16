@@ -80,7 +80,7 @@ export function TelaPedidosAdmin() {
 
   return (
     <AdminLayout titulo="Pedidos">
-      <div className="space-y-5 max-w-5xl">
+      <div className="space-y-5 max-w-5xl mx-auto">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <h1 className="text-2xl font-extrabold flex items-center gap-2">

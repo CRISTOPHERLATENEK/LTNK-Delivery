@@ -112,7 +112,7 @@ export function TelaLojas() {
 
   return (
     <AdminLayout titulo="Lojas">
-      <div className="space-y-5 max-w-4xl">
+      <div className="space-y-5 max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>

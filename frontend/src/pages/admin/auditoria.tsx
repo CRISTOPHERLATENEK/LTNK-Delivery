@@ -76,7 +76,7 @@ export function TelaAuditoria() {
 
   return (
     <AdminLayout titulo="Auditoria">
-      <div className="space-y-5 max-w-4xl">
+      <div className="space-y-5 max-w-4xl mx-auto">
         <div className="flex items-center gap-3">
           <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
             <History className="size-6" />
