@@ -236,7 +236,7 @@ export function PaginaLanding() {
           </div>
 
           {/* Coluna de imagem (mockup de navegador) */}
-          <MockupNavegador src={heroImagem} nome={marca.nome} flutuar />
+          <MockupNavegador src={heroImagem} nome={marca.nome} />
         </div>
       </section>
 
@@ -299,11 +299,11 @@ export function PaginaLanding() {
                     <Receipt className="h-16 w-16 text-primary/40" />
                   </div>
                 ) : d.formato === 'celular' ? (
-                  <MolduraCelular src={d.imagem_url} flutuar />
+                  <MolduraCelular src={d.imagem_url} />
                 ) : d.formato === 'livre' ? (
-                  <img src={d.imagem_url} alt={d.titulo} className="mx-auto max-h-[520px] w-auto rounded-2xl shadow-xl animar-flutuar" />
+                  <img src={d.imagem_url} alt={d.titulo} className="mx-auto max-h-[520px] w-auto rounded-2xl shadow-xl" />
                 ) : (
-                  <MockupNavegador src={d.imagem_url} nome={marca.nome} flutuar />
+                  <MockupNavegador src={d.imagem_url} nome={marca.nome} />
                 )}
               </div>
               <div className="text-center sm:text-left">
@@ -356,7 +356,7 @@ export function PaginaLanding() {
           {/* Cupom + card flutuante de benefícios */}
           <div className="relative mx-auto">
             <img src="/landing/cupom-fiscal.png" alt="Cupom fiscal NFC-e"
-              className="mx-auto max-h-[480px] w-auto rounded-2xl shadow-2xl animar-flutuar" />
+              className="mx-auto max-h-[480px] w-auto rounded-2xl shadow-2xl" />
             <div className="mt-6 grid grid-cols-2 gap-3 lg:absolute lg:-right-6 lg:top-6 lg:mt-0 lg:grid-cols-1 lg:w-48 lg:rounded-2xl lg:border lg:border-border lg:bg-card lg:p-4 lg:shadow-xl">
               {FISCAL_STATS.map(s => (
                 <div key={s.titulo} className="flex items-start gap-2 rounded-xl border border-border bg-card p-2.5 lg:border-0 lg:bg-transparent lg:p-0">
