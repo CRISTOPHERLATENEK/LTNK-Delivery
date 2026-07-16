@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Routes, Route, Link } from 'react-router-dom';
-import { CheckCircle2, ChefHat, XCircle, Package, Bell, Save, Eye, History, Printer } from 'lucide-react';
+import { CheckCircle2, ChefHat, XCircle, Package, Bell, Save, Eye, History, Printer, Store, Lock } from 'lucide-react';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -956,39 +956,53 @@ function LoginLojista() {
   }
 
   return (
-    <AppLayout titulo="Painel do lojista" itens={[]}>
-      <div className="mx-auto max-w-sm pt-8 space-y-6">
-        <div className="text-center space-y-1">
-          <div className="text-4xl">🏪</div>
-          <h2 className="text-xl font-extrabold">Painel do lojista</h2>
-          <p className="text-sm text-muted-foreground">Entre com sua conta para gerenciar a loja.</p>
+    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-background px-4 py-10">
+      <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-accent/30" />
+      <div className="relative w-full max-w-sm">
+        <div className="mb-8 text-center">
+          <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30">
+            <Store className="size-8 text-primary-foreground" strokeWidth={2.5} />
+          </div>
+          <h1 className="text-2xl font-extrabold">Painel do lojista</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Entre com sua conta para gerenciar a loja.</p>
         </div>
-        <Card>
+
+        <Card className="border-border/60 shadow-xl shadow-black/5">
           <CardContent className="p-6">
             <form onSubmit={enviar} className="space-y-4">
               <div>
                 <Label htmlFor="email-lojista">E-mail</Label>
-                <Input
-                  id="email-lojista"
-                  type="email"
-                  required
-                  placeholder="seu@email.com"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                />
+                <div className="relative mt-1.5">
+                  <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="email-lojista"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    placeholder="seu@email.com"
+                    className="pl-9"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                  />
+                </div>
               </div>
               <div>
                 <Label htmlFor="senha-lojista">Senha</Label>
-                <Input
-                  id="senha-lojista"
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={senha}
-                  onChange={e => setSenha(e.target.value)}
-                />
+                <div className="relative mt-1.5">
+                  <Lock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="senha-lojista"
+                    type="password"
+                    required
+                    autoComplete="current-password"
+                    placeholder="••••••••"
+                    className="pl-9"
+                    value={senha}
+                    onChange={e => setSenha(e.target.value)}
+                  />
+                </div>
               </div>
-              <Button type="submit" size="lg" className="w-full" disabled={enviando}>
+              <Button type="submit" size="lg" className="w-full shadow-lg shadow-primary/25" disabled={enviando}>
                 {enviando ? 'Entrando…' : 'Entrar'}
               </Button>
               <Link to="/esqueci-senha" className="block text-center text-sm text-muted-foreground hover:text-primary">
@@ -997,8 +1011,15 @@ function LoginLojista() {
             </form>
           </CardContent>
         </Card>
+
+        <p className="mt-6 text-center text-xs text-muted-foreground">
+          Ainda não tem uma loja?{' '}
+          <a href="mailto:suporte.cristopher@unimaxx.com.br" className="font-semibold text-primary hover:underline">
+            Fale com a gente
+          </a>
+        </p>
       </div>
-    </AppLayout>
+    </div>
   );
 }
 
