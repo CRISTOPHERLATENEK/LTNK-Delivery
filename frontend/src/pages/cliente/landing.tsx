@@ -6,13 +6,46 @@
  * página vende a PLATAFORMA em si, com um botão "Ver demonstração" que leva
  * pra uma loja de exemplo (a primeira aprovada).
  */
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star, Shield, Users, Mail, Phone, X, Quote, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTema } from '@/lib/tema';
 import { api } from '@/lib/api';
-import type { Loja, LandingRecurso, LandingIcone, LandingDepoimento } from '@/types';
+import { cn } from '@/lib/utils';
+import type { Loja, LandingRecurso, LandingIcone, LandingDepoimento, LandingDestaque } from '@/types';
+
+/**
+ * Anima a entrada de uma seção (fade + subida) quando ela cruza a viewport
+ * ao rolar a página — mesma sensação de "scroll reveal" de landing pages
+ * de referência do setor. Sem lib externa: só IntersectionObserver.
+ */
+function Reveal({ children, className }: { children: ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visivel, setVisivel] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setVisivel(true); obs.disconnect(); } },
+      { threshold: 0.15 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  return (
+    <div ref={ref} className={cn(
+      'transition-all duration-700 ease-out',
+      visivel ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6',
+      className,
+    )}>
+      {children}
+    </div>
+  );
+}
 
 /** Mapa de ícones disponíveis pro admin escolher na edição da landing (ver PUT /admin/landing). */
 export const ICONES_LANDING: Record<LandingIcone, LucideIcon> = {
@@ -35,6 +68,12 @@ const SEM_PADRAO = ['Desorganização no atendimento', 'Falhas de comunicação'
 const COM_PADRAO = ['Agilidade e organização nos pedidos', 'Cada loja com sua própria operação', 'Menos erro, mais venda'];
 const SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria'];
 
+const DESTAQUES_PADRAO: LandingDestaque[] = [
+  { imagem_url: '', titulo: 'Painel completo em um só lugar', desc: 'Pedidos, cardápio, entregadores e financeiro organizados no painel — sem planilha, sem bagunça, sem sistema separado pra cada coisa.' },
+  { imagem_url: '', titulo: 'Cliente acompanha o pedido ao vivo', desc: 'Do aceite da loja até o entregador saindo pra entrega, o cliente vê tudo em tempo real, com mapa e status atualizado sozinho.' },
+  { imagem_url: '', titulo: 'Nota fiscal sem sair do sistema', desc: 'Emita a NFC-e direto na hora da venda, sem precisar de outro programa nem digitar os dados de novo.' },
+];
+
 export function PaginaLanding() {
   const { marca } = useTema();
   const recursos = marca.landing_recursos?.length ? marca.landing_recursos : RECURSOS_PADRAO;
@@ -44,6 +83,7 @@ export function PaginaLanding() {
   const comLista = marca.landing_comparativo_com?.length ? marca.landing_comparativo_com : COM_PADRAO;
   const segmentos = marca.landing_segmentos?.length ? marca.landing_segmentos : SEGMENTOS_PADRAO;
   const depoimentos: LandingDepoimento[] = marca.landing_depoimentos ?? [];
+  const destaques = marca.landing_destaques?.length ? marca.landing_destaques : DESTAQUES_PADRAO;
 
   const demo = useQuery({
     queryKey: ['landing-loja-demo'],
@@ -115,7 +155,7 @@ export function PaginaLanding() {
 
       {/* Segmentos que atendem */}
       <section className="border-b border-border bg-muted/30 py-8">
-        <div className="mx-auto max-w-6xl px-6">
+        <Reveal className="mx-auto max-w-6xl px-6">
           <p className="text-center text-xs font-bold uppercase tracking-wider text-muted-foreground">
             Feito para todo tipo de negócio
           </p>
@@ -126,62 +166,89 @@ export function PaginaLanding() {
               </span>
             ))}
           </div>
-        </div>
+        </Reveal>
       </section>
 
       {/* Comparativo sem/com */}
       <section className="mx-auto max-w-5xl px-6 py-16">
-        <h2 className="text-center text-2xl font-bold sm:text-3xl">Diga adeus ao atendimento caótico</h2>
-        <p className="mx-auto mt-2 max-w-xl text-center text-muted-foreground">
-          O futuro é integrado, rápido e automatizado.
-        </p>
-        <div className="mt-10 grid gap-5 sm:grid-cols-2">
-          <div className="rounded-2xl border border-border bg-card p-6">
-            <div className="text-sm font-bold text-muted-foreground">O JEITO ANTIGO</div>
-            <ul className="mt-4 space-y-3">
-              {semLista.map(item => (
-                <li key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
-                  <X className="mt-0.5 h-4 w-4 shrink-0 text-destructive" /> {item}
-                </li>
-              ))}
-            </ul>
+        <Reveal>
+          <h2 className="text-center text-2xl font-bold sm:text-3xl">Diga adeus ao atendimento caótico</h2>
+          <p className="mx-auto mt-2 max-w-xl text-center text-muted-foreground">
+            O futuro é integrado, rápido e automatizado.
+          </p>
+          <div className="mt-10 grid gap-5 sm:grid-cols-2">
+            <div className="rounded-2xl border border-border bg-card p-6">
+              <div className="text-sm font-bold text-muted-foreground">O JEITO ANTIGO</div>
+              <ul className="mt-4 space-y-3">
+                {semLista.map(item => (
+                  <li key={item} className="flex items-start gap-2 text-sm text-muted-foreground">
+                    <X className="mt-0.5 h-4 w-4 shrink-0 text-destructive" /> {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="rounded-2xl border-2 border-primary bg-primary/5 p-6">
+              <div className="text-sm font-bold text-primary">O JEITO NOVO</div>
+              <ul className="mt-4 space-y-3">
+                {comLista.map(item => (
+                  <li key={item} className="flex items-start gap-2 text-sm font-medium">
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" /> {item}
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
-          <div className="rounded-2xl border-2 border-primary bg-primary/5 p-6">
-            <div className="text-sm font-bold text-primary">O JEITO NOVO</div>
-            <ul className="mt-4 space-y-3">
-              {comLista.map(item => (
-                <li key={item} className="flex items-start gap-2 text-sm font-medium">
-                  <Check className="mt-0.5 h-4 w-4 shrink-0 text-primary" /> {item}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
+        </Reveal>
       </section>
+
+      {/* Destaques (foto + texto, alternando lado) */}
+      {destaques.length > 0 && (
+        <section className="mx-auto max-w-6xl px-6 py-16 space-y-20">
+          {destaques.map((d, i) => (
+            <Reveal key={i} className={cn('grid items-center gap-8 sm:grid-cols-2', i % 2 === 1 && 'sm:[&>*:first-child]:order-2')}>
+              <div className="aspect-video overflow-hidden rounded-2xl border border-border bg-accent/40">
+                {d.imagem_url ? (
+                  <img src={d.imagem_url} alt={d.titulo} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+                    <Store className="h-10 w-10 opacity-30" />
+                  </div>
+                )}
+              </div>
+              <div>
+                <h3 className="text-2xl font-bold">{d.titulo}</h3>
+                <p className="mt-3 text-muted-foreground">{d.desc}</p>
+              </div>
+            </Reveal>
+          ))}
+        </section>
+      )}
 
       {/* Recursos */}
       <section className="mx-auto max-w-6xl px-6 py-16">
-        <h2 className="text-center text-2xl font-bold sm:text-3xl">Tudo que uma operação de delivery precisa</h2>
-        <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {recursos.map(({ icone, titulo, desc }) => {
-            const Icone = ICONES_LANDING[icone] || Store;
-            return (
-              <div key={titulo} className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-foreground">
-                  <Icone className="h-5 w-5" />
+        <Reveal>
+          <h2 className="text-center text-2xl font-bold sm:text-3xl">Tudo que uma operação de delivery precisa</h2>
+          <div className="mt-10 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {recursos.map(({ icone, titulo, desc }) => {
+              const Icone = ICONES_LANDING[icone] || Store;
+              return (
+                <div key={titulo} className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent text-accent-foreground">
+                    <Icone className="h-5 w-5" />
+                  </div>
+                  <h3 className="mt-4 font-semibold">{titulo}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
                 </div>
-                <h3 className="mt-4 font-semibold">{titulo}</h3>
-                <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </Reveal>
       </section>
 
       {/* Depoimentos */}
       {depoimentos.length > 0 && (
         <section className="border-t border-border bg-muted/30 py-16">
-          <div className="mx-auto max-w-6xl px-6">
+          <Reveal className="mx-auto max-w-6xl px-6">
             <h2 className="text-center text-2xl font-bold sm:text-3xl">Sucesso comprovado contado por quem usa</h2>
             <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {depoimentos.map((d, i) => (
@@ -193,13 +260,13 @@ export function PaginaLanding() {
                 </div>
               ))}
             </div>
-          </div>
+          </Reveal>
         </section>
       )}
 
       {/* CTA final */}
       <section className="border-t border-border bg-accent/40">
-        <div className="mx-auto max-w-3xl px-6 py-16 text-center">
+        <Reveal className="mx-auto max-w-3xl px-6 py-16 text-center">
           <h2 className="text-2xl font-bold sm:text-3xl">Quer ver funcionando na prática?</h2>
           <p className="mt-3 text-muted-foreground">
             Explore uma loja de demonstração completa — cardápio, carrinho e checkout de verdade.
@@ -216,7 +283,7 @@ export function PaginaLanding() {
               </li>
             ))}
           </ul>
-        </div>
+        </Reveal>
       </section>
 
       {/* Rodapé */}

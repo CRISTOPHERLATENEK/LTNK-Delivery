@@ -58,6 +58,7 @@ router.get('/tema', async (req, res, next) => {
     const comRaw = await valor('landing_comparativo_com_json');
     const segmentosRaw = await valor('landing_segmentos_json');
     const depoimentosRaw = await valor('landing_depoimentos_json');
+    const destaquesRaw = await valor('landing_destaques_json');
 
     res.json({
       nome:              await valor('marca_nome', 'Delivery Já'),
@@ -74,6 +75,7 @@ router.get('/tema', async (req, res, next) => {
       landing_comparativo_com: comRaw ? JSON.parse(comRaw) : null,
       landing_segmentos:      segmentosRaw ? JSON.parse(segmentosRaw) : null,
       landing_depoimentos:    depoimentosRaw ? JSON.parse(depoimentosRaw) : null,
+      landing_destaques:      destaquesRaw ? JSON.parse(destaquesRaw) : null,
       // Usados no rodapé da landing — mesmos campos já editáveis em Marca → Configurações gerais.
       suporte_email:     await valor('suporte_email'),
       suporte_telefone:  await valor('suporte_telefone'),

@@ -1055,6 +1055,12 @@ const LANDING_SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Pad
 
 const LANDING_DEPOIMENTOS_PADRAO: { texto: string; nome: string; negocio: string }[] = [];
 
+const LANDING_DESTAQUES_PADRAO: { imagem_url: string; titulo: string; desc: string }[] = [
+  { imagem_url: '', titulo: 'Painel completo em um só lugar', desc: 'Pedidos, cardápio, entregadores e financeiro organizados no painel — sem planilha, sem bagunça, sem sistema separado pra cada coisa.' },
+  { imagem_url: '', titulo: 'Cliente acompanha o pedido ao vivo', desc: 'Do aceite da loja até o entregador saindo pra entrega, o cliente vê tudo em tempo real, com mapa e status atualizado sozinho.' },
+  { imagem_url: '', titulo: 'Nota fiscal sem sair do sistema', desc: 'Emita a NFC-e direto na hora da venda, sem precisar de outro programa nem digitar os dados de novo.' },
+];
+
 router.get('/landing', async (_req, res, next) => {
   try {
     const valor = async (chave: string): Promise<string> => {
@@ -1067,6 +1073,7 @@ router.get('/landing', async (_req, res, next) => {
     const comRaw = await valor('landing_comparativo_com_json');
     const segmentosRaw = await valor('landing_segmentos_json');
     const depoimentosRaw = await valor('landing_depoimentos_json');
+    const destaquesRaw = await valor('landing_destaques_json');
     res.json({
       cta_texto: (await valor('landing_cta_texto')) || 'Ver demonstração',
       recursos: recursosRaw ? JSON.parse(recursosRaw) : LANDING_RECURSOS_PADRAO,
@@ -1075,6 +1082,7 @@ router.get('/landing', async (_req, res, next) => {
       comparativo_com: comRaw ? JSON.parse(comRaw) : LANDING_COM_PADRAO,
       segmentos: segmentosRaw ? JSON.parse(segmentosRaw) : LANDING_SEGMENTOS_PADRAO,
       depoimentos: depoimentosRaw ? JSON.parse(depoimentosRaw) : LANDING_DEPOIMENTOS_PADRAO,
+      destaques: destaquesRaw ? JSON.parse(destaquesRaw) : LANDING_DESTAQUES_PADRAO,
     });
   } catch (e) { next(e); }
 });
@@ -1140,6 +1148,20 @@ router.put('/landing', exigirSuperAdmin, async (req, res, next) => {
         return { texto, nome, negocio };
       });
       await upsert('landing_depoimentos_json', JSON.stringify(depoimentos));
+    }
+    if (req.body.destaques !== undefined) {
+      if (!Array.isArray(req.body.destaques) || req.body.destaques.length > 4) {
+        throw erroHttp(400, 'Lista de destaques inválida (máximo 4 itens).');
+      }
+      const destaques = req.body.destaques.map((d: unknown) => {
+        const item = d as { imagem_url?: unknown; titulo?: unknown; desc?: unknown };
+        const imagemUrl = textoLimpo(item.imagem_url, 500);
+        const titulo = textoLimpo(item.titulo, 80);
+        const desc = textoLimpo(item.desc, 240);
+        if (!titulo) throw erroHttp(400, 'Todo destaque precisa de um título.');
+        return { imagem_url: imagemUrl, titulo, desc };
+      });
+      await upsert('landing_destaques_json', JSON.stringify(destaques));
     }
     await registrarAuditoria(req, 'landing.editar');
     res.json({ ok: true });

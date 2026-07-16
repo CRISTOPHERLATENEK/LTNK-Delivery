@@ -205,6 +205,14 @@ export interface TemaMarca {
   landing_segmentos?: string[] | null;
   /** Depoimentos de clientes exibidos na landing. */
   landing_depoimentos?: LandingDepoimento[] | null;
+  /** Blocos de destaque com foto + texto na landing (estilo "feature highlight"). */
+  landing_destaques?: LandingDestaque[] | null;
+}
+
+export interface LandingDestaque {
+  imagem_url: string;
+  titulo: string;
+  desc: string;
 }
 
 /** Ícones disponíveis para os cards de recursos da landing page (ver ÍCONES_LANDING em landing.tsx). */

@@ -19,7 +19,7 @@ import { api, ApiError, tokenSessao } from '@/lib/api';
 import { useTema, FONTES, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
 import { ICONES_LANDING } from '@/pages/cliente/landing';
-import type { TemaMarca, RaioMarca, FonteMarca, LandingRecurso, LandingIcone, LandingDepoimento } from '@/types';
+import type { TemaMarca, RaioMarca, FonteMarca, LandingRecurso, LandingIcone, LandingDepoimento, LandingDestaque } from '@/types';
 
 const RAIO_OPCOES: { valor: RaioMarca; label: string; classe: string }[] = [
   { valor: 'reto', label: 'Reto', classe: 'rounded-[3px]' },
@@ -507,6 +507,7 @@ interface LandingConfig {
   comparativo_com: string[];
   segmentos: string[];
   depoimentos: LandingDepoimento[];
+  destaques: LandingDestaque[];
 }
 
 const ICONES_DISPONIVEIS = Object.keys(ICONES_LANDING) as LandingIcone[];
@@ -550,7 +551,7 @@ function SecaoLanding() {
   });
   const [form, setForm] = useState<LandingConfig>({
     cta_texto: 'Ver demonstração', recursos: [], beneficios: [],
-    comparativo_sem: [], comparativo_com: [], segmentos: [], depoimentos: [],
+    comparativo_sem: [], comparativo_com: [], segmentos: [], depoimentos: [], destaques: [],
   });
   const [enviando, setEnviando] = useState(false);
 
@@ -582,6 +583,19 @@ function SecaoLanding() {
     setForm(f => ({ ...f, depoimentos: f.depoimentos.filter((_, idx) => idx !== i) }));
   }
 
+  function upDestaque(i: number, campo: keyof LandingDestaque, valor: string) {
+    setForm(f => ({ ...f, destaques: f.destaques.map((d, idx) => idx === i ? { ...d, [campo]: valor } : d) }));
+  }
+
+  function adicionarDestaque() {
+    if (form.destaques.length >= 4) return;
+    setForm(f => ({ ...f, destaques: [...f.destaques, { imagem_url: '', titulo: '', desc: '' }] }));
+  }
+
+  function removerDestaque(i: number) {
+    setForm(f => ({ ...f, destaques: f.destaques.filter((_, idx) => idx !== i) }));
+  }
+
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     if (form.recursos.some(r => !r.titulo.trim())) {
@@ -590,6 +604,10 @@ function SecaoLanding() {
     }
     if (form.depoimentos.some(d => !d.texto.trim() || !d.nome.trim())) {
       mostrar({ tipo: 'erro', titulo: 'Todo depoimento precisa de texto e nome.' });
+      return;
+    }
+    if (form.destaques.some(d => !d.titulo.trim())) {
+      mostrar({ tipo: 'erro', titulo: 'Todo destaque precisa de um título.' });
       return;
     }
     setEnviando(true);
@@ -602,6 +620,7 @@ function SecaoLanding() {
         comparativo_com: form.comparativo_com.filter(b => b.trim()),
         segmentos: form.segmentos.filter(b => b.trim()),
         depoimentos: form.depoimentos,
+        destaques: form.destaques,
       });
       mostrar({ tipo: 'sucesso', titulo: 'Landing page atualizada!' });
       consulta.refetch();
@@ -702,6 +721,31 @@ function SecaoLanding() {
           ))}
         </Secao>
 
+        <Secao icone={ImageIcon} titulo="Destaques (foto + texto)">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">Blocos grandes com imagem, tipo "vitrine" de uma funcionalidade. Máx. 4.</p>
+            <Button type="button" variant="outline" size="sm" onClick={adicionarDestaque} disabled={form.destaques.length >= 4}>
+              <Plus className="size-3.5" /> Adicionar
+            </Button>
+          </div>
+          {form.destaques.map((d, i) => (
+            <div key={i} className="rounded-xl border border-border p-3 space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <ImageUpload label="Imagem" value={d.imagem_url}
+                  onChange={v => upDestaque(i, 'imagem_url', v)} aspectRatio="wide" />
+                <Button type="button" variant="ghost" size="icon" onClick={() => removerDestaque(i)}>
+                  <Trash2 className="size-4 text-destructive" />
+                </Button>
+              </div>
+              <Input value={d.titulo} maxLength={80} placeholder="Título"
+                onChange={e => upDestaque(i, 'titulo', e.target.value)} />
+              <textarea value={d.desc} maxLength={240} rows={2} placeholder="Descrição"
+                onChange={e => upDestaque(i, 'desc', e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+            </div>
+          ))}
+        </Secao>
+
         <Button type="submit" disabled={enviando}>
           <Save className="size-4" />
           {enviando ? 'Salvando…' : 'Salvar landing page'}
@@ -729,6 +773,7 @@ function PreviewLanding({ form }: { form: LandingConfig }) {
   const sem = form.comparativo_sem.filter(s => s.trim()).length ? form.comparativo_sem.filter(s => s.trim()) : SEM_PADRAO_PREVIEW;
   const com = form.comparativo_com.filter(s => s.trim()).length ? form.comparativo_com.filter(s => s.trim()) : COM_PADRAO_PREVIEW;
   const depoimentos = form.depoimentos.filter(d => d.texto.trim());
+  const destaques = form.destaques.filter(d => d.titulo.trim());
 
   return (
     <div className="rounded-2xl border-2 border-dashed border-border p-3 bg-muted/30">
@@ -793,6 +838,26 @@ function PreviewLanding({ form }: { form: LandingConfig }) {
             ))}
           </div>
         </div>
+
+        {/* Destaques */}
+        {destaques.length > 0 && (
+          <div className="p-3 space-y-2">
+            {destaques.slice(0, 2).map((d, i) => (
+              <div key={i} className="rounded-lg border border-border overflow-hidden">
+                <div className="aspect-[3/1] bg-accent/40 flex items-center justify-center">
+                  {d.imagem_url ? (
+                    <img src={d.imagem_url} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <Store className="size-4 text-muted-foreground opacity-40" />
+                  )}
+                </div>
+                <div className="p-1.5">
+                  <div className="text-[9px] font-bold truncate">{d.titulo}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Recursos */}
         <div className="p-3">
