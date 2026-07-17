@@ -64,9 +64,9 @@ const GRUPOS: NavGrupo[] = [
     ],
   },
   {
-    titulo: 'SaaS',
+    titulo: 'Clientes',
     itens: [
-      { rota: '/painel-admin/clientes', icone: Building2, label: 'Clientes', somenteSuper: true },
+      { rota: '/painel-admin/clientes', icone: Building2, label: 'Bancos por loja', somenteSuper: true },
     ],
   },
 ];
