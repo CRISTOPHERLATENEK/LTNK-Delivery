@@ -67,13 +67,23 @@ app.use((req, res, next) => {
 // Todo o restante do request roda dentro do contexto desse tenant.
 //
 // Exceção: header X-Demo-Tenant (slug) tem prioridade sobre o Host — usado
-// pela vitrine de demonstração (frontend/src/pages/cliente/demo.tsx), que
-// deixa o visitante navegar numa loja de outro tenant sem precisar de
-// domínio/subdomínio próprio configurado (ex: botão "Ver demonstração" da
-// landing apontando pra um tenant que ainda não tem DNS).
+// pela vitrine de demonstração (frontend/src/pages/cliente/demo.tsx) e pelo
+// preview do editor Visual, que deixam o visitante navegar numa loja de
+// outro tenant sem precisar de domínio/subdomínio próprio configurado.
+//
+// SÓ é honrado em requisições SEM "Authorization" — nunca em requisições
+// autenticadas. Motivo: `autenticar` (auth.ts) carrega o usuário por
+// `WHERE id = ?` dentro do tenant já resolvido aqui; se um token válido de
+// um tenant fosse aceito junto com X-Demo-Tenant apontando pra outro, um
+// `id` que colidir entre os dois bancos (ex.: id=1, comum em todo tenant
+// recém-criado) autenticaria como o usuário ERRADO no tenant alvo, sem
+// senha nenhuma. Sem Authorization não há sessão pra sequestrar — as únicas
+// rotas alcançáveis são as públicas (publico.ts), que são de leitura livre
+// de qualquer forma.
 app.use((req, _res, next) => {
   (async () => {
-    const slugDemo = typeof req.headers['x-demo-tenant'] === 'string' ? req.headers['x-demo-tenant'] : undefined;
+    const semAuth = !req.headers.authorization;
+    const slugDemo = semAuth && typeof req.headers['x-demo-tenant'] === 'string' ? req.headers['x-demo-tenant'] : undefined;
     const tenantDemo = slugDemo ? await tenantPorSlug(slugDemo) : undefined;
     const tenant = tenantDemo ?? (await resolverPorHost(req.headers.host)) ?? (await tenantPadrao());
     await comTenant(tenant.db_nome, async () => { next(); });
