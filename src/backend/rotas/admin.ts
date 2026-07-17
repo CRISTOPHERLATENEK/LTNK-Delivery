@@ -16,7 +16,8 @@ import multer from 'multer';
 import { spawn } from 'child_process';
 import path from 'path';
 import os from 'os';
-import { listarTenants, criarTenant, atualizarTenant, ehMaster } from '../tenants-mysql';
+import { listarTenants, criarTenant, atualizarTenant, tenantPorId, ehMaster } from '../tenants-mysql';
+import zlib from 'zlib';
 import { Banner } from '../../tipos/modelos';
 
 const router = Router();
@@ -1562,6 +1563,57 @@ router.put('/tenants/:id', exigirSuperAdmin, async (req, res, next) => {
     await registrarAuditoria(req, 'tenant.editar', { alvoTipo: 'tenant', alvoId: id });
     res.json({ ok: true });
   } catch (e) { next(e); }
+});
+
+/**
+ * Backup de UM tenant só: dump SQL (mysqldump) do banco MySQL dele, comprimido
+ * em .sql.gz e enviado direto (sem arquivo temporário — mysqldump | gzip |
+ * resposta). Diferente do backup geral (todos os tenants + uploads/certs).
+ */
+router.get('/tenants/:id/backup', exigirSuperAdmin, async (req, res, next) => {
+  const cnfPath = path.join(os.tmpdir(), `backup-tenant-${Date.now()}-${process.pid}.cnf`);
+  try {
+    exigirMaster();
+    const id = inteiroPositivo(req.params.id);
+    if (!id) throw erroHttp(400, 'ID inválido.');
+    const tenant = await tenantPorId(id);
+    if (!tenant) throw erroHttp(404, 'Cliente não encontrado.');
+
+    const host = process.env.MYSQL_HOST || '127.0.0.1';
+    const porta = process.env.MYSQL_PORT || '3306';
+    const usuario = process.env.MYSQL_USER || '';
+    const senha = process.env.MYSQL_PASSWORD || '';
+    if (!usuario) throw erroHttp(500, 'MYSQL_USER não configurado neste servidor.');
+    fs.writeFileSync(cnfPath, `[client]\nhost=${host}\nport=${porta}\nuser=${usuario}\npassword=${senha}\n`, { mode: 0o600 });
+
+    await registrarAuditoria(req, 'backup.baixar', { alvoTipo: 'tenant', alvoId: id, alvoDesc: tenant.nome });
+
+    const nomeArquivo = `backup-${tenant.slug}-${new Date().toISOString().slice(0, 10)}.sql.gz`;
+    res.setHeader('Content-Type', 'application/gzip');
+    res.setHeader('Content-Disposition', `attachment; filename="${nomeArquivo}"`);
+
+    const limpar = () => fs.rm(cnfPath, { force: true }, () => {});
+
+    const dump = spawn('mysqldump', [
+      `--defaults-extra-file=${cnfPath}`,
+      '--single-transaction', '--routines', '--events', '--skip-lock-tables',
+      tenant.db_nome,
+    ]);
+    dump.stderr.on('data', d => console.warn('[Backup tenant] mysqldump stderr:', d.toString()));
+    dump.on('error', (e) => {
+      console.error('[Backup tenant] Falha ao iniciar o mysqldump:', e);
+      limpar();
+      if (!res.headersSent) next(erroHttp(500, 'Não foi possível gerar o backup (mysqldump indisponível no servidor).'));
+    });
+    dump.on('close', (codigo) => {
+      limpar();
+      if (codigo !== 0 && !res.headersSent) next(erroHttp(500, `mysqldump terminou com código ${codigo}.`));
+    });
+    dump.stdout.pipe(zlib.createGzip()).pipe(res);
+  } catch (e) {
+    fs.rm(cnfPath, { force: true }, () => {});
+    next(e instanceof ErroHttp ? e : erroHttp(500, e instanceof Error ? e.message : 'Falha ao gerar o backup.'));
+  }
 });
 
 // ----- Auditoria (log de ações administrativas) -----------------------------

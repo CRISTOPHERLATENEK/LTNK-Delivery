@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database } from 'lucide-react';
+import { Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2 } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, tokenSessao } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 interface Tenant {
@@ -256,9 +256,41 @@ export function TelaTenants() {
 function TenantCard({ t, onToggle, onSalvarDominio }: {
   t: Tenant; onToggle: () => void; onSalvarDominio: (d: string) => void;
 }) {
+  const { mostrar } = useToast();
   const [editandoDom, setEditandoDom] = useState(false);
   const [dom, setDom] = useState(t.dominio || '');
+  const [baixando, setBaixando] = useState(false);
   const master = t.slug === 'padrao';
+
+  async function baixarBackup() {
+    setBaixando(true);
+    try {
+      const token = tokenSessao();
+      const resp = await fetch(`/api/admin/tenants/${t.id}/backup`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!resp.ok) {
+        const corpo = await resp.json().catch(() => ({}));
+        throw new Error(corpo.erro || `Falha ao gerar o backup (HTTP ${resp.status}).`);
+      }
+      const blob = await resp.blob();
+      const nome = resp.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1]
+        || `backup-${t.slug}-${new Date().toISOString().slice(0, 10)}.sql.gz`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = nome;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      mostrar({ tipo: 'sucesso', titulo: 'Backup baixado!' });
+    } catch (err) {
+      mostrar({ tipo: 'erro', titulo: err instanceof Error ? err.message : 'Falha ao baixar o backup.' });
+    } finally {
+      setBaixando(false);
+    }
+  }
 
   return (
     <Card className={cn(!t.ativo && 'opacity-60')}>
@@ -279,11 +311,17 @@ function TenantCard({ t, onToggle, onSalvarDominio }: {
               <span className="flex items-center gap-1"><Database className="size-3" /> {t.db_arquivo.split('/').pop()}</span>
             </div>
           </div>
-          {!master && (
-            <Button variant="ghost" size="sm" onClick={onToggle} className="shrink-0">
-              <Power className="size-4" /> {t.ativo ? 'Suspender' : 'Ativar'}
+          <div className="flex shrink-0 items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={baixarBackup} disabled={baixando} title="Baixar backup deste cliente">
+              {baixando ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+              <span className="hidden sm:inline">Backup</span>
             </Button>
-          )}
+            {!master && (
+              <Button variant="ghost" size="sm" onClick={onToggle}>
+                <Power className="size-4" /> {t.ativo ? 'Suspender' : 'Ativar'}
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Domínio */}
