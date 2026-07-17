@@ -21,7 +21,7 @@ interface Tenant {
   nome: string;
   slug: string;
   dominio: string | null;
-  db_arquivo: string;
+  db_nome: string;
   ativo: 0 | 1;
   criado_em: string;
   lojas: number;
@@ -142,7 +142,7 @@ export function TelaTenants() {
                       <Wand2 className="size-3.5" />
                     </button>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">Vira o arquivo do banco: <span className="font-mono">tenants/{form.slug || 'slug'}.db</span></p>
+                  <p className="text-[11px] text-muted-foreground mt-1">Vira o banco MySQL: <span className="font-mono">tenant_{(form.slug || 'slug').replace(/-/g, '_')}</span></p>
                 </div>
                 <div>
                   <Label>Domínio (opcional)</Label>
@@ -308,7 +308,7 @@ function TenantCard({ t, onToggle, onSalvarDominio }: {
             <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
               <span className="font-mono">{t.slug}</span>
               <span className="flex items-center gap-1"><Store className="size-3" /> {t.lojas} loja(s)</span>
-              <span className="flex items-center gap-1"><Database className="size-3" /> {t.db_arquivo.split('/').pop()}</span>
+              <span className="flex items-center gap-1"><Database className="size-3" /> {t.db_nome}</span>
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
