@@ -207,7 +207,7 @@ export function PaginaLoja() {
   };
 
   return (
-    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_330px] lg:gap-6 lg:items-start" style={estiloTipografia}>
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_330px] lg:gap-6" style={estiloTipografia}>
     <div className="-mx-4 lg:mx-0 min-w-0">
       {/* ── HERO ── */}
       <div className="relative lg:rounded-3xl lg:overflow-hidden">
