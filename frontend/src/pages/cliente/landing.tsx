@@ -213,13 +213,19 @@ export function PaginaLanding() {
   const heroSubtitulo = marca.landing_hero_subtitulo || marca.slogan || 'Cardápio, pedidos, entrega e fiscal — tudo em um só sistema, do seu jeito.';
   const heroImagem = marca.landing_hero_imagem || '/landing/storefront-desktop.png';
 
+  // URL configurada tem prioridade — cobre o caso comum de a loja de demo viver
+  // num tenant/domínio separado (não dá pra "achar" ela automaticamente aqui).
+  // Sem URL configurada, cai no fallback antigo: 1ª loja aprovada deste tenant.
+  const demoUrlConfigurada = marca.landing_demo_url?.trim();
   const demo = useQuery({
     queryKey: ['landing-loja-demo'],
     queryFn: () => api<{ lojas: Loja[] }>('GET', '/api/lojas').then(r => r.lojas[0]),
     staleTime: 5 * 60_000,
+    enabled: !demoUrlConfigurada,
   });
 
-  const linkDemo = demo.data ? `/loja/${demo.data.id}` : undefined;
+  const linkDemo = demoUrlConfigurada || (demo.data ? `/loja/${demo.data.id}` : undefined);
+  const demoExterna = !!linkDemo && /^https?:\/\//i.test(linkDemo);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -242,7 +248,9 @@ export function PaginaLanding() {
               Sou lojista
             </Link>
             <Button size="sm" asChild disabled={!linkDemo}>
-              {linkDemo ? <Link to={linkDemo}>{ctaTexto}</Link> : <span>{ctaTexto}</span>}
+              {!linkDemo ? <span>{ctaTexto}</span>
+                : demoExterna ? <a href={linkDemo} target="_blank" rel="noreferrer">{ctaTexto}</a>
+                : <Link to={linkDemo}>{ctaTexto}</Link>}
             </Button>
           </nav>
         </div>
@@ -266,10 +274,12 @@ export function PaginaLanding() {
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
               <Button size="xl" asChild disabled={!linkDemo}>
-                {linkDemo ? (
-                  <Link to={linkDemo}>{ctaTexto} <ArrowRight className="h-4 w-4" /></Link>
-                ) : (
+                {!linkDemo ? (
                   <span>{ctaTexto}</span>
+                ) : demoExterna ? (
+                  <a href={linkDemo} target="_blank" rel="noreferrer">{ctaTexto} <ArrowRight className="h-4 w-4" /></a>
+                ) : (
+                  <Link to={linkDemo}>{ctaTexto} <ArrowRight className="h-4 w-4" /></Link>
                 )}
               </Button>
               <Button size="xl" variant="outline" asChild>
@@ -493,7 +503,9 @@ export function PaginaLanding() {
           </p>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Button size="lg" asChild disabled={!linkDemo}>
-              {linkDemo ? <Link to={linkDemo}>{ctaTexto}</Link> : <span>{ctaTexto}</span>}
+              {!linkDemo ? <span>{ctaTexto}</span>
+                : demoExterna ? <a href={linkDemo} target="_blank" rel="noreferrer">{ctaTexto}</a>
+                : <Link to={linkDemo}>{ctaTexto}</Link>}
             </Button>
           </div>
           <ul className="mx-auto mt-8 flex max-w-md flex-col gap-2 text-left text-sm text-muted-foreground">
@@ -527,7 +539,9 @@ export function PaginaLanding() {
             <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Plataforma</div>
             <ul className="mt-3 space-y-2 text-sm">
               {linkDemo && (
-                <li><Link to={linkDemo} className="text-muted-foreground hover:text-foreground">Ver demonstração</Link></li>
+                <li>{demoExterna
+                  ? <a href={linkDemo} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground">Ver demonstração</a>
+                  : <Link to={linkDemo} className="text-muted-foreground hover:text-foreground">Ver demonstração</Link>}</li>
               )}
               <li><Link to="/lojista" className="text-muted-foreground hover:text-foreground">Sou lojista</Link></li>
               {marca.termos_url && (

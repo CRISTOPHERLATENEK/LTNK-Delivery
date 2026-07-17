@@ -512,6 +512,7 @@ interface LandingConfig {
   hero_titulo: string;
   hero_subtitulo: string;
   hero_imagem: string;
+  demo_url: string;
 }
 
 const ICONES_DISPONIVEIS = Object.keys(ICONES_LANDING) as LandingIcone[];
@@ -566,7 +567,7 @@ function SecaoLanding() {
   const [form, setForm] = useState<LandingConfig>({
     cta_texto: 'Ver demonstração', recursos: [], beneficios: [],
     comparativo_sem: [], comparativo_com: [], segmentos: [], depoimentos: [], destaques: [],
-    hero_eyebrow: '', hero_titulo: '', hero_subtitulo: '', hero_imagem: '',
+    hero_eyebrow: '', hero_titulo: '', hero_subtitulo: '', hero_imagem: '', demo_url: '',
   });
   const [enviando, setEnviando] = useState(false);
 
@@ -640,6 +641,7 @@ function SecaoLanding() {
         hero_titulo: form.hero_titulo,
         hero_subtitulo: form.hero_subtitulo,
         hero_imagem: form.hero_imagem,
+        demo_url: form.demo_url,
       });
       mostrar({ tipo: 'sucesso', titulo: 'Landing page atualizada!' });
       consulta.refetch();
@@ -730,6 +732,16 @@ function SecaoLanding() {
                   <Input id="cta_texto" maxLength={60} value={form.cta_texto}
                     onChange={e => setForm(f => ({ ...f, cta_texto: e.target.value }))}
                     placeholder="Ver demonstração" />
+                </div>
+                <div>
+                  <Label htmlFor="demo_url">Link do botão "Ver demonstração"</Label>
+                  <Input id="demo_url" maxLength={300} value={form.demo_url}
+                    onChange={e => setForm(f => ({ ...f, demo_url: e.target.value }))}
+                    placeholder="https://unimaxxsoftware.com.br/loja/1" />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    URL fixa da loja de demonstração. Deixe em branco pra usar a 1ª loja aprovada deste cliente automaticamente.
+                    Se a loja de demo estiver em outro domínio/cliente, cole a URL completa aqui.
+                  </p>
                 </div>
                 <ListaTextoEditavel titulo="Benefícios (check no topo e no rodapé)" max={6}
                   itens={form.beneficios} onChange={v => setForm(f => ({ ...f, beneficios: v }))} />

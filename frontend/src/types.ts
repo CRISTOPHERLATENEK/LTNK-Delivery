@@ -212,6 +212,8 @@ export interface TemaMarca {
   landing_hero_titulo?: string;
   landing_hero_subtitulo?: string;
   landing_hero_imagem?: string;
+  /** URL fixa do botão "Ver demonstração" — sobrepõe a busca automática pela 1ª loja do tenant (útil quando a loja de demo mora em outro tenant/domínio). */
+  landing_demo_url?: string;
 }
 
 export interface LandingDestaque {

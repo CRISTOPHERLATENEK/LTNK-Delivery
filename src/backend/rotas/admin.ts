@@ -1180,6 +1180,7 @@ router.get('/landing', async (_req, res, next) => {
       hero_titulo:    await valor('landing_hero_titulo'),
       hero_subtitulo: await valor('landing_hero_subtitulo'),
       hero_imagem:    await valor('landing_hero_imagem'),
+      demo_url:       await valor('landing_demo_url'),
     });
   } catch (e) { next(e); }
 });
@@ -1197,6 +1198,7 @@ router.put('/landing', exigirSuperAdmin, async (req, res, next) => {
     if (req.body.hero_titulo !== undefined) await upsert('landing_hero_titulo', textoLimpo(req.body.hero_titulo, 120));
     if (req.body.hero_subtitulo !== undefined) await upsert('landing_hero_subtitulo', textoLimpo(req.body.hero_subtitulo, 240));
     if (req.body.hero_imagem !== undefined) await upsert('landing_hero_imagem', textoLimpo(req.body.hero_imagem, 500));
+    if (req.body.demo_url !== undefined) await upsert('landing_demo_url', textoLimpo(req.body.demo_url, 300));
     if (req.body.recursos !== undefined) {
       if (!Array.isArray(req.body.recursos) || req.body.recursos.length > 9) {
         throw erroHttp(400, 'Lista de recursos inválida (máximo 9 itens).');

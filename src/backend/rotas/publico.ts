@@ -80,6 +80,7 @@ router.get('/tema', async (req, res, next) => {
       landing_hero_titulo:    await valor('landing_hero_titulo'),
       landing_hero_subtitulo: await valor('landing_hero_subtitulo'),
       landing_hero_imagem:    await valor('landing_hero_imagem'),
+      landing_demo_url:       await valor('landing_demo_url'),
       // Usados no rodapé da landing — mesmos campos já editáveis em Marca → Configurações gerais.
       suporte_email:     await valor('suporte_email'),
       suporte_telefone:  await valor('suporte_telefone'),
