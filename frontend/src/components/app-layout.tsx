@@ -150,8 +150,8 @@ export function AppLayout({ children, itens, titulo, subtitulo }: Props) {
         <main className="mx-auto max-w-3xl px-4 py-5 pb-32 lg:max-w-6xl lg:px-8 lg:py-8 lg:pb-10">
           <motion.div
             key={location.pathname}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
           >
             {children}
