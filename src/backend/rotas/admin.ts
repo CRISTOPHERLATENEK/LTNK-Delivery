@@ -117,8 +117,50 @@ router.get('/dashboard', async (_req, res, next) => {
 
 // ----- Lojas ---------------------------------------------------------------
 
-router.get('/lojas', async (_req, res, next) => {
+/**
+ * Middleware opcional: se vier `tenant_id` (corpo ou query) E a requisição
+ * for do super admin no painel principal, troca o banco pra aquele tenant
+ * antes de seguir pra rota — assim as ações de UMA loja (aprovar, suspender,
+ * comissão, domínio, WhatsApp, fiscal…) funcionam em cima de QUALQUER
+ * cliente/tenant a partir do painel master, sem duplicar cada rota. Fora
+ * desse caso (sem tenant_id, ou admin comum, ou já dentro de um tenant),
+ * segue no contexto já resolvido pelo Host — comportamento de sempre.
+ */
+async function comTenantDaLoja(req: import('express').Request, _res: import('express').Response, next: import('express').NextFunction) {
   try {
+    const tenantId = inteiroPositivo((req.body && req.body.tenant_id) ?? req.query.tenant_id);
+    if (!tenantId || !ehMaster(bancoTenantAtual()) || !req.usuario?.super_admin) return next();
+    const tenant = await tenantPorId(tenantId);
+    if (!tenant) return next(erroHttp(404, 'Cliente não encontrado.'));
+    await comTenant(tenant.db_nome, async () => next());
+  } catch (e) { next(e); }
+}
+router.use('/lojas', comTenantDaLoja);
+
+/**
+ * Lista lojas. Chamado do painel MASTER por um super admin, agrega as lojas
+ * de TODOS os tenants (cada card já sabe seu tenant_id, usado nas ações
+ * abaixo). Fora desse caso, lista só as lojas do tenant atual — comportamento
+ * de sempre, preservado pra admins operacionais dentro de um tenant.
+ */
+router.get('/lojas', async (req, res, next) => {
+  try {
+    if (ehMaster(bancoTenantAtual()) && req.usuario?.super_admin) {
+      const tenants = await listarTenants();
+      const listas = await Promise.all(tenants.map(async (t) => {
+        try {
+          const linhas = await comTenant(t.db_nome, async () => db.prepare(
+            `SELECT l.*, u.nome AS dono_nome, u.email AS dono_email
+               FROM lojas l JOIN usuarios u ON u.id = l.usuario_id`
+          ).all()) as Record<string, unknown>[];
+          return linhas.map(l => ({ ...l, tenant_id: t.id, tenant_nome: t.nome, tenant_slug: t.slug }));
+        } catch { return []; }
+      }));
+      const lojas = listas.flat().sort((a: any, b: any) =>
+        (a.status_aprovacao === 'pendente' ? 0 : 1) - (b.status_aprovacao === 'pendente' ? 0 : 1) || b.id - a.id);
+      res.json({ lojas });
+      return;
+    }
     const lojas = await db.prepare(
       `SELECT l.*, u.nome AS dono_nome, u.email AS dono_email
          FROM lojas l JOIN usuarios u ON u.id = l.usuario_id

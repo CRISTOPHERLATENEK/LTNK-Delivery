@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Store, CheckCircle2, XCircle, Clock, Search, Building2, Trash2,
   ChevronDown, TrendingUp, Receipt, Ticket, Activity,
-  FileText, ShieldCheck, Upload, Package, Save, ChevronUp, Globe, Loader2,
+  FileText, ShieldCheck, Upload, Package, Save, ChevronUp, Globe, Loader2, LogIn,
 } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -38,6 +38,15 @@ interface Loja {
   dominio_personalizado: string | null;
   whatsapp_permite_oficial: 0 | 1;
   whatsapp_permite_nao_oficial: 0 | 1;
+  /** Presentes só quando a lista vem agregada de todos os clientes (painel master). */
+  tenant_id?: number;
+  tenant_nome?: string;
+  tenant_slug?: string;
+}
+
+/** Anexa `?tenant_id=` na URL quando a loja pertence a um tenant (lista agregada do master) — o backend usa isso pra trocar de banco antes de executar a ação. */
+function comTenant(url: string, l: Pick<Loja, 'tenant_id'>): string {
+  return l.tenant_id ? `${url}${url.includes('?') ? '&' : '?'}tenant_id=${l.tenant_id}` : url;
 }
 
 type Filtro = 'todas' | 'pendente' | 'aprovada' | 'suspensa';
@@ -65,9 +74,9 @@ export function TelaLojas() {
     queryFn: () => api<{ lojas: Loja[] }>('GET', '/api/admin/lojas').then(r => r.lojas),
   });
 
-  async function aprovar(id: number) {
+  async function aprovar(l: Loja) {
     try {
-      await api('POST', `/api/admin/lojas/${id}/aprovar`);
+      await api('POST', comTenant(`/api/admin/lojas/${l.id}/aprovar`, l));
       mostrar({ tipo: 'sucesso', titulo: 'Loja aprovada!' });
       qc.invalidateQueries({ queryKey: ['admin-lojas'] });
     } catch (e) {
@@ -75,10 +84,10 @@ export function TelaLojas() {
     }
   }
 
-  async function suspender(id: number) {
+  async function suspender(l: Loja) {
     if (!(await confirmar({ titulo: 'Suspender esta loja?', descricao: 'Ela ficará invisível para os clientes até ser reativada.', confirmar: 'Suspender', destrutivo: true }))) return;
     try {
-      await api('POST', `/api/admin/lojas/${id}/suspender`);
+      await api('POST', comTenant(`/api/admin/lojas/${l.id}/suspender`, l));
       mostrar({ tipo: 'sucesso', titulo: 'Loja suspensa.' });
       qc.invalidateQueries({ queryKey: ['admin-lojas'] });
     } catch (e) {
@@ -89,12 +98,28 @@ export function TelaLojas() {
   async function excluir(l: Loja) {
     if (!(await confirmar({ titulo: `Excluir "${l.nome}"?`, descricao: 'Esta ação é permanente e não pode ser desfeita.', confirmar: 'Excluir', destrutivo: true }))) return;
     try {
-      await api('DELETE', `/api/admin/lojas/${l.id}`);
+      await api('DELETE', comTenant(`/api/admin/lojas/${l.id}`, l));
       mostrar({ tipo: 'sucesso', titulo: 'Loja excluída.' });
       if (selecionada === l.id) setSelecionada(null);
       qc.invalidateQueries({ queryKey: ['admin-lojas'] });
     } catch (e) {
       if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message, descricao: 'Dica: se tiver pedidos, suspenda a loja.' });
+    }
+  }
+
+  async function entrarComoLojista(l: Loja) {
+    if (!l.tenant_id) return;
+    try {
+      const token = tokenSessao();
+      const resp = await fetch(`/api/admin/tenants/${l.tenant_id}/impersonar`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(corpo.erro || `Falha ao entrar (HTTP ${resp.status}).`);
+      window.open(`/lojista?entrar=${encodeURIComponent(corpo.token)}`, '_blank');
+    } catch (e) {
+      mostrar({ tipo: 'erro', titulo: e instanceof Error ? e.message : 'Falha ao entrar como lojista.' });
     }
   }
 
@@ -211,7 +236,14 @@ export function TelaLojas() {
                           ? <Badge variant="success" className="text-[10px]">Aberta</Badge>
                           : <Badge variant="secondary" className="text-[10px]">Fechada</Badge>}
                       </div>
-                      <div className="text-sm text-muted-foreground mt-0.5">{l.categoria} · {l.dono_nome}</div>
+                      <div className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
+                        {l.categoria} · {l.dono_nome}
+                        {l.tenant_nome && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                            <Building2 className="size-2.5" /> {l.tenant_nome}
+                          </span>
+                        )}
+                      </div>
                       {(l.dominio_personalizado || l.slug) && (
                         <div className="text-xs text-muted-foreground mt-0.5 font-mono flex items-center gap-1">
                           <Globe className="size-3" />
@@ -227,13 +259,18 @@ export function TelaLojas() {
 
                     {/* Ações */}
                     <div className="flex flex-col gap-2 shrink-0">
+                      {!!l.tenant_id && (
+                        <Button size="sm" variant="outline" onClick={() => entrarComoLojista(l)}>
+                          <LogIn className="size-3.5" /> Entrar
+                        </Button>
+                      )}
                       {l.status_aprovacao !== 'aprovada' && (
-                        <Button size="sm" variant="success" onClick={() => aprovar(l.id)}>
+                        <Button size="sm" variant="success" onClick={() => aprovar(l)}>
                           <CheckCircle2 className="size-3.5" /> {l.status_aprovacao === 'suspensa' ? 'Reativar' : 'Aprovar'}
                         </Button>
                       )}
                       {l.status_aprovacao === 'aprovada' && (
-                        <Button size="sm" variant="destructive" onClick={() => suspender(l.id)}>
+                        <Button size="sm" variant="destructive" onClick={() => suspender(l)}>
                           <XCircle className="size-3.5" /> Suspender
                         </Button>
                       )}
@@ -246,7 +283,7 @@ export function TelaLojas() {
                   </div>
 
                   {/* Painel de vendas */}
-                  {aberto && <PainelVendas lojaId={l.id} />}
+                  {aberto && <PainelVendas loja={l} />}
                   {aberto && superAdmin && (
                     <ComissaoLojaEditor loja={l} onSalvo={() => consulta.refetch()} />
                   )}
@@ -256,7 +293,7 @@ export function TelaLojas() {
                   {aberto && superAdmin && (
                     <WhatsAppPermissoesEditor loja={l} onSalvo={() => consulta.refetch()} />
                   )}
-                  {aberto && superAdmin && <FiscalLojaAdmin lojaId={l.id} />}
+                  {aberto && superAdmin && <FiscalLojaAdmin loja={l} />}
                 </CardContent>
               </Card>
             );
@@ -278,7 +315,7 @@ function ComissaoLojaEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void
     e.preventDefault();
     setSalvando(true);
     try {
-      await api('PUT', `/api/admin/lojas/${loja.id}/comissao`, {
+      await api('PUT', comTenant(`/api/admin/lojas/${loja.id}/comissao`, loja), {
         comissao_percentual: valor === '' ? null : Number(valor),
       });
       mostrar({ tipo: 'sucesso', titulo: valor === '' ? 'Comissão padrão da plataforma aplicada.' : `Comissão desta loja: ${valor}%` });
@@ -315,7 +352,7 @@ function DominioLojaEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void 
     e.preventDefault();
     setSalvando(true);
     try {
-      await api('PUT', `/api/admin/lojas/${loja.id}/dominio`, { dominio_personalizado: valor.trim() });
+      await api('PUT', comTenant(`/api/admin/lojas/${loja.id}/dominio`, loja), { dominio_personalizado: valor.trim() });
       mostrar({ tipo: 'sucesso', titulo: valor.trim() ? `Domínio vinculado: ${valor.trim()}` : 'Domínio removido.' });
       onSalvo();
     } catch (err) {
@@ -353,7 +390,7 @@ function WhatsAppPermissoesEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () =
   async function salvar(permiteOficial: boolean, permiteNaoOficial: boolean) {
     setSalvando(true);
     try {
-      await api('PUT', `/api/admin/lojas/${loja.id}/whatsapp-permissoes`, {
+      await api('PUT', comTenant(`/api/admin/lojas/${loja.id}/whatsapp-permissoes`, loja), {
         permite_oficial: permiteOficial, permite_nao_oficial: permiteNaoOficial,
       });
       mostrar({ tipo: 'sucesso', titulo: 'Permissões de WhatsApp atualizadas.' });
@@ -412,10 +449,10 @@ const ROTULO_STATUS: Record<string, string> = {
   em_entrega: 'Em entrega', entregue: 'Entregue', cancelado: 'Cancelado', recusado: 'Recusado',
 };
 
-function PainelVendas({ lojaId }: { lojaId: number }) {
+function PainelVendas({ loja }: { loja: Loja }) {
   const consulta = useQuery({
-    queryKey: ['admin-loja-vendas', lojaId],
-    queryFn: () => api<Vendas>('GET', `/api/admin/lojas/${lojaId}/vendas`),
+    queryKey: ['admin-loja-vendas', loja.id, loja.tenant_id],
+    queryFn: () => api<Vendas>('GET', comTenant(`/api/admin/lojas/${loja.id}/vendas`, loja)),
   });
 
   if (consulta.isLoading) {
@@ -506,7 +543,8 @@ const ORIGENS_ADMIN = [
   '6 – Est. sem similar nacional', '7 – Est. c/ similar nacional', '8 – Nacional por encomenda',
 ];
 
-function FiscalLojaAdmin({ lojaId }: { lojaId: number }) {
+function FiscalLojaAdmin({ loja }: { loja: Loja }) {
+  const lojaId = loja.id;
   const { mostrar } = useToast();
   const [aberto, setAberto] = useState(false);
   const [aba, setAba] = useState<'emitente' | 'padroes' | 'produtos'>('emitente');
@@ -521,13 +559,13 @@ function FiscalLojaAdmin({ lojaId }: { lojaId: number }) {
   const timerRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
   function carregar() {
-    api<{ config: FiscalCfg; certificado: FiscalCert }>('GET', `/api/admin/lojas/${lojaId}/fiscal`)
+    api<{ config: FiscalCfg; certificado: FiscalCert }>('GET', comTenant(`/api/admin/lojas/${lojaId}/fiscal`, loja))
       .then(r => { setCfg(r.config); setCert(r.certificado); })
       .catch(() => {});
   }
 
   function carregarProdutos() {
-    api<{ produtos: ProdFiscal[] }>('GET', `/api/admin/lojas/${lojaId}/fiscal/produtos`)
+    api<{ produtos: ProdFiscal[] }>('GET', comTenant(`/api/admin/lojas/${lojaId}/fiscal/produtos`, loja))
       .then(r => setProdutos(r.produtos))
       .catch(() => {});
   }
@@ -569,7 +607,7 @@ function FiscalLojaAdmin({ lojaId }: { lojaId: number }) {
     if (!cfg) return;
     setSalvando(true);
     try {
-      await api('PUT', `/api/admin/lojas/${lojaId}/fiscal`, { ...cfg, csc: csc || undefined });
+      await api('PUT', comTenant(`/api/admin/lojas/${lojaId}/fiscal`, loja), { ...cfg, csc: csc || undefined });
       setCsc('');
       mostrar({ tipo: 'sucesso', titulo: 'Dados fiscais salvos!' });
       carregar();
@@ -585,7 +623,7 @@ function FiscalLojaAdmin({ lojaId }: { lojaId: number }) {
       const fd = new FormData();
       fd.append('certificado', arquivo);
       fd.append('senha', senhaCert);
-      const resp = await fetch(`/api/admin/lojas/${lojaId}/fiscal/certificado`, {
+      const resp = await fetch(comTenant(`/api/admin/lojas/${lojaId}/fiscal/certificado`, loja), {
         method: 'POST',
         headers: { Authorization: `Bearer ${tokenSessao()}` },
         body: fd,
@@ -605,7 +643,7 @@ function FiscalLojaAdmin({ lojaId }: { lojaId: number }) {
       clearTimeout(timerRef.current[id]);
       timerRef.current[id] = setTimeout(() => {
         const prod = next.find(p => p.id === id);
-        if (prod) api('PUT', `/api/admin/lojas/${lojaId}/fiscal/produtos/${id}`, prod).catch(() => {});
+        if (prod) api('PUT', comTenant(`/api/admin/lojas/${lojaId}/fiscal/produtos/${id}`, loja), prod).catch(() => {});
       }, 800);
       return next;
     });
