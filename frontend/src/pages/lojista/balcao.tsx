@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ShoppingCart, Search, Plus, Minus, Trash2, Banknote, QrCode, CreditCard,
-  Check, Printer, Receipt, ChefHat, Barcode, Scale, X,
+  Check, Printer, Receipt, ChefHat, Barcode, Scale, X, UtensilsCrossed,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -306,7 +306,7 @@ export function BalcaoLoja() {
                   <div className="relative aspect-[4/3] bg-white overflow-hidden">
                     {p.foto_url
                       ? <img src={p.foto_url} alt="" className="size-full object-cover" />
-                      : <div className="size-full flex items-center justify-center text-3xl opacity-50">🍽️</div>}
+                      : <div className="size-full flex items-center justify-center text-muted-foreground/50"><UtensilsCrossed className="size-8" strokeWidth={1.5} /></div>}
                     {ehPeso(p) && (
                       <span className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-full bg-primary/90 px-1.5 py-0.5 text-[10px] font-bold text-primary-foreground">
                         <Scale className="size-2.5" /> kg

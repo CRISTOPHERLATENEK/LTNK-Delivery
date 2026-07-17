@@ -650,7 +650,7 @@ function PainelComanda({
                 >
                   {p.foto_url
                     ? <img src={p.foto_url} alt="" className="size-10 rounded-lg object-cover shrink-0" />
-                    : <div className="flex size-10 items-center justify-center rounded-lg bg-accent text-lg shrink-0">🍽️</div>
+                    : <div className="flex size-10 items-center justify-center rounded-lg bg-accent text-muted-foreground shrink-0"><UtensilsCrossed className="size-4" strokeWidth={1.5} /></div>
                   }
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold truncate">{p.nome}</div>

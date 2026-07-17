@@ -3,7 +3,7 @@ import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useTema, injetarFonteLink, foregroundContraste } from '@/lib/tema';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2, Check, ArrowRight, ShoppingCart } from 'lucide-react';
+import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2, Check, ArrowRight, ShoppingCart, UtensilsCrossed } from 'lucide-react';
 import { api } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -519,7 +519,9 @@ function ModalAdicionado({ produto, onFechar }: { produto: Produto | null; onFec
               {produto.foto_url ? (
                 <img src={produto.foto_url} alt="" className="size-14 shrink-0 rounded-2xl object-cover border border-border/60 bg-white" />
               ) : (
-                <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-muted text-2xl">🍽️</div>
+                <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-muted text-muted-foreground/60">
+                  <UtensilsCrossed className="size-6" strokeWidth={1.5} />
+                </div>
               )}
             </div>
             <div className="flex items-center gap-2 border-t border-border/60 p-2.5">
@@ -579,7 +581,9 @@ function CarrinhoLateral({ loja }: { loja: Loja }) {
                 {item.foto_url ? (
                   <img src={item.foto_url} alt="" className="size-9 shrink-0 rounded-xl object-cover" />
                 ) : (
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-100 to-rose-200 text-lg">🍽️</div>
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-100 to-rose-200 text-neutral-500">
+                    <UtensilsCrossed className="size-4" strokeWidth={1.5} />
+                  </div>
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold leading-tight line-clamp-1">{item.nome}</div>
@@ -777,7 +781,9 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
                 }}
                 className={cn('size-full object-cover transition-transform duration-300', abrivel && 'group-hover:scale-105', esgotado && 'grayscale')} />
             : null}
-          <div className="size-full items-center justify-center text-4xl" style={{ display: produto.foto_url ? 'none' : 'flex' }}>🍽️</div>
+          <div className="size-full items-center justify-center bg-muted text-muted-foreground/60" style={{ display: produto.foto_url ? 'none' : 'flex' }}>
+            <UtensilsCrossed className={layoutGrid ? 'size-9' : 'size-6'} strokeWidth={1.5} />
+          </div>
           {/* Overlay esgotado */}
           {esgotado && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/45">

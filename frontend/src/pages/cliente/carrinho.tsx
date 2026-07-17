@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Minus, Plus, ShoppingBag, MapPin, CreditCard, Ticket, X, AlertTriangle, QrCode, Banknote, Copy, Check, Loader2 } from 'lucide-react';
+import { Minus, Plus, ShoppingBag, MapPin, CreditCard, Ticket, X, AlertTriangle, QrCode, Banknote, Copy, Check, Loader2, UtensilsCrossed } from 'lucide-react';
 import { useCarrinho, mudarQuantidade, limparCarrinho } from '@/lib/carrinho';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
 import { brl } from '@/lib/format';
@@ -105,7 +105,9 @@ export function PaginaCarrinho() {
                   {item.foto_url ? (
                     <img src={item.foto_url} alt="" className="size-12 shrink-0 rounded-xl object-cover" />
                   ) : (
-                    <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-100 to-rose-200 text-xl">🍽️</div>
+                    <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-100 to-rose-200 text-neutral-500">
+                      <UtensilsCrossed className="size-5" strokeWidth={1.5} />
+                    </div>
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold leading-tight">{item.nome}</div>

@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Box, Plus, Pencil, Trash2, X, Star, ChevronDown, ChevronUp,
   ToggleLeft, ToggleRight, Tag, SlidersHorizontal, Check, Layers,
-  Copy, CheckSquare, Square, FileText, Rows3, Rows4,
+  Copy, CheckSquare, Square, FileText, Rows3, Rows4, UtensilsCrossed,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -694,7 +694,7 @@ export function ProdutosLoja() {
       {!consulta.isLoading && todos.length === 0 && (
         <Card>
           <CardContent className="p-10 text-center space-y-3">
-            <div className="text-5xl">🍽️</div>
+            <UtensilsCrossed className="mx-auto size-12 text-muted-foreground/50" strokeWidth={1.5} />
             <p className="font-semibold text-muted-foreground">Nenhum produto ainda</p>
             <p className="text-sm text-muted-foreground">
               Clique em "Novo produto" para montar seu cardápio.
@@ -946,7 +946,9 @@ function CardProduto({
           {/* Foto */}
           {p.foto_url
             ? <img src={p.foto_url} alt={p.nome} className={cn('rounded-xl object-cover border border-border shrink-0 bg-muted', compacta ? 'size-9' : 'size-16')} />
-            : <div className={cn('flex items-center justify-center rounded-xl bg-accent shrink-0', compacta ? 'size-9 text-base' : 'size-16 text-2xl')}>🍽️</div>
+            : <div className={cn('flex items-center justify-center rounded-xl bg-accent text-muted-foreground shrink-0', compacta ? 'size-9' : 'size-16')}>
+                <UtensilsCrossed className={compacta ? 'size-4' : 'size-6'} strokeWidth={1.5} />
+              </div>
           }
 
           {/* Info */}
