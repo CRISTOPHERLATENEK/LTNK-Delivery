@@ -130,6 +130,11 @@ export async function tenantPorId(id: number | string): Promise<Tenant | undefin
   return (rows as Tenant[])[0];
 }
 
+export async function tenantPorSlug(slug: string): Promise<Tenant | undefined> {
+  const [rows] = await poolCentral().query('SELECT * FROM tenants WHERE slug = ? AND ativo = 1', [slug]);
+  return (rows as Tenant[])[0];
+}
+
 /** O banco MySQL alvo já existe e está alcançável com as credenciais atuais? */
 async function bancoAlcancavel(dbNome: string): Promise<boolean> {
   try {

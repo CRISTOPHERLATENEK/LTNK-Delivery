@@ -10,6 +10,7 @@ import { AppLayout, NavBadge } from '@/components/app-layout';
 import { useCarrinho, totalItensCarrinho } from '@/lib/carrinho';
 import { api, sessaoUsuario } from '@/lib/api';
 import { PaginaVitrine } from '@/pages/cliente/vitrine';
+import { PaginaDemo } from '@/pages/cliente/demo';
 import { PaginaLoja } from '@/pages/cliente/loja';
 import { PaginaCarrinho } from '@/pages/cliente/carrinho';
 import { PaginaPedidos } from '@/pages/cliente/pedidos';
@@ -102,6 +103,7 @@ export default function App() {
           compras — carrinho/pedidos não fazem sentido numa página de marketing)
           quanto um redirect pra /loja/:id (que aí sim usa o layout de compras). */}
       <Route path="/" element={<PaginaVitrine />} />
+      <Route path="/demo/:slug" element={<PaginaDemo />} />
       <Route path="/loja/:id" element={<ClienteLayout><PaginaLoja /></ClienteLayout>} />
       <Route path="/carrinho" element={<ClienteLayout><PaginaCarrinho /></ClienteLayout>} />
       <Route path="/pedidos" element={<ClienteLayout><PaginaPedidos /></ClienteLayout>} />

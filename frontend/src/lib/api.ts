@@ -119,6 +119,36 @@ export function ehSuperAdmin(): boolean {
   localStorage.removeItem('usuario');
 })();
 
+const CHAVE_TENANT_DEMO = 'tenant-demo-slug';
+
+/**
+ * Ativa/desativa o modo "vitrine de demonstração": enquanto ativo, toda
+ * chamada à API carrega o header X-Demo-Tenant, que o backend usa pra
+ * resolver o tenant daquele slug em vez do Host da requisição (ver
+ * server.ts). Usado só pela página de demo (pages/cliente/demo.tsx) —
+ * sessionStorage porque não deve sobreviver ao fechamento da aba.
+ */
+export function definirTenantDemo(slug: string | null) {
+  if (slug) sessionStorage.setItem(CHAVE_TENANT_DEMO, slug);
+  else sessionStorage.removeItem(CHAVE_TENANT_DEMO);
+}
+
+/**
+ * Só considera o modo demo ativo dentro das rotas da área cliente que a
+ * vitrine de demo realmente usa (/demo, /loja, /carrinho, /pedido*, /conta).
+ * Fora delas (lojista/entregador/cozinha/admin, ou de volta pra home) o flag
+ * é ignorado — e apagado — pra uma sessionStorage esquecida nunca desviar
+ * chamadas reais de outra área pro tenant de demonstração.
+ */
+export function tenantDemoAtivo(): string | null {
+  const slug = sessionStorage.getItem(CHAVE_TENANT_DEMO);
+  if (!slug) return null;
+  const p = typeof window !== 'undefined' ? window.location.pathname : '/';
+  const dentroDaDemo = /^\/(demo|loja|carrinho|pedidos|pedido|conta)(\/|$)/.test(p);
+  if (!dentroDaDemo) { sessionStorage.removeItem(CHAVE_TENANT_DEMO); return null; }
+  return slug;
+}
+
 export async function api<T = unknown>(
   metodo: 'GET' | 'POST' | 'PUT' | 'DELETE',
   caminho: string,
@@ -127,6 +157,8 @@ export async function api<T = unknown>(
   const cabecalhos: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = tokenSessao();
   if (token) cabecalhos['Authorization'] = 'Bearer ' + token;
+  const tenantDemo = tenantDemoAtivo();
+  if (tenantDemo) cabecalhos['X-Demo-Tenant'] = tenantDemo;
 
   const resposta = await fetch(caminho, {
     method: metodo,

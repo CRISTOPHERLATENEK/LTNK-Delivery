@@ -25,7 +25,7 @@ import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
 import { ErroHttp, lojaAbertaPorAgenda, agoraUTC } from './util';
 import db, { comTenant } from './db-mysql';
-import { inicializarCentral, resolverPorHost, tenantPadrao, listarTenants } from './tenants-mysql';
+import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, listarTenants } from './tenants-mysql';
 import { capturarErro } from './monitoramento';
 
 /**
@@ -65,9 +65,17 @@ app.use((req, res, next) => {
 // ── Multi-tenant (SILO): resolve o tenant pelo domínio e fixa o .db do request.
 // Sem match (localhost / domínio não cadastrado) usa o tenant padrão.
 // Todo o restante do request roda dentro do contexto desse tenant.
+//
+// Exceção: header X-Demo-Tenant (slug) tem prioridade sobre o Host — usado
+// pela vitrine de demonstração (frontend/src/pages/cliente/demo.tsx), que
+// deixa o visitante navegar numa loja de outro tenant sem precisar de
+// domínio/subdomínio próprio configurado (ex: botão "Ver demonstração" da
+// landing apontando pra um tenant que ainda não tem DNS).
 app.use((req, _res, next) => {
   (async () => {
-    const tenant = (await resolverPorHost(req.headers.host)) ?? (await tenantPadrao());
+    const slugDemo = typeof req.headers['x-demo-tenant'] === 'string' ? req.headers['x-demo-tenant'] : undefined;
+    const tenantDemo = slugDemo ? await tenantPorSlug(slugDemo) : undefined;
+    const tenant = tenantDemo ?? (await resolverPorHost(req.headers.host)) ?? (await tenantPadrao());
     await comTenant(tenant.db_nome, async () => { next(); });
   })().catch(next);
 });

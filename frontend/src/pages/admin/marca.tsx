@@ -737,10 +737,12 @@ function SecaoLanding() {
                   <Label htmlFor="demo_url">Link do botão "Ver demonstração"</Label>
                   <Input id="demo_url" maxLength={300} value={form.demo_url}
                     onChange={e => setForm(f => ({ ...f, demo_url: e.target.value }))}
-                    placeholder="https://unimaxxsoftware.com.br/loja/1" />
+                    placeholder="/demo/unimaxx" />
                   <p className="text-xs text-muted-foreground mt-1">
-                    URL fixa da loja de demonstração. Deixe em branco pra usar a 1ª loja aprovada deste cliente automaticamente.
-                    Se a loja de demo estiver em outro domínio/cliente, cole a URL completa aqui.
+                    Deixe em branco pra usar a 1ª loja aprovada deste cliente automaticamente.
+                    Se a loja de demo for de outro cliente (tenant), use <code>/demo/&lt;slug-do-cliente&gt;</code> —
+                    funciona sem precisar de domínio próprio configurado. Só cole uma URL completa (https://...)
+                    se a demo já tiver domínio funcionando de verdade.
                   </p>
                 </div>
                 <ListaTextoEditavel titulo="Benefícios (check no topo e no rodapé)" max={6}
