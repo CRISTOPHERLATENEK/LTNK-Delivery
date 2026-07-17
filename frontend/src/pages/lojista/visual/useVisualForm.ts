@@ -31,15 +31,17 @@ function comCaminho(obj: any, caminho: string, valor: any): any {
 export function useVisualForm() {
   const { mostrar } = useToast();
   const [lojaId, setLojaId] = useState<number | null>(null);
+  const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   const [estado, setEstado] = useState<EstadoVisual>({ ...DEFAULT_VISUAL, nome: '', cor_marca: '#dc2640', cor_secundaria: '', logo_url: '', capa_url: '', favicon_url: '' });
   const [carregado, setCarregado] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const estadoInicialRef = useRef<string>('');
 
   const carregar = useCallback(() => {
-    api<{ loja: any }>('GET', '/api/lojista/loja').then(r => {
+    api<{ loja: any; tenant_slug: string | null }>('GET', '/api/lojista/loja').then(r => {
       const novo = montarEstado(r.loja);
       setLojaId(r.loja.id);
+      setTenantSlug(r.tenant_slug);
       setEstado(novo);
       estadoInicialRef.current = JSON.stringify(novo);
       setCarregado(true);
@@ -96,5 +98,5 @@ export function useVisualForm() {
     setEstado(e => ({ ...e, [aba]: DEFAULT_VISUAL[aba] }));
   }
 
-  return { lojaId, estado, atualizar, aplicarParcial, carregado, dirty, salvando, salvar, restaurarPadraoAba, lerCaminho };
+  return { lojaId, tenantSlug, estado, atualizar, aplicarParcial, carregado, dirty, salvando, salvar, restaurarPadraoAba, lerCaminho };
 }

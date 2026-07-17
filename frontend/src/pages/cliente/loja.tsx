@@ -4,7 +4,7 @@ import { useTema, injetarFonteLink, foregroundContraste } from '@/lib/tema';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2, Check, ArrowRight, ShoppingCart, UtensilsCrossed } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, definirTenantDemo } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -38,6 +38,13 @@ export function PaginaLoja() {
   const [busca, setBusca] = useState('');
   const [adicionado, setAdicionado] = useState<Produto | null>(null);
   const { aplicarCorPrimaria, resetarCorPrimaria, aplicarFaviconLoja, resetarFavicon, marca } = useTema();
+
+  // ?tenant=<slug> força a resolução de tenant por slug em vez do Host da
+  // aba — usado pelo preview do editor Visual (PhonePreview.tsx) e pela
+  // vitrine de demo (/demo/:slug), pra alcançar lojas sem domínio próprio
+  // configurado. Precisa rodar antes do useQuery abaixo disparar o fetch.
+  const tenantParam = searchParams.get('tenant');
+  if (tenantParam) definirTenantDemo(tenantParam);
 
   const consulta = useQuery({
     queryKey: ['cardapio', id],

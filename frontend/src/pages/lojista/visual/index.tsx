@@ -52,7 +52,7 @@ export function VisualLoja() {
 
   if (!form.carregado) return <Skeleton className="h-96" />;
 
-  const { estado, atualizar, aplicarParcial, dirty, salvando, salvar, restaurarPadraoAba, lojaId } = form;
+  const { estado, atualizar, aplicarParcial, dirty, salvando, salvar, restaurarPadraoAba, lojaId, tenantSlug } = form;
 
   return (
     <div className="space-y-4 pb-24 lg:pb-4">
@@ -120,7 +120,7 @@ export function VisualLoja() {
 
         {/* Preview ao vivo — sticky no desktop, Sheet no mobile */}
         <div className="hidden lg:block lg:sticky lg:top-4">
-          <PhonePreview estado={estado} lojaId={lojaId} modo={modoPreview} onModoChange={setModoPreview} />
+          <PhonePreview estado={estado} lojaId={lojaId} tenantSlug={tenantSlug} modo={modoPreview} onModoChange={setModoPreview} />
         </div>
       </div>
 
@@ -130,7 +130,7 @@ export function VisualLoja() {
             <SheetTitle>Pré-visualização</SheetTitle>
           </SheetHeader>
           <div className="flex justify-center overflow-y-auto p-4">
-            <PhonePreview estado={estado} lojaId={lojaId} modo={modoPreview} onModoChange={setModoPreview} />
+            <PhonePreview estado={estado} lojaId={lojaId} tenantSlug={tenantSlug} modo={modoPreview} onModoChange={setModoPreview} />
           </div>
         </SheetContent>
       </Sheet>

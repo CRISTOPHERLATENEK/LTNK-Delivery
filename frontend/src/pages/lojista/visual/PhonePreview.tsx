@@ -6,6 +6,11 @@ import type { EstadoVisual } from './types';
 interface Props {
   estado: EstadoVisual;
   lojaId: number | null;
+  /** Slug do tenant desta loja (ver GET /api/lojista/loja). Necessário quando
+   * a loja não tem domínio próprio configurado: o iframe roda na mesma aba
+   * do lojista, e sem esse hint o Host da requisição resolveria pro tenant
+   * errado (SILO — cada loja pode morar num banco isolado). */
+  tenantSlug?: string | null;
   modo: 'mobile' | 'desktop';
   onModoChange: (modo: 'mobile' | 'desktop') => void;
 }
@@ -24,7 +29,7 @@ const ALTURA_DESKTOP = 720;
  * renderizando, os breakpoints (`sm:`, `lg:`) reagem sozinhos, igual um
  * navegador de verdade.
  */
-export function PhonePreview({ estado, lojaId, modo, onModoChange }: Props) {
+export function PhonePreview({ estado, lojaId, tenantSlug, modo, onModoChange }: Props) {
   const [pronto, setPronto] = useState(false);
   const [escala, setEscala] = useState(1);
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -120,7 +125,7 @@ export function PhonePreview({ estado, lojaId, modo, onModoChange }: Props) {
             <iframe
               ref={iframeRef}
               key={lojaId}
-              src={`/loja/${lojaId}?preview=1`}
+              src={`/loja/${lojaId}?preview=1${tenantSlug ? `&tenant=${encodeURIComponent(tenantSlug)}` : ''}`}
               title="Pré-visualização da loja"
               className="border-0 bg-white"
               style={{ width: largura, height: altura }}

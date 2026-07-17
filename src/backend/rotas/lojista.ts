@@ -8,6 +8,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
+import { tenantPorDbNome } from '../tenants-mysql';
 import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido, normalizarBairro } from '../util';
 import { transicionarStatus } from '../fluxoPedido';
@@ -58,7 +59,15 @@ async function meuProduto(loja: Loja, produtoId: number | string): Promise<Produ
 // ----- Loja ----------------------------------------------------------------
 
 router.get('/loja', async (req, res, next) => {
-  try { res.json({ loja: await minhaLoja(req) }); } catch (e) { next(e); }
+  try {
+    const loja = await minhaLoja(req);
+    // slug do tenant atual — usado pelo preview do editor Visual (iframe
+    // /loja/:id?preview=1&tenant=<slug>) pra achar a loja certa mesmo quando
+    // ela não tem domínio próprio configurado (SILO: sem isso, o iframe cairia
+    // no tenant errado só pelo Host da aba).
+    const tenant = await tenantPorDbNome(bancoTenantAtual());
+    res.json({ loja, tenant_slug: tenant?.slug ?? null });
+  } catch (e) { next(e); }
 });
 
 router.post('/loja', async (req, res, next) => {
