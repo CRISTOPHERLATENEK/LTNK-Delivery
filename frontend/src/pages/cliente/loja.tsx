@@ -762,7 +762,10 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
       style={{
         borderRadius: premium ? Math.max(c.raio_bordas, 20) : c.raio_bordas,
         backgroundColor: visual.cores.cor_cards || undefined,
-        height: layoutGrid ? (premium ? Math.max(c.altura_cards, 240) : c.altura_cards) : undefined,
+        // minHeight (não height): a foto quadrada cresce com a largura do card
+        // (grid de 2-3 colunas) e pode passar da altura configurada — com
+        // height fixo + overflow-hidden isso cortava o nome/descrição embaixo.
+        minHeight: layoutGrid ? (premium ? Math.max(c.altura_cards, 240) : c.altura_cards) : undefined,
       }}
     >
       {/* Imagem */}
