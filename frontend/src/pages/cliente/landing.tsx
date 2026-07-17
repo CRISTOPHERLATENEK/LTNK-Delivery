@@ -9,9 +9,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star, Shield, ShieldCheck, Users, Mail, Phone, X, Quote, Printer, QrCode, KeyRound, Cloud, BarChart3, type LucideIcon } from 'lucide-react';
+import { Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star, Shield, ShieldCheck, Users, Mail, Phone, X, Quote, Printer, QrCode, KeyRound, Cloud, BarChart3, Sun, Moon, type LucideIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useTema } from '@/lib/tema';
+import { useTema, reaplicarPaletaTema } from '@/lib/tema';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import type { Loja, LandingRecurso, LandingIcone, LandingDepoimento, LandingDestaque } from '@/types';
@@ -148,8 +148,57 @@ const FISCAL_STATS: { icone: LucideIcon; titulo: string; desc: string }[] = [
   { icone: BarChart3, titulo: 'Relatórios completos', desc: 'Acompanhe vendas e emissões em tempo real.' },
 ];
 
+/**
+ * Chave própria de tema da landing ('tema:landing'), separada da área
+ * "cliente" (loja/carrinho/pedidos) — trocar o modo aqui não deve vazar
+ * pra outras páginas nem ser afetado por elas.
+ */
+const CHAVE_TEMA_LANDING = 'tema:landing';
+
+function usarTemaLanding() {
+  const [escuro, setEscuro] = useState(() => {
+    const salvo = localStorage.getItem(CHAVE_TEMA_LANDING);
+    if (salvo) return salvo === 'escuro';
+    return matchMedia('(prefers-color-scheme: dark)').matches;
+  });
+  const estadoAnteriorRef = useRef<boolean | null>(null);
+
+  // Captura o dark mode global vigente ao entrar na landing e o restaura
+  // ao sair — evita que a preferência da landing vaze pra outras páginas.
+  useEffect(() => {
+    estadoAnteriorRef.current = document.documentElement.classList.contains('dark');
+    return () => {
+      if (estadoAnteriorRef.current !== null) {
+        document.documentElement.classList.toggle('dark', estadoAnteriorRef.current);
+        reaplicarPaletaTema();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', escuro);
+    reaplicarPaletaTema();
+    localStorage.setItem(CHAVE_TEMA_LANDING, escuro ? 'escuro' : 'claro');
+  }, [escuro]);
+
+  return { escuro, alternar: () => setEscuro(v => !v) };
+}
+
+function ToggleTemaLanding({ escuro, onClick }: { escuro: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="inline-flex size-9 items-center justify-center rounded-full text-foreground hover:bg-accent transition-colors"
+      aria-label={escuro ? 'Mudar para modo claro' : 'Mudar para modo escuro'}
+    >
+      {escuro ? <Moon className="size-[18px]" /> : <Sun className="size-[18px]" />}
+    </button>
+  );
+}
+
 export function PaginaLanding() {
   const { marca } = useTema();
+  const { escuro, alternar } = usarTemaLanding();
   const recursos = marca.landing_recursos?.length ? marca.landing_recursos : RECURSOS_PADRAO;
   const beneficios = marca.landing_beneficios?.length ? marca.landing_beneficios : BENEFICIOS_PADRAO;
   const ctaTexto = marca.landing_cta_texto || 'Ver demonstração';
@@ -188,6 +237,7 @@ export function PaginaLanding() {
             <span className="font-extrabold">{marca.nome}</span>
           </div>
           <nav className="flex items-center gap-2">
+            <ToggleTemaLanding escuro={escuro} onClick={alternar} />
             <Link to="/lojista" className="hidden sm:block text-sm font-semibold text-muted-foreground hover:text-foreground px-3 py-2">
               Sou lojista
             </Link>
