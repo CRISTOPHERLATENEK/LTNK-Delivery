@@ -39,7 +39,7 @@ export function TelaTenants() {
     queryFn: () => api<{ tenants: Tenant[] }>('GET', '/api/admin/tenants').then(r => r.tenants),
   });
 
-  const vazio = { nome: '', slug: '', dominio: '', nome_loja: '', dono_nome: '', email: '', senha: '', telefone: '' };
+  const vazio = { nome: '', slug: '', dominio: '', nome_loja: '', categoria: '', dono_nome: '', email: '', senha: '', telefone: '' };
   const [form, setForm] = useState(vazio);
   const [criando, setCriando] = useState(false);
   const [enviando, setEnviando] = useState(false);
@@ -53,6 +53,7 @@ export function TelaTenants() {
         slug: form.slug || gerarSlug(form.nome),
         dominio: form.dominio,
         nome_loja: form.nome_loja || form.nome,
+        categoria: form.categoria,
         dono_nome: form.dono_nome,
         email: form.email,
         senha: form.senha,
@@ -169,6 +170,21 @@ export function TelaTenants() {
                     placeholder={form.nome || 'Ex.: Pizzaria do João'}
                   />
                   <p className="text-[11px] text-muted-foreground mt-1">Vazio = usa o nome do cliente.</p>
+                </div>
+                <div>
+                  <Label>Categoria da loja</Label>
+                  <Input
+                    list="categorias-loja-sugestoes"
+                    value={form.categoria}
+                    onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}
+                    placeholder="Ex.: Pizzaria"
+                  />
+                  <datalist id="categorias-loja-sugestoes">
+                    {['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria', 'Restaurante', 'Lanchonete', 'Marmitaria', 'Doceria'].map(c => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                  <p className="text-[11px] text-muted-foreground mt-1">Vazio = "Outros". Aparece na busca e nos filtros do cardápio.</p>
                 </div>
                 <div>
                   <Label>Nome do responsável *</Label>

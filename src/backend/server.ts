@@ -2,10 +2,10 @@
  * Servidor principal — Delivery Multi-lojas (TypeScript).
  */
 // DEVE ser o primeiro import: instala prova-de-vida + captura de erro de boot
-// ANTES de carregar './db' (better-sqlite3, módulo nativo). Assim, se o processo
-// cair na carga do módulo nativo, o erro real aparece no log em vez de morrer
-// silencioso. (Em CommonJS o tsc iça os imports pro topo — por isso um arquivo
-// dedicado importado primeiro, e não um console.log solto aqui.)
+// ANTES de carregar './db-mysql' (mysql2, pool de conexão). Assim, se o
+// processo cair na carga do módulo, o erro real aparece no log em vez de
+// morrer silencioso. (Em CommonJS o tsc iça os imports pro topo — por isso um
+// arquivo dedicado importado primeiro, e não um console.log solto aqui.)
 import './boot-diagnostico';
 
 import 'dotenv/config';

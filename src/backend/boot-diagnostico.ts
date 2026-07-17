@@ -2,9 +2,9 @@
  * Diagnóstico de boot — importado PRIMEIRO pelo server.ts.
  *
  * Objetivo: quando o processo morre logo no início (ex.: falha ao carregar um
- * módulo nativo como better-sqlite3, por incompatibilidade de versão do Node
- * no ambiente de deploy), o crash acontece antes de qualquer log do app e não
- * sobra rastro no "log de execução" da hospedagem. Aqui a gente:
+ * módulo nativo, ou ao conectar no MySQL, por incompatibilidade de versão do
+ * Node no ambiente de deploy), o crash acontece antes de qualquer log do app e
+ * não sobra rastro no "log de execução" da hospedagem. Aqui a gente:
  *   1. imprime uma prova-de-vida com versão do Node/plataforma;
  *   2. registra handlers globais que logam o erro REAL antes de sair.
  */
