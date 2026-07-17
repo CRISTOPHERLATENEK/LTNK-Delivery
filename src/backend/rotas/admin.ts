@@ -6,7 +6,7 @@ import { Router } from 'express';
 import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-mysql';
 import bcrypt from 'bcryptjs';
 import { autenticar, exigirPerfil, exigirSuperAdmin } from '../auth';
-import { textoLimpo, inteiroPositivo, erroHttp, agoraUTC, emailValido, cpfValido, cpfDigitos, telefoneDigitos } from '../util';
+import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, emailValido, cpfValido, cpfDigitos, telefoneDigitos } from '../util';
 import { criptografar } from '../cripto';
 import { garantirSessaoPlataforma, obterQrPlataforma, solicitarCodigoPlataforma, statusSessaoPlataforma, desconectarPlataforma } from '../whatsapp-nao-oficial';
 import { validarCertificado, } from '../assinatura';
@@ -15,6 +15,7 @@ import * as fs from 'fs';
 import multer from 'multer';
 import { spawn } from 'child_process';
 import path from 'path';
+import os from 'os';
 import { listarTenants, criarTenant, atualizarTenant, ehMaster } from '../tenants-mysql';
 import { Banner } from '../../tipos/modelos';
 
@@ -1219,42 +1220,87 @@ router.post('/whatsapp-nao-oficial/desconectar', exigirSuperAdmin, async (_req, 
 
 // ----- Backup ----------------------------------------------------------------
 
+/** Roda um comando e resolve quando ele terminar com código 0, rejeita caso contrário. */
+function rodar(cmd: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args);
+    let erro = '';
+    p.stderr.on('data', d => { erro += d.toString(); });
+    p.on('error', reject);
+    p.on('close', codigo => codigo === 0 ? resolve() : reject(new Error(erro || `${cmd} terminou com código ${codigo}`)));
+  });
+}
+
 /**
- * Baixa um .tar.gz de toda a pasta `dados/` (bancos SQLite legados, se ainda
- * existirem no disco, mais certificados A1). Existe porque, em hospedagens
- * "Web App Node.js" gerenciadas (ex.: Hostinger), o disco do app é recriado
- * do zero a cada deploy — só sobrevive o que está no repositório git.
- * Com a migração pro MySQL, o backup de dados de verdade é feito pelo
- * `mysqldump` (fora desta rota) — isto aqui continua útil pra levar os
- * certificados A1 (que ainda são arquivo em disco) em qualquer migração.
+ * Baixa um .tar.gz com backup completo: um dump SQL (`mysqldump`) de cada
+ * banco MySQL — o central (registro de tenants) e o de cada tenant — mais a
+ * pasta `dados/` do disco (uploads e certificados A1, que continuam sendo
+ * arquivo mesmo depois da migração pro MySQL).
  *
- * Usa o `tar` do sistema (streaming direto pra resposta, sem bufferizar em
- * memória) em vez de uma lib de zip — evita dependência nova e funciona tanto
- * no Linux de produção quanto no Windows moderno (que já traz um `tar`).
+ * Estratégia: monta um diretório temporário com os .sql + uma cópia de
+ * `dados/`, empacota tudo com `tar` (streaming direto pra resposta) e limpa o
+ * temporário no final. As credenciais do MySQL vão num arquivo temporário
+ * `--defaults-extra-file` (não em argv/env), pra não aparecerem em `ps`.
  */
 router.get('/backup', exigirSuperAdmin, async (req, res, next) => {
+  const raiz = process.cwd();
+  const tmpBase = path.join(os.tmpdir(), `backup-${Date.now()}-${process.pid}`);
+  const cnfPath = `${tmpBase}.cnf`;
   try {
-    const raiz = process.cwd();
+    exigirMaster();
+
+    const host = process.env.MYSQL_HOST || '127.0.0.1';
+    const porta = process.env.MYSQL_PORT || '3306';
+    const usuario = process.env.MYSQL_USER || '';
+    const senha = process.env.MYSQL_PASSWORD || '';
+    if (!usuario) throw erroHttp(500, 'MYSQL_USER não configurado neste servidor.');
+
+    const tenants = await listarTenants();
+    const bancos = [...new Set(tenants.map(t => t.db_nome).filter(Boolean))];
+    if (bancos.length === 0) throw erroHttp(404, 'Nenhum banco de tenant encontrado.');
+
+    fs.mkdirSync(tmpBase, { recursive: true });
+    fs.writeFileSync(cnfPath, `[client]\nhost=${host}\nport=${porta}\nuser=${usuario}\npassword=${senha}\n`, { mode: 0o600 });
+
+    for (const nomeBanco of bancos) {
+      const destino = path.join(tmpBase, `${nomeBanco}.sql`);
+      await rodar('mysqldump', [
+        `--defaults-extra-file=${cnfPath}`,
+        '--single-transaction', '--routines', '--events', '--skip-lock-tables',
+        '--result-file=' + destino,
+        nomeBanco,
+      ]);
+    }
+
     const pastaDados = path.join(raiz, 'dados');
-    if (!fs.existsSync(pastaDados)) throw erroHttp(404, 'Pasta de dados não encontrada neste servidor.');
+    if (fs.existsSync(pastaDados)) {
+      fs.cpSync(pastaDados, path.join(tmpBase, 'dados'), { recursive: true });
+    }
 
-    await registrarAuditoria(req, 'backup.baixar');
+    await registrarAuditoria(req, 'backup.baixar', { detalhes: `${bancos.length} banco(s)` });
 
-    const nomeArquivo = `backup-dados-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+    const nomeArquivo = `backup-completo-${new Date().toISOString().slice(0, 10)}.tar.gz`;
     res.setHeader('Content-Type', 'application/gzip');
     res.setHeader('Content-Disposition', `attachment; filename="${nomeArquivo}"`);
 
-    const processo = spawn('tar', ['-czf', '-', '-C', raiz, 'dados']);
+    const limpar = () => fs.rm(tmpBase, { recursive: true, force: true }, () => fs.rm(cnfPath, { force: true }, () => {}));
+
+    const processo = spawn('tar', ['-czf', '-', '-C', path.dirname(tmpBase), path.basename(tmpBase)]);
     processo.stdout.pipe(res);
     processo.stderr.on('data', d => console.warn('[Backup] tar stderr:', d.toString()));
     processo.on('error', (e) => {
       console.error('[Backup] Falha ao iniciar o tar:', e);
+      limpar();
       if (!res.headersSent) next(erroHttp(500, 'Não foi possível gerar o backup (tar indisponível no servidor).'));
     });
     processo.on('close', (codigo) => {
+      limpar();
       if (codigo !== 0 && !res.headersSent) next(erroHttp(500, `tar terminou com código ${codigo}.`));
     });
-  } catch (e) { next(e); }
+  } catch (e) {
+    fs.rm(tmpBase, { recursive: true, force: true }, () => fs.rm(cnfPath, { force: true }, () => {}));
+    next(e instanceof ErroHttp ? e : erroHttp(500, e instanceof Error ? e.message : 'Falha ao gerar o backup (mysqldump indisponível?).'));
+  }
 });
 
 // ----- Lojistas (visão drill-down do super admin) --------------------------

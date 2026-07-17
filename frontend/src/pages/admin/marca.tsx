@@ -1058,10 +1058,9 @@ const SEM_PADRAO_PREVIEW = ['Desorganização no atendimento', 'Falhas de comuni
 const COM_PADRAO_PREVIEW = ['Agilidade e organização', 'Cada loja com sua operação', 'Menos erro, mais venda'];
 
 /**
- * Backup manual da pasta `dados/` (todos os bancos SQLite + certificados A1).
- * Existe porque, nesse plano de hospedagem, o disco do app é recriado do
- * zero a cada deploy — enquanto não migramos pra um banco externo
- * persistente, isso é a salvaguarda: baixar antes de cada deploy.
+ * Backup manual completo: dump SQL (mysqldump) de cada banco MySQL — o
+ * central (registro de tenants) e o de cada tenant — mais a pasta `dados/`
+ * do disco (uploads e certificados A1).
  */
 function SecaoBackup() {
   const { mostrar } = useToast();
@@ -1080,7 +1079,7 @@ function SecaoBackup() {
       }
       const blob = await resp.blob();
       const nome = resp.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1]
-        || `backup-dados-${new Date().toISOString().slice(0, 10)}.tar.gz`;
+        || `backup-completo-${new Date().toISOString().slice(0, 10)}.tar.gz`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -1104,9 +1103,9 @@ function SecaoBackup() {
           <DatabaseBackup className="size-4 text-amber-500" /> Backup do banco de dados
         </div>
         <p className="text-xs text-muted-foreground">
-          Baixa um arquivo .tar.gz com todos os bancos SQLite (plataforma + cada loja/tenant) e os
-          certificados A1. <strong>Baixe antes de cada deploy</strong> — nesse plano de hospedagem, o disco
-          do app é recriado do zero a cada implantação, e só o que estiver no repositório git sobrevive.
+          Baixa um arquivo .tar.gz com o dump SQL de todos os bancos MySQL (plataforma + cada loja/tenant),
+          mais os uploads e certificados A1. Recomendado baixar periodicamente, e sempre antes de uma
+          migração ou manutenção grande no servidor.
         </p>
         <Button type="button" variant="outline" onClick={baixar} disabled={baixando}>
           {baixando ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
