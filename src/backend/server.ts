@@ -110,7 +110,7 @@ app.use(express.static(path.join(__dirname, '..', '..', 'public'), {
 // SPA fallback: rotas client-side do React Router (/loja/:id, /carrinho, etc.)
 // devolvem o index.html. Rotas .html legadas (lojista.html, admin.html…) já
 // foram resolvidas pelo express.static acima.
-const SPA_ROTAS = ['/loja', '/carrinho', '/pedidos', '/pedido', '/conta',
+const SPA_ROTAS = ['/loja', '/demo', '/carrinho', '/pedidos', '/pedido', '/conta',
                    '/lojista', '/entregador', '/cozinha', '/painel-admin',
                    '/esqueci-senha', '/redefinir-senha'];
 app.use((req, res, next) => {
