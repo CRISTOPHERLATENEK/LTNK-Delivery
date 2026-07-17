@@ -63,10 +63,12 @@ const GRUPOS: NavGrupo[] = [
       { rota: '/painel-admin/auditoria', icone: History, label: 'Auditoria', somenteSuper: true },
     ],
   },
-  // Grupo "SaaS" (gestão de tenants/clientes revendidos) fica oculto do menu
-  // — esta instância é operada só pelo dono, sem revenda white-label pra
-  // terceiros. A rota /painel-admin/clientes continua funcionando se for
-  // acessada direto pela URL; só não aparece mais na navegação.
+  {
+    titulo: 'SaaS',
+    itens: [
+      { rota: '/painel-admin/clientes', icone: Building2, label: 'Clientes', somenteSuper: true },
+    ],
+  },
 ];
 
 export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?: string }) {
