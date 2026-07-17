@@ -17,6 +17,7 @@ import { spawn } from 'child_process';
 import path from 'path';
 import os from 'os';
 import { listarTenants, criarTenant, atualizarTenant, tenantPorId, ehMaster } from '../tenants-mysql';
+import { geocodificarTexto } from '../geo';
 import zlib from 'zlib';
 import { Banner } from '../../tipos/modelos';
 
@@ -667,6 +668,53 @@ router.get('/repasses', async (req, res, next) => {
     sql += ' GROUP BY l.id, l.nome ORDER BY faturamento_centavos DESC';
 
     res.json({ repasses: await db.prepare(sql).all(...params) });
+  } catch (e) { next(e); }
+});
+
+/**
+ * PUT /api/admin/lojas/:id/detalhes — endereço + visual básico (cor, logo,
+ * capa), usado pelo assistente de criação de cliente (Admin → Clientes) pra
+ * completar o cadastro em etapas, sem precisar logar como lojista. Aceita
+ * `?tenant_id=` como qualquer rota de /lojas (ver comTenantDaLoja acima).
+ */
+router.put('/lojas/:id/detalhes', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    const loja = await db.prepare('SELECT id FROM lojas WHERE id = ?').get(req.params.id) as { id: number } | undefined;
+    if (!loja) throw erroHttp(404, 'Loja não encontrada.');
+
+    const endereco = req.body.endereco !== undefined ? textoLimpo(req.body.endereco, 200) : undefined;
+    const taxaEntrega = req.body.taxa_entrega_centavos !== undefined ? Math.max(0, Math.round(Number(req.body.taxa_entrega_centavos) || 0)) : undefined;
+    const tempoEstimado = req.body.tempo_estimado_min !== undefined ? Math.max(1, Math.round(Number(req.body.tempo_estimado_min) || 40)) : undefined;
+    const corMarca = req.body.cor_marca !== undefined ? textoLimpo(req.body.cor_marca, 20) : undefined;
+    const corSecundaria = req.body.cor_secundaria !== undefined ? textoLimpo(req.body.cor_secundaria, 20) : undefined;
+    const logoUrl = req.body.logo_url !== undefined ? textoLimpo(req.body.logo_url, 500) : undefined;
+    const capaUrl = req.body.capa_url !== undefined ? textoLimpo(req.body.capa_url, 500) : undefined;
+
+    let lat: number | null | undefined;
+    let lon: number | null | undefined;
+    if (endereco) {
+      const coord = await geocodificarTexto(endereco).catch(() => null); // best-effort — nunca bloqueia o salvamento
+      if (coord) { lat = coord.lat; lon = coord.lon; }
+    }
+
+    const campos: string[] = [];
+    const valores: unknown[] = [];
+    const set = (col: string, v: unknown) => { if (v !== undefined) { campos.push(`${col} = ?`); valores.push(v); } };
+    set('endereco', endereco);
+    set('taxa_entrega_centavos', taxaEntrega);
+    set('tempo_estimado_min', tempoEstimado);
+    set('cor_marca', corMarca);
+    set('cor_secundaria', corSecundaria);
+    set('logo_url', logoUrl);
+    set('capa_url', capaUrl);
+    set('lat', lat);
+    set('lon', lon);
+    if (campos.length === 0) { res.json({ ok: true }); return; }
+    valores.push(loja.id);
+    await db.prepare(`UPDATE lojas SET ${campos.join(', ')} WHERE id = ?`).run(...valores);
+
+    await registrarAuditoria(req, 'loja.detalhes', { alvoTipo: 'loja', alvoId: loja.id });
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 

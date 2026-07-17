@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn } from 'lucide-react';
+import { Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,7 +13,9 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { ImageUpload } from '@/components/ui/image-upload';
 import { api, ApiError, tokenSessao } from '@/lib/api';
+import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
 import { cn } from '@/lib/utils';
 
 interface Tenant {
@@ -44,11 +46,23 @@ export function TelaTenants() {
   const [criando, setCriando] = useState(false);
   const [enviando, setEnviando] = useState(false);
 
+  /** Etapas do assistente: 'cliente' cria o tenant; as demais só completam dados nele. */
+  const [etapa, setEtapa] = useState<'cliente' | 'endereco' | 'visual' | 'fiscal'>('cliente');
+  const [criado, setCriado] = useState<{ tenantId: number; lojaId: number; email: string } | null>(null);
+
+  function fecharAssistente() {
+    setCriando(false);
+    setEtapa('cliente');
+    setCriado(null);
+    setForm(vazio);
+    consulta.refetch();
+  }
+
   async function criar(e: React.FormEvent) {
     e.preventDefault();
     setEnviando(true);
     try {
-      await api('POST', '/api/admin/tenants', {
+      const r = await api<{ tenant: { id: number }; loja_id: number }>('POST', '/api/admin/tenants', {
         nome: form.nome,
         slug: form.slug || gerarSlug(form.nome),
         dominio: form.dominio,
@@ -59,14 +73,9 @@ export function TelaTenants() {
         senha: form.senha,
         telefone: form.telefone,
       });
-      mostrar({
-        tipo: 'sucesso',
-        titulo: 'Cliente criado!',
-        descricao: `Já pode entrar com ${form.email} — banco provisionado e pronto.`,
-      });
-      setForm(vazio);
-      setCriando(false);
-      consulta.refetch();
+      mostrar({ tipo: 'sucesso', titulo: 'Cliente criado!', descricao: 'Banco provisionado — agora complete o cadastro.' });
+      setCriado({ tenantId: r.tenant.id, lojaId: r.loja_id, email: form.email });
+      setEtapa('endereco');
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
@@ -108,15 +117,32 @@ export function TelaTenants() {
               Cada cliente tem seu próprio banco isolado e domínio.
             </p>
           </div>
-          <Button onClick={() => setCriando(c => !c)}>
-            <Plus className="size-4" /> Novo cliente
-          </Button>
+          {!criando && (
+            <Button onClick={() => setCriando(true)}>
+              <Plus className="size-4" /> Novo cliente
+            </Button>
+          )}
         </div>
 
-        {/* Form de criação */}
+        {/* Assistente de criação — 4 etapas */}
         {criando && (
           <Card className="border-primary/40">
-            <CardContent className="p-5">
+            <CardContent className="p-5 space-y-5">
+              <Estepes atual={etapa} />
+
+              {etapa === 'endereco' && criado ? (
+                <EtapaEndereco tenantId={criado.tenantId} lojaId={criado.lojaId}
+                  onVoltar={() => setEtapa('cliente')}
+                  onProximo={() => setEtapa('visual')} />
+              ) : etapa === 'visual' && criado ? (
+                <EtapaVisual tenantId={criado.tenantId} lojaId={criado.lojaId}
+                  onVoltar={() => setEtapa('endereco')}
+                  onProximo={() => setEtapa('fiscal')} />
+              ) : etapa === 'fiscal' && criado ? (
+                <EtapaFiscal tenantId={criado.tenantId} lojaId={criado.lojaId} email={criado.email}
+                  onVoltar={() => setEtapa('visual')}
+                  onConcluir={fecharAssistente} />
+              ) : (
               <form onSubmit={criar} className="grid gap-4 sm:grid-cols-2">
                 <div className="sm:col-span-2">
                   <Label>Nome do cliente *</Label>
@@ -225,11 +251,12 @@ export function TelaTenants() {
 
                 <div className="sm:col-span-2 flex gap-2">
                   <Button type="submit" disabled={enviando || !form.nome.trim() || !form.dono_nome.trim() || !form.email.trim() || form.senha.length < 6}>
-                    {enviando ? 'Criando…' : 'Criar e provisionar'}
+                    {enviando ? 'Criando…' : 'Criar e continuar'} <ArrowRight className="size-4" />
                   </Button>
                   <Button type="button" variant="outline" onClick={() => setCriando(false)}>Cancelar</Button>
                 </div>
               </form>
+              )}
             </CardContent>
           </Card>
         )}
@@ -250,6 +277,249 @@ export function TelaTenants() {
         )}
       </div>
     </AdminLayout>
+  );
+}
+
+/* ─────────────────────── Assistente de criação: stepper + etapas ─────────────────────── */
+
+const PASSOS_ASSISTENTE = [
+  { chave: 'cliente', label: 'Cliente', icone: Building2 },
+  { chave: 'endereco', label: 'Endereço', icone: MapPin },
+  { chave: 'visual', label: 'Visual', icone: Palette },
+  { chave: 'fiscal', label: 'Fiscal', icone: FileText },
+] as const;
+
+function Estepes({ atual }: { atual: typeof PASSOS_ASSISTENTE[number]['chave'] }) {
+  const idxAtual = PASSOS_ASSISTENTE.findIndex(p => p.chave === atual);
+  return (
+    <div className="flex items-center gap-1.5">
+      {PASSOS_ASSISTENTE.map((p, i) => {
+        const feito = i < idxAtual;
+        const ativo = i === idxAtual;
+        const Icone = p.icone;
+        return (
+          <div key={p.chave} className="flex items-center gap-1.5 flex-1">
+            <div className={cn(
+              'flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-bold whitespace-nowrap',
+              ativo ? 'bg-primary text-primary-foreground' : feito ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground',
+            )}>
+              {feito ? <Check className="size-3.5" /> : <Icone className="size-3.5" />}
+              <span className="hidden sm:inline">{p.label}</span>
+            </div>
+            {i < PASSOS_ASSISTENTE.length - 1 && <div className={cn('h-0.5 flex-1 rounded-full', feito ? 'bg-primary/40' : 'bg-border')} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Etapa 2: endereço, taxa de entrega e tempo estimado. */
+function EtapaEndereco({ tenantId, lojaId, onVoltar, onProximo }: {
+  tenantId: number; lojaId: number; onVoltar: () => void; onProximo: () => void;
+}) {
+  const { mostrar } = useToast();
+  const [endereco, setEndereco] = useState('');
+  const [taxa, setTaxa] = useState('0');
+  const [tempo, setTempo] = useState('40');
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvarEAvancar() {
+    setSalvando(true);
+    try {
+      if (endereco.trim()) {
+        await api('PUT', `/api/admin/lojas/${lojaId}/detalhes?tenant_id=${tenantId}`, {
+          endereco: endereco.trim(),
+          taxa_entrega_centavos: Math.round(Number(taxa.replace(',', '.')) * 100) || 0,
+          tempo_estimado_min: Number(tempo) || 40,
+        });
+      }
+      onProximo();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setSalvando(false); }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label>Endereço da loja</Label>
+        <Input value={endereco} onChange={e => setEndereco(e.target.value)} placeholder="Rua Exemplo, 123 - Bairro, Cidade - UF" />
+        <p className="text-[11px] text-muted-foreground mt-1">Usado pro mapa e pra calcular distância de entrega. Pode deixar em branco e completar depois.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label>Taxa de entrega (R$)</Label>
+          <Input value={taxa} onChange={e => setTaxa(e.target.value)} placeholder="0,00" />
+        </div>
+        <div>
+          <Label>Tempo estimado (min)</Label>
+          <Input type="number" min="1" value={tempo} onChange={e => setTempo(e.target.value)} />
+        </div>
+      </div>
+      <div className="flex gap-2 pt-2">
+        <Button type="button" onClick={salvarEAvancar} disabled={salvando}>
+          {salvando ? 'Salvando…' : 'Próximo'} <ArrowRight className="size-4" />
+        </Button>
+        <Button type="button" variant="ghost" onClick={onProximo}><SkipForward className="size-4" /> Pular</Button>
+        <Button type="button" variant="outline" onClick={onVoltar}><ArrowLeft className="size-4" /> Voltar</Button>
+      </div>
+    </div>
+  );
+}
+
+/** Etapa 3: cor da marca e imagens (logo/capa). */
+function EtapaVisual({ tenantId, lojaId, onVoltar, onProximo }: {
+  tenantId: number; lojaId: number; onVoltar: () => void; onProximo: () => void;
+}) {
+  const { mostrar } = useToast();
+  const [corMarca, setCorMarca] = useState('#dc2640');
+  const [corSecundaria, setCorSecundaria] = useState('');
+  const [logoUrl, setLogoUrl] = useState('');
+  const [capaUrl, setCapaUrl] = useState('');
+  const [salvando, setSalvando] = useState(false);
+
+  async function salvarEAvancar() {
+    setSalvando(true);
+    try {
+      await api('PUT', `/api/admin/lojas/${lojaId}/detalhes?tenant_id=${tenantId}`, {
+        cor_marca: corMarca, cor_secundaria: corSecundaria, logo_url: logoUrl, capa_url: capaUrl,
+      });
+      onProximo();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setSalvando(false); }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label>Cor da marca</Label>
+          <div className="flex items-center gap-2">
+            <input type="color" value={corMarca} onChange={e => setCorMarca(e.target.value)} className="size-10 rounded-lg border border-input cursor-pointer" />
+            <Input value={corMarca} onChange={e => setCorMarca(e.target.value)} className="font-mono text-sm" />
+          </div>
+        </div>
+        <div>
+          <Label>Cor secundária (opcional)</Label>
+          <div className="flex items-center gap-2">
+            <input type="color" value={corSecundaria || '#ffffff'} onChange={e => setCorSecundaria(e.target.value)} className="size-10 rounded-lg border border-input cursor-pointer" />
+            <Input value={corSecundaria} onChange={e => setCorSecundaria(e.target.value)} placeholder="vazio = deriva da primária" className="font-mono text-sm" />
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <ImageUpload label="Logo" value={logoUrl} onChange={setLogoUrl} aspectRatio="square" />
+        <ImageUpload label="Capa" value={capaUrl} onChange={setCapaUrl} aspectRatio="wide" />
+      </div>
+      <div className="flex gap-2 pt-2">
+        <Button type="button" onClick={salvarEAvancar} disabled={salvando}>
+          {salvando ? 'Salvando…' : 'Próximo'} <ArrowRight className="size-4" />
+        </Button>
+        <Button type="button" variant="ghost" onClick={onProximo}><SkipForward className="size-4" /> Pular</Button>
+        <Button type="button" variant="outline" onClick={onVoltar}><ArrowLeft className="size-4" /> Voltar</Button>
+      </div>
+    </div>
+  );
+}
+
+/** Etapa 4: dados fiscais básicos (NFC-e) — CNPJ com autopreenchimento. Certificado A1 e produtos ficam pra depois, em Admin → Lojas. */
+function EtapaFiscal({ tenantId, lojaId, email, onVoltar, onConcluir }: {
+  tenantId: number; lojaId: number; email: string; onVoltar: () => void; onConcluir: () => void;
+}) {
+  const { mostrar } = useToast();
+  const [ativo, setAtivo] = useState(false);
+  const [cnpj, setCnpj] = useState('');
+  const [razaoSocial, setRazaoSocial] = useState('');
+  const [ie, setIe] = useState('');
+  const [uf, setUf] = useState('');
+  const [municipio, setMunicipio] = useState('');
+  const [cmun, setCmun] = useState('');
+  const [logradouro, setLogradouro] = useState('');
+  const [numero, setNumero] = useState('');
+  const [bairro, setBairro] = useState('');
+  const [cep, setCep] = useState('');
+  const [buscando, setBuscando] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+
+  async function aoDigitarCnpj(bruto: string) {
+    const digitos = cnpjDigitos(bruto);
+    setCnpj(digitos);
+    if (digitos.length !== 14) return;
+    setBuscando(true);
+    const d = await buscarCnpj(digitos);
+    setBuscando(false);
+    if (!d) { mostrar({ tipo: 'erro', titulo: 'CNPJ não encontrado.' }); return; }
+    setRazaoSocial(d.razao_social || '');
+    setUf(d.uf || '');
+    setCmun(d.cmun || '');
+    setMunicipio(d.municipio || '');
+    setLogradouro(d.logradouro || '');
+    setNumero(d.numero || '');
+    setBairro(d.bairro || '');
+    setCep(d.cep || '');
+    mostrar({ tipo: 'sucesso', titulo: 'Dados do CNPJ preenchidos!' });
+  }
+
+  async function concluir() {
+    setSalvando(true);
+    try {
+      if (cnpj) {
+        await api('PUT', `/api/admin/lojas/${lojaId}/fiscal?tenant_id=${tenantId}`, {
+          ativo, cnpj, razao_social: razaoSocial, ie, uf, municipio, cmun, logradouro, numero, bairro, cep,
+        });
+      }
+      mostrar({ tipo: 'sucesso', titulo: 'Cliente pronto!', descricao: `Já pode entrar com ${email}.` });
+      onConcluir();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setSalvando(false); }
+  }
+
+  return (
+    <div className="space-y-4">
+      <label className="flex items-center gap-2 cursor-pointer">
+        <button type="button" onClick={() => setAtivo(v => !v)}
+          className={cn('relative h-5 w-9 rounded-full transition-colors shrink-0', ativo ? 'bg-primary' : 'bg-muted-foreground/30')}>
+          <span className={cn('absolute top-0.5 size-4 rounded-full bg-white shadow transition-all', ativo ? 'left-[18px]' : 'left-0.5')} />
+        </button>
+        <span className="text-sm font-medium">Emitir NFC-e nas vendas desta loja</span>
+      </label>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <Label>CNPJ</Label>
+          <div className="relative">
+            <Input value={formatarCnpj(cnpj)} onChange={e => aoDigitarCnpj(e.target.value)} maxLength={18} className="font-mono" placeholder="00.000.000/0000-00" />
+            {buscando && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 size-4 animate-spin text-muted-foreground" />}
+          </div>
+        </div>
+        <div>
+          <Label>Razão social</Label>
+          <Input value={razaoSocial} onChange={e => setRazaoSocial(e.target.value)} />
+        </div>
+        <div>
+          <Label>Inscrição Estadual</Label>
+          <Input value={ie} onChange={e => setIe(e.target.value)} />
+        </div>
+        <div>
+          <Label>UF</Label>
+          <Input value={uf} onChange={e => setUf(e.target.value.toUpperCase().slice(0, 2))} maxLength={2} className="uppercase font-mono" />
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        Certificado A1, CSC e os campos fiscais dos produtos ficam pra depois — em <strong>Admin → Lojas</strong>, clicando nessa loja.
+      </p>
+
+      <div className="flex gap-2 pt-2">
+        <Button type="button" onClick={concluir} disabled={salvando}>
+          {salvando ? 'Salvando…' : 'Concluir'} <Check className="size-4" />
+        </Button>
+        <Button type="button" variant="ghost" onClick={onConcluir}><SkipForward className="size-4" /> Pular e concluir</Button>
+        <Button type="button" variant="outline" onClick={onVoltar}><ArrowLeft className="size-4" /> Voltar</Button>
+      </div>
+    </div>
   );
 }
 
