@@ -327,13 +327,11 @@ function EtapaEndereco({ tenantId, lojaId, onVoltar, onProximo }: {
   async function salvarEAvancar() {
     setSalvando(true);
     try {
-      if (endereco.trim()) {
-        await api('PUT', `/api/admin/lojas/${lojaId}/detalhes?tenant_id=${tenantId}`, {
-          endereco: endereco.trim(),
-          taxa_entrega_centavos: Math.round(Number(taxa.replace(',', '.')) * 100) || 0,
-          tempo_estimado_min: Number(tempo) || 40,
-        });
-      }
+      await api('PUT', `/api/admin/lojas/${lojaId}/detalhes?tenant_id=${tenantId}`, {
+        endereco: endereco.trim(),
+        taxa_entrega_centavos: Math.round(Number(taxa.replace(',', '.')) * 100) || 0,
+        tempo_estimado_min: Number(tempo) || 40,
+      });
       onProximo();
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
