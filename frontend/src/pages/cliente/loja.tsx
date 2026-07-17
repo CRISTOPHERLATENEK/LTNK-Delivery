@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { adicionarAoCarrinho, useCarrinho, mudarQuantidade } from '@/lib/carrinho';
+import { iconeCategoria } from '@/lib/icones-categoria';
 import { ModalProduto } from './modal-produto';
 import { BannerCarousel } from '@/components/banner-carousel';
 import {
@@ -336,7 +337,7 @@ export function PaginaLoja() {
         {estiloCat === 'cards' ? (
           <div className="-mx-4 px-4 overflow-x-auto scrollbar-hide">
             <div className="flex gap-2.5 pb-1">
-              <CardCategoria icone="🍽️" imagem="" label="Todos" ativo={!catAtiva} onClick={() => selecionarCat(null)} />
+              <CardCategoria icone="geral" imagem="" label="Todos" ativo={!catAtiva} onClick={() => selecionarCat(null)} />
               {metaCat.map(c => (
                 <CardCategoria
                   key={c.nome}
@@ -622,25 +623,25 @@ function CarrinhoLateral({ loja }: { loja: Loja }) {
 
 /* ── Card de categoria com foto (estilo iFood) ── */
 function CardCategoria({ icone, imagem, label, ativo, onClick }: { icone: string; imagem?: string; label: string; ativo: boolean; onClick: () => void }) {
+  const Icone = iconeCategoria(icone);
   return (
     <button
       onClick={onClick}
       className="flex shrink-0 flex-col items-center gap-1.5 w-[68px]"
     >
-      {/* Anel gradiente estilo Stories quando ativo */}
       <span
         className={cn(
-          'flex size-[64px] items-center justify-center rounded-full p-[2.5px] transition-all',
-          ativo ? 'bg-gradient-to-br from-primary to-primary/50' : 'bg-border',
+          'flex size-14 items-center justify-center overflow-hidden rounded-full border-2 transition-all',
+          ativo ? 'border-primary bg-primary/10' : 'border-border bg-muted/40',
         )}
       >
-        <span className="flex size-full items-center justify-center overflow-hidden rounded-full border-2 border-background bg-muted">
-          {imagem ? (
-            <img src={imagem} alt="" className="size-full object-cover" />
-          ) : (
-            <span className="text-2xl">{icone || '🍽️'}</span>
-          )}
-        </span>
+        {imagem ? (
+          <img src={imagem} alt="" className="size-full object-cover" />
+        ) : Icone ? (
+          <Icone className={cn('size-6', ativo ? 'text-primary' : 'text-muted-foreground')} strokeWidth={1.75} />
+        ) : (
+          <span className="text-2xl">{icone || '🍽️'}</span>
+        )}
       </span>
       <span className={cn(
         'text-center text-[11px] font-semibold leading-tight line-clamp-2',

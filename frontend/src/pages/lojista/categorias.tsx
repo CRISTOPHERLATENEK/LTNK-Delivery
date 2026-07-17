@@ -1,5 +1,5 @@
 /**
- * Gestão de categorias do cardápio: ícone (emoji), ordem, renomear, e o
+ * Gestão de categorias do cardápio: criação, ícone (Lucide), ordem, renomear, e o
  * estilo de exibição na vitrine do cliente (cards com ícone ou chips de texto).
  */
 import { useEffect, useState } from 'react';
@@ -12,11 +12,32 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { ICONES_CATEGORIA, iconeCategoria } from '@/lib/icones-categoria';
 
 interface Cat { nome: string; icone: string; nomeEdit: string; setorId: number | null }
 interface Setor { id: number; nome: string; categorias: number }
 
-const EMOJIS = ['🍕','🍔','🍟','🌭','🥤','🍰','🍦','🍣','🥗','🍜','🍗','🍖','☕','🍺','🧃','🥪','🌮','🍝','🥩','🍩','🍱','🧁'];
+/** Grade de ícones reaproveitada tanto no picker de cada categoria quanto no de "nova categoria". */
+function GradeIcones({ selecionado, onEscolher }: { selecionado: string; onEscolher: (chave: string) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 rounded-lg bg-muted/50 p-2">
+      {ICONES_CATEGORIA.map(({ chave, label, Icone }) => (
+        <button
+          key={chave}
+          type="button"
+          title={label}
+          onClick={() => onEscolher(chave)}
+          className={cn(
+            'flex size-9 items-center justify-center rounded-lg transition-colors',
+            selecionado === chave ? 'bg-primary/15 text-primary' : 'text-muted-foreground hover:bg-background',
+          )}
+        >
+          <Icone className="size-[18px]" strokeWidth={1.75} />
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function CategoriasLoja() {
   const { mostrar } = useToast();
@@ -29,6 +50,9 @@ export function CategoriasLoja() {
   const [novoSetor, setNovoSetor] = useState('');
   const [renomeandoSetor, setRenomeandoSetor] = useState<number | null>(null);
   const [nomeSetorEdit, setNomeSetorEdit] = useState('');
+  const [novaCatNome, setNovaCatNome] = useState('');
+  const [novaCatIcone, setNovaCatIcone] = useState('geral');
+  const [novaCatPickerAberto, setNovaCatPickerAberto] = useState(false);
 
   function carregar() {
     api<{ categorias: { nome: string; icone: string; setor_id: number | null }[]; estilo: 'cards' | 'chips' }>('GET', '/api/lojista/categorias')
@@ -85,6 +109,19 @@ export function CategoriasLoja() {
   }
   function setCampo(i: number, patch: Partial<Cat>) {
     setCats(c => c.map((x, k) => k === i ? { ...x, ...patch } : x));
+  }
+
+  function criarCategoria() {
+    const nome = novaCatNome.trim();
+    if (!nome) return;
+    if (cats.some(c => c.nome.toLowerCase() === nome.toLowerCase())) {
+      mostrar({ tipo: 'erro', titulo: 'Já existe uma categoria com esse nome.' });
+      return;
+    }
+    setCats(c => [...c, { nome, icone: novaCatIcone, nomeEdit: nome, setorId: null }]);
+    setNovaCatNome('');
+    setNovaCatIcone('geral');
+    setNovaCatPickerAberto(false);
   }
 
   async function salvar() {
@@ -174,10 +211,43 @@ export function CategoriasLoja() {
         </CardContent>
       </Card>
 
+      {/* Nova categoria */}
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <Label className="mb-0.5 flex items-center gap-1.5"><Plus className="size-3.5" /> Nova categoria</Label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setNovaCatPickerAberto(a => !a)}
+              className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-primary"
+              title="Escolher ícone"
+            >
+              {(() => {
+                const Icone = iconeCategoria(novaCatIcone);
+                return Icone ? <Icone className="size-5" strokeWidth={1.75} /> : null;
+              })()}
+            </button>
+            <Input
+              value={novaCatNome}
+              onChange={e => setNovaCatNome(e.target.value)}
+              placeholder="Nome da categoria (ex.: Pizzas)"
+              className="flex-1"
+              onKeyDown={e => e.key === 'Enter' && criarCategoria()}
+            />
+            <Button type="button" variant="outline" onClick={criarCategoria} disabled={!novaCatNome.trim()}>
+              Adicionar
+            </Button>
+          </div>
+          {novaCatPickerAberto && (
+            <GradeIcones selecionado={novaCatIcone} onEscolher={chave => { setNovaCatIcone(chave); setNovaCatPickerAberto(false); }} />
+          )}
+        </CardContent>
+      </Card>
+
       {/* Lista */}
       {cats.length === 0 ? (
         <Card><CardContent className="p-8 text-center text-muted-foreground text-sm">
-          Nenhuma categoria ainda. Crie produtos com categorias na aba Produtos.
+          Nenhuma categoria ainda. Crie uma acima ou adicione produtos com categoria na aba Produtos.
         </CardContent></Card>
       ) : (
         <Card>
@@ -193,10 +263,13 @@ export function CategoriasLoja() {
                   {/* Ícone */}
                   <button
                     onClick={() => setPickerAberto(pickerAberto === i ? null : i)}
-                    className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-2xl"
+                    className="flex size-11 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-primary"
                     title="Escolher ícone"
                   >
-                    {c.icone || '🍴'}
+                    {(() => {
+                      const Icone = iconeCategoria(c.icone);
+                      return Icone ? <Icone className="size-5" strokeWidth={1.75} /> : <span className="text-2xl">{c.icone || '🍴'}</span>;
+                    })()}
                   </button>
                   {/* Nome (editável = renomear) */}
                   <Input
@@ -217,15 +290,10 @@ export function CategoriasLoja() {
                     </select>
                   )}
                 </div>
-                {/* Picker de emoji */}
+                {/* Picker de ícone */}
                 {pickerAberto === i && (
-                  <div className="mt-2 flex flex-wrap gap-1.5 rounded-lg bg-muted/50 p-2">
-                    {EMOJIS.map(e => (
-                      <button key={e} onClick={() => { setCampo(i, { icone: e }); setPickerAberto(null); }}
-                        className="size-9 rounded-lg text-xl hover:bg-background transition-colors">{e}</button>
-                    ))}
-                    <button onClick={() => { setCampo(i, { icone: '' }); setPickerAberto(null); }}
-                      className="size-9 rounded-lg text-xs text-muted-foreground hover:bg-background">limpar</button>
+                  <div className="mt-2">
+                    <GradeIcones selecionado={c.icone} onEscolher={chave => { setCampo(i, { icone: chave }); setPickerAberto(null); }} />
                   </div>
                 )}
               </div>
