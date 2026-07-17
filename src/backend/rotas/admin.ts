@@ -5,7 +5,7 @@
 import { Router } from 'express';
 import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-mysql';
 import bcrypt from 'bcryptjs';
-import { autenticar, exigirPerfil, exigirSuperAdmin, gerarToken } from '../auth';
+import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
 import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, emailValido, cpfValido, cpfDigitos, telefoneDigitos } from '../util';
 import { criptografar } from '../cripto';
 import { garantirSessaoPlataforma, obterQrPlataforma, solicitarCodigoPlataforma, statusSessaoPlataforma, desconectarPlataforma } from '../whatsapp-nao-oficial';
@@ -1566,12 +1566,11 @@ router.put('/tenants/:id', exigirSuperAdmin, async (req, res, next) => {
 });
 
 /**
- * Emite um token de lojista válido DENTRO do banco de um tenant — permite ao
- * super admin (dono da plataforma) entrar no painel de qualquer loja direto
- * do painel principal, sem precisar da senha do lojista nem logar no domínio
- * dela separadamente. O token só funciona em requisições roteadas pro banco
- * daquele tenant (resolvido pelo Host); fora dali, o `autenticar` não acha o
- * usuário e rejeita.
+ * Emite um token de lojista pra entrar no painel de qualquer cliente direto
+ * do painel principal, sem precisar da senha dele nem de configurar domínio
+ * nenhum — o token carrega o banco do tenant (ver gerarTokenImpersonado),
+ * então funciona em `/lojista?entrar=...` em cima do domínio que estiver
+ * usando agora mesmo.
  */
 router.post('/tenants/:id/impersonar', exigirSuperAdmin, async (req, res, next) => {
   try {
@@ -1589,9 +1588,9 @@ router.post('/tenants/:id/impersonar', exigirSuperAdmin, async (req, res, next) 
     });
     if (!lojista) throw erroHttp(404, 'Esse cliente ainda não tem um lojista responsável cadastrado.');
 
-    const token = gerarToken(lojista);
+    const token = gerarTokenImpersonado(lojista, tenant.db_nome);
     await registrarAuditoria(req, 'tenant.impersonar', { alvoTipo: 'tenant', alvoId: id, alvoDesc: tenant.nome });
-    res.json({ token, dominio: tenant.dominio, slug: tenant.slug });
+    res.json({ token });
   } catch (e) { next(e); }
 });
 

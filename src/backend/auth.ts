@@ -4,7 +4,7 @@
  */
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import db from './db-mysql';
+import db, { comTenant } from './db-mysql';
 import { erroHttp } from './util';
 import { Perfil, Usuario } from '../tipos/modelos';
 
@@ -40,6 +40,22 @@ export function gerarToken(usuario: Pick<Usuario, 'id' | 'perfil'>): string {
 }
 
 /**
+ * Token de "entrar como lojista" (Admin → Clientes): carrega o BANCO do
+ * tenant no próprio token (claim `tenant`). Diferente do token normal — cujo
+ * tenant vem do Host da requisição — este funciona em QUALQUER domínio,
+ * porque `autenticar` abaixo troca o contexto de banco pra esse valor assim
+ * que valida o token, antes de carregar o usuário. Só emitido pelo super
+ * admin (ver POST /api/admin/tenants/:id/impersonar); expira rápido.
+ */
+export function gerarTokenImpersonado(usuario: Pick<Usuario, 'id' | 'perfil'>, dbNomeTenant: string): string {
+  return jwt.sign(
+    { sub: usuario.id, perfil: usuario.perfil, tenant: dbNomeTenant },
+    JWT_SECRET as string,
+    { expiresIn: '2h' }
+  );
+}
+
+/**
  * Exige token válido no header "Authorization: Bearer <token>".
  * Recarrega o usuário do banco a cada requisição para respeitar bloqueios
  * feitos pelo admin DEPOIS da emissão do token.
@@ -56,15 +72,25 @@ export const autenticar: RequestHandler = async (req, _res, next) => {
     return next(erroHttp(401, 'Sessão inválida ou expirada. Faça login novamente.'));
   }
 
-  const usuario = await db.prepare(
-    'SELECT id, nome, email, perfil, telefone, cpf, bloqueado, super_admin FROM usuarios WHERE id = ?'
-  ).get(dados.sub) as UsuarioAutenticado | undefined;
+  const carregarUsuarioEContinuar = async () => {
+    const usuario = await db.prepare(
+      'SELECT id, nome, email, perfil, telefone, cpf, bloqueado, super_admin FROM usuarios WHERE id = ?'
+    ).get(dados.sub) as UsuarioAutenticado | undefined;
 
-  if (!usuario) return next(erroHttp(401, 'Usuário não encontrado.'));
-  if (usuario.bloqueado) return next(erroHttp(403, 'Sua conta está bloqueada. Fale com o suporte.'));
+    if (!usuario) return next(erroHttp(401, 'Usuário não encontrado.'));
+    if (usuario.bloqueado) return next(erroHttp(403, 'Sua conta está bloqueada. Fale com o suporte.'));
 
-  req.usuario = usuario;
-  next();
+    req.usuario = usuario;
+    next();
+  };
+
+  // Token de impersonação (ver gerarTokenImpersonado): o banco vem do token,
+  // não do Host — sobrescreve o tenant já resolvido pra esta requisição.
+  if (typeof dados.tenant === 'string' && dados.tenant) {
+    await comTenant(dados.tenant, carregarUsuarioEContinuar);
+  } else {
+    await carregarUsuarioEContinuar();
+  }
 };
 
 // ----- Autenticação de cozinha (KDS) ---------------------------------------

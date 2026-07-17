@@ -264,10 +264,6 @@ function TenantCard({ t, onToggle, onSalvarDominio }: {
   const master = t.slug === 'padrao';
 
   async function entrarComoLojista() {
-    if (!t.dominio) {
-      mostrar({ tipo: 'erro', titulo: 'Defina um domínio pra esse cliente antes de entrar como lojista.' });
-      return;
-    }
     setEntrando(true);
     try {
       const token = tokenSessao();
@@ -277,7 +273,9 @@ function TenantCard({ t, onToggle, onSalvarDominio }: {
       });
       const corpo = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(corpo.erro || `Falha ao entrar (HTTP ${resp.status}).`);
-      window.open(`https://${t.dominio}/lojista?entrar=${encodeURIComponent(corpo.token)}`, '_blank');
+      // Mesmo domínio que você está usando agora — o token já carrega qual
+      // banco usar, não precisa do domínio próprio desse cliente.
+      window.open(`/lojista?entrar=${encodeURIComponent(corpo.token)}`, '_blank');
     } catch (err) {
       mostrar({ tipo: 'erro', titulo: err instanceof Error ? err.message : 'Falha ao entrar como lojista.' });
     } finally {
