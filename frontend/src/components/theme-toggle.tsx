@@ -6,7 +6,16 @@ import { reaplicarPaletaTema } from '@/lib/tema';
 
 /** Alterna modo claro/escuro persistindo a escolha por área em localStorage. */
 export function ThemeToggle() {
-  const [escuro, setEscuro] = useState(() => document.documentElement.classList.contains('dark'));
+  // Deriva da preferência salva da ÁREA atual (não da classe global do <html>):
+  // numa navegação SPA entre áreas (ex.: landing → loja, que compartilham o
+  // mesmo app), a classe "dark" do documento pode estar transitoriamente
+  // "suja" de outra área nesse meio-tempo — ler localStorage evita vazar
+  // a preferência escura de uma área pra outra.
+  const [escuro, setEscuro] = useState(() => {
+    const salvo = localStorage.getItem(chaveTema());
+    if (salvo) return salvo === 'escuro';
+    return matchMedia('(prefers-color-scheme: dark)').matches;
+  });
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', escuro);
