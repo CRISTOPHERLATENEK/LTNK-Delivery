@@ -5,7 +5,7 @@
 import { Router } from 'express';
 import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-mysql';
 import bcrypt from 'bcryptjs';
-import { autenticar, exigirPerfil, exigirSuperAdmin } from '../auth';
+import { autenticar, exigirPerfil, exigirSuperAdmin, gerarToken } from '../auth';
 import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, emailValido, cpfValido, cpfDigitos, telefoneDigitos } from '../util';
 import { criptografar } from '../cripto';
 import { garantirSessaoPlataforma, obterQrPlataforma, solicitarCodigoPlataforma, statusSessaoPlataforma, desconectarPlataforma } from '../whatsapp-nao-oficial';
@@ -1562,6 +1562,36 @@ router.put('/tenants/:id', exigirSuperAdmin, async (req, res, next) => {
     }
     await registrarAuditoria(req, 'tenant.editar', { alvoTipo: 'tenant', alvoId: id });
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Emite um token de lojista válido DENTRO do banco de um tenant — permite ao
+ * super admin (dono da plataforma) entrar no painel de qualquer loja direto
+ * do painel principal, sem precisar da senha do lojista nem logar no domínio
+ * dela separadamente. O token só funciona em requisições roteadas pro banco
+ * daquele tenant (resolvido pelo Host); fora dali, o `autenticar` não acha o
+ * usuário e rejeita.
+ */
+router.post('/tenants/:id/impersonar', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const id = inteiroPositivo(req.params.id);
+    if (!id) throw erroHttp(400, 'ID inválido.');
+    const tenant = await tenantPorId(id);
+    if (!tenant) throw erroHttp(404, 'Cliente não encontrado.');
+    if (ehMaster(tenant.db_nome)) throw erroHttp(400, 'O painel principal não tem uma loja pra entrar.');
+
+    const lojista = await comTenant(tenant.db_nome, async () => {
+      return await db.prepare(
+        "SELECT id, perfil FROM usuarios WHERE perfil = 'lojista' ORDER BY id LIMIT 1"
+      ).get() as { id: number; perfil: 'lojista' } | undefined;
+    });
+    if (!lojista) throw erroHttp(404, 'Esse cliente ainda não tem um lojista responsável cadastrado.');
+
+    const token = gerarToken(lojista);
+    await registrarAuditoria(req, 'tenant.impersonar', { alvoTipo: 'tenant', alvoId: id, alvoDesc: tenant.nome });
+    res.json({ token, dominio: tenant.dominio, slug: tenant.slug });
   } catch (e) { next(e); }
 });
 

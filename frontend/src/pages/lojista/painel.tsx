@@ -43,7 +43,38 @@ import type { Pedido, ItemPedido } from '@/types';
 
 type PedidoComItens = Pedido & { itens: ItemPedido[] };
 
+/**
+ * Ponte de sessão pra "Entrar como lojista" (Admin → Clientes): a URL chega
+ * com `?entrar=<token>` — valida o token nesse tenant (via GET /api/auth/eu),
+ * salva a sessão de lojista e limpa a URL, sem precisar da senha.
+ */
+function usarPonteSessaoLojista() {
+  const [pronta, setPronta] = useState(() => !new URLSearchParams(window.location.search).get('entrar'));
+
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get('entrar');
+    if (!token) return;
+    (async () => {
+      try {
+        const r = await fetch('/api/auth/eu', { headers: { Authorization: `Bearer ${token}` } });
+        if (r.ok) {
+          const { usuario } = await r.json();
+          salvarSessao(token, usuario, 'lojista');
+        }
+      } finally {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('entrar');
+        window.history.replaceState({}, '', url.toString());
+        setPronta(true);
+      }
+    })();
+  }, []);
+
+  return pronta;
+}
+
 export function PainelLojista() {
+  const pontePronta = usarPonteSessaoLojista();
   const u = sessaoUsuario();
   const ehLojista = !!u && u.perfil === 'lojista';
 
@@ -121,6 +152,14 @@ export function PainelLojista() {
     { rota: '/lojista/produtos', icone: Box, rotulo: 'Produtos' },
     { rota: '/lojista/mais', icone: LayoutGrid, rotulo: 'Mais' },
   ];
+
+  if (!pontePronta) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center text-muted-foreground text-sm">
+        Entrando…
+      </div>
+    );
+  }
 
   if (!ehLojista) {
     return <LoginLojista />;

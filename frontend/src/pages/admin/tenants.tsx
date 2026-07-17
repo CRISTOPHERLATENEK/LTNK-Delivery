@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2 } from 'lucide-react';
+import { Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -260,7 +260,30 @@ function TenantCard({ t, onToggle, onSalvarDominio }: {
   const [editandoDom, setEditandoDom] = useState(false);
   const [dom, setDom] = useState(t.dominio || '');
   const [baixando, setBaixando] = useState(false);
+  const [entrando, setEntrando] = useState(false);
   const master = t.slug === 'padrao';
+
+  async function entrarComoLojista() {
+    if (!t.dominio) {
+      mostrar({ tipo: 'erro', titulo: 'Defina um domínio pra esse cliente antes de entrar como lojista.' });
+      return;
+    }
+    setEntrando(true);
+    try {
+      const token = tokenSessao();
+      const resp = await fetch(`/api/admin/tenants/${t.id}/impersonar`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const corpo = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(corpo.erro || `Falha ao entrar (HTTP ${resp.status}).`);
+      window.open(`https://${t.dominio}/lojista?entrar=${encodeURIComponent(corpo.token)}`, '_blank');
+    } catch (err) {
+      mostrar({ tipo: 'erro', titulo: err instanceof Error ? err.message : 'Falha ao entrar como lojista.' });
+    } finally {
+      setEntrando(false);
+    }
+  }
 
   async function baixarBackup() {
     setBaixando(true);
@@ -312,6 +335,12 @@ function TenantCard({ t, onToggle, onSalvarDominio }: {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {!master && (
+              <Button variant="ghost" size="sm" onClick={entrarComoLojista} disabled={entrando} title="Entrar no painel dessa loja sem senha">
+                {entrando ? <Loader2 className="size-4 animate-spin" /> : <LogIn className="size-4" />}
+                <span className="hidden sm:inline">Entrar</span>
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={baixarBackup} disabled={baixando} title="Baixar backup deste cliente">
               {baixando ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
               <span className="hidden sm:inline">Backup</span>
