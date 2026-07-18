@@ -57,6 +57,15 @@ async function main() {
     charset: 'utf8mb4',
   });
 
+  // STRICT_ALL_TABLES em toda conexão do pool (evento 'connection': roda uma
+  // vez por conexão FÍSICA nova, não por query — `pool.query()` sozinho só
+  // afetaria a conexão emprestada naquela hora). Sem modo estrito, um valor
+  // fora do range (string grande demais pra VARCHAR, número fora do domínio)
+  // seria truncado/zerado EM SILÊNCIO em vez de virar erro — a linha entraria
+  // como "migrada com sucesso" no relatório com dado corrompido, sem cair na
+  // lista de conflitos que este script existe pra reportar.
+  pool.on('connection', (conn) => { conn.query("SET SESSION sql_mode = 'STRICT_ALL_TABLES'"); });
+
   console.log(`→ Origem: ${arquivoSqlite}`);
   console.log(`→ Destino: banco MySQL "${bancoDestino}"`);
   if (limpar) console.log('⚠ --limpar: as tabelas do destino serão esvaziadas antes de migrar.');

@@ -572,4 +572,22 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
   for (const [chave, valor] of CONFIGS_PADRAO) {
     await pool.query('INSERT IGNORE INTO configuracoes (chave, valor) VALUES (?, ?)', [chave, valor]);
   }
+
+  // Índice único (loja_id, serie, numero) em notas_fiscais: a tabela já
+  // existia sem isso (só tinha UNIQUE em `chave`) — via `CREATE TABLE IF NOT
+  // EXISTS` acima, adicionar a coluna na constante TABELAS não alcança bancos
+  // já criados. reservarNumero() (lojista.ts) já serializa a reserva do
+  // número com FOR UPDATE, mas esse índice é a segunda trava (defesa em
+  // profundidade contra número duplicado por outro caminho de código/bug
+  // futuro) — sem DATABASE() na query não precisa saber o nome do banco atual.
+  const [jaTemIndice] = await pool.query(
+    `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'notas_fiscais' AND INDEX_NAME = 'idx_notas_loja_serie_numero'
+      LIMIT 1`,
+  ) as any;
+  if (jaTemIndice.length === 0) {
+    await pool.query(
+      'ALTER TABLE notas_fiscais ADD UNIQUE KEY idx_notas_loja_serie_numero (loja_id, serie, numero)'
+    );
+  }
 }

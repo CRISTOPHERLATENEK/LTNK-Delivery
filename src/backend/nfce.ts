@@ -65,12 +65,28 @@ export function digitoVerificador(chave43: string): string {
 
 const pad = (v: string | number, n: number) => String(v).replace(/\D/g, '').padStart(n, '0').slice(-n);
 
+/**
+ * Campos de data/hora em horário de Brasília (UTC-3 fixo — o Brasil não tem
+ * mais horário de verão desde 2019), calculados a partir do instante real
+ * (`Date.getTime()`, timezone-independente) em vez de `d.getHours()` etc.
+ * (hora LOCAL DO PROCESSO). O servidor roda em UTC — sem isso, a NFC-e saía
+ * com `dhEmi` 3h no futuro em relação ao horário real de Brasília, e a SEFAZ
+ * rejeita (cStat 703, data de emissão posterior ao recebimento).
+ */
+function camposBrasilia(d: Date) {
+  const b = new Date(d.getTime() - 3 * 60 * 60 * 1000);
+  return {
+    ano: b.getUTCFullYear(), mes: b.getUTCMonth() + 1, dia: b.getUTCDate(),
+    hora: b.getUTCHours(), min: b.getUTCMinutes(), seg: b.getUTCSeconds(),
+  };
+}
+
 /** Monta a chave de 44 dígitos. cNF aleatório (8) é retornado junto. */
 export function gerarChaveAcesso(emit: EmitenteNfce, venda: VendaNfce, tpEmis = 1): { chave: string; cNF: string } {
   const cUF = CODIGO_UF[emit.uf.toUpperCase()];
   if (!cUF) throw new Error(`UF inválida para NFC-e: ${emit.uf}`);
-  const d = venda.dataEmissao;
-  const aamm = String(d.getFullYear()).slice(2) + pad(d.getMonth() + 1, 2);
+  const { ano, mes } = camposBrasilia(venda.dataEmissao);
+  const aamm = String(ano).slice(2) + pad(mes, 2);
   const cNF = pad(Math.floor(Math.random() * 1e8), 8);
   const base =
     cUF +
@@ -193,10 +209,11 @@ export function montarXmlNfce(emit: EmitenteNfce, venda: VendaNfce): { xml: stri
   const { chave, cNF } = gerarChaveAcesso(emit, venda, tpEmis);
   const cUF = CODIGO_UF[emit.uf.toUpperCase()];
 
-  // dhEmi no formato YYYY-MM-DDThh:mm:ss-03:00
-  const d = venda.dataEmissao;
+  // dhEmi no formato YYYY-MM-DDThh:mm:ss-03:00 — horário de Brasília real,
+  // não a hora local do processo (ver camposBrasilia acima).
   const z = (n: number) => pad(n, 2);
-  const dhEmi = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}-03:00`;
+  const { ano, mes, dia, hora, min, seg } = camposBrasilia(venda.dataEmissao);
+  const dhEmi = `${ano}-${z(mes)}-${z(dia)}T${z(hora)}:${z(min)}:${z(seg)}-03:00`;
 
   const vProd = reais(venda.totalCentavos);
   // Desconto (cupom/manual): entra como <vDesc> no total e reduz <vNF>, mantendo

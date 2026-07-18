@@ -22,13 +22,22 @@ console.log(
 
 iniciarMonitoramento();
 
+// Só é fatal DURANTE o boot (primeiros 30s) — é aí que um crash não deixaria
+// rastro nenhum sem isso (módulo nativo incompatível, MySQL inalcançável,
+// etc.). Depois que o processo está de pé, um erro sem catch em qualquer
+// lugar do código (ex.: uma promise solta em algum request de UM tenant)
+// NÃO deve derrubar o servidor inteiro pra TODOS os tenants — só loga e
+// segue. `unref()` pra esse timer não segurar o processo vivo sozinho.
+let dentroDaJanelaDeBoot = true;
+setTimeout(() => { dentroDaJanelaDeBoot = false; }, 30_000).unref();
+
 process.on('uncaughtException', (e) => {
-  console.error('❌ uncaughtException no boot:', e);
+  console.error(dentroDaJanelaDeBoot ? '❌ uncaughtException no boot:' : '❌ uncaughtException (processo continua no ar):', e);
   capturarErro(e, { fase: 'uncaughtException' });
-  drenarMonitoramento().finally(() => process.exit(1));
+  if (dentroDaJanelaDeBoot) drenarMonitoramento().finally(() => process.exit(1));
 });
 process.on('unhandledRejection', (e) => {
-  console.error('❌ unhandledRejection no boot:', e);
+  console.error(dentroDaJanelaDeBoot ? '❌ unhandledRejection no boot:' : '❌ unhandledRejection (processo continua no ar):', e);
   capturarErro(e, { fase: 'unhandledRejection' });
-  drenarMonitoramento().finally(() => process.exit(1));
+  if (dentroDaJanelaDeBoot) drenarMonitoramento().finally(() => process.exit(1));
 });

@@ -32,9 +32,19 @@ const limiteEsqueciSenha = rateLimit({
   message: { erro: 'Muitos pedidos de redefinição. Aguarde 15 minutos e tente novamente.' },
 });
 
+// Rate limiting no cadastro (evita varrer CPF/telefone/e-mail em massa pra
+// descobrir quais já têm conta, e reduz o custo de criação de conta em massa).
+const limiteRegistro = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitas tentativas de cadastro. Aguarde 15 minutos e tente novamente.' },
+});
+
 const PERFIS_PUBLICOS: Perfil[] = ['cliente', 'entregador'];
 
-router.post('/registrar', async (req, res, next) => {
+router.post('/registrar', limiteRegistro, async (req, res, next) => {
   try {
     const nome = textoLimpo(req.body.nome, 120);
     const email = textoLimpo(req.body.email, 200).toLowerCase();
@@ -56,15 +66,20 @@ router.post('/registrar', async (req, res, next) => {
     // login como fallback silencioso, mas some da tela — ver /login). CPF
     // ainda é obrigatório no CADASTRO (dado fiscal, usado na NFC-e).
     // Lojista/entregador continuam só por e-mail, sem CPF.
+    // Mensagem de conflito GENÉRICA de propósito, igual pra CPF/telefone/
+    // e-mail: mensagens distintas por campo davam pra descobrir se um CPF ou
+    // telefone específico já tem conta na plataforma só tentando cadastrar
+    // (enumeração de conta — sensível pra CPF, que é dado de identidade).
+    const CONFLITO = 'Não foi possível concluir o cadastro com esses dados. Se você já tem conta, faça login; senão, confira CPF/telefone/e-mail informados.';
     const ehCliente = perfil === 'cliente';
     if (ehCliente) {
       if (!cpfValido(cpf)) throw erroHttp(400, 'Informe um CPF válido.');
       if (email && !emailValido(email)) throw erroHttp(400, 'E-mail inválido.');
       const cpfExiste = await db.prepare('SELECT id FROM usuarios WHERE cpf = ?').get(cpf);
-      if (cpfExiste) throw erroHttp(409, 'Já existe uma conta com este CPF.');
+      if (cpfExiste) throw erroHttp(409, CONFLITO);
       if (telefone) {
         const telExiste = await db.prepare('SELECT id FROM usuarios WHERE telefone = ?').get(telefone);
-        if (telExiste) throw erroHttp(409, 'Já existe uma conta com este telefone.');
+        if (telExiste) throw erroHttp(409, CONFLITO);
       }
     } else if (!emailValido(email)) {
       throw erroHttp(400, 'Informe um e-mail válido.');
@@ -74,7 +89,7 @@ router.post('/registrar', async (req, res, next) => {
     // sintético a partir do CPF (não é usado pra login, só satisfaz o schema).
     const emailFinal = email || (ehCliente ? `${cpf}@cliente.local` : '');
     const jaExiste = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(emailFinal);
-    if (jaExiste) throw erroHttp(409, 'Já existe uma conta com este e-mail.');
+    if (jaExiste) throw erroHttp(409, CONFLITO);
 
     const senhaHash = bcrypt.hashSync(senha, 10);
     // Clientes podem ser associados a uma loja específica (white label)

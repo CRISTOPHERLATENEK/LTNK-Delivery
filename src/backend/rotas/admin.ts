@@ -509,9 +509,14 @@ router.post('/usuarios/:id/resetar-senha', exigirSuperAdmin, async (req, res, ne
 router.post('/usuarios/:id/bloquear-desbloquear', async (req, res, next) => {
   try {
     const usuario = await db.prepare('SELECT * FROM usuarios WHERE id = ?')
-      .get(req.params.id) as { id: number; nome: string; email: string; perfil: string; bloqueado: number } | undefined;
+      .get(req.params.id) as { id: number; nome: string; email: string; perfil: string; bloqueado: number; super_admin: 0 | 1 } | undefined;
     if (!usuario) throw erroHttp(404, 'Usuário não encontrado.');
     if (usuario.id === req.usuario!.id) throw erroHttp(400, 'Você não pode bloquear a si mesmo.');
+    // Um admin operacional (não-super) não pode bloquear um super admin —
+    // sem essa checagem, ele conseguia trancar o dono da plataforma fora.
+    if (usuario.super_admin && !req.usuario!.super_admin) {
+      throw erroHttp(403, 'Só um super admin pode bloquear/desbloquear outro super admin.');
+    }
 
     const novo = usuario.bloqueado ? 0 : 1;
     await db.prepare('UPDATE usuarios SET bloqueado = ? WHERE id = ?').run(novo, usuario.id);
