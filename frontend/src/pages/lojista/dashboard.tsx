@@ -541,7 +541,7 @@ function CardPedidoDash({
                 className="flex w-full items-center gap-2 rounded-xl border p-2.5 text-left hover:border-primary hover:bg-accent/50 transition-colors"
               >
                 <div className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary font-bold text-sm shrink-0">
-                  {e.nome.charAt(0).toUpperCase()}
+                  {(e.nome || '?').charAt(0).toUpperCase()}
                 </div>
                 <div>
                   <div className="text-sm font-semibold">{e.nome}</div>

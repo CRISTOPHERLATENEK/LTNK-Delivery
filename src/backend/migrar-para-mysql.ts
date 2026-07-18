@@ -52,6 +52,9 @@ async function main() {
     password: process.env.MYSQL_PASSWORD || '',
     database: bancoDestino,
     connectionLimit: 4,
+    // Conexão em utf8mb4 (as tabelas são utf8mb4) — senão emojis nos dados
+    // legados dariam erro/truncagem e a linha cairia em "conflito" sem migrar.
+    charset: 'utf8mb4',
   });
 
   console.log(`→ Origem: ${arquivoSqlite}`);
@@ -94,7 +97,16 @@ async function main() {
     // verdade) descartando a linha perdedora em silêncio. Aqui cada conflito
     // vira um erro por linha, coletado no relatório final. Reexecução exige
     // `--limpar` (não é idempotente por PK de propósito).
-    const sql = `INSERT INTO \`${tabela}\` (${colunasOrigem.map(c => `\`${c}\``).join(',')}) VALUES ${placeholders}`;
+    let sql = `INSERT INTO \`${tabela}\` (${colunasOrigem.map(c => `\`${c}\``).join(',')}) VALUES ${placeholders}`;
+    // EXCEÇÃO: `configuracoes` é chave-valor e o schema JÁ SEMEIA 11 chaves
+    // (INSERT IGNORE em inicializarSchema) antes da migração. Com INSERT puro,
+    // essas chaves colidiriam na PK `chave` e o VALOR REAL de produção
+    // (comissao_percentual, suporte_*, wbapi_*, ...) cairia em "conflito" e
+    // ficaria o default. Aqui o valor de produção deve VENCER → upsert.
+    if (tabela === 'configuracoes') {
+      const cols = colunasOrigem.filter(c => c !== 'chave');
+      if (cols.length) sql += ` ON DUPLICATE KEY UPDATE ${cols.map(c => `\`${c}\`=VALUES(\`${c}\`)`).join(',')}`;
+    }
 
     let inseridas = 0;
     const idxId = colunasOrigem.indexOf('id');

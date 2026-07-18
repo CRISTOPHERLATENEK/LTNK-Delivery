@@ -85,6 +85,21 @@ export function encerrarSessao(area: Area = areaAtual()) {
   sessionStorage.removeItem(chaveUsuario(area));
 }
 
+/**
+ * "Entrar como lojista" (Admin → Clientes/Lojas): abre uma sessão de lojista a
+ * partir de um token de impersonação SEM passá-lo pela URL — um JWT na query
+ * string vaza em histórico do navegador, logs de acesso e header Referer.
+ * Valida o token, grava a sessão de lojista no localStorage (compartilhado
+ * entre abas same-origin) e o chamador só precisa abrir /lojista numa nova aba,
+ * que já encontra a sessão pronta. Lança se o token não validar.
+ */
+export async function abrirSessaoLojistaImpersonada(token: string): Promise<void> {
+  const r = await fetch('/api/auth/eu', { headers: { Authorization: `Bearer ${token}` } });
+  if (!r.ok) throw new Error(`Não foi possível validar a sessão de lojista (HTTP ${r.status}).`);
+  const { usuario } = await r.json();
+  salvarSessao(token, usuario, 'lojista');
+}
+
 /** Checa se o usuário logado NA ÁREA ADMIN é o super admin (dono da plataforma). */
 export function ehSuperAdmin(): boolean {
   const u = sessaoUsuario('admin');

@@ -14,7 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { ImageUpload } from '@/components/ui/image-upload';
-import { api, ApiError, tokenSessao } from '@/lib/api';
+import { api, ApiError, tokenSessao, abrirSessaoLojistaImpersonada } from '@/lib/api';
 import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
 import { cn } from '@/lib/utils';
 
@@ -541,9 +541,11 @@ function TenantCard({ t, onToggle, onSalvarDominio }: {
       });
       const corpo = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(corpo.erro || `Falha ao entrar (HTTP ${resp.status}).`);
-      // Mesmo domínio que você está usando agora — o token já carrega qual
-      // banco usar, não precisa do domínio próprio desse cliente.
-      window.open(`/lojista?entrar=${encodeURIComponent(corpo.token)}`, '_blank');
+      // Grava a sessão de lojista no storage (compartilhado entre abas
+      // same-origin) ANTES de abrir a aba — sem jogar o token na URL. Mesmo
+      // domínio que você está usando agora: o token já carrega qual banco usar.
+      await abrirSessaoLojistaImpersonada(corpo.token);
+      window.open('/lojista', '_blank');
     } catch (err) {
       mostrar({ tipo: 'erro', titulo: err instanceof Error ? err.message : 'Falha ao entrar como lojista.' });
     } finally {

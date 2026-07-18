@@ -75,7 +75,7 @@ export function TelaEntregadores() {
             <Card key={e.id} className={e.bloqueado ? 'opacity-60' : ''}>
               <CardContent className="p-4 flex items-center gap-4 flex-wrap">
                 <div className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary font-bold shrink-0">
-                  {e.nome.charAt(0).toUpperCase()}
+                  {(e.nome || '?').charAt(0).toUpperCase()}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">

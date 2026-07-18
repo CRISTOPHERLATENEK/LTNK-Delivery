@@ -72,6 +72,15 @@ export const autenticar: RequestHandler = async (req, _res, next) => {
     return next(erroHttp(401, 'Sessão inválida ou expirada. Faça login novamente.'));
   }
 
+  // SEGURANÇA: tokens de cozinha (KDS) são assinados com o MESMO segredo, mas
+  // seu `sub` é um id de `cozinha_contas`, não de `usuarios`. Sem esta guarda,
+  // um token de cozinha passaria por aqui e seria carregado como o `usuarios`
+  // de mesmo id — escalonamento de privilégio. Tokens de usuário legítimos
+  // sempre carregam o claim `perfil`; os de cozinha carregam `tipo:'cozinha'`.
+  if (dados.tipo === 'cozinha' || !dados.perfil) {
+    return next(erroHttp(401, 'Sessão inválida ou expirada. Faça login novamente.'));
+  }
+
   const carregarUsuarioEContinuar = async () => {
     const usuario = await db.prepare(
       'SELECT id, nome, email, perfil, telefone, cpf, bloqueado, super_admin FROM usuarios WHERE id = ?'

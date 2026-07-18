@@ -4,7 +4,7 @@
  * - Navegação network-first com fallback ao cache (abre offline).
  * - Nunca cacheia /api (dados sempre frescos).
  */
-const CACHE = 'delivery-app-v3';
+const CACHE = 'delivery-app-v4';
 const ESSENCIAIS = ['/'];
 
 self.addEventListener('install', (e) => {
@@ -40,8 +40,12 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(
       fetch(req)
         .then((r) => {
-          const copia = r.clone();
-          caches.open(CACHE).then((c) => c.put(req, copia)).catch(() => {});
+          // Só cacheia navegação BEM-SUCEDIDA — senão um 401/500/redirect vira
+          // fallback offline e "prende" o usuário numa página de erro/login.
+          if (r && r.ok) {
+            const copia = r.clone();
+            caches.open(CACHE).then((c) => c.put(req, copia)).catch(() => {});
+          }
           return r;
         })
         .catch(async () => {

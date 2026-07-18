@@ -1,7 +1,9 @@
-# Deploy — Hostinger (Web app Node.js)
+# Deploy — VPS / Hostinger (Node.js + MySQL)
 
-Guia pra subir o Delivery Multi-lojas na Hostinger usando a opção **"Web app Node.js"**
-(implanta do GitHub). Também serve pra VPS.
+Guia pra subir o Delivery Multi-lojas. O app roda em **Node.js + MySQL** (a migração de
+SQLite→MySQL está descrita em [`MIGRACAO-MYSQL-STATUS.md`](MIGRACAO-MYSQL-STATUS.md), que é
+a referência do corte de produção). Recomendado um **VPS** (disco próprio); serve também
+para a opção "Web app Node.js" da Hostinger, desde que você tenha um MySQL acessível.
 
 ## 1. Subir o código pro GitHub
 
@@ -39,9 +41,18 @@ No painel do app, adicione as variáveis (copie os nomes do `.env.example`). As 
 
 - `NODE_ENV=production`
 - `JWT_SECRET` — segredo forte e único
-- `APP_SECRET` — segredo forte e único (criptografia de dados sensíveis, ex.: senha do certificado)
+- `APP_SECRET` — segredo forte e único, **≥32 caracteres** (criptografia de dados sensíveis, ex.: senha do certificado). Em produção o app **não sobe** sem ele com ≥32 chars.
 - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` — Web Push (gere com `npx web-push generate-vapid-keys`)
-- `MP_ACCESS_TOKEN` — token do Mercado Pago (Pix), se for usar pagamento online
+- `MERCADOPAGO_ACCESS_TOKEN` — token do Mercado Pago (Pix), se for usar pagamento online (opcional; também pode ser configurado por loja no painel). `MERCADOPAGO_WEBHOOK_SECRET` — opcional.
+
+**Banco de dados MySQL (obrigatório — o app roda em MySQL, não mais SQLite):**
+
+- `MYSQL_HOST`, `MYSQL_PORT` (padrão 3306), `MYSQL_USER`, `MYSQL_PASSWORD`
+- `MYSQL_DATABASE` — banco do tenant **padrão/master**
+- `MYSQL_DATABASE_CENTRAL` — banco do **registro central de tenants** (pode ser o mesmo do master em setups de tenant único)
+- `MYSQL_TENANT_PREFIX` — opcional (prefixo dos bancos criados por tenant)
+
+> ⚠️ O usuário MySQL normalmente **não** tem privilégio `CREATE DATABASE` em hospedagem gerenciada — crie cada banco manualmente no painel/CLI do MySQL antes do primeiro start. Detalhes completos do corte de produção estão em [`MIGRACAO-MYSQL-STATUS.md`](MIGRACAO-MYSQL-STATUS.md).
 
 > **Nunca** coloque esses valores no código nem no GitHub — só nas variáveis de ambiente do painel.
 
@@ -97,23 +108,35 @@ Ative o **SSL** no domínio (Let's Encrypt, grátis). É obrigatório porque:
 
 ## 5. Persistência dos dados (IMPORTANTE)
 
-O banco é **arquivo** (SQLite na pasta `dados/`), junto com o certificado A1 da NFC-e.
-Em deploys gerenciados, o disco às vezes **reseta a cada novo deploy** — o que apagaria tudo.
+Os dados de negócio ficam no **MySQL** (não mais em arquivo). O que ainda vive em disco,
+na pasta `dados/`, são os **uploads** (fotos de produtos/banners/logos, em `dados/uploads/`)
+e os **certificados A1** da NFC-e (`dados/certificados/`).
 
-- Confirme no painel da Hostinger se há **armazenamento persistente** (volume que não some no redeploy)
-  e garanta que a pasta `dados/` fique nele.
-- Faça **backup periódico** da pasta `dados/`.
-- Se não houver disco persistente confiável, use um **VPS** (controle total do disco).
+Em deploys gerenciados o disco às vezes **reseta a cada novo deploy** — o que apagaria os
+uploads e os certificados (o MySQL, sendo externo ao processo, sobrevive):
 
-O servidor cria a pasta `dados/` e o schema do banco automaticamente no primeiro start
-(tabelas via `CREATE TABLE IF NOT EXISTS`). Para popular dados de demonstração, rode uma vez:
-`npm run seed` (opcional).
+- Prefira um **VPS** com disco próprio (foi a decisão deste projeto — ver
+  [`MIGRACAO-MYSQL-STATUS.md`](MIGRACAO-MYSQL-STATUS.md)); ou garanta **armazenamento
+  persistente** para a pasta `dados/`.
+- Faça **backup periódico** do MySQL (`mysqldump`) e da pasta `dados/`.
+
+**Schema do banco:** o registro central de tenants é criado no boot. O schema de negócio
+(30 tabelas) é aplicado por banco com o script de verificação — rode uma vez por banco
+recém-criado (com as env vars daquele banco):
+
+```bash
+node dist/backend/testar-schema-mysql.js
+```
+
+Para popular dados de demonstração, rode `npm run seed` (ou `SEED_ON_START=1` na primeira
+subida — ver seção 3).
 
 ## 6. Multi-loja por domínio
 
 O sistema resolve o tenant (a loja) pelo **domínio** de acesso. Aponte o domínio (e, se for
-usar subdomínios por loja, um `*.seudominio`) para o app na Hostinger. Cada tenant tem seu
-próprio banco em `dados/tenants/`.
+usar subdomínios por loja, um `*.seudominio` com `DOMINIO_BASE` configurado) para o app.
+Cada tenant tem seu **próprio banco MySQL** (registrado na tabela central `tenants`), criado
+manualmente e provisionado com o schema conforme a seção 5.
 
 ## 7. O que NÃO vai pro servidor
 

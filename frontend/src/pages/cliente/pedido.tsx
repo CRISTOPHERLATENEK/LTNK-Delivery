@@ -494,7 +494,7 @@ function ContatoCard({ pedido, onAbrirChat }: { pedido: Pedido; onAbrirChat: () 
     <Card>
       <CardContent className="p-4 flex items-center gap-3">
         <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary text-lg font-bold shrink-0">
-          {nome.charAt(0).toUpperCase()}
+          {(nome || '?').charAt(0).toUpperCase()}
         </div>
         <div className="flex-1 min-w-0">
           <div className="font-bold text-sm truncate">{nome}</div>

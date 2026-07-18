@@ -4,6 +4,15 @@ node_modules/
 # Dados sensíveis — NUNCA commitar (bancos SQLite por tenant + certificado A1 da NFC-e)
 dados/
 
+# Certificados/chaves privados — NUNCA commitar. O CA PÚBLICO da ICP-Brasil
+# (certs/icpbrasil-ca.pem) é seguro e fica versionado; estes padrões só barram
+# material privado que caia em certs/ (ou em qualquer lugar) por um `git add .`.
+*.pfx
+*.p12
+*.key
+certs/*.pem
+!certs/icpbrasil-ca.pem
+
 # Segredos / ambiente
 .env
 .env.local

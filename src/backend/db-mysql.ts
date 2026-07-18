@@ -38,6 +38,10 @@ const CONFIG_BASE = {
   port: Number(process.env.MYSQL_PORT || 3306),
   user: process.env.MYSQL_USER || 'root',
   password: process.env.MYSQL_PASSWORD || '',
+  // As tabelas são utf8mb4, mas o DEFAULT da CONEXÃO no mysql2 é utf8mb3 — sem
+  // isso, um caractere de 4 bytes (emoji) numa mensagem/notificação/produto dá
+  // erro 1366 "Incorrect string value" (modo estrito) ou é truncado.
+  charset: 'utf8mb4',
 };
 
 /** Banco do tenant padrão (fora de request: boot, jobs). Ex.: u438637664_delivery. */

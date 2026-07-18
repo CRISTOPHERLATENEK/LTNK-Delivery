@@ -282,7 +282,8 @@ export interface DadosDanfe {
   danfe: {
     emitente: { nome: string; fantasia: string; cnpj: string; endereco: string };
     itens: Array<{ descricao: string; quantidade: number; unidade: string; v_unit: number; v_total: number }>;
-    total: number;
+    total: number;           // líquido (bruto - desconto)
+    desconto?: number;       // desconto/cupom aplicado (centavos)
     pagamentos: Array<{ tipo: string; valor: number }>;
     numero: number;
     serie: number;
@@ -357,6 +358,7 @@ export function montarHtmlDanfe(d: DadosDanfe, largura: '80' | '58' = '80', conf
   ${itensHtml}
   <div class="sep"></div>
   <div class="row"><span>Qtde. total de itens</span><span>${qtdItens}</span></div>
+  ${d.danfe.desconto ? `<div class="row"><span>Desconto</span><span>- ${cents(d.danfe.desconto)}</span></div>` : ''}
   <div class="row tot"><span>VALOR TOTAL</span><span>${cents(d.danfe.total)}</span></div>
   <div class="sep"></div>
   <div class="tit">FORMA DE PAGAMENTO</div>
@@ -400,6 +402,7 @@ export function montarBlocosDanfe(d: DadosDanfe): BlocoImpressao[] {
   });
   b.push({ t: 'linha' });
   b.push({ t: 'lr', l: 'Qtde. total de itens', r: String(d.danfe.itens.length) });
+  if (d.danfe.desconto) b.push({ t: 'lr', l: 'Desconto', r: `- ${cents(d.danfe.desconto)}` });
   b.push({ t: 'lr', b: true, l: 'VALOR TOTAL', r: cents(d.danfe.total) });
   b.push({ t: 'linha' }, { t: 'center', txt: 'FORMA DE PAGAMENTO' });
   for (const p of d.danfe.pagamentos) b.push({ t: 'lr', l: PAG_LABEL[p.tipo] || p.tipo, r: cents(p.valor) });

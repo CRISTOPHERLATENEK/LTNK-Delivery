@@ -43,38 +43,9 @@ import type { Pedido, ItemPedido } from '@/types';
 
 type PedidoComItens = Pedido & { itens: ItemPedido[] };
 
-/**
- * Ponte de sessão pra "Entrar como lojista" (Admin → Clientes): a URL chega
- * com `?entrar=<token>` — valida o token nesse tenant (via GET /api/auth/eu),
- * salva a sessão de lojista e limpa a URL, sem precisar da senha.
- */
-function usarPonteSessaoLojista() {
-  const [pronta, setPronta] = useState(() => !new URLSearchParams(window.location.search).get('entrar'));
-
-  useEffect(() => {
-    const token = new URLSearchParams(window.location.search).get('entrar');
-    if (!token) return;
-    (async () => {
-      try {
-        const r = await fetch('/api/auth/eu', { headers: { Authorization: `Bearer ${token}` } });
-        if (r.ok) {
-          const { usuario } = await r.json();
-          salvarSessao(token, usuario, 'lojista');
-        }
-      } finally {
-        const url = new URL(window.location.href);
-        url.searchParams.delete('entrar');
-        window.history.replaceState({}, '', url.toString());
-        setPronta(true);
-      }
-    })();
-  }, []);
-
-  return pronta;
-}
-
 export function PainelLojista() {
-  const pontePronta = usarPonteSessaoLojista();
+  // A sessão de "Entrar como lojista" (Admin) chega pronta no storage (ver
+  // abrirSessaoLojistaImpersonada em lib/api.ts) — não há mais token na URL.
   const u = sessaoUsuario();
   const ehLojista = !!u && u.perfil === 'lojista';
 
@@ -152,14 +123,6 @@ export function PainelLojista() {
     { rota: '/lojista/produtos', icone: Box, rotulo: 'Produtos' },
     { rota: '/lojista/mais', icone: LayoutGrid, rotulo: 'Mais' },
   ];
-
-  if (!pontePronta) {
-    return (
-      <div className="flex min-h-dvh items-center justify-center text-muted-foreground text-sm">
-        Entrando…
-      </div>
-    );
-  }
 
   if (!ehLojista) {
     return <LoginLojista />;
@@ -554,7 +517,7 @@ function GerenciarCozinha() {
           <Card key={c.id}>
             <CardContent className="p-4 flex items-center gap-3">
               <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary font-bold shrink-0">
-                {c.nome.charAt(0).toUpperCase()}
+                {(c.nome || '?').charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-semibold leading-tight">{c.nome}</div>
@@ -1093,7 +1056,7 @@ function ClientesLoja() {
           <Card key={c.id}>
             <CardContent className="p-4 flex items-center gap-4">
               <div className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary font-bold shrink-0">
-                {c.nome.charAt(0).toUpperCase()}
+                {(c.nome || '?').charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-semibold leading-tight">{c.nome}</div>

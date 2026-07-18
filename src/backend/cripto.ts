@@ -17,9 +17,19 @@ import crypto from 'crypto';
  */
 function obterSegredo(): string {
   const app = process.env.APP_SECRET;
-  if (app && app.length >= 16) return app;
+  const ehProducao = process.env.NODE_ENV === 'production';
+  // Produção exige ≥32 (a doc/.env.example prometem isso); dev aceita ≥16 com aviso.
+  if (app) {
+    const minimo = ehProducao ? 32 : 16;
+    if (app.length >= minimo) return app;
+    if (ehProducao) {
+      throw new Error(`ERRO FATAL: APP_SECRET tem ${app.length} caracteres — defina ≥32 no .env para criptografar segredos em produção.`);
+    }
+    console.warn(`[SEGURANÇA] APP_SECRET curto (${app.length} caracteres) — use ≥32. Aceito apenas em desenvolvimento.`);
+    return app;
+  }
 
-  if (process.env.NODE_ENV === 'production') {
+  if (ehProducao) {
     throw new Error('ERRO FATAL: defina APP_SECRET (≥32 caracteres) no .env para criptografar segredos em produção.');
   }
   const jwt = process.env.JWT_SECRET;

@@ -45,7 +45,8 @@ export interface VendaNfce {
   dataEmissao: Date;
   itens: ItemNfce[];
   pagamentos: Array<{ tipo: 'dinheiro' | 'pix' | 'cartao'; valorCentavos: number }>;
-  totalCentavos: number;
+  totalCentavos: number;        // BRUTO — soma dos produtos (vira <vProd>)
+  descontoCentavos?: number;    // desconto/cupom do pedido (vira <vDesc>); vNF = total - desconto
 }
 
 /* ───────────────────────── chave de acesso ───────────────────────── */
@@ -198,6 +199,11 @@ export function montarXmlNfce(emit: EmitenteNfce, venda: VendaNfce): { xml: stri
   const dhEmi = `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}T${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}-03:00`;
 
   const vProd = reais(venda.totalCentavos);
+  // Desconto (cupom/manual): entra como <vDesc> no total e reduz <vNF>, mantendo
+  // vNF = vProd - vDesc e detPag = vNF (senão a SEFAZ rejeita por divergência).
+  const descontoCentavos = Math.min(Math.max(venda.descontoCentavos || 0, 0), venda.totalCentavos);
+  const vDesc = reais(descontoCentavos);
+  const vNF = reais(venda.totalCentavos - descontoCentavos);
   // Homologação: a SEFAZ exige que o 1º item tenha ESTA descrição exata (cStat 373).
   const HOMOLOG_XPROD = 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL';
   const dets = venda.itens.map((it, idx) => {
@@ -254,9 +260,9 @@ export function montarXmlNfce(emit: EmitenteNfce, venda: VendaNfce): { xml: stri
         `<vBC>0.00</vBC><vICMS>0.00</vICMS><vICMSDeson>0.00</vICMSDeson>` +
         `<vFCP>0.00</vFCP><vBCST>0.00</vBCST><vST>0.00</vST><vFCPST>0.00</vFCPST><vFCPSTRet>0.00</vFCPSTRet>` +
         `<vProd>${vProd}</vProd>` +
-        `<vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>0.00</vDesc><vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol>` +
+        `<vFrete>0.00</vFrete><vSeg>0.00</vSeg><vDesc>${vDesc}</vDesc><vII>0.00</vII><vIPI>0.00</vIPI><vIPIDevol>0.00</vIPIDevol>` +
         `<vPIS>0.00</vPIS><vCOFINS>0.00</vCOFINS><vOutro>0.00</vOutro>` +
-        `<vNF>${vProd}</vNF>` +
+        `<vNF>${vNF}</vNF>` +
       `</ICMSTot></total>` +
       `<transp><modFrete>9</modFrete></transp>` +
       `<pag>${pags}</pag>` +

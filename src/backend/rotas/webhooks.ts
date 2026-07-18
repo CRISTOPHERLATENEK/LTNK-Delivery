@@ -4,11 +4,20 @@
  * validação é por um token no query string.
  */
 import { Router } from 'express';
+import crypto from 'crypto';
 import db from '../db-mysql';
 import { agoraUTC } from '../util';
 import { segredoWebhook } from '../whatsapp-nao-oficial';
 
 const router = Router();
+
+/** Comparação de token resistente a timing (evita descobrir o segredo byte a byte). */
+function tokenConfere(recebido: string, esperado: string): boolean {
+  if (!esperado) return false;
+  const a = Buffer.from(recebido);
+  const b = Buffer.from(esperado);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
 
 /**
  * Evento 'message' da sessão de WhatsApp compartilhada (WBAPI). Como é UM
@@ -25,7 +34,7 @@ router.post('/whatsapp', async (req, res) => {
   res.status(200).json({ ok: true }); // responde rápido — o provedor não deve re-tentar por nossa causa
   try {
     const token = String(req.query.token || '');
-    if (!token || token !== await segredoWebhook()) return;
+    if (!token || !tokenConfere(token, await segredoWebhook())) return;
 
     const corpo: any = req.body || {};
     const evento = corpo.event ?? corpo.type;

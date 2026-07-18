@@ -44,6 +44,12 @@ export function PaginaLoja() {
   // vitrine de demo (/demo/:slug), pra alcançar lojas sem domínio próprio
   // configurado. Precisa rodar antes do useQuery abaixo disparar o fetch.
   const tenantParam = searchParams.get('tenant');
+  // Setado direto no corpo do render (não num useEffect) de propósito: precisa
+  // estar gravado no sessionStorage ANTES do primeiro fetch do useQuery abaixo
+  // disparar. Um useEffect aqui dependeria da ordem entre este efeito e o
+  // efeito interno do react-query que dispara o fetch — não é uma garantia
+  // documentada da lib, só um detalhe de implementação que pode mudar. Chamada
+  // idempotente (sessionStorage.setItem), sem efeito colateral visível.
   if (tenantParam) definirTenantDemo(tenantParam);
 
   const consulta = useQuery({

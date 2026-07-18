@@ -85,7 +85,7 @@ export function ChatPedido({
             {/* Header */}
             <div className="flex items-center gap-3 border-b border-border bg-muted/40 p-4 shrink-0">
               <div className="flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground text-sm font-bold shrink-0 shadow-sm">
-                {nomeContato.charAt(0).toUpperCase()}
+                {(nomeContato || '?').charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-sm truncate">{nomeContato}</div>

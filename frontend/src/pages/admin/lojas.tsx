@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
-import { api, ApiError, ehSuperAdmin, tokenSessao } from '@/lib/api';
+import { api, ApiError, ehSuperAdmin, tokenSessao, abrirSessaoLojistaImpersonada } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
 import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
 import { cn } from '@/lib/utils';
@@ -117,7 +117,10 @@ export function TelaLojas() {
       });
       const corpo = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(corpo.erro || `Falha ao entrar (HTTP ${resp.status}).`);
-      window.open(`/lojista?entrar=${encodeURIComponent(corpo.token)}`, '_blank');
+      // Sessão de lojista via storage (compartilhado entre abas same-origin),
+      // sem jogar o token na URL (vazaria em histórico/logs/Referer).
+      await abrirSessaoLojistaImpersonada(corpo.token);
+      window.open('/lojista', '_blank');
     } catch (e) {
       mostrar({ tipo: 'erro', titulo: e instanceof Error ? e.message : 'Falha ao entrar como lojista.' });
     }

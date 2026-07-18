@@ -236,7 +236,7 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
                 {clientesQ.data?.map((c) => (
                   <div key={c.id} className="flex items-center gap-3 rounded-xl bg-muted/50 px-4 py-2.5">
                     <div className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-bold shrink-0">
-                      {c.nome.charAt(0).toUpperCase()}
+                      {(c.nome || '?').charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
