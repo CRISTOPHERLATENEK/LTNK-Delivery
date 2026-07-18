@@ -1541,7 +1541,8 @@ function montarDanfeDados(emit: EmitenteNfce, venda: VendaNfce) {
       descricao: i.descricao, quantidade: i.quantidade, unidade: i.unidade,
       v_unit: i.valorUnitCentavos, v_total: i.valorTotalCentavos,
     })),
-    total: venda.totalCentavos,
+    total: venda.totalCentavos - (venda.descontoCentavos || 0),  // líquido (bruto - desconto)
+    desconto: venda.descontoCentavos || 0,
     pagamentos: venda.pagamentos.map(p => ({ tipo: p.tipo, valor: p.valorCentavos })),
     numero: venda.numero, serie: emit.serie,
   };
@@ -1606,12 +1607,16 @@ async function vendaDoPedido(loja: any, pedido: any, numero: number): Promise<Ve
     valorTotalCentavos: it.preco_unit_centavos * it.quantidade,
   }));
   const totalProdutos = itensNfce.reduce((s, i) => s + i.valorTotalCentavos, 0);
+  // Desconto/cupom do pedido: vira <vDesc> na nota; o pagamento reflete o LÍQUIDO
+  // (o que o cliente realmente pagou), não o bruto dos produtos.
+  const desconto = Math.min(Math.max(pedido.desconto_centavos || 0, 0), totalProdutos);
   return {
     numero,
     dataEmissao: new Date(),
     itens: itensNfce,
-    pagamentos: [{ tipo: TIPO_PAG_NFCE[pedido.forma_pagamento] || 'dinheiro', valorCentavos: totalProdutos }],
+    pagamentos: [{ tipo: TIPO_PAG_NFCE[pedido.forma_pagamento] || 'dinheiro', valorCentavos: totalProdutos - desconto }],
     totalCentavos: totalProdutos,
+    descontoCentavos: desconto,
   };
 }
 
@@ -1648,10 +1653,17 @@ function certificadoParaTls(loja: any): CertificadoLido {
   }
 }
 
-/** Reserva o próximo número da loja de forma atômica (evita números duplicados). */
+/**
+ * Reserva o próximo número da loja de forma atômica (evita números duplicados).
+ * `FOR UPDATE` trava a linha durante a transação: uma segunda chamada
+ * concorrente pro mesmo lojaId espera a primeira commitar antes de ler —
+ * sem isso, dois cliques rápidos (ou dois pedidos entregues quase juntos,
+ * que disparam emissão automática) podiam ler o mesmo número e transmitir
+ * duas NFC-e duplicadas à SEFAZ.
+ */
 async function reservarNumero(lojaId: number): Promise<number> {
   return comTransacao(async (tx) => {
-    const row = await tx.prepare('SELECT nfce_proximo_numero AS n FROM lojas WHERE id = ?').get(lojaId) as { n: number };
+    const row = await tx.prepare('SELECT nfce_proximo_numero AS n FROM lojas WHERE id = ? FOR UPDATE').get(lojaId) as { n: number };
     const numero = row?.n || 1;
     await tx.prepare('UPDATE lojas SET nfce_proximo_numero = ? WHERE id = ?').run(numero + 1, lojaId);
     return numero;
@@ -1733,10 +1745,19 @@ export async function emitirNfcePedido(pedidoId: number): Promise<{ autorizada: 
     if (ja) return null;
     const pfxPath = caminhoCertificado(loja.id);
     if (!fs.existsSync(pfxPath) || !loja.nfce_cert_senha) return null; // sem certificado: não dá pra emitir
+    // Valida config/certificado ANTES de reservar o número — se alguma dessas
+    // chamadas lançar, o número da sequência não é consumido à toa (ver
+    // reservarNumero acima: cada reserva incrementa nfce_proximo_numero e não
+    // tem como "devolver" o número se a emissão falhar depois).
+    emitenteDaLoja(loja);
+    certificadoParaTls(loja);
     const numero = await reservarNumero(loja.id);
     const venda = await vendaDoPedido(loja, pedido, numero);
     return await emitirVendaNfce(loja, venda, pedidoId);
-  } catch { return null; }
+  } catch (e) {
+    console.error('[nfce] emissão automática falhou:', e);
+    return null;
+  }
 }
 
 /**
@@ -1756,6 +1777,9 @@ router.post('/nfce/emitir/:pedidoId', async (req, res, next) => {
     ).get(pedido.id) as any;
     if (jaAutorizada) throw erroHttp(409, `Esta venda já tem NFC-e autorizada (chave ${jaAutorizada.chave}).`);
 
+    // Valida ANTES de reservar o número (ver comentário em emitirNfcePedido).
+    emitenteDaLoja(loja);
+    certificadoParaTls(loja);
     const numero = await reservarNumero(loja.id);
     const venda = await vendaDoPedido(loja, pedido, numero);
     const r = await emitirVendaNfce(loja, venda, pedido.id);
@@ -1771,6 +1795,9 @@ router.post('/nfce/testar-sefaz', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req) as any;
     if (!loja.nfce_ativo) throw erroHttp(400, 'Ative a emissão de NFC-e na aba Fiscal.');
+    // Valida ANTES de reservar o número (ver comentário em emitirNfcePedido).
+    emitenteDaLoja(loja);
+    certificadoParaTls(loja);
     const numero = await reservarNumero(loja.id);
     const venda: VendaNfce = {
       numero,
@@ -2533,7 +2560,7 @@ router.post('/comandas/:id/fechar', async (req, res, next) => {
       }
       await tx.prepare(
         "UPDATE comandas SET status = 'fechada', total_centavos = ?, forma_pagamento = ?, pedido_id = ?, fechado_em = ? WHERE id = ?"
-      ).run(comanda.total_centavos, req.body.forma_pagamento, novoPedidoId, agora, comanda.id);
+      ).run(comanda.total_centavos, formaPagamento, novoPedidoId, agora, comanda.id);
       await tx.prepare("UPDATE mesas SET status = 'livre' WHERE id = ?").run(comanda.mesa_id);
       return novoPedidoId;
     });

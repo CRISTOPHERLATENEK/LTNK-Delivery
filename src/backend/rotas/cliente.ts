@@ -5,7 +5,7 @@
  */
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
-import db, { comTransacao } from '../db-mysql';
+import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
 import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, telefoneDigitos, erroHttp, normalizarBairro } from '../util';
 import { transicionarStatus } from '../fluxoPedido';
@@ -370,8 +370,15 @@ router.post('/pedidos', async (req, res, next) => {
 
       const novoPedidoId = Number(info.lastInsertRowid);
 
-      // Consome um uso do cupom (dentro da transação, evita corrida).
-      if (cupom) await tx.prepare('UPDATE cupons SET usos_count = usos_count + 1 WHERE id = ?').run(cupom.id);
+      // Consome um uso do cupom. O incremento é CONDICIONAL ao limite (usos_max=0
+      // = ilimitado): assim dois checkouts simultâneos não estouram usos_max — se
+      // o cupom esgotou entre a validação e aqui, changes=0 e desfazemos tudo.
+      if (cupom) {
+        const u = await tx.prepare(
+          'UPDATE cupons SET usos_count = usos_count + 1 WHERE id = ? AND (usos_max = 0 OR usos_count < usos_max)'
+        ).run(cupom.id);
+        if (u.changes === 0) throw erroHttp(409, 'Este cupom atingiu o limite de usos.');
+      }
       for (const { produto, quantidade, precoUnit, opcoesTexto, opcoesIds } of itensValidados) {
         await tx.prepare(
           `INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos, quantidade, opcoes_texto, opcoes_ids)
@@ -399,7 +406,12 @@ router.post('/pedidos', async (req, res, next) => {
     if (pixOnline) {
       try {
         const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as Pedido;
-        const pix = await criarPagamentoMercadoPago(lojaId, pedido, { email: req.usuario!.email });
+        // notification_url carrega o tenant dono do pedido (?t=<banco>) pra o
+        // webhook do MP confirmar no banco certo, independentemente do domínio
+        // que o MP chamar (modelo SILO — um banco por tenant).
+        const base = `${req.protocol}://${req.get('host')}`;
+        const notifUrl = `${base}/api/pagamentos/webhook/mercadopago?t=${encodeURIComponent(bancoTenantAtual())}`;
+        const pix = await criarPagamentoMercadoPago(lojaId, pedido, { email: req.usuario!.email }, notifUrl);
         await db.prepare(
           "UPDATE pedidos SET pagamento_gateway = 'mercadopago', pagamento_gateway_id = ? WHERE id = ?"
         ).run(pix.pagamento_id, pedidoId);
@@ -571,10 +583,17 @@ router.post('/pedidos/:id/mensagens', async (req, res, next) => {
 router.post('/pedidos/:id/cancelar', async (req, res, next) => {
   try {
     const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND cliente_id = ?')
-      .get(req.params.id, req.usuario!.id) as { id: number; status: string } | undefined;
+      .get(req.params.id, req.usuario!.id) as { id: number; status: string; pagamento_status: string } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
     if (pedido.status !== 'pendente') {
       throw erroHttp(409, 'Este pedido já foi aceito pela loja e não pode mais ser cancelado.');
+    }
+    // Pix já aprovado pelo Mercado Pago: cancelar aqui devolveria o estoque
+    // mas não estorna o dinheiro (não existe fluxo de reembolso automático
+    // ainda) — bloqueia o autoatendimento e manda falar com a loja/suporte
+    // pra não deixar o cliente "cancelar de graça" um pedido já pago.
+    if (pedido.pagamento_status === 'aprovado') {
+      throw erroHttp(409, 'Este pedido já foi pago via Pix. Fale com a loja para cancelar e receber o reembolso.');
     }
     await transicionarStatus(pedido.id, 'cancelado');
     res.json({ ok: true });

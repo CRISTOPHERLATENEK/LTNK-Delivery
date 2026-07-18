@@ -410,6 +410,7 @@ function PainelComanda({
   const [adicionando, setAdicionando] = useState(false);
   const [fechando, setFechando] = useState(false);
   const [formaPagamento, setFormaPagamento] = useState<'dinheiro' | 'pix' | 'cartao'>('dinheiro');
+  const [salvando, setSalvando] = useState(false);
 
   const comandaQ = useQuery({
     queryKey: ['comanda', comandaId],
@@ -494,6 +495,8 @@ function PainelComanda({
   }
 
   async function confirmarFechamento() {
+    if (salvando) return; // trava clique duplo — sem isso, dois cliques rápidos podiam gerar dois pedidos/duas NFC-e pra mesma comanda
+    setSalvando(true);
     try {
       const r = await api<{ pedido_id: number | null }>(
         'POST', `/api/lojista/comandas/${comandaId}/fechar`, { forma_pagamento: formaPagamento }
@@ -515,11 +518,15 @@ function PainelComanda({
       onFechar();
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setSalvando(false);
     }
   }
 
   async function cancelarComanda() {
     if (!(await confirmar({ titulo: 'Cancelar esta comanda?', descricao: 'Todos os itens lançados serão descartados.', confirmar: 'Cancelar comanda', cancelar: 'Voltar', destrutivo: true }))) return;
+    if (salvando) return;
+    setSalvando(true);
     try {
       await api('POST', `/api/lojista/comandas/${comandaId}/cancelar`);
       mostrar({ tipo: 'sucesso', titulo: 'Comanda cancelada.' });
@@ -527,6 +534,8 @@ function PainelComanda({
       onFechar();
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setSalvando(false);
     }
   }
 
@@ -670,12 +679,12 @@ function PainelComanda({
             <Button
               size="sm"
               className="flex-1"
-              disabled={itens.length === 0}
+              disabled={itens.length === 0 || salvando}
               onClick={() => setFechando(true)}
             >
               <Check className="size-4" /> Fechar conta
             </Button>
-            <Button size="sm" variant="destructive" onClick={cancelarComanda}>
+            <Button size="sm" variant="destructive" disabled={salvando} onClick={cancelarComanda}>
               Cancelar
             </Button>
           </div>
@@ -701,10 +710,10 @@ function PainelComanda({
               ))}
             </div>
             <div className="flex gap-2">
-              <Button size="sm" className="flex-1" onClick={confirmarFechamento}>
-                Confirmar — {brl(total)}
+              <Button size="sm" className="flex-1" disabled={salvando} onClick={confirmarFechamento}>
+                {salvando ? 'Salvando…' : `Confirmar — ${brl(total)}`}
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setFechando(false)}>
+              <Button size="sm" variant="ghost" disabled={salvando} onClick={() => setFechando(false)}>
                 Voltar
               </Button>
             </div>

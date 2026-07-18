@@ -22,7 +22,14 @@ import { agenteAtivo, buscarConfigFiscal } from '@/lib/agente';
 import type { Produto, Loja } from '@/types';
 
 type Pagamento = 'dinheiro' | 'pix' | 'cartao';
+// Contador de linhas do carrinho: dá a cada linha um id estável, pra key do
+// React e pra remoção não dependerem do índice (o mesmo produto pode aparecer
+// em várias linhas quando vendido por peso).
+let seqLinhaCarrinho = 0;
+const novaLinhaUid = () => `l${++seqLinhaCarrinho}`;
+
 interface ItemCarrinho {
+  uid: string;
   produto: Produto;
   quantidade: number;
   precoUnit: number;
@@ -142,7 +149,7 @@ export function BalcaoLoja() {
         novo[i] = { ...novo[i], quantidade: novo[i].quantidade + 1 };
         return novo;
       }
-      return [...c, { produto: p, quantidade: 1, precoUnit: precoDe(p) }];
+      return [...c, { uid: novaLinhaUid(), produto: p, quantidade: 1, precoUnit: precoDe(p) }];
     });
   }
 
@@ -152,7 +159,7 @@ export function BalcaoLoja() {
     const precoLinha = Math.round(precoDe(p) * pesoG / 1000);
     const kg = (pesoG / 1000).toFixed(3).replace('.', ',');
     setCarrinho(c => [...c, {
-      produto: p, quantidade: 1, precoUnit: precoLinha, pesoG,
+      uid: novaLinhaUid(), produto: p, quantidade: 1, precoUnit: precoLinha, pesoG,
       detalhe: `${kg} kg × ${brl(precoDe(p))}/kg`,
     }]);
   }
@@ -181,7 +188,8 @@ export function BalcaoLoja() {
   }
 
   async function enviarCozinha() {
-    if (carrinho.length === 0) return;
+    if (carrinho.length === 0 || enviando) return; // trava clique duplo — sem isso, dois cliques rápidos duplicavam os itens na cozinha
+    setEnviando(true);
     try {
       const r = await api<{ itens_enviados: number }>('POST', '/api/lojista/balcao/enviar-cozinha', {
         itens: carrinho.map(i => ({ produto_id: i.produto.id, quantidade: i.quantidade })),
@@ -189,6 +197,8 @@ export function BalcaoLoja() {
       mostrar({ tipo: 'sucesso', titulo: `${r.itens_enviados} item(ns) enviados à cozinha 🍳` });
     } catch (e) {
       if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally {
+      setEnviando(false);
     }
   }
 
@@ -348,12 +358,12 @@ export function BalcaoLoja() {
                 </div>
               ) : (
                 <div className="space-y-1.5 max-h-[40vh] overflow-y-auto">
-                  {carrinho.map((item, idx) => (
-                    <div key={`${item.produto.id}-${idx}`} className="flex items-center gap-2 rounded-lg bg-accent/40 px-2.5 py-2">
+                  {carrinho.map((item) => (
+                    <div key={item.uid} className="flex items-center gap-2 rounded-lg bg-accent/40 px-2.5 py-2">
                       {item.pesoG ? (
                         // Item por peso: não tem stepper, só remover.
                         <button
-                          onClick={() => setCarrinho(c => c.filter((_, i) => i !== idx))}
+                          onClick={() => setCarrinho(c => c.filter(x => x.uid !== item.uid))}
                           className="flex size-6 items-center justify-center rounded-full border border-border bg-background text-muted-foreground hover:text-destructive shrink-0"
                           title="Remover"
                         >
@@ -424,7 +434,7 @@ export function BalcaoLoja() {
                     </div>
                   )}
 
-                  <Button size="lg" variant="outline" className="w-full" onClick={enviarCozinha}>
+                  <Button size="lg" variant="outline" className="w-full" disabled={enviando} onClick={enviarCozinha}>
                     <ChefHat className="size-4" /> Enviar para a cozinha
                   </Button>
                   <Button size="lg" className="w-full" onClick={finalizar} disabled={enviando}>
