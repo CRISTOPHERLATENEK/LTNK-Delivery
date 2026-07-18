@@ -5,7 +5,7 @@ entregador e admin), pronto para operação real.
 
 - **Linguagem:** **TypeScript** em todo o projeto (strict no backend)
 - **Backend:** Node.js + Express, API REST em JSON com mensagens em português
-- **Banco:** SQLite (schema compatível para migrar a PostgreSQL)
+- **Banco:** MySQL/MariaDB, multi-tenant (um banco isolado por cliente da plataforma)
 - **Frontend (cliente):** **React + Vite + Tailwind CSS + shadcn-style + Lucide
   + Framer Motion + TanStack Query**, modo claro/escuro automático, mobile-first
 - **Frontend (lojista/entregador/admin):** HTML + TS compilado para JS plano
@@ -45,7 +45,6 @@ npm start
 > - `npm run start:rapido` — sobe sem recompilar (`dist/` e `public/index.html` já existem)
 > - `npm run dev:react` — Vite em modo dev (HMR em `localhost:5173` com proxy para a API)
 > - `npm run seed` — popula o banco com dados de demonstração
-> - `npm run teste:e2e` — executa o teste de ponta a ponta (45 cenários)
 > - `npm test` — executa os testes unitários (Vitest)
 
 ### Estrutura React do cliente
@@ -96,14 +95,7 @@ Pronto! Acesse:
 
 ```bash
 npm test          # unitários (Vitest) — funções puras: CPF, criptografia...
-npm run teste:e2e # ponta a ponta — servidor real + banco descartável
 ```
-
-`npm run teste:e2e` sobe o servidor em uma porta separada com banco descartável
-e valida 45 cenários: fluxo feliz completo **e** os casos de erro (transição de
-status inválida, corrida aceita por dois entregadores ao mesmo tempo, acesso sem
-permissão, preço forjado no navegador, loja fechada, cliente por CPF, recuperação
-de senha, rate limiting etc.).
 
 `npm test` roda testes unitários rápidos (sem subir servidor) pras funções mais
 sensíveis — ex.: validação de CPF e a criptografia de segredos em repouso (senha
@@ -242,10 +234,8 @@ server {
 }
 ```
 
-### Migração futura para PostgreSQL
+### Banco de dados
 
-O schema já evita recursos exclusivos do SQLite: dinheiro como `INTEGER`
-(centavos), datas `TEXT` ISO-8601 UTC, booleans 0/1 e chaves estrangeiras.
-A migração se resume a trocar `better-sqlite3` por `pg`, adaptar
-`INTEGER PRIMARY KEY` para `BIGSERIAL` e converter as colunas de data para
-`TIMESTAMPTZ`.
+O projeto já roda em MySQL/MariaDB (migração de SQLite → MySQL concluída) —
+detalhes da arquitetura multi-tenant (um banco isolado por cliente) em
+`DEPLOY.md`.

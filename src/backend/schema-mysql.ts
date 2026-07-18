@@ -225,6 +225,7 @@ const TABELAS: string[] = [
                         CHECK (pagamento_status IN ('na_entrega','aguardando','aprovado','recusado')),
   pagamento_gateway     VARCHAR(40),
   pagamento_gateway_id  VARCHAR(80),
+  estornado_em          VARCHAR(32) NOT NULL DEFAULT '',
   motivo_recusa         TEXT,
   criado_em             VARCHAR(32) NOT NULL,
   atualizado_em         VARCHAR(32) NOT NULL,
@@ -589,5 +590,16 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     await pool.query(
       'ALTER TABLE notas_fiscais ADD UNIQUE KEY idx_notas_loja_serie_numero (loja_id, serie, numero)'
     );
+  }
+
+  // pedidos.estornado_em: mesmo caso do índice acima — coluna nova que
+  // `CREATE TABLE IF NOT EXISTS` não alcança em bancos já criados.
+  const [jaTemColuna] = await pool.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pedidos' AND COLUMN_NAME = 'estornado_em'
+      LIMIT 1`,
+  ) as any;
+  if (jaTemColuna.length === 0) {
+    await pool.query("ALTER TABLE pedidos ADD COLUMN estornado_em VARCHAR(32) NOT NULL DEFAULT ''");
   }
 }

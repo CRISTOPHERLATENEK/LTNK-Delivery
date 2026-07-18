@@ -2,6 +2,7 @@
  * Pagamentos — integração Mercado Pago Pix (token por loja ou global via env).
  */
 import { Router } from 'express';
+import crypto from 'crypto';
 import db, { comTenant } from '../db-mysql';
 import { agoraUTC } from '../util';
 import { notificarLojistaNovoPedido } from '../notificacoes';
@@ -80,6 +81,24 @@ export async function criarPagamentoMercadoPago(lojaId: number, pedido: Pedido, 
   };
 }
 
+/**
+ * Estorna (reembolso total) um pagamento Pix aprovado direto na API do
+ * Mercado Pago. Lança com a mensagem de erro do MP se recusar (ex.: prazo de
+ * estorno do Pix expirado, ou o pagamento já foi estornado antes).
+ */
+export async function estornarPagamentoMercadoPago(lojaId: number, pagamentoGatewayId: string): Promise<void> {
+  const token = await getTokenMP(lojaId);
+  if (!token) throw new Error('Mercado Pago não configurado para esta loja.');
+  const resposta = await fetch(
+    `https://api.mercadopago.com/v1/payments/${encodeURIComponent(pagamentoGatewayId)}/refunds`,
+    { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } },
+  );
+  if (!resposta.ok) {
+    const corpo = await resposta.json().catch(() => ({}));
+    throw new Error(corpo.message || `Mercado Pago recusou o estorno (HTTP ${resposta.status}).`);
+  }
+}
+
 async function processarWebhookMP(pagamentoId: string): Promise<void> {
   // Descobre qual loja gerou esse pagamento para usar o token certo.
   const pedidoRow = await db.prepare(
@@ -120,10 +139,46 @@ async function processarWebhookMP(pagamentoId: string): Promise<void> {
   }
 }
 
+/**
+ * Valida o header `x-signature` do webhook contra `MERCADOPAGO_WEBHOOK_SECRET`
+ * (algoritmo documentado pelo MP: HMAC-SHA256 de um manifest com id/request-id/
+ * ts). Opt-in de propósito — sem o secret configurado, aceita como sempre
+ * aceitou (mitigado por sempre reconsultar o pagamento na API do MP antes de
+ * confiar em qualquer coisa do corpo da notificação); com o secret, rejeita
+ * notificação forjada/sem assinatura válida.
+ */
+function assinaturaMpValida(req: import('express').Request, dataId: string): boolean {
+  const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+  if (!secret) return true;
+  const cabecalho = req.headers['x-signature'];
+  const requestId = req.headers['x-request-id'];
+  if (typeof cabecalho !== 'string' || typeof requestId !== 'string') return false;
+  const partes: Record<string, string> = {};
+  for (const par of cabecalho.split(',')) {
+    const [k, v] = par.trim().split('=');
+    if (k && v) partes[k] = v;
+  }
+  if (!partes.ts || !partes.v1) return false;
+  const manifest = `id:${dataId.toLowerCase()};request-id:${requestId};ts:${partes.ts};`;
+  const esperado = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
+  try {
+    const a = Buffer.from(esperado);
+    const b = Buffer.from(partes.v1);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch { return false; }
+}
+
 router.post('/webhook/mercadopago', async (req, res) => {
   try {
-    const pagamentoId = req.body && req.body.data && req.body.data.id;
+    // MP manda o id tanto no corpo quanto (em alguns formatos) na query
+    // ?data.id=... — o manifest da assinatura é calculado sobre o valor da
+    // QUERY quando presente (documentação do MP).
+    const pagamentoId = (req.query['data.id'] as string | undefined) || (req.body && req.body.data && req.body.data.id);
     if (!pagamentoId) return res.status(200).json({ recebido: true });
+    if (!assinaturaMpValida(req, String(pagamentoId))) {
+      console.warn('[mercadopago] webhook com assinatura inválida, ignorado');
+      return res.status(200).json({ recebido: true }); // 200 pro MP não ficar re-tentando; só não processa
+    }
 
     // SILO (um banco por tenant): a notification_url que gravamos no pagamento
     // traz ?t=<banco> do tenant dono do pedido. Sem isso, o webhook rodaria no

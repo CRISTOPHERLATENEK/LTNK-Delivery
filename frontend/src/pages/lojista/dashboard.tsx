@@ -373,6 +373,21 @@ function CardPedidoDash({
     }
   }
 
+  const [estornando, setEstornando] = useState(false);
+  async function estornar() {
+    if (!confirm('Estornar este pagamento Pix e cancelar o pedido? Essa ação não pode ser desfeita.')) return;
+    setEstornando(true);
+    try {
+      await api('POST', `/api/lojista/pedidos/${p.id}/estornar`);
+      mostrar({ tipo: 'sucesso', titulo: 'Pagamento estornado e pedido cancelado.' });
+      aoAtualizar();
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally {
+      setEstornando(false);
+    }
+  }
+
   async function atribuirEntregador(entregadorId: number) {
     try {
       await api('POST', `/api/lojista/pedidos/${p.id}/atribuir-entregador`, { entregador_id: entregadorId });
@@ -527,6 +542,13 @@ function CardPedidoDash({
         )}
 
         <div className="flex flex-wrap gap-2">{botoes()}</div>
+
+        {p.forma_pagamento === 'pix' && p.pagamento_status === 'aprovado' && !p.estornado_em
+          && !['entregue', 'em_entrega', 'cancelado'].includes(p.status) && (
+          <Button variant="ghost" size="sm" disabled={estornando} onClick={estornar} className="mt-2 text-destructive hover:text-destructive">
+            {estornando ? 'Estornando…' : 'Estornar pagamento e cancelar'}
+          </Button>
+        )}
 
         {/* Seletor de entregador */}
         {atribuindo && entregadores.length > 0 && (

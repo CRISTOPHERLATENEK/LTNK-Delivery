@@ -356,6 +356,9 @@ export interface Pedido {
   aviso_chegada_em?: string | null;
   endereco_entrega: string;
   forma_pagamento: FormaPagamento;
+  pagamento_status?: 'na_entrega' | 'aguardando' | 'aprovado' | 'recusado';
+  /** Preenchido quando o pagamento Pix foi estornado (ver POST /lojista/pedidos/:id/estornar). */
+  estornado_em?: string | null;
   troco_para_centavos?: number | null;
   observacoes?: string;
   subtotal_centavos: number;

@@ -1074,8 +1074,14 @@ router.post('/pedidos/:id/acao', async (req, res, next) => {
     if (!novoStatus) throw erroHttp(400, 'Ação inválida. Use: aceitar, recusar, preparar ou pronto.');
 
     const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND loja_id = ?')
-      .get(req.params.id, loja.id) as { id: number } | undefined;
+      .get(req.params.id, loja.id) as { id: number; pagamento_status: string } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
+    // A listagem já esconde pedido Pix não pago (pagamento_status='aguardando'),
+    // mas essa rota é o que de fato muda o estado — reforça aqui, não só na UI,
+    // pra ninguém conseguir "aceitar" um pedido cujo pagamento nunca chegou.
+    if (acao !== 'recusar' && pedido.pagamento_status === 'aguardando') {
+      throw erroHttp(409, 'Este pedido ainda não teve o pagamento Pix confirmado.');
+    }
 
     const extras: Record<string, string | number | null> = {};
     if (acao === 'recusar') {
@@ -1083,6 +1089,38 @@ router.post('/pedidos/:id/acao', async (req, res, next) => {
     }
     const atualizado = await transicionarStatus(pedido.id, novoStatus, { camposExtras: extras });
     res.json({ pedido: atualizado });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Estorna um pedido Pix já pago e cancela — o único fluxo de reembolso hoje é
+ * manual, direto na API do Mercado Pago (não existe estorno automático em
+ * nenhum outro ponto do sistema). Precisa ter passado por aqui pra um cliente
+ * conseguir cancelar de novo (POST /cliente/pedidos/:id/cancelar bloqueia
+ * pedido Pix já aprovado justamente pra isso não acontecer sem estorno).
+ */
+router.post('/pedidos/:id/estornar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND loja_id = ?')
+      .get(req.params.id, loja.id) as any | undefined;
+    if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
+    if (pedido.pagamento_status !== 'aprovado') throw erroHttp(409, 'Este pedido não tem um pagamento Pix aprovado pra estornar.');
+    if (pedido.estornado_em) throw erroHttp(409, 'Este pedido já foi estornado.');
+    if (!pedido.pagamento_gateway_id) throw erroHttp(409, 'Pedido sem referência de pagamento — estorne direto no painel do Mercado Pago.');
+    if (['entregue', 'em_entrega'].includes(pedido.status)) {
+      throw erroHttp(409, 'Pedido já saiu ou foi entregue — não dá pra estornar por aqui.');
+    }
+
+    const { estornarPagamentoMercadoPago } = await import('./pagamentos');
+    await estornarPagamentoMercadoPago(loja.id, pedido.pagamento_gateway_id);
+
+    const agora = agoraUTC();
+    await db.prepare('UPDATE pedidos SET estornado_em = ? WHERE id = ?').run(agora, pedido.id);
+    if (pedido.status !== 'cancelado') {
+      await transicionarStatus(pedido.id, 'cancelado', { camposExtras: { motivo_recusa: 'Estornado pela loja' } });
+    }
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
@@ -2189,25 +2227,32 @@ router.post('/banners', async (req, res, next) => {
       if (!existe) throw erroHttp(400, 'Produto não encontrado na sua loja.');
     }
 
-    const ativos = (await db.prepare('SELECT COUNT(*) AS n FROM banners WHERE loja_id = ? AND ativo = 1')
-      .get(loja.id) as { n: number }).n;
-    if (ativos >= 5) throw erroHttp(400, 'Máximo de 5 banners ativos. Desative um antes de criar outro.');
+    // Trava a linha da loja (mutex) dentro da transação: sem isso, duas
+    // criações/ativações concorrentes liam a mesma contagem "4 ativos" antes
+    // de qualquer INSERT terminar e as duas passavam, estourando o limite de 5.
+    const bannerId = await comTransacao(async (tx) => {
+      await tx.prepare('SELECT id FROM lojas WHERE id = ? FOR UPDATE').get(loja.id);
+      const ativos = (await tx.prepare('SELECT COUNT(*) AS n FROM banners WHERE loja_id = ? AND ativo = 1')
+        .get(loja.id) as { n: number }).n;
+      if (ativos >= 5) throw erroHttp(400, 'Máximo de 5 banners ativos. Desative um antes de criar outro.');
 
-    const info = await db.prepare(
-      `INSERT INTO banners (titulo, subtitulo, imagem, loja_id, produto_id, link_url, ordem, ativo, botao_texto, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
-    ).run(
-      titulo,
-      textoLimpo(req.body.subtitulo ?? '', 200),
-      imagem,
-      loja.id,
-      produtoId,
-      textoLimpo(req.body.link_url ?? '', 500) || null,
-      inteiroPositivo(req.body.ordem) || 0,
-      textoLimpo(req.body.botao_texto ?? '', 40),
-      agoraUTC(),
-    );
-    res.status(201).json({ banner_id: Number(info.lastInsertRowid) });
+      const info = await tx.prepare(
+        `INSERT INTO banners (titulo, subtitulo, imagem, loja_id, produto_id, link_url, ordem, ativo, botao_texto, criado_em)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+      ).run(
+        titulo,
+        textoLimpo(req.body.subtitulo ?? '', 200),
+        imagem,
+        loja.id,
+        produtoId,
+        textoLimpo(req.body.link_url ?? '', 500) || null,
+        inteiroPositivo(req.body.ordem) || 0,
+        textoLimpo(req.body.botao_texto ?? '', 40),
+        agoraUTC(),
+      );
+      return Number(info.lastInsertRowid);
+    });
+    res.status(201).json({ banner_id: bannerId });
   } catch (e) { next(e); }
 });
 
@@ -2232,16 +2277,7 @@ router.put('/banners/:id', async (req, res, next) => {
       : banner.produto_id;
 
     const novoAtivo = req.body.ativo !== undefined ? (req.body.ativo ? 1 : 0) : banner.ativo;
-    if (novoAtivo === 1 && banner.ativo === 0) {
-      const ativos = (await db.prepare('SELECT COUNT(*) AS n FROM banners WHERE loja_id = ? AND ativo = 1')
-        .get(loja.id) as { n: number }).n;
-      if (ativos >= 5) throw erroHttp(400, 'Máximo de 5 banners ativos. Desative outro antes de ativar este.');
-    }
-
-    await db.prepare(
-      `UPDATE banners SET titulo = ?, subtitulo = ?, imagem = ?, produto_id = ?, link_url = ?, ordem = ?, ativo = ?, botao_texto = ?
-        WHERE id = ?`
-    ).run(
+    const camposUpdate = [
       titulo,
       req.body.subtitulo !== undefined ? textoLimpo(req.body.subtitulo, 200) : banner.subtitulo ?? '',
       imagem,
@@ -2251,7 +2287,23 @@ router.put('/banners/:id', async (req, res, next) => {
       novoAtivo,
       req.body.botao_texto !== undefined ? textoLimpo(req.body.botao_texto, 40) : (banner.botao_texto ?? ''),
       banner.id,
-    );
+    ] as const;
+    const SQL_UPDATE = `UPDATE banners SET titulo = ?, subtitulo = ?, imagem = ?, produto_id = ?, link_url = ?, ordem = ?, ativo = ?, botao_texto = ?
+        WHERE id = ?`;
+
+    if (novoAtivo === 1 && banner.ativo === 0) {
+      // Trava a linha da loja (mutex) e checa+atualiza na MESMA transação —
+      // ver comentário equivalente em POST /banners acima.
+      await comTransacao(async (tx) => {
+        await tx.prepare('SELECT id FROM lojas WHERE id = ? FOR UPDATE').get(loja.id);
+        const ativos = (await tx.prepare('SELECT COUNT(*) AS n FROM banners WHERE loja_id = ? AND ativo = 1')
+          .get(loja.id) as { n: number }).n;
+        if (ativos >= 5) throw erroHttp(400, 'Máximo de 5 banners ativos. Desative outro antes de ativar este.');
+        await tx.prepare(SQL_UPDATE).run(...camposUpdate);
+      });
+    } else {
+      await db.prepare(SQL_UPDATE).run(...camposUpdate);
+    }
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
