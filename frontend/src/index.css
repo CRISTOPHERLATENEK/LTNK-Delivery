@@ -126,6 +126,42 @@
   .animar-flutuar { animation: none; }
 }
 
+/* ====================================================================
+   Landing do produto (Maxx Delivery) — utilidades visuais.
+   Tickers, borda serrilhada do cupom e monospace do recibo. As CORES
+   continuam vindo dos tokens do tema (--primary etc., editáveis no
+   painel admin → Marca): aqui só há forma/movimento, nunca hex fixo.
+   ==================================================================== */
+
+/* Ticker marquee (CSS puro): conteúdo duplicado no JSX pra emenda
+   invisível; pausa no hover; para completamente em reduced-motion. */
+@keyframes marquee-x {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.marquee { overflow: hidden; }
+.marquee__track {
+  display: inline-flex;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  animation: marquee-x 32s linear infinite;
+  will-change: transform;
+}
+.marquee--rapido .marquee__track { animation-duration: 24s; }
+.marquee:hover .marquee__track { animation-play-state: paused; }
+@media (prefers-reduced-motion: reduce) {
+  .marquee__track { animation: none; transform: none; }
+}
+
+/* Recibo térmico (cupom NFC-e) — fonte monoespaçada de bilheteria. */
+.fonte-cupom {
+  font-family: 'DejaVu Sans Mono', ui-monospace, 'SFMono-Regular', 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Estados iniciais de animação são aplicados SÓ via gsap.set() no JS
+   (progressive enhancement): se o JS falhar, tudo aparece visível. */
+
 /* Pulso do pino de rastreamento do entregador (Leaflet divIcon) */
 @keyframes pino-pulso {
   0%   { transform: scale(0.6); opacity: 0.7; }
