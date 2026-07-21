@@ -8,6 +8,7 @@ import { Badge } from './ui/badge';
 import { cn } from '@/lib/utils';
 import { sessaoUsuario, encerrarSessao } from '@/lib/api';
 import { useTema } from '@/lib/tema';
+import { rotaInicioCliente } from '@/lib/loja-atual';
 import type { ReactNode } from 'react';
 
 interface ItemNav {
@@ -47,7 +48,7 @@ export function AppLayout({ children, itens, titulo, subtitulo }: Props) {
   const raiz = location.pathname.startsWith('/lojista') ? '/lojista'
     : location.pathname.startsWith('/entregador') ? '/entregador'
     : location.pathname.startsWith('/painel-admin') ? '/painel-admin'
-    : '/';
+    : rotaInicioCliente();
 
   const sair = () => { encerrarSessao(); window.location.href = raiz; };
 

@@ -8,6 +8,7 @@ import { Home, ShoppingBag, Receipt, User, ChevronRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { useCarrinho, totalItensCarrinho } from '@/lib/carrinho';
+import { rotaInicioCliente } from '@/lib/loja-atual';
 import { api, sessaoUsuario } from '@/lib/api';
 import { PaginaVitrine } from '@/pages/cliente/vitrine';
 import { PaginaDemo } from '@/pages/cliente/demo';
@@ -78,7 +79,7 @@ function ClienteLayout({ children }: { children: React.ReactNode }) {
   const carrinho = useCarrinho();
   const total = totalItensCarrinho(carrinho);
   const itens = [
-    { rota: '/', icone: Home, rotulo: 'Início' },
+    { rota: rotaInicioCliente(), icone: Home, rotulo: 'Início', fim: true },
     { rota: '/carrinho', icone: ShoppingBag, rotulo: 'Carrinho', badge: <NavBadge valor={total} /> },
     { rota: '/pedidos', icone: Receipt, rotulo: 'Pedidos' },
     { rota: '/conta', icone: User, rotulo: 'Conta' },

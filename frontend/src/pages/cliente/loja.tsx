@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { adicionarAoCarrinho, useCarrinho, mudarQuantidade } from '@/lib/carrinho';
+import { registrarLojaAtual } from '@/lib/loja-atual';
 import { iconeCategoria } from '@/lib/icones-categoria';
 import { ModalProduto } from './modal-produto';
 import { BannerCarousel } from '@/components/banner-carousel';
@@ -51,6 +52,9 @@ export function PaginaLoja() {
   // documentada da lib, só um detalhe de implementação que pode mudar. Chamada
   // idempotente (sessionStorage.setItem), sem efeito colateral visível.
   if (tenantParam) definirTenantDemo(tenantParam);
+  // Mesma lógica/motivo do tenantParam acima: precisa estar gravado antes
+  // do cliente clicar em "Início" ou no logo, então roda direto no render.
+  if (id) registrarLojaAtual(id);
 
   const consulta = useQuery({
     queryKey: ['cardapio', id],
