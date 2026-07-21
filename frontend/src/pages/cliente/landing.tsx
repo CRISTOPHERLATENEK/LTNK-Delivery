@@ -568,8 +568,8 @@ export function PaginaLanding() {
       </section>
 
       {/* Segmentos — faixa-ticker inclinada, fundo laranja */}
-      <div className="relative overflow-hidden border-y border-border py-3">
-        <div className="w-[104%] -translate-x-[2%] -rotate-2 bg-primary py-2.5 text-primary-foreground">
+      <div className="relative overflow-hidden py-5">
+        <div className="w-[110%] -translate-x-[5%] -rotate-2 bg-primary py-2.5 text-primary-foreground">
           <Marquee itens={segmentos.map(s => s.toUpperCase())} />
         </div>
       </div>
