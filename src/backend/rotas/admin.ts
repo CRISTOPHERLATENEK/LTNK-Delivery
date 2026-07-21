@@ -632,6 +632,28 @@ router.post('/admins/:id/rebaixar', exigirSuperAdmin, async (req, res, next) => 
   } catch (e) { next(e); }
 });
 
+/**
+ * PUT /api/admin/minha-senha — o admin logado (super ou operacional) troca a
+ * própria senha. Exige a senha atual como confirmação.
+ */
+router.put('/minha-senha', exigirPerfil('admin'), async (req, res, next) => {
+  try {
+    const atual = typeof req.body.senha_atual === 'string' ? req.body.senha_atual : '';
+    const nova = typeof req.body.senha_nova === 'string' ? req.body.senha_nova : '';
+    if (nova.length < 6) throw erroHttp(400, 'A nova senha precisa ter pelo menos 6 caracteres.');
+
+    const eu = await db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?')
+      .get(req.usuario!.id) as { senha_hash: string } | undefined;
+    if (!eu || !bcrypt.compareSync(atual, eu.senha_hash)) {
+      throw erroHttp(400, 'Senha atual incorreta.');
+    }
+    await db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?')
+      .run(bcrypt.hashSync(nova, 10), req.usuario!.id);
+    await registrarAuditoria(req, 'admin.trocar_senha', { alvoTipo: 'admin', alvoId: req.usuario!.id, alvoDesc: req.usuario!.email });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 // ----- Comissão e repasses -------------------------------------------------
 
 router.get('/comissao', async (_req, res, next) => {

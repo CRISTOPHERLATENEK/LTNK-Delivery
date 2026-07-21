@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Users, UserPlus, Trash2, Crown, Shield, ArrowUpCircle, ArrowDownCircle, Lock, X } from 'lucide-react';
+import { Users, UserPlus, Trash2, Crown, Shield, ArrowUpCircle, ArrowDownCircle, Lock, X, KeyRound } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -43,6 +43,30 @@ export function TelaAdmins() {
   const [alvoPromocao, setAlvoPromocao] = useState<{ admin: Admin; acao: 'promover' | 'rebaixar' } | null>(null);
   const [senhaPromocao, setSenhaPromocao] = useState('');
   const [enviandoPromocao, setEnviandoPromocao] = useState(false);
+
+  const [formSenha, setFormSenha] = useState({ senha_atual: '', senha_nova: '', senha_confirma: '' });
+  const [trocandoSenha, setTrocandoSenha] = useState(false);
+
+  async function trocarMinhaSenha(e: React.FormEvent) {
+    e.preventDefault();
+    if (formSenha.senha_nova !== formSenha.senha_confirma) {
+      mostrar({ tipo: 'erro', titulo: 'As senhas novas não coincidem.' });
+      return;
+    }
+    setTrocandoSenha(true);
+    try {
+      await api('PUT', '/api/admin/minha-senha', {
+        senha_atual: formSenha.senha_atual,
+        senha_nova: formSenha.senha_nova,
+      });
+      mostrar({ tipo: 'sucesso', titulo: 'Senha alterada com sucesso!' });
+      setFormSenha({ senha_atual: '', senha_nova: '', senha_confirma: '' });
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setTrocandoSenha(false);
+    }
+  }
 
   async function criar(e: React.FormEvent) {
     e.preventDefault();
@@ -104,6 +128,47 @@ export function TelaAdmins() {
           </p>
         </div>
       </div>
+
+      <Card>
+        <CardContent className="p-5">
+          <h2 className="flex items-center gap-2 font-bold mb-4">
+            <KeyRound className="size-5 text-primary" />
+            Trocar minha senha
+          </h2>
+          <form onSubmit={trocarMinhaSenha} className="space-y-3">
+            <div>
+              <Label htmlFor="senha-atual">Senha atual</Label>
+              <Input
+                id="senha-atual" type="password" required autoComplete="current-password"
+                value={formSenha.senha_atual}
+                onChange={e => setFormSenha(f => ({ ...f, senha_atual: e.target.value }))}
+              />
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="senha-nova">Nova senha (mín. 6)</Label>
+                <Input
+                  id="senha-nova" type="password" minLength={6} required autoComplete="new-password"
+                  value={formSenha.senha_nova}
+                  onChange={e => setFormSenha(f => ({ ...f, senha_nova: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label htmlFor="senha-confirma">Confirmar nova senha</Label>
+                <Input
+                  id="senha-confirma" type="password" minLength={6} required autoComplete="new-password"
+                  value={formSenha.senha_confirma}
+                  onChange={e => setFormSenha(f => ({ ...f, senha_confirma: e.target.value }))}
+                />
+              </div>
+            </div>
+            <Button type="submit" size="lg" className="w-full" disabled={trocandoSenha}>
+              <KeyRound className="size-4" />
+              {trocandoSenha ? 'Salvando…' : 'Trocar senha'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent className="p-5">
