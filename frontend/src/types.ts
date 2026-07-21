@@ -212,8 +212,35 @@ export interface TemaMarca {
   landing_hero_titulo?: string;
   landing_hero_subtitulo?: string;
   landing_hero_imagem?: string;
+  /** Print MOBILE mostrado no celular sobreposto ao notebook do hero. */
+  landing_hero_imagem_mobile?: string;
   /** URL fixa do botão "Ver demonstração" — sobrepõe a busca automática pela 1ª loja do tenant (útil quando a loja de demo mora em outro tenant/domínio). */
   landing_demo_url?: string;
+  /** Número de WhatsApp (só dígitos) usado nos botões "Falar no WhatsApp" e no botão flutuante da landing. */
+  landing_whatsapp?: string;
+  /** Planos exibidos na seção de preços da landing. */
+  landing_planos?: LandingPlano[] | null;
+  /** Perguntas frequentes (acordeão) da landing. */
+  landing_faq?: LandingFaq[] | null;
+}
+
+/** Um plano/preço exibido na seção de planos da landing. */
+export interface LandingPlano {
+  nome: string;
+  /** Preço já formatado ("R$ 97/mês", "Sob consulta"…). */
+  preco: string;
+  /** Card escuro em destaque com selo "Mais escolhido". */
+  destaque?: boolean;
+  /** Lista de itens/benefícios inclusos no plano. */
+  recursos: string[];
+  /** Texto do botão (leva pro WhatsApp). */
+  cta: string;
+}
+
+/** Uma pergunta/resposta do acordeão de dúvidas da landing. */
+export interface LandingFaq {
+  pergunta: string;
+  resposta: string;
 }
 
 export interface LandingDestaque {

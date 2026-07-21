@@ -1,89 +1,40 @@
 /**
- * Landing page do produto (SaaS "Maxx Delivery") — exibida no domínio
- * principal quando NÃO há uma "loja padrão" configurada (ver marca.loja_id em
- * useTema). Vende a PLATAFORMA em si, com um botão "Ver demonstração" que leva
- * pra uma loja de exemplo.
+ * Landing page do produto (SaaS "Maxx Delivery") — domínio principal, quando
+ * não há loja padrão configurada (ver marca.loja_id em useTema). Vende a
+ * PLATAFORMA, com "Ver demonstração" apontando pra uma loja de exemplo.
  *
- * CORES: tudo sai dos tokens do tema (`primary`, `background`, `card`,
- * `muted`, `accent`, `destructive`...), que o painel admin → Marca edita via
- * reaplicarPaletaTema(). NUNCA hardcodar hex de marca aqui — senão a edição de
- * cores no admin deixaria de refletir na landing. As únicas cores fixas são as
- * do CUPOM (papel térmico branco/preto), por ser a representação de um recibo
- * impresso de verdade.
+ * CORES: 100% dos tokens do tema (`primary`, `background`, `foreground`,
+ * `card`, `muted`, `accent`, `border`...), editáveis no admin → Marca. NUNCA
+ * hex de marca aqui. As ÚNICAS cores fixas permitidas: o verde do WhatsApp
+ * (#25d366, convenção universal do app) e o papel branco/preto do CUPOM
+ * (representa um recibo térmico impresso de verdade).
  *
- * ANIMAÇÃO: GSAP + ScrollTrigger + DrawSVGPlugin (progressive enhancement — os
- * estados iniciais escondidos são aplicados SÓ via gsap.set() no JS; se o JS
- * falhar, todo o conteúdo aparece visível e clicável). Respeita
- * prefers-reduced-motion via gsap.matchMedia().
+ * ANIMAÇÃO: GSAP + ScrollTrigger + DrawSVGPlugin, PROGRESSIVE ENHANCEMENT —
+ * nada é escondido em CSS; os estados iniciais só existem via gsap.set() dentro
+ * do matchMedia 'no-preference'. Se o JS falhar, tudo aparece visível. Reveals
+ * são fail-open: clearProps ao terminar + um fail-safe por timeout que força
+ * qualquer elemento ainda invisível E dentro da viewport a aparecer. Respeita
+ * prefers-reduced-motion.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin';
-import { Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star, Shield, ShieldCheck, Users, Mail, Phone, Quote, Printer, QrCode, KeyRound, Cloud, BarChart3, Sun, Moon, type LucideIcon } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import {
+  Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star,
+  Shield, ShieldCheck, Users, Mail, Phone, Printer, QrCode, KeyRound, Cloud,
+  BarChart3, Sun, Moon, Menu, X, ChevronDown, Lock, MapPin, type LucideIcon,
+} from 'lucide-react';
 import { useTema, reaplicarPaletaTema } from '@/lib/tema';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { Loja, LandingRecurso, LandingIcone, LandingDepoimento, LandingDestaque } from '@/types';
+import type { Loja, LandingRecurso, LandingIcone, LandingPlano, LandingFaq } from '@/types';
 
 gsap.registerPlugin(ScrollTrigger, DrawSVGPlugin);
 
-/**
- * Moldura de janela de navegador que emoldura um print do app (ou um
- * placeholder quando ainda não há imagem).
- */
-function MockupNavegador({ src, nome, flutuar }: { src?: string; nome: string; flutuar?: boolean }) {
-  return (
-    <div className="relative">
-      <div className="absolute inset-0 -z-10 translate-y-6 scale-95 rounded-3xl bg-primary/20 blur-2xl" />
-      <div className={cn('overflow-hidden rounded-2xl border border-border bg-card shadow-2xl shadow-primary/10', flutuar && 'animar-flutuar')}>
-        <div className="flex items-center gap-1.5 border-b border-border bg-muted/50 px-4 py-2.5">
-          <span className="size-2.5 rounded-full bg-red-400" />
-          <span className="size-2.5 rounded-full bg-yellow-400" />
-          <span className="size-2.5 rounded-full bg-green-400" />
-          <div className="ml-3 flex-1 rounded-md bg-background/60 px-3 py-1 text-[11px] text-muted-foreground truncate">
-            {nome ? `${nome.toLowerCase().replace(/\s+/g, '')}.com.br` : 'seudelivery.com.br'}
-          </div>
-        </div>
-        {src ? (
-          <img src={src} alt="Prévia do aplicativo" className="w-full object-cover" />
-        ) : (
-          <div className="aspect-[4/3] bg-gradient-to-br from-primary/5 to-muted flex flex-col items-center justify-center gap-3 text-muted-foreground">
-            <Store className="h-12 w-12 opacity-30" />
-            <span className="text-xs">Prévia do app</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Moldura de celular (bezel escuro + notch) que emoldura um print vertical. */
-function MolduraCelular({ src, flutuar }: { src?: string; flutuar?: boolean }) {
-  return (
-    <div className={cn('relative mx-auto w-[240px] max-w-full', flutuar && 'animar-flutuar')}>
-      <div className="absolute inset-0 -z-10 translate-y-8 scale-90 rounded-[3rem] bg-primary/20 blur-2xl" />
-      <div className="rounded-[2.4rem] border-[6px] border-neutral-800 bg-neutral-800 shadow-2xl shadow-primary/10">
-        <div className="relative">
-          <div className="absolute left-1/2 top-1.5 z-10 h-4 w-24 -translate-x-1/2 rounded-b-2xl bg-neutral-800" />
-          <div className="overflow-hidden rounded-[2rem] bg-background">
-            {src ? (
-              <img src={src} alt="Prévia no celular" className="w-full object-cover" />
-            ) : (
-              <div className="aspect-[9/19] bg-gradient-to-br from-primary/5 to-muted flex flex-col items-center justify-center gap-2 text-muted-foreground">
-                <Smartphone className="h-10 w-10 opacity-30" />
-                <span className="text-[11px]">Prévia no celular</span>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+/* ───────────────────────── ícones + defaults ───────────────────────── */
 
 /** Mapa de ícones disponíveis pro admin escolher na edição da landing. */
 export const ICONES_LANDING: Record<LandingIcone, LucideIcon> = {
@@ -93,15 +44,14 @@ export const ICONES_LANDING: Record<LandingIcone, LucideIcon> = {
 
 const RECURSOS_PADRAO: LandingRecurso[] = [
   { icone: 'store', titulo: 'Multi-lojas', desc: 'Cada loja com painel, cardápio e domínio próprios.' },
-  { icone: 'palette', titulo: 'White label', desc: 'Cores, logo e visual do jeito da sua marca.' },
-  { icone: 'bike', titulo: 'Rastreio ao vivo', desc: 'Entregador com GPS em tempo real no mapa.' },
-  { icone: 'chefhat', titulo: 'Cozinha (KDS)', desc: 'Painel de produção, sem misturar com o financeiro.' },
-  { icone: 'receipt', titulo: 'NFC-e integrada', desc: 'Emissão fiscal direto na venda.' },
-  { icone: 'smartphone', titulo: 'PDV + Comandas', desc: 'Balcão e mesas do salão no mesmo lugar.' },
+  { icone: 'palette', titulo: 'White label', desc: 'Cores, logo e visual totalmente do jeito da sua marca.' },
+  { icone: 'bike', titulo: 'Rastreio ao vivo', desc: 'Entregador com GPS em tempo real, do jeito que o cliente vê no mapa.' },
+  { icone: 'chefhat', titulo: 'Cozinha (KDS)', desc: 'Painel de produção próprio, sem misturar com o financeiro.' },
+  { icone: 'receipt', titulo: 'NFC-e integrada', desc: 'Emissão fiscal direto na venda, sem depender de outro sistema.' },
+  { icone: 'smartphone', titulo: 'PDV + Comandas', desc: 'Venda no balcão e mesas do salão, tudo no mesmo lugar.' },
 ];
 
 const BENEFICIOS_PADRAO = ['Sem taxa de setup', 'Cada loja com domínio próprio', 'Suporte a Pix, cartão e dinheiro'];
-
 const SEM_PADRAO = ['Desorganização no atendimento', 'Falhas de comunicação', 'Erros nos pedidos', 'Nota fiscal em outro programa'];
 const COM_PADRAO = [
   'Agilidade e organização (pedido entra e já aparece na cozinha)',
@@ -109,28 +59,36 @@ const COM_PADRAO = [
   'Menos erro, mais venda (nada de anotar pedido no papel)',
   'Cupom fiscal na hora (NFC-e sai junto com a venda, direto na SEFAZ)',
 ];
-const SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria'];
+const SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria', 'Cafeteria', 'Marmitaria'];
 
-const DESTAQUES_PADRAO: LandingDestaque[] = [
-  { imagem_url: '/landing/storefront-mobile.png', formato: 'celular', titulo: 'Seu cliente pede direto pelo celular', desc: 'Cardápio digital com foto, categorias e busca — sem app pra baixar. O cliente monta o pedido e finaliza em segundos, com Pix, cartão ou dinheiro.' },
-  { imagem_url: '/landing/storefront-desktop.png', formato: 'navegador', titulo: 'Sua loja online com a sua cara', desc: 'Cores, logo e capa personalizados por loja. Cada negócio com seu próprio endereço, cardápio e visual — do jeito da marca.' },
+const STATS_PADRAO = [
+  { numero: '2 min', texto: 'do pedido à cozinha' },
+  { numero: '100%', texto: 'NFC-e autorizada na SEFAZ' },
+  { numero: '0', texto: 'taxa por pedido' },
+  { numero: '1 dia', texto: 'para a loja ficar no ar' },
 ];
 
-const FISCAL_BULLETS: { icone: LucideIcon; titulo: string; desc: string }[] = [
-  { icone: Printer, titulo: 'Emissão automática', desc: 'NFC-e emitida na hora da finalização do pedido.' },
-  { icone: QrCode, titulo: 'QR Code para o cliente', desc: 'Mais praticidade e transparência na entrega.' },
-  { icone: KeyRound, titulo: 'Chave de acesso', desc: 'Consulta rápida em qualquer portal da SEFAZ.' },
-  { icone: Receipt, titulo: 'Impressão rápida e confiável', desc: 'Compatível com as principais impressoras do mercado.' },
+const FISCAL_MINI: { icone: LucideIcon; titulo: string; desc: string }[] = [
+  { icone: Printer, titulo: 'Emissão automática', desc: 'NFC-e sai na finalização do pedido.' },
+  { icone: QrCode, titulo: 'QR Code', desc: 'Consulta rápida pelo consumidor.' },
+  { icone: KeyRound, titulo: 'Chave de acesso', desc: 'Válida em qualquer portal da SEFAZ.' },
+  { icone: Cloud, titulo: 'Impressão', desc: 'Compatível com térmicas 80/58mm.' },
 ];
 
-const FISCAL_STATS: { icone: LucideIcon; titulo: string; desc: string }[] = [
-  { icone: ShieldCheck, titulo: 'NFC-e autorizada', desc: 'Autorização instantânea pela SEFAZ.' },
-  { icone: Shield, titulo: 'Segurança total', desc: 'Dados protegidos e transmitidos com segurança.' },
-  { icone: Cloud, titulo: 'Tudo integrado', desc: 'Funciona 100% dentro do sistema.' },
-  { icone: BarChart3, titulo: 'Relatórios completos', desc: 'Acompanhe vendas e emissões em tempo real.' },
+const PLANOS_PADRAO: LandingPlano[] = [
+  { nome: 'Iniciante', preco: 'R$ 97/mês', cta: 'Começar agora', recursos: ['1 loja com domínio próprio', 'Cardápio digital ilimitado', 'Pedidos, cozinha e PDV', 'Pix, cartão e dinheiro', 'Suporte por WhatsApp'] },
+  { nome: 'Profissional', preco: 'R$ 197/mês', destaque: true, cta: 'Assinar Profissional', recursos: ['Tudo do Iniciante', 'NFC-e integrada (nota na venda)', 'Rastreio de entregador ao vivo', 'Comandas e mesas do salão', 'Relatórios completos', 'Suporte prioritário'] },
+  { nome: 'Multi-lojas', preco: 'Sob consulta', cta: 'Falar com a gente', recursos: ['Várias lojas num painel só', 'Cada loja com sua marca e domínio', 'Gestão centralizada', 'Onboarding assistido', 'Gerente de conta dedicado'] },
 ];
 
-/** Itens ilustrativos do cupom fiscal (loja demo). */
+const FAQ_PADRAO: LandingFaq[] = [
+  { pergunta: 'Preciso de CNPJ pra usar?', resposta: 'Pra vender e emitir NFC-e, sim (a nota exige CNPJ e certificado A1). Mas você pode montar o cardápio e testar tudo antes de decidir.' },
+  { pergunta: 'Em quanto tempo minha loja fica no ar?', resposta: 'No mesmo dia. Você cadastra os produtos, define cores e logo, e já compartilha o link da sua loja com os clientes.' },
+  { pergunta: 'Vocês cobram taxa por pedido?', resposta: 'Não. Você paga só a mensalidade do plano — nenhuma comissão por venda. O que você fatura é seu.' },
+  { pergunta: 'Tem fidelidade ou multa de cancelamento?', resposta: 'Não. Sem contrato de fidelidade e sem multa. Você cancela quando quiser.' },
+  { pergunta: 'Funciona com a minha impressora?', resposta: 'Sim. Somos compatíveis com as principais impressoras térmicas do mercado (80mm e 58mm), pro cupom e pro DANFE da NFC-e.' },
+];
+
 const CUPOM_ITENS = [
   { q: 1, nome: 'X-SALADA ARTESANAL', v: '28,00' },
   { q: 1, nome: 'PORCAO BATATA RUSTICA', v: '16,00' },
@@ -138,20 +96,27 @@ const CUPOM_ITENS = [
 ];
 const CUPOM_TOTAL = '56,00';
 
-/* ───────────────────────── helpers visuais ───────────────────────── */
+const WHATSAPP_VERDE = '#25d366'; // única cor de marca fixa: convenção universal do WhatsApp.
 
-/**
- * Sublinhado "rabisco à mão" (traço SVG irregular) sob a palavra-chave.
- * currentColor = cor do texto do container (use com text-primary). Quando
- * `anima` é true recebe a classe alvo do DrawSVG do hero.
- */
-function Rabisco({ anima }: { anima?: boolean }) {
+/* ───────────────────────── helpers de UI ───────────────────────── */
+
+/** Ícone do WhatsApp (glifo oficial simplificado). */
+function IconeWhatsapp({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.372-.025-.521-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
+    </svg>
+  );
+}
+
+/** Sublinhado "rabisco à mão" (SVG irregular) sob a palavra-chave do título. */
+function Rabisco({ anima, className }: { anima?: boolean; className?: string }) {
   return (
     <svg
-      className={cn('pointer-events-none absolute -bottom-1.5 left-0 h-[0.5em] w-full overflow-visible', anima && 'js-hero-rabisco')}
+      className={cn('pointer-events-none absolute -bottom-1 left-0 h-[0.42em] w-full overflow-visible text-primary', anima && 'js-rabisco', className)}
       viewBox="0 0 300 16" fill="none" preserveAspectRatio="none" aria-hidden="true"
     >
-      <path d="M3 11 C 55 3, 105 15, 152 8 S 245 3, 297 10" stroke="currentColor" strokeWidth="4" strokeLinecap="round" />
+      <path d="M3 11 C 55 3, 105 15, 152 8 S 245 3, 297 10" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -167,42 +132,21 @@ function segmentosTitulo(texto: string): { t: string; d: boolean }[] {
   return [{ t: palavras.join(' ') + ' ', d: false }, { t: ultima, d: true }];
 }
 
-/** Headline de seção: branco (foreground) + palavra-chave em laranja (primary) com rabisco. */
+/** Headline de seção com palavra-chave em primary + rabisco. */
 function TituloSecao({ texto, className }: { texto: string; className?: string }) {
   return (
-    <h2 className={cn('font-extrabold tracking-tight text-foreground', className)}>
+    <h2 className={cn('font-black tracking-tight text-foreground', className)}>
       {segmentosTitulo(texto).map((s, i) => s.d ? (
         <span key={i} className="relative inline-block text-primary">{s.t}<Rabisco /></span>
-      ) : (
-        <span key={i}>{s.t}</span>
-      ))}
+      ) : <span key={i}>{s.t}</span>)}
     </h2>
   );
 }
 
-/** Faixa-ticker marquee (CSS puro). Conteúdo duplicado pra emenda invisível. */
-function Marquee({ itens, sep = '✕', className }: { itens: string[]; sep?: string; className?: string }) {
-  const bloco = (dup: number) => (
-    <div className="flex items-center" aria-hidden={dup === 1}>
-      {itens.map((it, i) => (
-        <span key={i} className="flex items-center">
-          <span className="px-5 text-sm font-extrabold uppercase tracking-wider sm:text-base">{it}</span>
-          <span className="px-1 opacity-60">{sep}</span>
-        </span>
-      ))}
-    </div>
-  );
-  return (
-    <div className={cn('marquee', className)} aria-label={itens.join(', ')}>
-      <div className="marquee__track">{bloco(0)}{bloco(1)}</div>
-    </div>
-  );
-}
-
-/** Item de lista com parêntese: frase principal em destaque + complemento suave. */
-function TextoComComplemento({ texto, forte }: { texto: string; forte?: boolean }) {
+/** Frase principal em destaque + complemento entre parênteses esmaecido. */
+function TextoComComplemento({ texto }: { texto: string }) {
   const m = /^(.*?)\s*\(([^)]*)\)\s*$/.exec(texto);
-  if (!m) return <span className={forte ? 'font-semibold text-foreground' : 'text-muted-foreground'}>{texto}</span>;
+  if (!m) return <span className="font-semibold text-foreground">{texto}</span>;
   return (
     <>
       <span className="font-semibold text-foreground">{m[1]}</span>{' '}
@@ -211,18 +155,34 @@ function TextoComComplemento({ texto, forte }: { texto: string; forte?: boolean 
   );
 }
 
+/** Marquee reto (CSS puro), conteúdo duplicado pra emenda invisível. */
+function MarqueeSegmentos({ itens }: { itens: string[] }) {
+  const bloco = (dup: number) => (
+    <div className="flex items-center" aria-hidden={dup === 1}>
+      {itens.map((it, i) => (
+        <span key={i} className="flex items-center">
+          <span className="px-6 text-sm font-bold uppercase tracking-[0.2em] sm:text-base">{it}</span>
+          <span className="text-primary">•</span>
+        </span>
+      ))}
+    </div>
+  );
+  return (
+    <div className="marquee" aria-label={itens.join(', ')}>
+      <div className="marquee__track">{bloco(0)}{bloco(1)}</div>
+    </div>
+  );
+}
+
 /**
  * Cupom fiscal (NFC-e) desenhado como recibo térmico — papel branco, fonte
- * monoespaçada, itens da loja demo, VALOR TOTAL, QR Code e borda serrilhada.
- * Cores fixas de propósito (representa papel impresso). Rotacionado ~3°.
+ * monoespaçada, borda serrilhada. Cores fixas de propósito (papel impresso).
  */
 function CupomTermico() {
-  // Zigue-zague da borda inferior (papel rasgado da bobina).
   const dentes = 26, prof = 7, largura = 300, passo = largura / dentes;
   let serra = 'M0 0';
   for (let i = 0; i < dentes; i++) serra += ` L${(i * passo + passo / 2).toFixed(1)} ${prof} L${(i + 1) * passo} 0`;
   serra += ' Z';
-
   return (
     <div className="relative mx-auto w-[280px] max-w-full [transform:rotate(3deg)]">
       <div className="absolute inset-0 -z-10 translate-y-6 scale-95 rounded-2xl bg-primary/20 blur-2xl" />
@@ -260,10 +220,51 @@ function CupomTermico() {
           </div>
         </div>
       </div>
-      {/* Borda serrilhada (papel rasgado) */}
       <svg viewBox={`0 0 ${largura} ${prof}`} preserveAspectRatio="none" className="block h-2 w-full drop-shadow-lg" aria-hidden="true">
         <path d={serra} fill="#ffffff" />
       </svg>
+    </div>
+  );
+}
+
+/**
+ * Notebook do hero: tela com moldura escura + barra de navegador (cadeado +
+ * domínio) e base metálica. `.js-notebook-screen` é o alvo do lid-open/tilt.
+ */
+function NotebookHero({ src, nome }: { src?: string; nome: string }) {
+  const dominio = nome ? `${nome.toLowerCase().replace(/\s+/g, '')}.com.br` : 'seudelivery.com.br';
+  return (
+    <div className="[perspective:1400px]">
+      <div className="js-notebook-screen [transform-style:preserve-3d]">
+        {/* moldura escura */}
+        <div className="rounded-t-2xl border-[10px] border-b-[14px] border-neutral-900 bg-neutral-900 shadow-2xl [background:linear-gradient(160deg,theme(colors.neutral.700),theme(colors.neutral.900))]">
+          {/* barra de navegador */}
+          <div className="flex items-center gap-2 rounded-t-lg bg-neutral-800 px-3 py-2">
+            <span className="size-2.5 rounded-full bg-red-400/90" />
+            <span className="size-2.5 rounded-full bg-yellow-400/90" />
+            <span className="size-2.5 rounded-full bg-green-400/90" />
+            <div className="ml-2 flex flex-1 items-center gap-1.5 rounded-md bg-neutral-900/70 px-2.5 py-1 text-[11px] text-neutral-300">
+              <Lock className="size-3 text-green-400" />
+              <span className="truncate">{dominio}</span>
+            </div>
+          </div>
+          {/* conteúdo */}
+          <div className="overflow-hidden bg-background">
+            {src ? (
+              <img src={src} alt="Prévia do painel da loja" className="w-full object-cover object-top" />
+            ) : (
+              <div className="flex aspect-[16/10] flex-col items-center justify-center gap-3 bg-gradient-to-br from-primary/5 to-muted text-muted-foreground">
+                <Store className="h-12 w-12 opacity-30" />
+                <span className="text-xs">Prévia do painel</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      {/* base metálica */}
+      <div className="relative mx-auto h-3 w-[112%] -translate-x-[5%] rounded-b-xl [background:linear-gradient(180deg,theme(colors.neutral.400),theme(colors.neutral.600))] shadow-lg">
+        <div className="absolute left-1/2 top-0 h-1.5 w-24 -translate-x-1/2 rounded-b-lg bg-neutral-700/80" />
+      </div>
     </div>
   );
 }
@@ -280,7 +281,7 @@ function usarTemaLanding() {
   });
   const estadoAnteriorRef = useRef<boolean | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     estadoAnteriorRef.current = document.documentElement.classList.contains('dark');
     return () => {
       if (estadoAnteriorRef.current !== null) {
@@ -290,7 +291,7 @@ function usarTemaLanding() {
     };
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     document.documentElement.classList.toggle('dark', escuro);
     reaplicarPaletaTema();
     localStorage.setItem(CHAVE_TEMA_LANDING, escuro ? 'escuro' : 'claro');
@@ -299,25 +300,21 @@ function usarTemaLanding() {
   return { escuro, alternar: () => setEscuro(v => !v) };
 }
 
-function ToggleTemaLanding({ escuro, onClick }: { escuro: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="inline-flex size-9 items-center justify-center rounded-full text-foreground transition-colors hover:bg-accent"
-      aria-label={escuro ? 'Mudar para modo claro' : 'Mudar para modo escuro'}
-    >
-      {escuro ? <Moon className="size-[18px]" /> : <Sun className="size-[18px]" />}
-    </button>
-  );
-}
-
 /* ───────────────────────── página ───────────────────────── */
+
+const ANCORAS = [
+  { href: '#recursos', label: 'Recursos' },
+  { href: '#nota-fiscal', label: 'Nota fiscal' },
+  { href: '#planos', label: 'Planos' },
+  { href: '#duvidas', label: 'Dúvidas' },
+];
 
 export function PaginaLanding() {
   const { marca } = useTema();
   const { escuro, alternar } = usarTemaLanding();
   const raiz = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement>(null);
+  const [menuAberto, setMenuAberto] = useState(false);
 
   const recursos = marca.landing_recursos?.length ? marca.landing_recursos : RECURSOS_PADRAO;
   const beneficios = marca.landing_beneficios?.length ? marca.landing_beneficios : BENEFICIOS_PADRAO;
@@ -325,14 +322,21 @@ export function PaginaLanding() {
   const semLista = marca.landing_comparativo_sem?.length ? marca.landing_comparativo_sem : SEM_PADRAO;
   const comLista = marca.landing_comparativo_com?.length ? marca.landing_comparativo_com : COM_PADRAO;
   const segmentos = marca.landing_segmentos?.length ? marca.landing_segmentos : SEGMENTOS_PADRAO;
-  const depoimentos: LandingDepoimento[] = marca.landing_depoimentos ?? [];
-  const destaques = marca.landing_destaques?.length ? marca.landing_destaques : DESTAQUES_PADRAO;
+  const planos = marca.landing_planos?.length ? marca.landing_planos : PLANOS_PADRAO;
+  const faq = marca.landing_faq?.length ? marca.landing_faq : FAQ_PADRAO;
 
   const heroEyebrow = marca.landing_hero_eyebrow || 'Sistema para deliveries e restaurantes';
   const heroTitulo = marca.landing_hero_titulo || 'Seu delivery rodando liso, do pedido à *nota fiscal*.';
   const heroSubtitulo = marca.landing_hero_subtitulo || 'Cardápio, pedidos, cozinha, PDV e NFC-e num sistema só. Cada loja com seu domínio e a sua cara.';
   const heroImagem = marca.landing_hero_imagem || '/landing/storefront-desktop.png';
+  const heroImagemMobile = marca.landing_hero_imagem_mobile || '/landing/storefront-mobile.png';
 
+  // Link do WhatsApp (número editável no admin; cai no suporte_telefone).
+  const zapDigitos = (marca.landing_whatsapp || marca.suporte_telefone || '').replace(/\D/g, '');
+  const zapNum = zapDigitos ? (zapDigitos.length <= 11 ? '55' + zapDigitos : zapDigitos) : '';
+  const linkZap = (msg?: string) => zapNum ? `https://wa.me/${zapNum}${msg ? `?text=${encodeURIComponent(msg)}` : ''}` : undefined;
+
+  // Link da loja de demonstração (URL fixa do admin OU a 1ª loja aprovada do tenant).
   const demoUrlConfigurada = marca.landing_demo_url?.trim();
   const demo = useQuery({
     queryKey: ['landing-loja-demo'],
@@ -340,20 +344,36 @@ export function PaginaLanding() {
     staleTime: 5 * 60_000,
     enabled: !demoUrlConfigurada,
   });
-
   const linkDemo = demoUrlConfigurada || (demo.data ? `/loja/${demo.data.id}` : undefined);
   const demoExterna = !!linkDemo && /^https?:\/\//i.test(linkDemo);
 
-  // Botão de demo reutilizado no header, hero e CTA final.
-  const BotaoDemo = ({ size, className }: { size: 'sm' | 'lg' | 'xl'; className?: string }) => (
-    <Button size={size} className={className} asChild disabled={!linkDemo}>
-      {!linkDemo ? <span>{ctaTexto}</span>
-        : demoExterna ? <a href={linkDemo} target="_blank" rel="noreferrer">{ctaTexto} <ArrowRight className="h-4 w-4" /></a>
-        : <Link to={linkDemo}>{ctaTexto} <ArrowRight className="h-4 w-4" /></Link>}
-    </Button>
-  );
+  /**
+   * Botão "Ver demonstração". Corrige o bug antigo (disabled + asChild não
+   * funciona: o Slot repassa `disabled` pra um <a>/<Link>, que ignora). Quando
+   * não há link, renderiza um <button disabled> de verdade.
+   */
+  const BotaoDemo = ({ size, variant, className, texto }: { size: 'sm' | 'lg' | 'xl'; variant?: 'primary' | 'branco'; className?: string; texto?: string }) => {
+    const alturas = { sm: 'h-9 px-4 text-xs rounded-xl', lg: 'h-12 px-7 text-base rounded-2xl', xl: 'h-14 px-8 text-base rounded-2xl' };
+    const cor = variant === 'branco'
+      ? 'bg-background text-foreground hover:bg-background/90'
+      : 'bg-primary text-primary-foreground hover:bg-primary/90';
+    const base = cn('inline-flex items-center justify-center gap-2 font-semibold shadow-sm transition-all active:scale-[0.98]', alturas[size], cor, className);
+    const conteudo = <>{texto || ctaTexto} <ArrowRight className="size-4" /></>;
+    if (!linkDemo) return <button type="button" disabled className={cn(base, 'cursor-not-allowed opacity-50')}>{texto || ctaTexto}</button>;
+    if (demoExterna) return <a href={linkDemo} target="_blank" rel="noreferrer" className={base}>{conteudo}</a>;
+    return <Link to={linkDemo} className={base}>{conteudo}</Link>;
+  };
 
-  // Divide o título do hero em palavras (pra stagger) preservando o destaque.
+  /** Botão do WhatsApp (cai pro /lojista quando não há número). */
+  const BotaoZap = ({ size, texto, msg, className }: { size: 'sm' | 'lg' | 'xl'; texto: string; msg?: string; className?: string }) => {
+    const alturas = { sm: 'h-9 px-4 text-xs rounded-xl', lg: 'h-12 px-7 text-base rounded-2xl', xl: 'h-14 px-8 text-base rounded-2xl' };
+    const base = cn('inline-flex items-center justify-center gap-2 border border-input bg-background font-semibold text-foreground transition-all hover:bg-accent active:scale-[0.98]', alturas[size], className);
+    const conteudo = <><IconeWhatsapp className="size-[1.1em]" /> {texto}</>;
+    const href = linkZap(msg);
+    if (href) return <a href={href} target="_blank" rel="noreferrer" className={base}>{conteudo}</a>;
+    return <Link to="/lojista" className={base}>{texto}</Link>;
+  };
+
   const heroSegs = segmentosTitulo(heroTitulo);
 
   useLayoutEffect(() => {
@@ -362,90 +382,139 @@ export function PaginaLanding() {
     const q = gsap.utils.selector(el);
 
     const ctx = gsap.context(() => {
-      // Nav ganha fundo sólido + borda ao rolar (independe de motion pref).
+      // Nav ganha fundo translúcido + blur + sombra ao rolar (independe de motion).
       ScrollTrigger.create({
-        start: 'top -40',
+        start: 'top -20',
         onUpdate: (self) => {
           const nav = navRef.current;
           if (!nav) return;
-          const solida = self.scroll() > 40;
-          ['bg-background/90', 'backdrop-blur', 'shadow-sm', 'border-border'].forEach(c => nav.classList.toggle(c, solida));
+          const solida = self.scroll() > 20;
+          ['bg-background/80', 'backdrop-blur-md', 'shadow-sm', 'border-border'].forEach(c => nav.classList.toggle(c, solida));
           nav.classList.toggle('border-transparent', !solida);
         },
       });
 
       const mm = gsap.matchMedia();
 
-      // Movimento reduzido: sem timelines/loop, só fades curtos. Nada é
-      // escondido em CSS, então tudo já está visível se isto não rodar.
+      // Movimento reduzido: só fades curtos, sem loops/tilt.
       mm.add('(prefers-reduced-motion: reduce)', () => {
         q('[data-reveal]').forEach((s) => {
-          gsap.from(s, { autoAlpha: 0, duration: 0.15, scrollTrigger: { trigger: s, start: 'top 85%' } });
+          gsap.from(s, { autoAlpha: 0, duration: 0.2, scrollTrigger: { trigger: s, start: 'top 88%', once: true } });
         });
       });
 
       // Movimento normal.
       mm.add('(prefers-reduced-motion: no-preference)', () => {
-        // Estados iniciais (só aqui, nunca em CSS).
+        // Estados iniciais — só aqui, nunca em CSS.
         gsap.set(navRef.current, { opacity: 0 });
-        gsap.set(q('.js-hero-palavra'), { y: 24, opacity: 0 });
-        gsap.set(q('.js-hero-rabisco path'), { drawSVG: '0%' });
-        gsap.set(q('.js-hero-sub'), { y: 10, opacity: 0 });
-        gsap.set(q('.js-hero-cta'), { scale: 0.9, opacity: 0 });
-        gsap.set(q('.js-mockup'), { y: 80, opacity: 0 });
-        gsap.set(q('.js-selo-nfce'), { scale: 0, rotation: -20, opacity: 0 });
+        gsap.set(q('.js-hero-item'), { y: 22, opacity: 0 });
+        gsap.set(q('.js-rabisco path'), { drawSVG: '0%' });
+        gsap.set(q('.js-notebook-screen'), { rotationX: -32, y: 40, opacity: 0, transformOrigin: '50% 100%', transformPerspective: 1400 });
+        gsap.set(q('.js-hero-phone'), { y: 60, opacity: 0, scale: 0.85 });
 
         // Hero timeline.
         const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
         tl.to(navRef.current, { opacity: 1, duration: 0.3 })
-          .to(q('.js-hero-palavra'), { y: 0, opacity: 1, stagger: 0.09, duration: 0.6 }, 0.05)
-          .to(q('.js-hero-rabisco path'), { drawSVG: '100%', duration: 0.5 }, '-=0.25')
-          .to(q('.js-hero-sub'), { y: 0, opacity: 1, stagger: 0.08, duration: 0.5 }, '-=0.3')
-          .to(q('.js-hero-cta'), { scale: 1, opacity: 1, ease: 'back.out(1.4)', duration: 0.5 }, '-=0.2')
-          .to(q('.js-mockup'), { y: 0, opacity: 1, ease: 'back.out(1.2)', duration: 0.9 }, '-=0.5')
-          .to(q('.js-selo-nfce'), { scale: 1, rotation: -12, opacity: 1, ease: 'elastic.out(1, 0.5)', duration: 0.9 }, '-=0.5')
-          .add(() => { gsap.to(q('.js-mockup'), { y: '+=6', duration: 3, yoyo: true, repeat: -1, ease: 'sine.inOut' }); });
+          .to(q('.js-hero-item'), { y: 0, opacity: 1, stagger: 0.09, duration: 0.6 }, 0.05)
+          .to(q('.js-rabisco path'), { drawSVG: '100%', duration: 0.5 }, '-=0.3')
+          .to(q('.js-notebook-screen'), { rotationX: 0, y: 0, opacity: 1, duration: 1, ease: 'power2.out' }, '-=0.7')
+          .to(q('.js-hero-phone'), { y: 0, opacity: 1, scale: 1, ease: 'back.out(1.5)', duration: 0.7 }, '-=0.4')
+          .add(() => {
+            // Flutuação contínua do celular.
+            gsap.to(q('.js-hero-phone'), { y: '-=10', duration: 2.4, yoyo: true, repeat: -1, ease: 'sine.inOut' });
+          });
 
-        // Reveal genérico das seções.
+        // Tilt 3D no mousemove (notebook + celular parallax).
+        const palco = q('.js-hero-palco')[0] as HTMLElement | undefined;
+        const tela = q('.js-notebook-screen')[0];
+        const fone = q('.js-hero-phone')[0];
+        if (palco && tela && fone) {
+          const rY = gsap.quickTo(tela, 'rotationY', { duration: 0.5, ease: 'power2.out' });
+          const rX = gsap.quickTo(tela, 'rotationX', { duration: 0.5, ease: 'power2.out' });
+          const fX = gsap.quickTo(fone, 'x', { duration: 0.5, ease: 'power2.out' });
+          const fY = gsap.quickTo(fone, 'y', { duration: 0.5, ease: 'power2.out' });
+          const fR = gsap.quickTo(fone, 'rotation', { duration: 0.5, ease: 'power2.out' });
+          const mover = (e: MouseEvent) => {
+            const r = palco.getBoundingClientRect();
+            const px = (e.clientX - r.left) / r.width - 0.5;   // -0.5..0.5
+            const py = (e.clientY - r.top) / r.height - 0.5;
+            rY(px * 18); rX(-py * 18);          // ±9°
+            fX(px * 40); fY(py * 30); fR(px * 6);
+          };
+          const sair = () => { rY(0); rX(0); fX(0); fY(0); fR(0); };
+          palco.addEventListener('mousemove', mover);
+          palco.addEventListener('mouseleave', sair);
+        }
+
+        // Reveal genérico das seções (fail-open: autoAlpha, once).
         q('[data-reveal]').forEach((s) => {
-          gsap.from(s, { y: 32, opacity: 0, duration: 0.5, ease: 'power3.out', scrollTrigger: { trigger: s, start: 'top 75%', toggleActions: 'play none none none' } });
+          gsap.from(s, {
+            y: 34, autoAlpha: 0, duration: 0.6, ease: 'power3.out',
+            scrollTrigger: { trigger: s, start: 'top 80%', once: true },
+            onComplete: () => gsap.set(s, { clearProps: 'transform,opacity,visibility' }),
+          });
         });
 
-        // "Jeito antigo": riscos vermelhos desenhando (caneta riscando item a item).
+        // "Jeito antigo": riscos desenhando na cor primary.
         const riscos = q('.js-risco path');
         if (riscos.length) {
           gsap.set(riscos, { drawSVG: '0%' });
           ScrollTrigger.create({
-            trigger: q('.js-antigo')[0], start: 'top 75%', once: true,
-            onEnter: () => gsap.to(riscos, { drawSVG: '100%', stagger: 0.15, duration: 0.4, ease: 'power1.inOut' }),
+            trigger: q('.js-antigo')[0], start: 'top 78%', once: true,
+            onEnter: () => gsap.to(riscos, { drawSVG: '100%', stagger: 0.14, duration: 0.4, ease: 'power1.inOut' }),
           });
         }
 
-        // "Jeito novo": checks laranja desenhando + pulse da caixa.
+        // "Jeito novo": checks desenhando + pulse da caixinha.
         const checks = q('.js-check-path'), caixas = q('.js-check-box');
         if (checks.length) {
           gsap.set(checks, { drawSVG: '0%' });
           ScrollTrigger.create({
-            trigger: q('.js-novo')[0], start: 'top 75%', once: true,
+            trigger: q('.js-novo')[0], start: 'top 78%', once: true,
             onEnter: () => {
-              gsap.to(checks, { drawSVG: '100%', stagger: 0.12, duration: 0.35 });
-              gsap.fromTo(caixas, { scale: 0.8 }, { scale: 1, stagger: 0.12, duration: 0.35, ease: 'back.out(2.5)' });
+              gsap.to(checks, { drawSVG: '100%', stagger: 0.11, duration: 0.35 });
+              gsap.fromTo(caixas, { scale: 0.8 }, { scale: 1, stagger: 0.11, duration: 0.35, ease: 'back.out(2.5)' });
             },
           });
         }
 
-        // Cupom: revela como saindo da impressora térmica (clipPath).
+        // Stats: contagem visual em stagger.
+        const stats = q('.js-stat');
+        if (stats.length) {
+          gsap.set(stats, { y: 20, opacity: 0 });
+          ScrollTrigger.create({
+            trigger: q('.js-stats')[0], start: 'top 82%', once: true,
+            onEnter: () => gsap.to(stats, { y: 0, opacity: 1, stagger: 0.1, duration: 0.5, ease: 'back.out(1.4)' }),
+          });
+        }
+
+        // Celular da seção "pede pelo celular": desliza da esquerda + cards flutuam.
+        const foneSec = q('.js-fone-sec')[0], cardsFone = q('.js-fone-card');
+        if (foneSec) {
+          gsap.set(foneSec, { x: -60, opacity: 0 });
+          gsap.set(cardsFone, { scale: 0.7, opacity: 0 });
+          ScrollTrigger.create({
+            trigger: foneSec, start: 'top 78%', once: true,
+            onEnter: () => {
+              gsap.to(foneSec, { x: 0, opacity: 1, duration: 0.7, ease: 'power3.out' });
+              gsap.to(cardsFone, { scale: 1, opacity: 1, stagger: 0.15, delay: 0.25, duration: 0.5, ease: 'back.out(2)' });
+              gsap.to(cardsFone, { y: '-=8', duration: 2.2, yoyo: true, repeat: -1, ease: 'sine.inOut', delay: 0.8 });
+            },
+          });
+        }
+
+        // Cupom: sai da impressora (clipPath) + linhas em stagger.
         const cupom = q('.js-cupom')[0];
         if (cupom) {
           gsap.set(cupom, { clipPath: 'inset(0 0 100% 0)' });
           gsap.set(q('.js-cupom-linha'), { opacity: 0, y: 6 });
           gsap.set(q('.js-cupom-qr'), { opacity: 0 });
           ScrollTrigger.create({
-            trigger: cupom, start: 'top 78%', once: true,
+            trigger: cupom, start: 'top 80%', once: true,
             onEnter: () => {
               gsap.timeline()
                 .to(cupom, { clipPath: 'inset(0 0 0% 0)', duration: 0.9, ease: 'power2.inOut' })
-                .to(q('.js-cupom-linha'), { opacity: 1, y: 0, stagger: 0.1, duration: 0.3 }, 0.1)
+                .to(q('.js-cupom-linha'), { opacity: 1, y: 0, stagger: 0.09, duration: 0.3 }, 0.1)
                 .to(q('.js-cupom-qr'), { opacity: 1, duration: 0.4 }, '-=0.1');
             },
           });
@@ -457,7 +526,7 @@ export function PaginaLanding() {
           gsap.set(itens, { opacity: 0, y: 16 });
           gsap.set(divs, { scaleX: 0, transformOrigin: 'left center' });
           ScrollTrigger.create({
-            trigger: q('.js-lista')[0], start: 'top 75%', once: true,
+            trigger: q('.js-lista')[0], start: 'top 78%', once: true,
             onEnter: () => {
               gsap.to(itens, { opacity: 1, y: 0, stagger: 0.08, duration: 0.4 });
               gsap.to(divs, { scaleX: 1, stagger: 0.08, duration: 0.4, delay: 0.05 });
@@ -465,215 +534,268 @@ export function PaginaLanding() {
           });
         }
 
-        // Selo "LOJA DEMO": rotação contínua, pausa no hover.
-        const selo = q('.js-selo-demo')[0];
-        if (selo) {
-          const spin = gsap.to(selo, { rotation: 360, duration: 20, ease: 'none', repeat: -1 });
-          selo.addEventListener('mouseenter', () => spin.pause());
-          selo.addEventListener('mouseleave', () => spin.resume());
+        // Mascote do CTA final entra deslizando de baixo.
+        const mascote = q('.js-mascote')[0];
+        if (mascote) {
+          gsap.set(mascote, { y: 40, opacity: 0 });
+          ScrollTrigger.create({
+            trigger: mascote, start: 'top 90%', once: true,
+            onEnter: () => gsap.to(mascote, { y: 0, opacity: 1, duration: 0.7, ease: 'back.out(1.4)' }),
+          });
         }
       });
     }, el);
 
-    // Recalcula posições após fontes/imagens carregarem.
+    // Recalcula posições após fontes/imagens.
     const refresh = () => ScrollTrigger.refresh();
     const t = window.setTimeout(refresh, 400);
     if (document.fonts?.ready) document.fonts.ready.then(refresh);
     window.addEventListener('load', refresh);
 
+    // FAIL-SAFE: nada pode ficar preso invisível. Após 2.6s, qualquer elemento
+    // ainda com opacity 0 E dentro da viewport é forçado a aparecer.
+    const failsafe = window.setTimeout(() => {
+      el.querySelectorAll<HTMLElement>('[data-reveal],.js-hero-item,.js-notebook-screen,.js-hero-phone,.js-stat,.js-lista-item,.js-fone-sec').forEach((n) => {
+        const r = n.getBoundingClientRect();
+        const noView = r.top < window.innerHeight && r.bottom > 0;
+        if (noView && getComputedStyle(n).opacity === '0') gsap.set(n, { clearProps: 'opacity,visibility,transform' });
+      });
+    }, 2600);
+
     return () => {
       ctx.revert();
       window.clearTimeout(t);
+      window.clearTimeout(failsafe);
       window.removeEventListener('load', refresh);
     };
   }, []);
 
   return (
-    <div ref={raiz} className="min-h-screen bg-background flex flex-col overflow-x-clip">
-      {/* Header */}
-      <header ref={navRef} className="sticky top-0 z-30 border-b border-transparent transition-colors duration-300">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3">
-          <div className="flex items-center gap-2">
+    <div ref={raiz} className="min-h-screen bg-background text-foreground flex flex-col overflow-x-clip">
+      {/* ───── Header sticky ───── */}
+      <header ref={navRef} className="sticky top-0 z-40 border-b border-transparent transition-colors duration-300">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3 sm:px-6">
+          <a href="#topo" className="flex items-center gap-2 min-w-0">
             {marca.logo_url ? (
               <img src={marca.logo_url} alt={marca.nome} className="h-8 w-auto" />
             ) : (
-              <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                <Store className="h-4 w-4" />
-              </div>
+              <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Store className="h-4 w-4" /></div>
             )}
-            <span className="font-extrabold">{marca.nome}</span>
-          </div>
-          <nav className="flex items-center gap-2">
-            <ToggleTemaLanding escuro={escuro} onClick={alternar} />
-            <Link to="/lojista" className="hidden px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground sm:block">
-              Sou lojista
-            </Link>
-            <BotaoDemo size="sm" />
+            <span className="truncate font-extrabold">{marca.nome}</span>
+          </a>
+
+          <nav className="hidden items-center gap-1 lg:flex">
+            {ANCORAS.map(a => (
+              <a key={a.href} href={a.href} className="rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">{a.label}</a>
+            ))}
           </nav>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={alternar}
+              className="inline-flex size-9 items-center justify-center rounded-full text-foreground transition-colors hover:bg-accent"
+              aria-label={escuro ? 'Modo claro' : 'Modo escuro'}
+            >
+              {escuro ? <Moon className="size-[18px]" /> : <Sun className="size-[18px]" />}
+            </button>
+            <Link to="/lojista" className="hidden px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground sm:block">Sou lojista</Link>
+            <div className="hidden sm:block"><BotaoDemo size="sm" /></div>
+            <button onClick={() => setMenuAberto(v => !v)} className="inline-flex size-9 items-center justify-center rounded-full text-foreground hover:bg-accent lg:hidden" aria-label="Menu">
+              {menuAberto ? <X className="size-5" /> : <Menu className="size-5" />}
+            </button>
+          </div>
         </div>
+        {/* Menu mobile */}
+        {menuAberto && (
+          <div className="border-t border-border bg-background px-5 py-3 lg:hidden">
+            <div className="flex flex-col gap-1">
+              {ANCORAS.map(a => (
+                <a key={a.href} href={a.href} onClick={() => setMenuAberto(false)} className="rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground">{a.label}</a>
+              ))}
+              <Link to="/lojista" onClick={() => setMenuAberto(false)} className="rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground">Sou lojista</Link>
+              <div className="pt-1"><BotaoDemo size="sm" className="w-full" /></div>
+            </div>
+          </div>
+        )}
       </header>
 
-      {/* Hero */}
-      <section className="relative overflow-hidden border-b border-border">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-background" />
-        <div className="absolute -top-24 -right-24 h-80 w-80 rounded-full bg-primary/10 blur-3xl" />
-        <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-6 py-16 sm:py-24 lg:grid-cols-2">
+      {/* ───── Hero ───── */}
+      <section id="topo" className="bg-background">
+        <div className="mx-auto grid max-w-6xl items-center gap-12 px-5 py-14 sm:px-6 sm:py-20 lg:grid-cols-2 lg:gap-8">
           {/* Texto */}
           <div className="text-center lg:text-left">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
-              <Store className="h-3.5 w-3.5" /> {heroEyebrow}
-            </span>
-            <h1 className="mt-5 text-[40px] font-extrabold leading-[1.05] tracking-tight sm:text-5xl lg:text-6xl">
+            <p className="js-hero-item text-sm font-bold uppercase tracking-widest text-primary">{heroEyebrow}</p>
+            <h1 className="mt-4 text-[38px] font-black leading-[1.04] tracking-tight sm:text-5xl lg:text-[52px]">
               {heroSegs.map((seg, si) => (
-                <span key={si} className={cn('relative inline', seg.d && 'text-primary')}>
-                  {seg.t.split(/(\s+)/).map((w, wi) => (
-                    /^\s+$/.test(w)
-                      ? <span key={wi}> </span>
-                      : <span key={wi} className="js-hero-palavra inline-block">{w}</span>
-                  ))}
-                  {seg.d && <Rabisco anima />}
+                <span key={si} className={cn('js-hero-item relative inline', seg.d && 'text-primary')}>
+                  {seg.t}{seg.d && <Rabisco anima />}
                 </span>
               ))}
             </h1>
-            <p className="js-hero-sub mx-auto mt-5 max-w-xl text-lg text-muted-foreground lg:mx-0">
-              {heroSubtitulo}
-            </p>
-            <div className="js-hero-cta mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
-              <BotaoDemo size="xl" />
-              <Button size="xl" variant="outline" asChild>
-                <Link to="/lojista">Sou lojista, quero começar</Link>
-              </Button>
+            <p className="js-hero-item mx-auto mt-5 max-w-xl text-lg text-muted-foreground lg:mx-0">{heroSubtitulo}</p>
+            <div className="js-hero-item mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center lg:justify-start">
+              <BotaoDemo size="xl" className="bg-foreground text-background hover:bg-foreground/90" />
+              <BotaoZap size="xl" texto="Falar no WhatsApp" msg="Olá! Quero saber mais sobre o sistema de delivery." />
             </div>
-            <ul className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground lg:justify-start">
+            <ul className="js-hero-item mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground lg:justify-start">
               {beneficios.slice(0, 3).map(b => (
-                <li key={b} className="js-hero-sub flex items-center gap-1.5">
-                  <Check className="h-4 w-4 text-primary" /> {b}
+                <li key={b} className="flex items-center gap-1.5"><Check className="h-4 w-4 text-primary" /> {b}</li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Notebook + celular (palco do tilt 3D) */}
+          <div className="js-hero-palco relative mx-auto w-full max-w-[560px]">
+            <div className="js-hero-item">
+              <NotebookHero src={heroImagem} nome={marca.nome} />
+            </div>
+            {/* Celular sobreposto */}
+            <div className="js-hero-phone absolute -bottom-8 -right-1 w-[128px] will-change-transform sm:w-[150px] sm:-right-4">
+              <div className="rounded-[1.6rem] border-[5px] border-neutral-900 bg-neutral-900 shadow-2xl">
+                <div className="relative overflow-hidden rounded-[1.2rem] bg-background">
+                  <div className="absolute left-1/2 top-1 z-10 h-2.5 w-12 -translate-x-1/2 rounded-b-xl bg-neutral-900" />
+                  {heroImagemMobile ? (
+                    <img src={heroImagemMobile} alt="Prévia no celular" className="w-full object-cover object-top" />
+                  ) : (
+                    <div className="flex aspect-[9/19] items-center justify-center bg-muted"><Smartphone className="h-8 w-8 text-muted-foreground/40" /></div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ───── Faixa de segmentos (marquee reto, fundo escuro) ───── */}
+      <div className="bg-foreground py-3 text-background">
+        <MarqueeSegmentos itens={segmentos.map(s => s.toUpperCase())} />
+      </div>
+
+      {/* ───── Diga adeus ao atendimento caótico ───── */}
+      <section data-reveal className="mx-auto max-w-5xl px-5 py-16 sm:px-6 sm:py-20">
+        <TituloSecao texto="Diga adeus ao atendimento *caótico*" className="text-center text-3xl sm:text-4xl" />
+        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">O futuro é integrado, rápido e automatizado.</p>
+
+        <div className="mt-10 grid gap-6 md:grid-cols-2">
+          {/* Jeito antigo */}
+          <div className="js-antigo rounded-3xl bg-muted p-7">
+            <div className="text-sm font-bold uppercase tracking-wider text-muted-foreground">O jeito antigo</div>
+            <ul className="mt-5 space-y-4">
+              {semLista.map((item, i) => (
+                <li key={i} className="relative w-fit text-base text-muted-foreground">
+                  <span>{item}</span>
+                  <svg className="js-risco pointer-events-none absolute left-0 top-1/2 h-3 w-full -translate-y-1/2 overflow-visible text-primary" viewBox="0 0 200 8" fill="none" preserveAspectRatio="none" aria-hidden="true">
+                    <path d="M2 5 C 45 2, 90 7, 135 4 S 190 3, 198 5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+                  </svg>
                 </li>
               ))}
             </ul>
           </div>
 
-          {/* Mockup torto + selo NFC-e (sangram pela borda da viewport) */}
-          <div className="relative">
-            <div className="mx-auto max-w-md lg:max-w-none lg:-rotate-6 lg:translate-x-10 lg:scale-110">
-              <div className="js-mockup will-change-transform">
-                <MockupNavegador src={heroImagem} nome={marca.nome} />
-              </div>
-            </div>
-            <div className="js-selo-nfce absolute -left-2 -top-6 flex size-24 rotate-[-12deg] items-center justify-center rounded-full bg-primary text-center text-[10px] font-extrabold uppercase leading-tight tracking-wide text-primary-foreground shadow-xl sm:-left-4 lg:left-4">
-              NFC-e<br />direto na<br />venda
-            </div>
+          {/* Jeito novo */}
+          <div className="js-novo rounded-3xl border-2 border-primary bg-card p-7 shadow-lg shadow-primary/10">
+            <div className="text-sm font-bold uppercase tracking-wider text-primary">O jeito novo</div>
+            <ul className="mt-5 space-y-4">
+              {comLista.map((item, i) => (
+                <li key={i} className="flex items-start gap-3 text-base">
+                  <span className="js-check-box mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md border-2 border-primary text-primary">
+                    <svg viewBox="0 0 24 24" className="size-4" fill="none" aria-hidden="true">
+                      <path className="js-check-path" d="M4 12.5 L9.5 18 L20 6" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                  <span><TextoComComplemento texto={item} /></span>
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </section>
 
-      {/* Segmentos — faixa-ticker inclinada, fundo laranja */}
-      <div className="relative overflow-hidden py-5">
-        <div className="w-[110%] -translate-x-[5%] -rotate-2 bg-primary py-2.5 text-primary-foreground">
-          <Marquee itens={segmentos.map(s => s.toUpperCase())} />
+      {/* ───── Faixa de números ───── */}
+      <div className="js-stats bg-foreground text-background">
+        <div className="mx-auto grid max-w-6xl gap-8 px-5 py-14 sm:grid-cols-2 sm:px-6 lg:grid-cols-4">
+          {STATS_PADRAO.map((s, i) => (
+            <div key={i} className="js-stat text-center lg:text-left">
+              <div className="text-4xl font-black text-primary sm:text-5xl">{s.numero}</div>
+              <div className="mt-1.5 text-sm text-background/70">{s.texto}</div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Diga adeus ao atendimento caótico */}
-      <section data-reveal className="mx-auto max-w-5xl px-6 py-16 sm:py-20">
-        <TituloSecao texto="Diga adeus ao atendimento *caótico*" className="text-center text-3xl sm:text-4xl" />
-        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
-          O futuro é integrado, rápido e automatizado.
-        </p>
-
-        <div className="mt-12 grid gap-10 lg:grid-cols-[1fr_auto_1fr] lg:items-center">
-          {/* Jeito antigo — riscos vermelhos */}
-          <ul className="js-antigo space-y-4">
-            <li className="text-sm font-bold uppercase tracking-wider text-muted-foreground">O jeito antigo</li>
-            {semLista.map((item, i) => (
-              <li key={i} className="relative w-fit text-base text-muted-foreground">
-                <span>{item}</span>
-                <svg className="js-risco pointer-events-none absolute left-0 top-1/2 h-3 w-full -translate-y-1/2 overflow-visible text-destructive" viewBox="0 0 200 8" fill="none" preserveAspectRatio="none" aria-hidden="true">
-                  <path d="M2 5 C 45 2, 90 7, 135 4 S 190 3, 198 5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
-                </svg>
-              </li>
-            ))}
-          </ul>
-
-          {/* Faixa "O JEITO NOVO" inclinada (vertical no desktop, horizontal no mobile) */}
-          <div className="overflow-hidden rounded-xl">
-            <div className="-rotate-2 bg-primary py-2 text-primary-foreground lg:w-56">
-              <Marquee itens={['O JEITO NOVO']} sep="✕" className="marquee--rapido" />
+      {/* ───── Seção celular ───── */}
+      <section data-reveal className="mx-auto max-w-6xl px-5 py-16 sm:px-6 sm:py-24">
+        <div className="grid items-center gap-12 lg:grid-cols-2">
+          {/* Celular grande + cards flutuantes */}
+          <div className="js-fone-sec relative mx-auto w-[240px] max-w-full">
+            <div className="rounded-[2.4rem] border-[7px] border-neutral-900 bg-neutral-900 shadow-2xl shadow-primary/10">
+              <div className="relative overflow-hidden rounded-[1.9rem] bg-background">
+                <div className="absolute left-1/2 top-1.5 z-10 h-4 w-24 -translate-x-1/2 rounded-b-2xl bg-neutral-900" />
+                <img src={heroImagemMobile} alt="App do cliente" className="w-full object-cover object-top" />
+              </div>
+            </div>
+            {/* Card: pedido recebido */}
+            <div className="js-fone-card absolute -left-6 top-10 flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-xl sm:-left-10">
+              <span className="flex size-7 items-center justify-center rounded-full bg-success/15 text-success"><Check className="size-4" /></span>
+              <div>
+                <div className="text-xs font-bold leading-tight">Pedido #482 recebido</div>
+                <div className="text-[10px] text-muted-foreground">agora mesmo</div>
+              </div>
+            </div>
+            {/* Card: pix aprovado */}
+            <div className="js-fone-card absolute -right-4 bottom-16 flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-xl sm:-right-10">
+              <span className="flex size-7 items-center justify-center rounded-full bg-primary/15 text-primary"><Receipt className="size-4" /></span>
+              <div>
+                <div className="text-xs font-bold leading-tight">Pix aprovado</div>
+                <div className="text-[10px] text-muted-foreground">R$ 56,00</div>
+              </div>
             </div>
           </div>
 
-          {/* Jeito novo — checks laranja */}
-          <ul className="js-novo space-y-4">
-            <li className="text-sm font-bold uppercase tracking-wider text-primary">O jeito novo</li>
-            {comLista.map((item, i) => (
-              <li key={i} className="flex items-start gap-3 text-base">
-                <span className="js-check-box mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md border-2 border-primary text-primary">
-                  <svg viewBox="0 0 24 24" className="size-4" fill="none" aria-hidden="true">
-                    <path className="js-check-path" d="M4 12.5 L9.5 18 L20 6" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </span>
-                <span><TextoComComplemento texto={item} forte /></span>
-              </li>
-            ))}
-          </ul>
+          <div className="text-center lg:text-left">
+            <TituloSecao texto="Seu cliente pede direto *pelo celular*" className="text-3xl sm:text-4xl" />
+            <p className="mt-4 text-muted-foreground">
+              Cardápio digital com foto, categorias e busca — sem app pra baixar. O cliente monta o pedido e finaliza em segundos.
+            </p>
+            <ul className="mt-6 space-y-3 text-left">
+              {[
+                { i: Smartphone, t: 'Sem baixar app', d: 'Abre o link e já pede — funciona em qualquer celular.' },
+                { i: MapPin, t: 'Entrega com rastreio', d: 'O cliente acompanha o entregador ao vivo no mapa.' },
+                { i: Receipt, t: 'Pix, cartão ou dinheiro', d: 'Pagamento na hora ou na entrega, do jeito que ele preferir.' },
+              ].map(b => (
+                <li key={b.t} className="flex gap-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><b.i className="size-5" /></span>
+                  <div>
+                    <div className="text-sm font-semibold">{b.t}</div>
+                    <div className="text-sm text-muted-foreground">{b.d}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </section>
 
-      {/* Destaques (cliente pede pelo celular / loja com a sua cara) */}
-      {destaques.length > 0 && (
-        <section className="mx-auto max-w-6xl space-y-16 px-6 py-16 sm:space-y-24">
-          {destaques.map((d, i) => (
-            <div key={i} data-reveal className={cn('grid items-center gap-8 sm:grid-cols-2', i % 2 === 1 && 'sm:[&>*:first-child]:order-2')}>
-              <div className="flex justify-center">
-                {!d.imagem_url ? (
-                  <div className="flex aspect-video w-full items-center justify-center rounded-2xl bg-gradient-to-br from-primary/10 to-accent/40">
-                    <Receipt className="h-16 w-16 text-primary/40" />
-                  </div>
-                ) : d.formato === 'celular' ? (
-                  <MolduraCelular src={d.imagem_url} flutuar />
-                ) : d.formato === 'livre' ? (
-                  <img src={d.imagem_url} alt={d.titulo} className="mx-auto max-h-[520px] w-auto rounded-2xl shadow-xl" />
-                ) : (
-                  <MockupNavegador src={d.imagem_url} nome={marca.nome} flutuar />
-                )}
-              </div>
-              <div className="text-center sm:text-left">
-                <TituloSecao texto={d.titulo} className="text-2xl sm:text-3xl" />
-                <p className="mt-3 text-muted-foreground">{d.desc}</p>
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
-
-      {/* NFC-e — assinatura visual da página */}
-      <section data-reveal className="relative overflow-hidden py-16 sm:py-24">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-accent/20" />
-        <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-6 lg:grid-cols-2">
+      {/* ───── NFC-e ───── */}
+      <section id="nota-fiscal" data-reveal className="relative overflow-hidden py-16 sm:py-24">
+        <div className="absolute inset-0 bg-primary/5" />
+        <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-5 sm:px-6 lg:grid-cols-2">
           <div>
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs font-bold uppercase tracking-wide text-primary">
-              <Receipt className="h-3.5 w-3.5" /> Emissão fiscal
-            </span>
-            <TituloSecao texto="Cupom fiscal (NFC-e) *na hora da venda*" className="mt-5 text-3xl leading-tight sm:text-4xl" />
+            <p className="text-sm font-bold uppercase tracking-widest text-primary">Emissão fiscal</p>
+            <TituloSecao texto="Cupom fiscal (NFC-e) *na hora da venda*" className="mt-4 text-3xl leading-tight sm:text-4xl" />
             <p className="mt-4 max-w-md text-muted-foreground">
               A nota sai com itens, total, chave de acesso e QR Code — direto do sistema, sem precisar de outro programa nem digitar os dados de novo.
             </p>
-
-            <div className="mt-8 grid gap-5 sm:grid-cols-2">
-              {FISCAL_BULLETS.map(b => (
-                <div key={b.titulo} className="flex gap-3">
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                    <b.icone className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold">{b.titulo}</div>
-                    <div className="text-xs text-muted-foreground">{b.desc}</div>
-                  </div>
+            <div className="mt-8 grid grid-cols-2 gap-4">
+              {FISCAL_MINI.map(b => (
+                <div key={b.titulo} className="rounded-2xl border border-border bg-card p-4">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary"><b.icone className="size-5" /></div>
+                  <div className="mt-2.5 text-sm font-semibold">{b.titulo}</div>
+                  <div className="text-xs text-muted-foreground">{b.desc}</div>
                 </div>
               ))}
             </div>
-
-            <div className="mt-8 flex items-center gap-3 rounded-2xl bg-primary/10 p-4">
+            <div className="mt-6 flex items-center gap-3 rounded-2xl bg-primary/10 p-4">
               <ShieldCheck className="h-7 w-7 shrink-0 text-primary" />
               <div>
                 <div className="text-sm font-bold">100% em conformidade com a SEFAZ</div>
@@ -681,54 +803,20 @@ export function PaginaLanding() {
               </div>
             </div>
           </div>
-
-          {/* Cupom térmico + card flutuante de benefícios */}
           <div className="relative mx-auto">
             <CupomTermico />
-            <div className="mt-8 grid grid-cols-2 gap-3 lg:absolute lg:-right-6 lg:top-6 lg:mt-0 lg:w-48 lg:grid-cols-1 lg:rounded-2xl lg:border lg:border-border lg:bg-card lg:p-4 lg:shadow-xl">
-              {FISCAL_STATS.map(s => (
-                <div key={s.titulo} className="flex items-start gap-2 rounded-xl border border-border bg-card p-2.5 lg:border-0 lg:bg-transparent lg:p-0">
-                  <s.icone className="h-4 w-4 shrink-0 text-primary" />
-                  <div>
-                    <div className="text-xs font-bold leading-tight">{s.titulo}</div>
-                    <div className="hidden text-[10px] text-muted-foreground sm:block">{s.desc}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div data-reveal className="relative mx-auto mt-14 max-w-6xl px-6">
-          <div className="flex flex-wrap items-center justify-between gap-5 rounded-2xl bg-primary/10 p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-                <Receipt className="h-5 w-5" />
-              </div>
-              <div>
-                <div className="text-sm font-bold">Mais agilidade, menos erros, mais controle.</div>
-                <div className="text-xs text-muted-foreground">Emita NFC-e de forma simples, rápida e profissional.</div>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm font-medium">
-              {['SAT / NFC-e', 'QR Code', 'Chave de acesso', 'Impressão automática'].map(t => (
-                <span key={t} className="flex items-center gap-1.5">
-                  <Check className="h-4 w-4 text-primary" /> {t}
-                </span>
-              ))}
-            </div>
           </div>
         </div>
       </section>
 
-      {/* Recursos — lista numerada 01-06 */}
-      <section data-reveal className="mx-auto max-w-4xl px-6 py-16">
+      {/* ───── Recursos: lista 01-06 ───── */}
+      <section id="recursos" data-reveal className="mx-auto max-w-4xl px-5 py-16 sm:px-6">
         <TituloSecao texto="Tudo que uma operação de delivery *precisa*" className="text-center text-3xl sm:text-4xl" />
         <div className="js-lista mt-12">
           {recursos.map(({ titulo, desc }, i) => (
             <div key={titulo}>
               <div className="js-lista-item group flex items-baseline gap-5 rounded-xl px-3 py-5 transition-colors hover:bg-accent/40 sm:gap-8">
-                <span className="w-12 shrink-0 text-2xl font-extrabold tabular-nums text-primary transition-transform duration-200 group-hover:translate-x-1 sm:text-3xl">
+                <span className="w-12 shrink-0 text-2xl font-black tabular-nums text-primary transition-transform duration-200 group-hover:translate-x-1 sm:text-3xl">
                   {String(i + 1).padStart(2, '0')}
                 </span>
                 <div className="flex-1">
@@ -742,68 +830,101 @@ export function PaginaLanding() {
         </div>
       </section>
 
-      {/* Depoimentos (opcional, vindos do admin) */}
-      {depoimentos.length > 0 && (
-        <section data-reveal className="border-t border-border bg-muted/30 py-16">
-          <div className="mx-auto max-w-6xl px-6">
-            <TituloSecao texto="Sucesso comprovado contado por *quem usa*" className="text-center text-2xl sm:text-3xl" />
-            <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {depoimentos.map((d, i) => (
-                <div key={i} className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-                  <Quote className="h-5 w-5 text-primary" />
-                  <p className="mt-3 text-sm text-muted-foreground">{d.texto}</p>
-                  <div className="mt-4 text-sm font-semibold">{d.nome}</div>
-                  {d.negocio && <div className="text-xs text-muted-foreground">{d.negocio}</div>}
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* CTA final */}
-      <section data-reveal className="relative border-t border-border bg-accent/40">
-        <div className="mx-auto max-w-3xl px-6 py-16 text-center sm:py-20">
-          <div className="relative inline-block">
-            <TituloSecao texto="Quer ver funcionando *na prática*?" className="text-2xl sm:text-3xl" />
-            {/* Selo giratório "LOJA DEMO" */}
-            <div className="js-selo-demo pointer-events-auto absolute -right-16 -top-12 hidden size-24 place-items-center rounded-full border-2 border-dashed border-primary text-center text-[10px] font-extrabold uppercase tracking-widest text-primary sm:grid">
-              Loja<br />demo
-            </div>
-          </div>
-          <p className="mt-3 text-muted-foreground">
-            Explore uma loja de demonstração completa — cardápio, carrinho e checkout de verdade.
-          </p>
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-            <BotaoDemo size="lg" />
-          </div>
-          <ul className="mx-auto mt-8 flex max-w-md flex-col gap-2 text-left text-sm text-muted-foreground">
-            {beneficios.map(item => (
-              <li key={item} className="flex items-center gap-2">
-                <Check className="h-4 w-4 shrink-0 text-primary" /> {item}
-              </li>
-            ))}
-          </ul>
+      {/* ───── Planos ───── */}
+      <section id="planos" data-reveal className="mx-auto max-w-6xl px-5 py-16 sm:px-6 sm:py-20">
+        <TituloSecao texto="Planos sem *pegadinha*" className="text-center text-3xl sm:text-4xl" />
+        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
+          Sem taxa por pedido, sem fidelidade. Você paga a mensalidade e pronto.
+        </p>
+        <div className="mt-12 grid items-start gap-6 lg:grid-cols-3">
+          {planos.map((p) => {
+            const destaque = !!p.destaque;
+            return (
+              <div key={p.nome} className={cn(
+                'relative flex flex-col rounded-3xl border p-7',
+                destaque ? 'border-transparent bg-foreground text-background shadow-2xl lg:-translate-y-3' : 'border-border bg-card',
+              )}>
+                {destaque && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-primary-foreground">Mais escolhido</span>
+                )}
+                <div className={cn('text-sm font-bold uppercase tracking-wider', destaque ? 'text-primary' : 'text-muted-foreground')}>{p.nome}</div>
+                <div className="mt-2 text-3xl font-black">{p.preco}</div>
+                <ul className="mt-6 flex-1 space-y-3">
+                  {p.recursos.map((r, ri) => (
+                    <li key={ri} className="flex items-start gap-2.5 text-sm">
+                      <Check className={cn('mt-0.5 size-4 shrink-0', destaque ? 'text-primary' : 'text-primary')} />
+                      <span className={destaque ? 'text-background/90' : ''}>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+                <a
+                  href={linkZap(`Olá! Tenho interesse no plano ${p.nome}.`) || '/lojista'}
+                  {...(linkZap() ? { target: '_blank', rel: 'noreferrer' } : {})}
+                  className={cn(
+                    'mt-7 inline-flex h-12 items-center justify-center gap-2 rounded-2xl px-6 text-sm font-semibold transition-all active:scale-[0.98]',
+                    destaque ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'bg-foreground text-background hover:bg-foreground/90',
+                  )}
+                >
+                  <IconeWhatsapp className="size-4" /> {p.cta}
+                </a>
+              </div>
+            );
+          })}
         </div>
       </section>
 
-      {/* Rodapé */}
-      <footer className="mt-auto border-t border-border">
-        <div className="mx-auto grid max-w-6xl gap-8 px-6 py-10 sm:grid-cols-3">
+      {/* ───── FAQ ───── */}
+      <section id="duvidas" data-reveal className="mx-auto max-w-3xl px-5 py-16 sm:px-6">
+        <TituloSecao texto="Dúvidas *frequentes*" className="text-center text-3xl sm:text-4xl" />
+        <div className="mt-10 space-y-3">
+          {faq.map((f, i) => (
+            <details key={i} className="faq group rounded-2xl border border-border bg-card px-5">
+              <summary className="flex items-center justify-between gap-4 py-4 text-left text-base font-semibold">
+                {f.pergunta}
+                <ChevronDown className="faq-chevron size-5 shrink-0 text-muted-foreground" />
+              </summary>
+              <p className="pb-5 text-sm text-muted-foreground">{f.resposta}</p>
+            </details>
+          ))}
+        </div>
+      </section>
+
+      {/* ───── CTA final ───── */}
+      <section data-reveal className="relative overflow-hidden bg-primary text-primary-foreground">
+        <div className="relative mx-auto grid max-w-6xl items-center gap-8 px-5 py-16 sm:px-6 sm:py-20 lg:grid-cols-[1fr_auto]">
+          <div className="text-center lg:text-left">
+            <h2 className="text-3xl font-black tracking-tight sm:text-4xl">Quer ver funcionando na prática?</h2>
+            <p className="mt-3 max-w-lg text-primary-foreground/80">
+              Explore uma loja de demonstração completa — cardápio, carrinho e checkout de verdade.
+            </p>
+            <div className="mt-7 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center lg:justify-start">
+              <BotaoDemo size="lg" variant="branco" texto="Abrir loja demo" />
+              <a
+                href={linkZap('Olá! Quero falar sobre o sistema de delivery.') || '/lojista'}
+                {...(linkZap() ? { target: '_blank', rel: 'noreferrer' } : {})}
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-primary-foreground/40 px-7 text-base font-semibold text-primary-foreground transition-colors hover:bg-primary-foreground/10"
+              >
+                <IconeWhatsapp className="size-5" /> Falar no WhatsApp
+              </a>
+            </div>
+          </div>
+          {/* Mascote sangrando na borda inferior */}
+          <div className="pointer-events-none relative hidden justify-center self-end lg:flex">
+            <img src="/mascote/mascote.png" alt="" className="js-mascote -mb-16 sm:-mb-20 h-56 w-auto drop-shadow-2xl" />
+          </div>
+        </div>
+      </section>
+
+      {/* ───── Rodapé ───── */}
+      <footer className="mt-auto border-t border-border bg-background">
+        <div className="mx-auto grid max-w-6xl gap-8 px-5 py-12 sm:px-6 sm:grid-cols-3">
           <div>
             <div className="flex items-center gap-2 font-extrabold">
-              {marca.logo_url ? (
-                <img src={marca.logo_url} alt={marca.nome} className="h-6 w-auto" />
-              ) : (
-                <Store className="h-5 w-5 text-primary" />
-              )}
+              {marca.logo_url ? <img src={marca.logo_url} alt={marca.nome} className="h-6 w-auto" /> : <Store className="h-5 w-5 text-primary" />}
               {marca.nome}
             </div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {marca.slogan || 'A plataforma completa de delivery multi-lojas.'}
-            </p>
+            <p className="mt-2 max-w-xs text-sm text-muted-foreground">{marca.slogan || 'A plataforma completa de delivery multi-lojas.'}</p>
           </div>
-
           <div>
             <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Plataforma</div>
             <ul className="mt-3 space-y-2 text-sm">
@@ -812,37 +933,41 @@ export function PaginaLanding() {
                   ? <a href={linkDemo} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground">Ver demonstração</a>
                   : <Link to={linkDemo} className="text-muted-foreground hover:text-foreground">Ver demonstração</Link>}</li>
               )}
+              <li><a href="#planos" className="text-muted-foreground hover:text-foreground">Planos</a></li>
+              <li><a href="#duvidas" className="text-muted-foreground hover:text-foreground">Dúvidas</a></li>
               <li><Link to="/lojista" className="text-muted-foreground hover:text-foreground">Sou lojista</Link></li>
-              {marca.termos_url && (
-                <li><a href={marca.termos_url} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground">Termos de uso</a></li>
+              {marca.termos_url && <li><a href={marca.termos_url} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground">Termos de uso</a></li>}
+            </ul>
+          </div>
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Contato</div>
+            <ul className="mt-3 space-y-2 text-sm">
+              {marca.suporte_email && (
+                <li><a href={`mailto:${marca.suporte_email}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"><Mail className="h-3.5 w-3.5 shrink-0" /> {marca.suporte_email}</a></li>
+              )}
+              {marca.suporte_telefone && (
+                <li className="flex items-center gap-1.5 text-muted-foreground"><Phone className="h-3.5 w-3.5 shrink-0" /> {marca.suporte_telefone}</li>
               )}
             </ul>
           </div>
-
-          {(marca.suporte_email || marca.suporte_telefone) && (
-            <div>
-              <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Contato</div>
-              <ul className="mt-3 space-y-2 text-sm">
-                {marca.suporte_email && (
-                  <li>
-                    <a href={`mailto:${marca.suporte_email}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground">
-                      <Mail className="h-3.5 w-3.5 shrink-0" /> {marca.suporte_email}
-                    </a>
-                  </li>
-                )}
-                {marca.suporte_telefone && (
-                  <li className="flex items-center gap-1.5 text-muted-foreground">
-                    <Phone className="h-3.5 w-3.5 shrink-0" /> {marca.suporte_telefone}
-                  </li>
-                )}
-              </ul>
-            </div>
-          )}
         </div>
         <div className="border-t border-border px-6 py-4 text-center text-xs text-muted-foreground">
           © {new Date().getFullYear()} {marca.nome}. Todos os direitos reservados.
         </div>
       </footer>
+
+      {/* ───── Botão flutuante do WhatsApp ───── */}
+      {linkZap() && (
+        <a
+          href={linkZap('Olá! Quero saber mais sobre o sistema.')}
+          target="_blank" rel="noreferrer"
+          aria-label="Falar no WhatsApp"
+          className="fixed bottom-5 right-5 z-50 flex size-14 items-center justify-center rounded-full text-white shadow-2xl transition-transform hover:scale-105 active:scale-95"
+          style={{ backgroundColor: WHATSAPP_VERDE }}
+        >
+          <IconeWhatsapp className="size-7" />
+        </a>
+      )}
     </div>
   );
 }

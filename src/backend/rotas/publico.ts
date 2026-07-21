@@ -59,6 +59,8 @@ router.get('/tema', async (req, res, next) => {
     const segmentosRaw = await valor('landing_segmentos_json');
     const depoimentosRaw = await valor('landing_depoimentos_json');
     const destaquesRaw = await valor('landing_destaques_json');
+    const planosRaw = await valor('landing_planos_json');
+    const faqRaw = await valor('landing_faq_json');
 
     res.json({
       nome:              await valor('marca_nome', 'Delivery Já'),
@@ -80,7 +82,11 @@ router.get('/tema', async (req, res, next) => {
       landing_hero_titulo:    await valor('landing_hero_titulo'),
       landing_hero_subtitulo: await valor('landing_hero_subtitulo'),
       landing_hero_imagem:    await valor('landing_hero_imagem'),
+      landing_hero_imagem_mobile: await valor('landing_hero_imagem_mobile'),
       landing_demo_url:       await valor('landing_demo_url'),
+      landing_whatsapp:       await valor('landing_whatsapp'),
+      landing_planos:         planosRaw ? JSON.parse(planosRaw) : null,
+      landing_faq:            faqRaw ? JSON.parse(faqRaw) : null,
       // Usados no rodapé da landing — mesmos campos já editáveis em Marca → Configurações gerais.
       suporte_email:     await valor('suporte_email'),
       suporte_telefone:  await valor('suporte_telefone'),

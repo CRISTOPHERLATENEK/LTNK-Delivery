@@ -6,7 +6,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2, Check, Users, Star } from 'lucide-react';
+import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2, Check, Users, Star, Tag, HelpCircle } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ import { api, ApiError, tokenSessao } from '@/lib/api';
 import { useTema, FONTES, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
 import { ICONES_LANDING } from '@/pages/cliente/landing';
-import type { TemaMarca, RaioMarca, FonteMarca, LandingRecurso, LandingIcone, LandingDepoimento, LandingDestaque } from '@/types';
+import type { TemaMarca, RaioMarca, FonteMarca, LandingRecurso, LandingIcone, LandingDepoimento, LandingDestaque, LandingPlano, LandingFaq } from '@/types';
 
 const RAIO_OPCOES: { valor: RaioMarca; label: string; classe: string }[] = [
   { valor: 'reto', label: 'Reto', classe: 'rounded-[3px]' },
@@ -508,10 +508,14 @@ interface LandingConfig {
   segmentos: string[];
   depoimentos: LandingDepoimento[];
   destaques: LandingDestaque[];
+  planos: LandingPlano[];
+  faq: LandingFaq[];
   hero_eyebrow: string;
   hero_titulo: string;
   hero_subtitulo: string;
   hero_imagem: string;
+  hero_imagem_mobile: string;
+  whatsapp: string;
   demo_url: string;
 }
 
@@ -566,8 +570,8 @@ function SecaoLanding() {
   });
   const [form, setForm] = useState<LandingConfig>({
     cta_texto: 'Ver demonstração', recursos: [], beneficios: [],
-    comparativo_sem: [], comparativo_com: [], segmentos: [], depoimentos: [], destaques: [],
-    hero_eyebrow: '', hero_titulo: '', hero_subtitulo: '', hero_imagem: '', demo_url: '',
+    comparativo_sem: [], comparativo_com: [], segmentos: [], depoimentos: [], destaques: [], planos: [], faq: [],
+    hero_eyebrow: '', hero_titulo: '', hero_subtitulo: '', hero_imagem: '', hero_imagem_mobile: '', whatsapp: '', demo_url: '',
   });
   const [enviando, setEnviando] = useState(false);
 
@@ -612,6 +616,28 @@ function SecaoLanding() {
     setForm(f => ({ ...f, destaques: f.destaques.filter((_, idx) => idx !== i) }));
   }
 
+  function upPlano(i: number, campo: keyof LandingPlano, valor: unknown) {
+    setForm(f => ({ ...f, planos: f.planos.map((p, idx) => idx === i ? { ...p, [campo]: valor } as LandingPlano : p) }));
+  }
+  function adicionarPlano() {
+    if (form.planos.length >= 6) return;
+    setForm(f => ({ ...f, planos: [...f.planos, { nome: '', preco: '', destaque: false, cta: 'Falar no WhatsApp', recursos: [] }] }));
+  }
+  function removerPlano(i: number) {
+    setForm(f => ({ ...f, planos: f.planos.filter((_, idx) => idx !== i) }));
+  }
+
+  function upFaq(i: number, campo: keyof LandingFaq, valor: string) {
+    setForm(f => ({ ...f, faq: f.faq.map((d, idx) => idx === i ? { ...d, [campo]: valor } : d) }));
+  }
+  function adicionarFaq() {
+    if (form.faq.length >= 15) return;
+    setForm(f => ({ ...f, faq: [...f.faq, { pergunta: '', resposta: '' }] }));
+  }
+  function removerFaq(i: number) {
+    setForm(f => ({ ...f, faq: f.faq.filter((_, idx) => idx !== i) }));
+  }
+
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     if (form.recursos.some(r => !r.titulo.trim())) {
@@ -626,6 +652,14 @@ function SecaoLanding() {
       mostrar({ tipo: 'erro', titulo: 'Todo destaque precisa de um título.' });
       return;
     }
+    if (form.planos.some(p => !p.nome.trim())) {
+      mostrar({ tipo: 'erro', titulo: 'Todo plano precisa de um nome.' });
+      return;
+    }
+    if (form.faq.some(f => !f.pergunta.trim())) {
+      mostrar({ tipo: 'erro', titulo: 'Toda dúvida precisa de uma pergunta.' });
+      return;
+    }
     setEnviando(true);
     try {
       await api('PUT', '/api/admin/landing', {
@@ -637,10 +671,14 @@ function SecaoLanding() {
         segmentos: form.segmentos.filter(b => b.trim()),
         depoimentos: form.depoimentos,
         destaques: form.destaques,
+        planos: form.planos.map(p => ({ ...p, recursos: p.recursos.filter(r => r.trim()) })),
+        faq: form.faq,
         hero_eyebrow: form.hero_eyebrow,
         hero_titulo: form.hero_titulo,
         hero_subtitulo: form.hero_subtitulo,
         hero_imagem: form.hero_imagem,
+        hero_imagem_mobile: form.hero_imagem_mobile,
+        whatsapp: form.whatsapp,
         demo_url: form.demo_url,
       });
       mostrar({ tipo: 'sucesso', titulo: 'Landing page atualizada!' });
@@ -659,6 +697,8 @@ function SecaoLanding() {
     { key: 'destaques' as const, label: 'Destaques', icone: ImageIcon, count: form.destaques.length },
     { key: 'comparativo' as const, label: 'Comparativo', icone: Users, count: form.comparativo_sem.filter(s => s.trim()).length + form.comparativo_com.filter(s => s.trim()).length },
     { key: 'segmentos' as const, label: 'Segmentos', icone: Store, count: form.segmentos.filter(s => s.trim()).length },
+    { key: 'planos' as const, label: 'Planos', icone: Tag, count: form.planos.length },
+    { key: 'faq' as const, label: 'Dúvidas', icone: HelpCircle, count: form.faq.length },
     { key: 'depoimentos' as const, label: 'Depoimentos', icone: Star, count: form.depoimentos.length },
   ];
   type AbaLanding = typeof ABAS_LANDING[number]['key'];
@@ -719,8 +759,19 @@ function SecaoLanding() {
                     placeholder="Cardápio, pedidos, entrega e fiscal — tudo em um só sistema."
                     className="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
                 </div>
-                <ImageUpload label="Imagem do produto (aparece ao lado, dentro da moldura de navegador)"
+                <ImageUpload label="Print do painel (dentro do notebook do topo)"
                   value={form.hero_imagem} onChange={v => setForm(f => ({ ...f, hero_imagem: v }))} aspectRatio="wide" />
+                <ImageUpload label="Print mobile (no celular sobreposto ao notebook)"
+                  value={form.hero_imagem_mobile} onChange={v => setForm(f => ({ ...f, hero_imagem_mobile: v }))} aspectRatio="free" />
+                <div>
+                  <Label htmlFor="landing_whatsapp">WhatsApp (só números, com DDD)</Label>
+                  <Input id="landing_whatsapp" maxLength={30} value={form.whatsapp}
+                    onChange={e => setForm(f => ({ ...f, whatsapp: e.target.value }))}
+                    placeholder="47999998888" />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Usado nos botões "Falar no WhatsApp", nos planos e no botão flutuante. Em branco, cai no telefone de suporte; sem nenhum, os botões de WhatsApp somem.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -797,6 +848,63 @@ function SecaoLanding() {
             {aba === 'segmentos' && (
               <ListaTextoEditavel titulo="Tipos de negócio" max={16} placeholder="Ex.: Pizzaria"
                 itens={form.segmentos} onChange={v => setForm(f => ({ ...f, segmentos: v }))} />
+            )}
+
+            {aba === 'planos' && (
+              <div className="space-y-3">
+                <SecaoTituloEditor titulo="Planos" desc="Cards de preços. Os botões levam pro WhatsApp. Vazio = usa os planos padrão embutidos. Máx. 6." />
+                <div className="flex justify-end">
+                  <Button type="button" variant="outline" size="sm" onClick={adicionarPlano} disabled={form.planos.length >= 6}>
+                    <Plus className="size-3.5" /> Adicionar plano
+                  </Button>
+                </div>
+                {form.planos.map((p, i) => (
+                  <div key={i} className="rounded-xl border border-border p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input value={p.nome} maxLength={40} placeholder="Nome (ex.: Profissional)" onChange={e => upPlano(i, 'nome', e.target.value)} />
+                      <Input value={p.preco} maxLength={40} placeholder="Preço (ex.: R$ 197/mês)" onChange={e => upPlano(i, 'preco', e.target.value)} />
+                      <Button type="button" variant="ghost" size="icon" onClick={() => removerPlano(i)}>
+                        <Trash2 className="size-4 text-destructive" />
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Input value={p.cta} maxLength={40} placeholder="Texto do botão" onChange={e => upPlano(i, 'cta', e.target.value)} />
+                      <label className="flex shrink-0 items-center gap-1.5 text-xs font-medium">
+                        <input type="checkbox" checked={!!p.destaque} onChange={e => upPlano(i, 'destaque', e.target.checked)} className="size-4 accent-[hsl(var(--primary))]" />
+                        Destaque
+                      </label>
+                    </div>
+                    <ListaTextoEditavel titulo="Itens do plano" max={12} placeholder="Ex.: NFC-e integrada"
+                      itens={p.recursos} onChange={v => upPlano(i, 'recursos', v)} />
+                  </div>
+                ))}
+                {form.planos.length === 0 && <p className="text-xs text-muted-foreground">Nenhum plano — usando os padrões embutidos.</p>}
+              </div>
+            )}
+
+            {aba === 'faq' && (
+              <div className="space-y-3">
+                <SecaoTituloEditor titulo="Dúvidas frequentes" desc="Acordeão de perguntas e respostas. Vazio = usa as dúvidas padrão. Máx. 15." />
+                <div className="flex justify-end">
+                  <Button type="button" variant="outline" size="sm" onClick={adicionarFaq} disabled={form.faq.length >= 15}>
+                    <Plus className="size-3.5" /> Adicionar dúvida
+                  </Button>
+                </div>
+                {form.faq.map((d, i) => (
+                  <div key={i} className="rounded-xl border border-border p-3 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Input value={d.pergunta} maxLength={160} placeholder="Pergunta" onChange={e => upFaq(i, 'pergunta', e.target.value)} />
+                      <Button type="button" variant="ghost" size="icon" onClick={() => removerFaq(i)}>
+                        <Trash2 className="size-4 text-destructive" />
+                      </Button>
+                    </div>
+                    <textarea value={d.resposta} maxLength={600} rows={2} placeholder="Resposta"
+                      onChange={e => upFaq(i, 'resposta', e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+                  </div>
+                ))}
+                {form.faq.length === 0 && <p className="text-xs text-muted-foreground">Nenhuma dúvida — usando as padrão.</p>}
+              </div>
             )}
 
             {aba === 'depoimentos' && (

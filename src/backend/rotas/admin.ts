@@ -1159,6 +1159,20 @@ const LANDING_DESTAQUES_PADRAO: { imagem_url: string; titulo: string; desc: stri
   { imagem_url: '/landing/storefront-desktop.png', formato: 'navegador', titulo: 'Sua loja online com a sua cara', desc: 'Cores, logo e capa personalizados por loja. Cada negócio com seu próprio endereço, cardápio e visual — do jeito da marca.' },
 ];
 
+const LANDING_PLANOS_PADRAO = [
+  { nome: 'Iniciante', preco: 'R$ 97/mês', destaque: false, cta: 'Começar agora', recursos: ['1 loja com domínio próprio', 'Cardápio digital ilimitado', 'Pedidos, cozinha e PDV', 'Pix, cartão e dinheiro', 'Suporte por WhatsApp'] },
+  { nome: 'Profissional', preco: 'R$ 197/mês', destaque: true, cta: 'Assinar Profissional', recursos: ['Tudo do Iniciante', 'NFC-e integrada (nota na venda)', 'Rastreio de entregador ao vivo', 'Comandas e mesas do salão', 'Relatórios completos', 'Suporte prioritário'] },
+  { nome: 'Multi-lojas', preco: 'Sob consulta', destaque: false, cta: 'Falar com a gente', recursos: ['Várias lojas num painel só', 'Cada loja com sua marca e domínio', 'Gestão centralizada', 'Onboarding assistido', 'Gerente de conta dedicado'] },
+];
+
+const LANDING_FAQ_PADRAO = [
+  { pergunta: 'Preciso de CNPJ pra usar?', resposta: 'Pra vender e emitir NFC-e, sim (a nota exige CNPJ e certificado A1). Mas você pode montar o cardápio e testar tudo antes de decidir.' },
+  { pergunta: 'Em quanto tempo minha loja fica no ar?', resposta: 'No mesmo dia. Você cadastra os produtos, define cores e logo, e já compartilha o link da sua loja com os clientes.' },
+  { pergunta: 'Vocês cobram taxa por pedido?', resposta: 'Não. Você paga só a mensalidade do plano — nenhuma comissão por venda. O que você fatura é seu.' },
+  { pergunta: 'Tem fidelidade ou multa de cancelamento?', resposta: 'Não. Sem contrato de fidelidade e sem multa. Você cancela quando quiser.' },
+  { pergunta: 'Funciona com a minha impressora?', resposta: 'Sim. Somos compatíveis com as principais impressoras térmicas do mercado (80mm e 58mm), pro cupom e pro DANFE da NFC-e.' },
+];
+
 router.get('/landing', async (_req, res, next) => {
   try {
     const valor = async (chave: string): Promise<string> => {
@@ -1172,6 +1186,8 @@ router.get('/landing', async (_req, res, next) => {
     const segmentosRaw = await valor('landing_segmentos_json');
     const depoimentosRaw = await valor('landing_depoimentos_json');
     const destaquesRaw = await valor('landing_destaques_json');
+    const planosRaw = await valor('landing_planos_json');
+    const faqRaw = await valor('landing_faq_json');
     res.json({
       cta_texto: (await valor('landing_cta_texto')) || 'Ver demonstração',
       recursos: recursosRaw ? JSON.parse(recursosRaw) : LANDING_RECURSOS_PADRAO,
@@ -1181,10 +1197,14 @@ router.get('/landing', async (_req, res, next) => {
       segmentos: segmentosRaw ? JSON.parse(segmentosRaw) : LANDING_SEGMENTOS_PADRAO,
       depoimentos: depoimentosRaw ? JSON.parse(depoimentosRaw) : LANDING_DEPOIMENTOS_PADRAO,
       destaques: destaquesRaw ? JSON.parse(destaquesRaw) : LANDING_DESTAQUES_PADRAO,
+      planos: planosRaw ? JSON.parse(planosRaw) : LANDING_PLANOS_PADRAO,
+      faq: faqRaw ? JSON.parse(faqRaw) : LANDING_FAQ_PADRAO,
       hero_eyebrow:   await valor('landing_hero_eyebrow'),
       hero_titulo:    await valor('landing_hero_titulo'),
       hero_subtitulo: await valor('landing_hero_subtitulo'),
       hero_imagem:    await valor('landing_hero_imagem'),
+      hero_imagem_mobile: await valor('landing_hero_imagem_mobile'),
+      whatsapp:       await valor('landing_whatsapp'),
       demo_url:       await valor('landing_demo_url'),
     });
   } catch (e) { next(e); }
@@ -1203,6 +1223,8 @@ router.put('/landing', exigirSuperAdmin, async (req, res, next) => {
     if (req.body.hero_titulo !== undefined) await upsert('landing_hero_titulo', textoLimpo(req.body.hero_titulo, 120));
     if (req.body.hero_subtitulo !== undefined) await upsert('landing_hero_subtitulo', textoLimpo(req.body.hero_subtitulo, 240));
     if (req.body.hero_imagem !== undefined) await upsert('landing_hero_imagem', textoLimpo(req.body.hero_imagem, 500));
+    if (req.body.hero_imagem_mobile !== undefined) await upsert('landing_hero_imagem_mobile', textoLimpo(req.body.hero_imagem_mobile, 500));
+    if (req.body.whatsapp !== undefined) await upsert('landing_whatsapp', textoLimpo(req.body.whatsapp, 30));
     if (req.body.demo_url !== undefined) await upsert('landing_demo_url', textoLimpo(req.body.demo_url, 300));
     if (req.body.recursos !== undefined) {
       if (!Array.isArray(req.body.recursos) || req.body.recursos.length > 9) {
@@ -1271,6 +1293,32 @@ router.put('/landing', exigirSuperAdmin, async (req, res, next) => {
         return { imagem_url: imagemUrl, titulo, desc, formato };
       });
       await upsert('landing_destaques_json', JSON.stringify(destaques));
+    }
+    if (req.body.planos !== undefined) {
+      if (!Array.isArray(req.body.planos) || req.body.planos.length > 6) {
+        throw erroHttp(400, 'Lista de planos inválida (máximo 6 itens).');
+      }
+      const planos = req.body.planos.map((p: unknown) => {
+        const item = p as { nome?: unknown; preco?: unknown; destaque?: unknown; cta?: unknown; recursos?: unknown };
+        const nome = textoLimpo(item.nome, 40);
+        if (!nome) throw erroHttp(400, 'Todo plano precisa de um nome.');
+        const recursos = Array.isArray(item.recursos) ? item.recursos.slice(0, 12).map((r) => textoLimpo(r, 80)).filter(Boolean) : [];
+        return { nome, preco: textoLimpo(item.preco, 40), destaque: !!item.destaque, cta: textoLimpo(item.cta, 40) || 'Falar no WhatsApp', recursos };
+      });
+      await upsert('landing_planos_json', JSON.stringify(planos));
+    }
+    if (req.body.faq !== undefined) {
+      if (!Array.isArray(req.body.faq) || req.body.faq.length > 15) {
+        throw erroHttp(400, 'Lista de dúvidas inválida (máximo 15 itens).');
+      }
+      const faq = req.body.faq.map((f: unknown) => {
+        const item = f as { pergunta?: unknown; resposta?: unknown };
+        const pergunta = textoLimpo(item.pergunta, 160);
+        const resposta = textoLimpo(item.resposta, 600);
+        if (!pergunta) throw erroHttp(400, 'Toda dúvida precisa de uma pergunta.');
+        return { pergunta, resposta };
+      });
+      await upsert('landing_faq_json', JSON.stringify(faq));
     }
     await registrarAuditoria(req, 'landing.editar');
     res.json({ ok: true });

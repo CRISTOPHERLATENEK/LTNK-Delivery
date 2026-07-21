@@ -159,6 +159,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* FAQ acordeão (<details> nativo): esconde o marcador padrão e gira o chevron. */
+.faq > summary { list-style: none; cursor: pointer; }
+.faq > summary::-webkit-details-marker { display: none; }
+.faq .faq-chevron { transition: transform 0.25s ease; }
+.faq[open] .faq-chevron { transform: rotate(180deg); }
+
 /* Estados iniciais de animação são aplicados SÓ via gsap.set() no JS
    (progressive enhancement): se o JS falhar, tudo aparece visível. */
 
