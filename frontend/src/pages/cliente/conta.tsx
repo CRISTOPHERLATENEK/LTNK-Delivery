@@ -459,6 +459,17 @@ function FormLogin({ onLogar, irParaCadastro }: { onLogar: (u: UsuarioSessao) =>
           senha, loja_id: marca.loja_id || null,
         },
       );
+      // /api/auth/login é compartilhado entre áreas (não sabe se quem chamou
+      // quer um cliente, lojista, entregador...) — se o e-mail/telefone bater
+      // com uma conta de OUTRO perfil (ex.: o admin/lojista testando com o
+      // próprio e-mail aqui), o backend devolve esse perfil numa boa. Sem essa
+      // checagem, a área cliente salvava a sessão mesmo assim e toda rota
+      // /api/cliente/* subsequente dava 403 (perfil não bate) — sessão "logada"
+      // mas quebrada em tudo.
+      if (r.usuario.perfil !== 'cliente') {
+        mostrar({ tipo: 'erro', titulo: 'Essa conta não é de cliente.', descricao: 'Use a área correta pra entrar (lojista, entregador ou admin).' });
+        return;
+      }
       salvarSessao(r.token, r.usuario, 'cliente', lembrar);
       onLogar(r.usuario);
     } catch (err) {
