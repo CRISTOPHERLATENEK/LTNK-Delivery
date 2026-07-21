@@ -4,7 +4,7 @@
  */
 import jwt, { SignOptions } from 'jsonwebtoken';
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import db, { comTenant } from './db-mysql';
+import db, { comTenant, bancoTenantAtual } from './db-mysql';
 import { erroHttp } from './util';
 import { Perfil, Usuario } from '../tipos/modelos';
 
@@ -31,9 +31,23 @@ declare global {
   }
 }
 
+/**
+ * Emite o token normal (login/registro). Embute o BANCO do tenant resolvido
+ * pra este request (`bancoTenantAtual()`), igual o token de impersonação —
+ * assim a sessão fica pinada naquele tenant pro resto da vida do token,
+ * independente de qual domínio/header resolveu o tenant na hora do login.
+ *
+ * Isso importa principalmente pra quem loga durante a vitrine de demo
+ * (`/demo/:slug`, tenant resolvido via header X-Demo-Tenant — só válido em
+ * requisições SEM Authorization, ver server.ts): sem o claim, toda chamada
+ * autenticada DEPOIS do login perderia o override de demo (o header só vale
+ * pra requisição anônima) e resolveria pelo Host — quase sempre o tenant
+ * master, onde o usuário recém-criado não existe → 401 em cascata, sessão
+ * derrubada, cliente jogado de volta pra tela de login/landing.
+ */
 export function gerarToken(usuario: Pick<Usuario, 'id' | 'perfil'>): string {
   return jwt.sign(
-    { sub: usuario.id, perfil: usuario.perfil },
+    { sub: usuario.id, perfil: usuario.perfil, tenant: bancoTenantAtual() },
     JWT_SECRET as string,
     { expiresIn: JWT_EXPIRACAO }
   );
