@@ -380,193 +380,165 @@ export function PaginaLanding() {
     const el = raiz.current;
     if (!el) return;
     const q = gsap.utils.selector(el);
+    const reduzido = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const limpezas: Array<() => void> = [];
+
+    // Reveal robusto via IntersectionObserver (dispara em QUALQUER scroll — real
+    // ou programático — sem depender de eventos que o ScrollTrigger às vezes
+    // perde). Roda a animação uma vez quando o elemento entra na viewport.
+    const aoVer = (alvo: Element | null | undefined, fn: () => void) => {
+      if (!alvo) return;
+      const io = new IntersectionObserver((entradas, obs) => {
+        entradas.forEach(e => { if (e.isIntersecting) { fn(); obs.disconnect(); } });
+      }, { rootMargin: '0px 0px -8% 0px', threshold: 0 });
+      io.observe(alvo);
+      limpezas.push(() => io.disconnect());
+    };
 
     const ctx = gsap.context(() => {
-      // Nav ganha fundo translúcido + blur + sombra ao rolar (independe de motion).
-      ScrollTrigger.create({
-        start: 'top -20',
-        onUpdate: (self) => {
-          const nav = navRef.current;
-          if (!nav) return;
-          const solida = self.scroll() > 20;
-          ['bg-background/80', 'backdrop-blur-md', 'shadow-sm', 'border-border'].forEach(c => nav.classList.toggle(c, solida));
-          nav.classList.toggle('border-transparent', !solida);
-        },
+      // Nav: fundo translúcido + blur ao rolar (listener direto, sempre confiável).
+      const aoRolar = () => {
+        const nav = navRef.current;
+        if (!nav) return;
+        const solida = window.scrollY > 20;
+        ['bg-background/80', 'backdrop-blur-md', 'shadow-sm', 'border-border'].forEach(c => nav.classList.toggle(c, solida));
+        nav.classList.toggle('border-transparent', !solida);
+      };
+      window.addEventListener('scroll', aoRolar, { passive: true });
+      aoRolar();
+      limpezas.push(() => window.removeEventListener('scroll', aoRolar));
+
+      // Movimento reduzido: nada é escondido — tudo já visível, sem animação.
+      if (reduzido) return;
+
+      // ── Estados iniciais (SÓ via JS; se algo falhar, o fail-safe revela) ──
+      gsap.set(navRef.current, { opacity: 0 });
+      gsap.set(q('.js-hero-item'), { y: 22, opacity: 0 });
+      gsap.set(q('.js-rabisco path'), { drawSVG: '0%' });
+      gsap.set(q('.js-notebook-screen'), { rotationX: -32, y: 40, opacity: 0, transformOrigin: '50% 100%', transformPerspective: 1400 });
+      gsap.set(q('.js-hero-phone'), { y: 60, opacity: 0, scale: 0.85 });
+
+      // ── Hero timeline (na montagem) ──
+      const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
+      tl.to(navRef.current, { opacity: 1, duration: 0.3 })
+        .to(q('.js-hero-item'), { y: 0, opacity: 1, stagger: 0.09, duration: 0.6 }, 0.05)
+        .to(q('.js-rabisco path'), { drawSVG: '100%', duration: 0.5 }, '-=0.3')
+        .to(q('.js-notebook-screen'), { rotationX: 0, y: 0, opacity: 1, duration: 1, ease: 'power2.out' }, '-=0.7')
+        .to(q('.js-hero-phone'), { y: 0, opacity: 1, scale: 1, ease: 'back.out(1.5)', duration: 0.7 }, '-=0.4')
+        .add(() => { gsap.to(q('.js-hero-phone'), { y: '-=10', duration: 2.4, yoyo: true, repeat: -1, ease: 'sine.inOut' }); });
+
+      // ── Tilt 3D no mousemove (notebook + celular parallax) ──
+      const palco = q('.js-hero-palco')[0] as HTMLElement | undefined;
+      const tela = q('.js-notebook-screen')[0];
+      const fone = q('.js-hero-phone')[0];
+      if (palco && tela && fone) {
+        const rY = gsap.quickTo(tela, 'rotationY', { duration: 0.5, ease: 'power2.out' });
+        const rX = gsap.quickTo(tela, 'rotationX', { duration: 0.5, ease: 'power2.out' });
+        const fX = gsap.quickTo(fone, 'x', { duration: 0.5, ease: 'power2.out' });
+        const fY = gsap.quickTo(fone, 'y', { duration: 0.5, ease: 'power2.out' });
+        const fR = gsap.quickTo(fone, 'rotation', { duration: 0.5, ease: 'power2.out' });
+        const mover = (e: MouseEvent) => {
+          const r = palco.getBoundingClientRect();
+          const px = (e.clientX - r.left) / r.width - 0.5;
+          const py = (e.clientY - r.top) / r.height - 0.5;
+          rY(px * 18); rX(-py * 18);          // ±9°
+          fX(px * 40); fY(py * 30); fR(px * 6);
+        };
+        const sair = () => { rY(0); rX(0); fX(0); fY(0); fR(0); };
+        palco.addEventListener('mousemove', mover);
+        palco.addEventListener('mouseleave', sair);
+      }
+
+      // ── Reveal genérico das seções ──
+      q('[data-reveal]').forEach((s) => {
+        gsap.set(s, { y: 34, opacity: 0 });
+        aoVer(s, () => gsap.to(s, { y: 0, opacity: 1, duration: 0.6, ease: 'power3.out', clearProps: 'transform' }));
       });
 
-      const mm = gsap.matchMedia();
+      // ── "Jeito antigo": riscos desenhando ──
+      const riscos = q('.js-risco path');
+      if (riscos.length) {
+        gsap.set(riscos, { drawSVG: '0%' });
+        aoVer(q('.js-antigo')[0], () => gsap.to(riscos, { drawSVG: '100%', stagger: 0.14, duration: 0.4, ease: 'power1.inOut' }));
+      }
 
-      // Movimento reduzido: só fades curtos, sem loops/tilt.
-      mm.add('(prefers-reduced-motion: reduce)', () => {
-        q('[data-reveal]').forEach((s) => {
-          gsap.from(s, { autoAlpha: 0, duration: 0.2, scrollTrigger: { trigger: s, start: 'top 88%', once: true } });
+      // ── "Jeito novo": checks desenhando + pulse ──
+      const checks = q('.js-check-path'), caixas = q('.js-check-box');
+      if (checks.length) {
+        gsap.set(checks, { drawSVG: '0%' });
+        aoVer(q('.js-novo')[0], () => {
+          gsap.to(checks, { drawSVG: '100%', stagger: 0.11, duration: 0.35 });
+          gsap.fromTo(caixas, { scale: 0.8 }, { scale: 1, stagger: 0.11, duration: 0.35, ease: 'back.out(2.5)' });
         });
-      });
+      }
 
-      // Movimento normal.
-      mm.add('(prefers-reduced-motion: no-preference)', () => {
-        // Estados iniciais — só aqui, nunca em CSS.
-        gsap.set(navRef.current, { opacity: 0 });
-        gsap.set(q('.js-hero-item'), { y: 22, opacity: 0 });
-        gsap.set(q('.js-rabisco path'), { drawSVG: '0%' });
-        gsap.set(q('.js-notebook-screen'), { rotationX: -32, y: 40, opacity: 0, transformOrigin: '50% 100%', transformPerspective: 1400 });
-        gsap.set(q('.js-hero-phone'), { y: 60, opacity: 0, scale: 0.85 });
+      // ── Stats em stagger ──
+      const stats = q('.js-stat');
+      if (stats.length) {
+        gsap.set(stats, { y: 20, opacity: 0 });
+        aoVer(q('.js-stats')[0], () => gsap.to(stats, { y: 0, opacity: 1, stagger: 0.1, duration: 0.5, ease: 'back.out(1.4)' }));
+      }
 
-        // Hero timeline.
-        const tl = gsap.timeline({ defaults: { ease: 'power3.out' } });
-        tl.to(navRef.current, { opacity: 1, duration: 0.3 })
-          .to(q('.js-hero-item'), { y: 0, opacity: 1, stagger: 0.09, duration: 0.6 }, 0.05)
-          .to(q('.js-rabisco path'), { drawSVG: '100%', duration: 0.5 }, '-=0.3')
-          .to(q('.js-notebook-screen'), { rotationX: 0, y: 0, opacity: 1, duration: 1, ease: 'power2.out' }, '-=0.7')
-          .to(q('.js-hero-phone'), { y: 0, opacity: 1, scale: 1, ease: 'back.out(1.5)', duration: 0.7 }, '-=0.4')
-          .add(() => {
-            // Flutuação contínua do celular.
-            gsap.to(q('.js-hero-phone'), { y: '-=10', duration: 2.4, yoyo: true, repeat: -1, ease: 'sine.inOut' });
-          });
-
-        // Tilt 3D no mousemove (notebook + celular parallax).
-        const palco = q('.js-hero-palco')[0] as HTMLElement | undefined;
-        const tela = q('.js-notebook-screen')[0];
-        const fone = q('.js-hero-phone')[0];
-        if (palco && tela && fone) {
-          const rY = gsap.quickTo(tela, 'rotationY', { duration: 0.5, ease: 'power2.out' });
-          const rX = gsap.quickTo(tela, 'rotationX', { duration: 0.5, ease: 'power2.out' });
-          const fX = gsap.quickTo(fone, 'x', { duration: 0.5, ease: 'power2.out' });
-          const fY = gsap.quickTo(fone, 'y', { duration: 0.5, ease: 'power2.out' });
-          const fR = gsap.quickTo(fone, 'rotation', { duration: 0.5, ease: 'power2.out' });
-          const mover = (e: MouseEvent) => {
-            const r = palco.getBoundingClientRect();
-            const px = (e.clientX - r.left) / r.width - 0.5;   // -0.5..0.5
-            const py = (e.clientY - r.top) / r.height - 0.5;
-            rY(px * 18); rX(-py * 18);          // ±9°
-            fX(px * 40); fY(py * 30); fR(px * 6);
-          };
-          const sair = () => { rY(0); rX(0); fX(0); fY(0); fR(0); };
-          palco.addEventListener('mousemove', mover);
-          palco.addEventListener('mouseleave', sair);
-        }
-
-        // Reveal genérico das seções (fail-open: autoAlpha, once).
-        q('[data-reveal]').forEach((s) => {
-          gsap.from(s, {
-            y: 34, autoAlpha: 0, duration: 0.6, ease: 'power3.out',
-            scrollTrigger: { trigger: s, start: 'top 80%', once: true },
-            onComplete: () => gsap.set(s, { clearProps: 'transform,opacity,visibility' }),
-          });
+      // ── Celular "pede pelo celular": desliza da esquerda + cards flutuam ──
+      const foneSec = q('.js-fone-sec')[0], cardsFone = q('.js-fone-card');
+      if (foneSec) {
+        gsap.set(foneSec, { x: -60, opacity: 0 });
+        gsap.set(cardsFone, { scale: 0.7, opacity: 0 });
+        aoVer(foneSec, () => {
+          gsap.to(foneSec, { x: 0, opacity: 1, duration: 0.7, ease: 'power3.out', clearProps: 'transform' });
+          gsap.to(cardsFone, { scale: 1, opacity: 1, stagger: 0.15, delay: 0.25, duration: 0.5, ease: 'back.out(2)' });
+          gsap.to(cardsFone, { y: '-=8', duration: 2.2, yoyo: true, repeat: -1, ease: 'sine.inOut', delay: 0.9 });
         });
+      }
 
-        // "Jeito antigo": riscos desenhando na cor primary.
-        const riscos = q('.js-risco path');
-        if (riscos.length) {
-          gsap.set(riscos, { drawSVG: '0%' });
-          ScrollTrigger.create({
-            trigger: q('.js-antigo')[0], start: 'top 78%', once: true,
-            onEnter: () => gsap.to(riscos, { drawSVG: '100%', stagger: 0.14, duration: 0.4, ease: 'power1.inOut' }),
-          });
-        }
+      // ── Cupom saindo da impressora (clipPath) + linhas em stagger ──
+      const cupom = q('.js-cupom')[0];
+      if (cupom) {
+        gsap.set(cupom, { clipPath: 'inset(0 0 100% 0)' });
+        gsap.set(q('.js-cupom-linha'), { opacity: 0, y: 6 });
+        gsap.set(q('.js-cupom-qr'), { opacity: 0 });
+        aoVer(cupom, () => {
+          gsap.timeline()
+            .to(cupom, { clipPath: 'inset(0 0 0% 0)', duration: 0.9, ease: 'power2.inOut' })
+            .to(q('.js-cupom-linha'), { opacity: 1, y: 0, stagger: 0.09, duration: 0.3 }, 0.1)
+            .to(q('.js-cupom-qr'), { opacity: 1, duration: 0.4 }, '-=0.1');
+        });
+      }
 
-        // "Jeito novo": checks desenhando + pulse da caixinha.
-        const checks = q('.js-check-path'), caixas = q('.js-check-box');
-        if (checks.length) {
-          gsap.set(checks, { drawSVG: '0%' });
-          ScrollTrigger.create({
-            trigger: q('.js-novo')[0], start: 'top 78%', once: true,
-            onEnter: () => {
-              gsap.to(checks, { drawSVG: '100%', stagger: 0.11, duration: 0.35 });
-              gsap.fromTo(caixas, { scale: 0.8 }, { scale: 1, stagger: 0.11, duration: 0.35, ease: 'back.out(2.5)' });
-            },
-          });
-        }
+      // ── Lista 01-06 ──
+      const litens = q('.js-lista-item'), divs = q('.js-lista-div');
+      if (litens.length) {
+        gsap.set(litens, { opacity: 0, y: 16 });
+        gsap.set(divs, { scaleX: 0, transformOrigin: 'left center' });
+        aoVer(q('.js-lista')[0], () => {
+          gsap.to(litens, { opacity: 1, y: 0, stagger: 0.08, duration: 0.4 });
+          gsap.to(divs, { scaleX: 1, stagger: 0.08, duration: 0.4, delay: 0.05 });
+        });
+      }
 
-        // Stats: contagem visual em stagger.
-        const stats = q('.js-stat');
-        if (stats.length) {
-          gsap.set(stats, { y: 20, opacity: 0 });
-          ScrollTrigger.create({
-            trigger: q('.js-stats')[0], start: 'top 82%', once: true,
-            onEnter: () => gsap.to(stats, { y: 0, opacity: 1, stagger: 0.1, duration: 0.5, ease: 'back.out(1.4)' }),
-          });
-        }
-
-        // Celular da seção "pede pelo celular": desliza da esquerda + cards flutuam.
-        const foneSec = q('.js-fone-sec')[0], cardsFone = q('.js-fone-card');
-        if (foneSec) {
-          gsap.set(foneSec, { x: -60, opacity: 0 });
-          gsap.set(cardsFone, { scale: 0.7, opacity: 0 });
-          ScrollTrigger.create({
-            trigger: foneSec, start: 'top 78%', once: true,
-            onEnter: () => {
-              gsap.to(foneSec, { x: 0, opacity: 1, duration: 0.7, ease: 'power3.out' });
-              gsap.to(cardsFone, { scale: 1, opacity: 1, stagger: 0.15, delay: 0.25, duration: 0.5, ease: 'back.out(2)' });
-              gsap.to(cardsFone, { y: '-=8', duration: 2.2, yoyo: true, repeat: -1, ease: 'sine.inOut', delay: 0.8 });
-            },
-          });
-        }
-
-        // Cupom: sai da impressora (clipPath) + linhas em stagger.
-        const cupom = q('.js-cupom')[0];
-        if (cupom) {
-          gsap.set(cupom, { clipPath: 'inset(0 0 100% 0)' });
-          gsap.set(q('.js-cupom-linha'), { opacity: 0, y: 6 });
-          gsap.set(q('.js-cupom-qr'), { opacity: 0 });
-          ScrollTrigger.create({
-            trigger: cupom, start: 'top 80%', once: true,
-            onEnter: () => {
-              gsap.timeline()
-                .to(cupom, { clipPath: 'inset(0 0 0% 0)', duration: 0.9, ease: 'power2.inOut' })
-                .to(q('.js-cupom-linha'), { opacity: 1, y: 0, stagger: 0.09, duration: 0.3 }, 0.1)
-                .to(q('.js-cupom-qr'), { opacity: 1, duration: 0.4 }, '-=0.1');
-            },
-          });
-        }
-
-        // Lista 01-06: linhas em stagger + divisórias crescendo da esquerda.
-        const itens = q('.js-lista-item'), divs = q('.js-lista-div');
-        if (itens.length) {
-          gsap.set(itens, { opacity: 0, y: 16 });
-          gsap.set(divs, { scaleX: 0, transformOrigin: 'left center' });
-          ScrollTrigger.create({
-            trigger: q('.js-lista')[0], start: 'top 78%', once: true,
-            onEnter: () => {
-              gsap.to(itens, { opacity: 1, y: 0, stagger: 0.08, duration: 0.4 });
-              gsap.to(divs, { scaleX: 1, stagger: 0.08, duration: 0.4, delay: 0.05 });
-            },
-          });
-        }
-
-        // Mascote do CTA final entra deslizando de baixo.
-        const mascote = q('.js-mascote')[0];
-        if (mascote) {
-          gsap.set(mascote, { y: 40, opacity: 0 });
-          ScrollTrigger.create({
-            trigger: mascote, start: 'top 90%', once: true,
-            onEnter: () => gsap.to(mascote, { y: 0, opacity: 1, duration: 0.7, ease: 'back.out(1.4)' }),
-          });
-        }
-      });
+      // ── Mascote do CTA final ──
+      const mascote = q('.js-mascote')[0];
+      if (mascote) {
+        gsap.set(mascote, { y: 40, opacity: 0 });
+        aoVer(mascote, () => gsap.to(mascote, { y: 0, opacity: 1, duration: 0.7, ease: 'back.out(1.4)' }));
+      }
     }, el);
 
-    // Recalcula posições após fontes/imagens.
-    const refresh = () => ScrollTrigger.refresh();
-    const t = window.setTimeout(refresh, 400);
-    if (document.fonts?.ready) document.fonts.ready.then(refresh);
-    window.addEventListener('load', refresh);
-
-    // FAIL-SAFE: nada pode ficar preso invisível. Após 2.6s, qualquer elemento
-    // ainda com opacity 0 E dentro da viewport é forçado a aparecer.
+    // FAIL-SAFE: nada pode ficar preso invisível. Após 3.5s, qualquer elemento
+    // ainda escondido (opacity 0 ou visibility hidden) é forçado a aparecer, e
+    // os traços SVG são completados — cobre qualquer falha do IO/GSAP.
     const failsafe = window.setTimeout(() => {
-      el.querySelectorAll<HTMLElement>('[data-reveal],.js-hero-item,.js-notebook-screen,.js-hero-phone,.js-stat,.js-lista-item,.js-fone-sec').forEach((n) => {
-        const r = n.getBoundingClientRect();
-        const noView = r.top < window.innerHeight && r.bottom > 0;
-        if (noView && getComputedStyle(n).opacity === '0') gsap.set(n, { clearProps: 'opacity,visibility,transform' });
+      el.querySelectorAll<HTMLElement>('.js-hero-item,.js-notebook-screen,.js-hero-phone,[data-reveal],.js-stat,.js-lista-item,.js-lista-div,.js-fone-sec,.js-fone-card,.js-cupom,.js-cupom-linha,.js-cupom-qr,.js-mascote').forEach((n) => {
+        const cs = getComputedStyle(n);
+        if (cs.opacity === '0' || cs.visibility === 'hidden') gsap.set(n, { clearProps: 'opacity,visibility,transform,clipPath' });
       });
-    }, 2600);
+      q('.js-check-path,.js-risco path').forEach(p => gsap.set(p, { drawSVG: '100%' }));
+    }, 3500);
 
     return () => {
       ctx.revert();
-      window.clearTimeout(t);
+      limpezas.forEach(fn => fn());
       window.clearTimeout(failsafe);
-      window.removeEventListener('load', refresh);
     };
   }, []);
 
