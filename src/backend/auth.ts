@@ -18,6 +18,24 @@ const JWT_EXPIRACAO = (process.env.JWT_EXPIRACAO || '12h') as SignOptions['expir
 /** Dados do usuário autenticado que ficam disponíveis em req.usuario. */
 export type UsuarioAutenticado = Pick<Usuario, 'id' | 'nome' | 'email' | 'perfil' | 'telefone' | 'cpf' | 'bloqueado' | 'super_admin'>;
 
+/**
+ * Extrai o tenant (db_nome) embutido num token de sessão VÁLIDO, ou null.
+ * Usado pela middleware de resolução de tenant (server.ts): a sessão inteira —
+ * rotas PÚBLICAS e privadas — passa a rodar no tenant a que o usuário pertence,
+ * não no resolvido pelo Host. Sem isso, depois do login as rotas públicas (menu
+ * da loja, tema…) caíam no tenant errado, porque o header X-Demo-Tenant só vale
+ * em requisição anônima e rota pública não roda `autenticar` pra ler o claim.
+ * O claim é assinado por nós (login/registro/impersonação) — nunca vem cru do
+ * cliente. Não lança: token ausente/inválido/sem claim → null (cai no Host).
+ */
+export function tenantDoToken(authHeader: string | undefined): string | null {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  try {
+    const dados = jwt.verify(authHeader.slice(7), JWT_SECRET as string) as jwt.JwtPayload;
+    return typeof dados.tenant === 'string' && dados.tenant ? dados.tenant : null;
+  } catch { return null; }
+}
+
 /** Conta de cozinha autenticada (KDS) — pertence a uma loja específica. */
 export type CozinhaAutenticada = { id: number; nome: string; loja_id: number };
 

@@ -8,7 +8,7 @@ import {
   UserPlus, User, MapPin, Lock, Pencil, Plus, Trash2, Save, X, Check, Loader2,
   Eye, EyeOff, ArrowRight, ShieldCheck, Phone, Mail,
 } from 'lucide-react';
-import { api, ApiError, salvarSessao, sessaoUsuario, encerrarSessao } from '@/lib/api';
+import { api, ApiError, salvarSessao, sessaoUsuario, encerrarSessao, tenantDemoAtivo } from '@/lib/api';
 import { useTema } from '@/lib/tema';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,12 @@ export function PaginaConta() {
 
   async function aoLogar(usr: UsuarioSessao) {
     mostrar({ tipo: 'sucesso', titulo: `Bem-vindo(a), ${usr.nome.split(' ')[0]}!` });
+    // Na vitrine de demonstração, "/" é a landing do tenant MASTER (não a loja).
+    // Volta pra loja demo (/demo/:slug re-resolve pra /loja/:id) em vez de jogar
+    // o cliente recém-logado pra fora da loja que ele estava navegando.
+    const slugDemo = tenantDemoAtivo();
     if (carrinho) navigate('/carrinho');
+    else if (slugDemo) navigate(`/demo/${slugDemo}`);
     else navigate('/');
   }
 

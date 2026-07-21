@@ -25,7 +25,8 @@ import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
 import { ErroHttp, lojaAbertaPorAgenda, agoraUTC } from './util';
 import db, { comTenant } from './db-mysql';
-import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, listarTenants } from './tenants-mysql';
+import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants } from './tenants-mysql';
+import { tenantDoToken } from './auth';
 import { capturarErro } from './monitoramento';
 
 /**
@@ -77,15 +78,25 @@ app.use((req, res, next) => {
 // um tenant fosse aceito junto com X-Demo-Tenant apontando pra outro, um
 // `id` que colidir entre os dois bancos (ex.: id=1, comum em todo tenant
 // recém-criado) autenticaria como o usuário ERRADO no tenant alvo, sem
-// senha nenhuma. Sem Authorization não há sessão pra sequestrar — as únicas
-// rotas alcançáveis são as públicas (publico.ts), que são de leitura livre
-// de qualquer forma.
+// senha nenhuma.
+//
+// PRIORIDADE MÁXIMA: o tenant embutido no PRÓPRIO token de sessão (claim
+// `tenant`, assinado por nós em login/registro/impersonação). Uma sessão
+// pertence a UM tenant — então TODA rota da requisição, pública ou privada,
+// roda nesse tenant. Sem isso, depois do login as rotas públicas (menu da
+// loja, tema…) caíam no tenant errado: o header de demo é ignorado quando há
+// Authorization, e rota pública não roda `autenticar` pra ler o claim — a
+// loja de demonstração "quebrava" no instante em que o cliente logava.
 app.use((req, _res, next) => {
   (async () => {
+    const dbDoToken = tenantDoToken(req.headers.authorization);
+    const tenantDoTokenReq = dbDoToken ? await tenantPorDbNome(dbDoToken) : undefined;
+
     const semAuth = !req.headers.authorization;
     const slugDemo = semAuth && typeof req.headers['x-demo-tenant'] === 'string' ? req.headers['x-demo-tenant'] : undefined;
     const tenantDemo = slugDemo ? await tenantPorSlug(slugDemo) : undefined;
-    const tenant = tenantDemo ?? (await resolverPorHost(req.headers.host)) ?? (await tenantPadrao());
+
+    const tenant = tenantDoTokenReq ?? tenantDemo ?? (await resolverPorHost(req.headers.host)) ?? (await tenantPadrao());
     await comTenant(tenant.db_nome, async () => { next(); });
   })().catch(next);
 });
