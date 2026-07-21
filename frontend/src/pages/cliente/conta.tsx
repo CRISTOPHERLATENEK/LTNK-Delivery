@@ -18,6 +18,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { useCarrinho } from '@/lib/carrinho';
+import { lojaAtualId } from '@/lib/loja-atual';
 import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import { formatarCpf, cpfDigitos, cpfValido } from '@/lib/cpf';
 import { telefoneDigitos, formatarTelefone } from '@/lib/telefone';
@@ -461,7 +462,7 @@ function FormLogin({ onLogar, irParaCadastro }: { onLogar: (u: UsuarioSessao) =>
         {
           email: ehEmail ? valor.toLowerCase() : undefined,
           telefone: ehEmail ? undefined : telefoneDigitos(valor),
-          senha, loja_id: marca.loja_id || null,
+          senha, loja_id: lojaAtualId() ?? marca.loja_id ?? null,
         },
       );
       // /api/auth/login é compartilhado entre áreas (não sabe se quem chamou
@@ -540,7 +541,7 @@ function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
     try {
       const r = await api<{ token: string; usuario: UsuarioSessao }>(
         'POST', '/api/auth/registrar',
-        { nome, cpf: cpfDigitos(cpf), email, telefone, senha, perfil: 'cliente', loja_id: marca.loja_id || null },
+        { nome, cpf: cpfDigitos(cpf), email, telefone, senha, perfil: 'cliente', loja_id: lojaAtualId() ?? marca.loja_id ?? null },
       );
       salvarSessao(r.token, r.usuario);
       mostrar({ tipo: 'sucesso', titulo: 'Conta criada com sucesso!' });

@@ -528,15 +528,21 @@ router.post('/avaliacoes/:id/responder', async (req, res, next) => {
 
 // ----- Clientes da loja ----------------------------------------------------
 
+/**
+ * "Cliente da loja" = cadastrado com essa loja (fluxo white-label) OU já fez
+ * pelo menos um pedido nela — cobre quem se cadastrou em outra tela/contexto
+ * mas comprou aqui, sem depender só do loja_id gravado no cadastro.
+ */
 router.get('/clientes', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const clientes = await db.prepare(
-      `SELECT id, nome, email, telefone, criado_em
-         FROM usuarios
-        WHERE loja_id = ? AND perfil = 'cliente'
-        ORDER BY criado_em DESC`
-    ).all(loja.id);
+      `SELECT DISTINCT u.id, u.nome, u.email, u.telefone, u.criado_em
+         FROM usuarios u
+         LEFT JOIN pedidos p ON p.cliente_id = u.id AND p.loja_id = ?
+        WHERE u.perfil = 'cliente' AND (u.loja_id = ? OR p.id IS NOT NULL)
+        ORDER BY u.criado_em DESC`
+    ).all(loja.id, loja.id);
     res.json({ clientes, total: clientes.length });
   } catch (e) { next(e); }
 });

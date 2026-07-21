@@ -16,3 +16,9 @@ export function rotaInicioCliente(): string {
   const id = sessionStorage.getItem(CHAVE);
   return id ? `/loja/${id}` : '/';
 }
+
+/** Id numérico da loja que o cliente está navegando/comprando agora, se houver. */
+export function lojaAtualId(): number | null {
+  const id = sessionStorage.getItem(CHAVE);
+  return id ? Number(id) : null;
+}
