@@ -7,9 +7,26 @@
  * do meio da compra.
  */
 const CHAVE = 'ultima_loja_id';
+const CHAVE_COR = 'ultima_loja_cor';
 
 export function registrarLojaAtual(id: string | number) {
   sessionStorage.setItem(CHAVE, String(id));
+}
+
+/**
+ * Guarda a cor de marca da última loja vista (por loja.tsx/pedido.tsx, que
+ * têm o dado fresco da API) — páginas que não sabem a cor da loja em si
+ * (carrinho, lista de pedidos, conta) reaplicam esse valor em vez de cair na
+ * cor padrão da plataforma.
+ */
+export function registrarCorLoja(cor: string, corSecundaria?: string | null) {
+  sessionStorage.setItem(CHAVE_COR, JSON.stringify({ cor, corSecundaria: corSecundaria || null }));
+}
+
+export function corLojaAtual(): { cor: string; corSecundaria: string | null } | null {
+  const bruto = sessionStorage.getItem(CHAVE_COR);
+  if (!bruto) return null;
+  try { return JSON.parse(bruto); } catch { return null; }
 }
 
 /**

@@ -8,7 +8,7 @@ import { Home, ShoppingBag, Receipt, User, ChevronRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { useCarrinho, totalItensCarrinho } from '@/lib/carrinho';
-import { rotaInicioCliente } from '@/lib/loja-atual';
+import { rotaInicioCliente, corLojaAtual } from '@/lib/loja-atual';
 import { api, sessaoUsuario } from '@/lib/api';
 import { useTema } from '@/lib/tema';
 import { PaginaVitrine } from '@/pages/cliente/vitrine';
@@ -76,10 +76,26 @@ function BannerPedidoAtivo() {
   );
 }
 
+// Páginas que não sabem a cor da loja em si (não buscam a loja pra isso) —
+// reaplicam a última cor vista em loja.tsx/pedido.tsx em vez de cair na cor
+// padrão da plataforma. loja.tsx e pedido.tsx já cuidam da própria cor com
+// dado fresco da API, então ficam de fora daqui.
+const ROTAS_SEM_COR_PROPRIA = ['/carrinho', '/pedidos', '/conta'];
+
 export function ClienteLayout({ children }: { children: React.ReactNode }) {
   const carrinho = useCarrinho();
   const total = totalItensCarrinho(carrinho);
-  const { marca } = useTema();
+  const { marca, aplicarCorPrimaria, resetarCorPrimaria } = useTema();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (!ROTAS_SEM_COR_PROPRIA.includes(location.pathname)) return;
+    const cor = corLojaAtual();
+    if (!cor) return;
+    aplicarCorPrimaria(cor.cor, cor.corSecundaria);
+    return () => { resetarCorPrimaria(); };
+  }, [location.pathname, aplicarCorPrimaria, resetarCorPrimaria]);
+
   const itens = [
     { rota: rotaInicioCliente(marca.loja_id || undefined), icone: Home, rotulo: 'Início', fim: true },
     { rota: '/carrinho', icone: ShoppingBag, rotulo: 'Carrinho', badge: <NavBadge valor={total} /> },

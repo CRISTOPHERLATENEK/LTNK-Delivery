@@ -18,6 +18,7 @@ import { useConfirm } from '@/components/ui/confirm';
 import { tocarAlerta } from '@/lib/alerta-pedido';
 import { suportaPush, estadoPush, ativarPush, type EstadoPush } from '@/lib/push';
 import { useTema } from '@/lib/tema';
+import { registrarCorLoja } from '@/lib/loja-atual';
 import { ChatPedido } from '@/components/chat-pedido';
 import { cn } from '@/lib/utils';
 
@@ -78,7 +79,10 @@ export function PaginaPedido() {
   const corMarcaLoja = (consulta.data?.pedido as any)?.loja_cor_marca as string | undefined;
   const corSecundariaLoja = (consulta.data?.pedido as any)?.loja_cor_secundaria as string | undefined;
   useEffect(() => {
-    if (corMarcaLoja) aplicarCorPrimaria(corMarcaLoja, corSecundariaLoja);
+    if (corMarcaLoja) {
+      aplicarCorPrimaria(corMarcaLoja, corSecundariaLoja);
+      registrarCorLoja(corMarcaLoja, corSecundariaLoja);
+    }
     return () => { resetarCorPrimaria(); };
   }, [corMarcaLoja, corSecundariaLoja, aplicarCorPrimaria, resetarCorPrimaria]);
 

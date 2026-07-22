@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { adicionarAoCarrinho, useCarrinho, mudarQuantidade } from '@/lib/carrinho';
-import { registrarLojaAtual } from '@/lib/loja-atual';
+import { registrarLojaAtual, registrarCorLoja } from '@/lib/loja-atual';
 import { iconeCategoria } from '@/lib/icones-categoria';
 import { ModalProduto } from './modal-produto';
 import { BannerCarousel } from '@/components/banner-carousel';
@@ -92,7 +92,10 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
   // dependências faz reaplicar a cor da loja assim que isso acontecer —
   // sem isso, dava pra "ganhar a corrida" e a cor ficar errada (ou piscar).
   useEffect(() => {
-    if (corMarcaEfetiva) aplicarCorPrimaria(corMarcaEfetiva, corSecundariaEfetiva);
+    if (corMarcaEfetiva) {
+      aplicarCorPrimaria(corMarcaEfetiva, corSecundariaEfetiva);
+      registrarCorLoja(corMarcaEfetiva, corSecundariaEfetiva);
+    }
     return () => { resetarCorPrimaria(); };
   }, [corMarcaEfetiva, corSecundariaEfetiva, aplicarCorPrimaria, resetarCorPrimaria, marca]);
 
