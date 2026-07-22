@@ -2,9 +2,10 @@
  * Rotas públicas (sem login): banners, vitrine, destaques e cardápio.
  */
 import { Router } from 'express';
-import db from '../db-mysql';
+import db, { bancoTenantAtual } from '../db-mysql';
 import { erroHttp } from '../util';
 import { chavePublicaVapid } from '../push';
+import { ehMaster } from '../tenants-mysql';
 import { GrupoComOpcoes, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
 
 const router = Router();
@@ -70,6 +71,9 @@ router.get('/tema', async (req, res, next) => {
       cor_primaria:      await valor('marca_cor_primaria', '#dc2640'),
       login_banner_url:  await valor('marca_login_banner_url'),
       loja_id:           lojaId,
+      // Só o tenant master (banco padrão da plataforma) expõe o painel admin
+      // — domínio de loja/demo não deve nem mostrar a tela de login dele.
+      eh_master:         ehMaster(bancoTenantAtual()),
       landing_cta_texto:      (await valor('landing_cta_texto')) || 'Ver demonstração',
       landing_recursos:       recursosRaw ? JSON.parse(recursosRaw) : null,
       landing_beneficios:     beneficiosRaw ? JSON.parse(beneficiosRaw) : null,

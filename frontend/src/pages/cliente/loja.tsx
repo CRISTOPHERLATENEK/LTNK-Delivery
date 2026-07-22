@@ -30,8 +30,12 @@ interface RespostaCardapio {
 
 type ProdutoComCat = Produto & { _cat: string };
 
-export function PaginaLoja() {
-  const { id } = useParams();
+export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
+  const params = useParams();
+  // idFixo: raiz de um domínio já amarrado a uma loja (loja_padrao_id) —
+  // mostra o cardápio direto em "/" sem redirecionar pra "/loja/:id" (cada
+  // domínio já É uma loja só, não faz sentido expor o id na URL).
+  const id = idFixo != null ? String(idFixo) : params.id;
   const [searchParams, setSearchParams] = useSearchParams();
   const [produtoAberto, setProdutoAberto] = useState<Produto | null>(null);
   const [catAtiva, setCatAtiva] = useState<string | null>(null);

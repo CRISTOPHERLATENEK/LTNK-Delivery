@@ -12,9 +12,16 @@ export function registrarLojaAtual(id: string | number) {
   sessionStorage.setItem(CHAVE, String(id));
 }
 
-export function rotaInicioCliente(): string {
+/**
+ * @param lojaDominio Id da loja já amarrada ao domínio atual (marca.loja_id),
+ *   se houver — nesse caso a própria "/" já mostra o cardápio, então prefere
+ *   a raiz limpa em vez de "/loja/:id" quando é a mesma loja.
+ */
+export function rotaInicioCliente(lojaDominio?: number): string {
   const id = sessionStorage.getItem(CHAVE);
-  return id ? `/loja/${id}` : '/';
+  if (!id) return '/';
+  if (lojaDominio && Number(id) === lojaDominio) return '/';
+  return `/loja/${id}`;
 }
 
 /** Id numérico da loja que o cliente está navegando/comprando agora, se houver. */

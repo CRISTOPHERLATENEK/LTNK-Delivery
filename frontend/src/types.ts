@@ -188,6 +188,8 @@ export interface TemaMarca {
   login_banner_url: string;
   /** ID da loja padrão (0 = modo marketplace, >0 = white label single-store) */
   loja_id: number;
+  /** true só no domínio do tenant master (plataforma) — outros domínios (loja/demo) não expõem o painel admin. */
+  eh_master?: boolean;
   /** Texto do botão de CTA na landing page do produto. */
   landing_cta_texto?: string;
   /** Grade de recursos da landing page (null = usa os padrões embutidos no front). */

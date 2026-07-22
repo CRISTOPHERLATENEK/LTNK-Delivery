@@ -3,13 +3,14 @@
  * dedicadas (lojista, entregador, admin).
  */
 import { useEffect } from 'react';
-import { Routes, Route, Link, useLocation } from 'react-router-dom';
+import { Routes, Route, Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { Home, ShoppingBag, Receipt, User, ChevronRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { useCarrinho, totalItensCarrinho } from '@/lib/carrinho';
 import { rotaInicioCliente } from '@/lib/loja-atual';
 import { api, sessaoUsuario } from '@/lib/api';
+import { useTema } from '@/lib/tema';
 import { PaginaVitrine } from '@/pages/cliente/vitrine';
 import { PaginaDemo } from '@/pages/cliente/demo';
 import { PaginaLoja } from '@/pages/cliente/loja';
@@ -75,11 +76,12 @@ function BannerPedidoAtivo() {
   );
 }
 
-function ClienteLayout({ children }: { children: React.ReactNode }) {
+export function ClienteLayout({ children }: { children: React.ReactNode }) {
   const carrinho = useCarrinho();
   const total = totalItensCarrinho(carrinho);
+  const { marca } = useTema();
   const itens = [
-    { rota: rotaInicioCliente(), icone: Home, rotulo: 'Início', fim: true },
+    { rota: rotaInicioCliente(marca.loja_id || undefined), icone: Home, rotulo: 'Início', fim: true },
     { rota: '/carrinho', icone: ShoppingBag, rotulo: 'Carrinho', badge: <NavBadge valor={total} /> },
     { rota: '/pedidos', icone: Receipt, rotulo: 'Pedidos' },
     { rota: '/conta', icone: User, rotulo: 'Conta' },
@@ -90,6 +92,17 @@ function ClienteLayout({ children }: { children: React.ReactNode }) {
       <BannerPedidoAtivo />
     </>
   );
+}
+
+/**
+ * O painel admin só existe no domínio master da plataforma — domínio de
+ * loja/demo (mesmo com uma conta 'admin' válida naquele tenant) não deve
+ * nem mostrar a tela de login dele.
+ */
+function SoDominioMaster() {
+  const { marca } = useTema();
+  if (!marca.eh_master) return <Navigate to="/" replace />;
+  return <Outlet />;
 }
 
 export default function App() {
@@ -124,21 +137,24 @@ export default function App() {
       {/* Cozinha (KDS) — login próprio, vinculado a uma loja */}
       <Route path="/cozinha/*" element={<PainelCozinha />} />
 
-      {/* Admin — cada página já tem seu próprio AdminLayout com sidebar */}
-      <Route path="/painel-admin/marca"    element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaMarca /></Guard>} />
-      <Route path="/painel-admin/admins"   element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaAdmins /></Guard>} />
-      <Route path="/painel-admin/clientes" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaTenants /></Guard>} />
-      <Route path="/painel-admin/lojistas" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaLojistas /></Guard>} />
-      <Route path="/painel-admin/lojas"    element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaLojas /></Guard>} />
-      <Route path="/painel-admin/monitor"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaMonitor /></Guard>} />
-      <Route path="/painel-admin/entregadores" element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaEntregadores /></Guard>} />
-      <Route path="/painel-admin/pedidos"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaPedidosAdmin /></Guard>} />
-      <Route path="/painel-admin/banners"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaBanners /></Guard>} />
-      <Route path="/painel-admin/repasses" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaRepasses /></Guard>} />
-      <Route path="/painel-admin/auditoria" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaAuditoria /></Guard>} />
+      {/* Admin — só existe no domínio master (ver SoDominioMaster); cada
+          página já tem seu próprio AdminLayout com sidebar. */}
+      <Route element={<SoDominioMaster />}>
+        <Route path="/painel-admin/marca"    element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaMarca /></Guard>} />
+        <Route path="/painel-admin/admins"   element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaAdmins /></Guard>} />
+        <Route path="/painel-admin/clientes" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaTenants /></Guard>} />
+        <Route path="/painel-admin/lojistas" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaLojistas /></Guard>} />
+        <Route path="/painel-admin/lojas"    element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaLojas /></Guard>} />
+        <Route path="/painel-admin/monitor"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaMonitor /></Guard>} />
+        <Route path="/painel-admin/entregadores" element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaEntregadores /></Guard>} />
+        <Route path="/painel-admin/pedidos"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaPedidosAdmin /></Guard>} />
+        <Route path="/painel-admin/banners"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaBanners /></Guard>} />
+        <Route path="/painel-admin/repasses" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaRepasses /></Guard>} />
+        <Route path="/painel-admin/auditoria" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaAuditoria /></Guard>} />
 
-      {/* Admin — TelaAdmin gerencia seu próprio login */}
-      <Route path="/painel-admin/*" element={<TelaAdmin />} />
+        {/* Admin — TelaAdmin gerencia seu próprio login */}
+        <Route path="/painel-admin/*" element={<TelaAdmin />} />
+      </Route>
     </Routes>
   );
 }

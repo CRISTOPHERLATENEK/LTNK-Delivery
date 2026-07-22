@@ -48,7 +48,7 @@ export function AppLayout({ children, itens, titulo, subtitulo }: Props) {
   const raiz = location.pathname.startsWith('/lojista') ? '/lojista'
     : location.pathname.startsWith('/entregador') ? '/entregador'
     : location.pathname.startsWith('/painel-admin') ? '/painel-admin'
-    : rotaInicioCliente();
+    : rotaInicioCliente(marca.loja_id || undefined);
 
   const sair = () => { encerrarSessao(); window.location.href = raiz; };
 
