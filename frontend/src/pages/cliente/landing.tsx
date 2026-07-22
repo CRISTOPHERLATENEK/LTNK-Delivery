@@ -232,7 +232,11 @@ function CupomTermico() {
  * domínio) e base metálica. `.js-notebook-screen` é o alvo do lid-open/tilt.
  */
 function NotebookHero({ src, nome }: { src?: string; nome: string }) {
-  const dominio = nome ? `${nome.toLowerCase().replace(/\s+/g, '')}.com.br` : 'seudelivery.com.br';
+  // Domínio real da página (não inventado) — evita mostrar algo tipo
+  // "nomedaLoja.com.br" quando o domínio de verdade é outro (.app.br etc.).
+  const dominio = typeof window !== 'undefined' && window.location.host
+    ? window.location.host
+    : (nome ? `${nome.toLowerCase().replace(/\s+/g, '')}.com.br` : 'seudelivery.com.br');
   return (
     <div className="[perspective:1400px]">
       <div className="js-notebook-screen [transform-style:preserve-3d]">
