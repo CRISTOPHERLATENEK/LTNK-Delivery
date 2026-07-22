@@ -21,7 +21,7 @@ const LARGURA_DESKTOP = 1180;
 const ALTURA_DESKTOP = 720;
 
 /**
- * Preview ao vivo = a página REAL da loja (`/loja/:id?preview=1`) dentro de
+ * Preview ao vivo = a página REAL da loja (`/:id?preview=1`) dentro de
  * um <iframe> same-origin, recebendo o estado ainda não salvo via
  * postMessage. Não é um mockup à parte — é literalmente o mesmo componente
  * que o cliente vê, então nunca diverge do site de verdade. O toggle
@@ -125,7 +125,7 @@ export function PhonePreview({ estado, lojaId, tenantSlug, modo, onModoChange }:
             <iframe
               ref={iframeRef}
               key={lojaId}
-              src={`/loja/${lojaId}?preview=1${tenantSlug ? `&tenant=${encodeURIComponent(tenantSlug)}` : ''}`}
+              src={`/${lojaId}?preview=1${tenantSlug ? `&tenant=${encodeURIComponent(tenantSlug)}` : ''}`}
               title="Pré-visualização da loja"
               className="border-0 bg-white"
               style={{ width: largura, height: altura }}

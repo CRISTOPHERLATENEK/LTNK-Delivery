@@ -48,9 +48,9 @@ export function BannerCarousel({
     if (!b.loja_id && b.produto_id && onProdutoClick) {
       onProdutoClick(b.produto_id);
     } else if (b.loja_id && b.produto_id) {
-      navigate(`/loja/${b.loja_id}?produto=${b.produto_id}`);
+      navigate(`/${b.loja_id}?produto=${b.produto_id}`);
     } else if (b.loja_id) {
-      navigate(`/loja/${b.loja_id}`);
+      navigate(`/${b.loja_id}`);
     } else if (b.link_url) {
       window.open(b.link_url, '_blank', 'noopener');
     }

@@ -344,7 +344,7 @@ export function PaginaLanding() {
     staleTime: 5 * 60_000,
     enabled: !demoUrlConfigurada,
   });
-  const linkDemo = demoUrlConfigurada || (demo.data ? `/loja/${demo.data.id}` : undefined);
+  const linkDemo = demoUrlConfigurada || (demo.data ? `/${demo.data.id}` : undefined);
   const demoExterna = !!linkDemo && /^https?:\/\//i.test(linkDemo);
 
   /**

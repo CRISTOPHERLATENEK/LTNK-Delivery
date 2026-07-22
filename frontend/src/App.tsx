@@ -115,10 +115,10 @@ export default function App() {
     <Routes>
       {/* Sem ClienteLayout: "/" tanto pode ser a landing do produto (sem nav de
           compras — carrinho/pedidos não fazem sentido numa página de marketing)
-          quanto um redirect pra /loja/:id (que aí sim usa o layout de compras). */}
+          quanto um redirect pra /:id (que aí sim usa o layout de compras). */}
       <Route path="/" element={<PaginaVitrine />} />
       <Route path="/demo/:slug" element={<PaginaDemo />} />
-      <Route path="/loja/:id" element={<ClienteLayout><PaginaLoja /></ClienteLayout>} />
+      <Route path="/:id" element={<ClienteLayout><PaginaLoja /></ClienteLayout>} />
       <Route path="/carrinho" element={<ClienteLayout><PaginaCarrinho /></ClienteLayout>} />
       <Route path="/pedidos" element={<ClienteLayout><PaginaPedidos /></ClienteLayout>} />
       <Route path="/pedido/:id" element={<ClienteLayout><PaginaPedido /></ClienteLayout>} />

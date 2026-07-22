@@ -27,6 +27,15 @@ import { wbapiConfigurado, statusSessaoPlataforma } from '../whatsapp-nao-oficia
 import { geocodificarTexto } from '../geo';
 import { GrupoOpcao, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
 
+/**
+ * Slugs que colidem com rotas fixas do frontend (App.tsx) — a URL da loja é
+ * a raiz do domínio (/slug), então nenhum desses nomes pode virar slug.
+ */
+const SLUGS_RESERVADOS = new Set([
+  'demo', 'carrinho', 'pedidos', 'pedido', 'conta', 'esqueci-senha',
+  'redefinir-senha', 'lojista', 'entregador', 'cozinha', 'painel-admin', 'api',
+]);
+
 /** Pasta protegida do certificado de uma loja (namespeada por tenant). */
 export function caminhoCertificado(lojaId: number): string {
   const base = bancoTenantAtual();
@@ -123,13 +132,18 @@ router.put('/loja', async (req, res, next) => {
       return v;
     };
 
-    // Slug amigável para URL da loja (ex: pizzaria-da-paula).
+    // Slug amigável para URL da loja (ex: pizzaria-da-paula) — vira a URL raiz
+    // do domínio (/slug, sem prefixo /loja/), por isso não pode colidir com
+    // nenhuma rota fixa do app.
     const lojaQualquer = loja as any;
     let slug = lojaQualquer.slug ?? null;
     if (req.body.slug !== undefined) {
       const s = textoLimpo(req.body.slug, 60).toLowerCase().replace(/\s+/g, '-');
       if (s && !/^[a-z0-9][a-z0-9-]{1,58}[a-z0-9]$/.test(s)) {
         throw erroHttp(400, 'Slug inválido: use apenas letras minúsculas, números e hífens (mín. 3 chars).');
+      }
+      if (s && SLUGS_RESERVADOS.has(s)) {
+        throw erroHttp(400, `"${s}" é uma URL reservada do sistema — escolha outro slug.`);
       }
       if (s) {
         const conflito = await db.prepare('SELECT id FROM lojas WHERE slug = ? AND id != ?').get(s, loja.id);

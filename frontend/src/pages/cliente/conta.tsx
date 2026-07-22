@@ -37,7 +37,7 @@ export function PaginaConta() {
   async function aoLogar(usr: UsuarioSessao) {
     mostrar({ tipo: 'sucesso', titulo: `Bem-vindo(a), ${usr.nome.split(' ')[0]}!` });
     // Na vitrine de demonstração, "/" é a landing do tenant MASTER (não a loja).
-    // Volta pra loja demo (/demo/:slug re-resolve pra /loja/:id) em vez de jogar
+    // Volta pra loja demo (/demo/:slug re-resolve pra /:id) em vez de jogar
     // o cliente recém-logado pra fora da loja que ele estava navegando.
     const slugDemo = tenantDemoAtivo();
     if (carrinho) navigate('/carrinho');

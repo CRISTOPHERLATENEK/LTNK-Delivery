@@ -45,7 +45,7 @@ if (process.env.CONFIA_PROXY === '1') app.set('trust proxy', 1);
 app.use(express.json({ limit: '200kb' }));
 
 // Cabeçalhos de segurança básicos. Exceção estreita: a própria página da
-// loja em modo preview (`/loja/:id?preview=1`) precisa poder ser embutida
+// loja em modo preview (`/:id?preview=1`) precisa poder ser embutida
 // num <iframe> — é o preview ao vivo do editor "Visual" do lojista (ver
 // frontend/src/pages/lojista/visual/PhonePreview.tsx), same-origin. Em vez
 // de tirar a proteção, trocamos por CSP `frame-ancestors 'self'`: continua
@@ -53,7 +53,9 @@ app.use(express.json({ limit: '200kb' }));
 // o próprio domínio embutir a própria página de preview.
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  const ehPreviewDaLoja = /^\/loja\/[^/]+$/.test(req.path) && req.query.preview === '1';
+  // Loja em modo preview vive na raiz por slug/id (`/minha-loja?preview=1`,
+  // sem prefixo /loja/ — ver App.tsx `<Route path="/:id">`).
+  const ehPreviewDaLoja = /^\/[^/]+$/.test(req.path) && req.query.preview === '1';
   if (ehPreviewDaLoja) {
     res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
   } else {
@@ -128,20 +130,18 @@ app.use(express.static(path.join(__dirname, '..', '..', 'public'), {
   },
 }));
 
-// SPA fallback: rotas client-side do React Router (/loja/:id, /carrinho, etc.)
-// devolvem o index.html. Rotas .html legadas (lojista.html, admin.html…) já
-// foram resolvidas pelo express.static acima.
-const SPA_ROTAS = ['/loja', '/demo', '/carrinho', '/pedidos', '/pedido', '/conta',
-                   '/lojista', '/entregador', '/cozinha', '/painel-admin',
-                   '/esqueci-senha', '/redefinir-senha'];
+// SPA fallback: rotas client-side do React Router devolvem o index.html.
+// A loja do domínio vive na raiz por slug (`/minha-loja`, sem prefixo fixo —
+// ver App.tsx `<Route path="/:id">`), então qualquer caminho de 1 nível sem
+// extensão de arquivo é candidato a rota do app: se não bateu com nenhum
+// arquivo estático acima (express.static já resolveu JS/CSS/imagens) e não é
+// `/api`, é sempre o React Router que decide o que fazer com ele (inclusive
+// mostrar 404 dentro do app, se o slug não existir).
 app.use((req, res, next) => {
   if (req.method !== 'GET') return next();
   if (req.path.startsWith('/api')) return next();
   if (req.path.includes('.')) return next();
-  if (req.path === '/' || SPA_ROTAS.some(r => req.path.startsWith(r))) {
-    return res.sendFile(path.join(__dirname, '..', '..', 'public', 'index.html'));
-  }
-  next();
+  return res.sendFile(path.join(__dirname, '..', '..', 'public', 'index.html'));
 });
 
 app.use('/api', (_req, res) => {

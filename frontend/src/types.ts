@@ -54,7 +54,7 @@ export interface Loja {
   /** Avaliação agregada. */
   nota_media?: number;
   nota_qtd?: number;
-  /** URL amigável da loja (/loja/slug). */
+  /** URL amigável da loja (/slug). */
   slug?: string | null;
   /** Domínio próprio apontado pelo lojista (ex.: pizzariadapaula.com.br), alternativa ao slug. */
   dominio_personalizado?: string | null;

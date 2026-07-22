@@ -230,7 +230,7 @@ export function DashboardLoja() {
             <div className="px-4 pb-4">
               <button
                 className="relative flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-border bg-background text-sm font-semibold shadow-sm transition hover:bg-accent"
-                onClick={() => window.open(`/loja/${(loja as any).slug || loja.id}`, '_blank')}
+                onClick={() => window.open(`/${(loja as any).slug || loja.id}`, '_blank')}
               >
                 <Eye className="size-4" /> Ver minha loja
                 <ChevronRight className="size-4 absolute right-3 text-muted-foreground" />

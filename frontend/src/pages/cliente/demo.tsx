@@ -7,7 +7,7 @@
  * botão "Ver demonstração" da landing funcionar sem depender de DNS: ativa o
  * override de tenant (definirTenantDemo) pelo slug da URL, descobre a 1ª
  * loja aprovada daquele tenant e redireciona pro storefront normal
- * (/loja/:id) — dali em diante as chamadas de api() continuam carregando o
+ * (/:id) — dali em diante as chamadas de api() continuam carregando o
  * header X-Demo-Tenant enquanto o visitante estiver navegando dentro da
  * área cliente (ver tenantDemoAtivo() em lib/api.ts).
  */
@@ -36,6 +36,6 @@ export function PaginaDemo() {
       </div>
     );
   }
-  if (lojaId) return <Navigate to={`/loja/${lojaId}`} replace />;
+  if (lojaId) return <Navigate to={`/${lojaId}`} replace />;
   return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Carregando demonstração…</div>;
 }

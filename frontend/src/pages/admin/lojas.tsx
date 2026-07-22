@@ -250,7 +250,7 @@ export function TelaLojas() {
                       {(l.dominio_personalizado || l.slug) && (
                         <div className="text-xs text-muted-foreground mt-0.5 font-mono flex items-center gap-1">
                           <Globe className="size-3" />
-                          {l.dominio_personalizado || `/loja/${l.slug}`}
+                          {l.dominio_personalizado || `/${l.slug}`}
                         </div>
                       )}
                       <div className="text-xs text-primary font-semibold mt-1 flex items-center gap-1">

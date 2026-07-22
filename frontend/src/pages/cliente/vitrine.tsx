@@ -1,6 +1,6 @@
 /**
  * Rota raiz do cliente ("/"): mostra o cardápio direto (sem redirect pra
- * "/loja/:id" — cada domínio já É uma loja só, o id não deveria aparecer na
+ * "/:id" — cada domínio já É uma loja só, o id não deveria aparecer na
  * URL) quando o tenant tem uma "loja padrão" configurada em Marca →
  * Configurações; senão mostra a landing do produto. O antigo marketplace
  * genérico (lista de várias lojas na home) foi removido — o modelo é

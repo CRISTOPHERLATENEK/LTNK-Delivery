@@ -166,13 +166,13 @@ export function LojaConfiguracao() {
               <div className="flex gap-2 mt-1">
                 <div className="relative flex-1">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground pointer-events-none select-none">
-                    /loja/
+                    /
                   </span>
                   <Input
                     value={form.slug}
                     onChange={e => setForm(f => ({ ...f, slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))}
                     placeholder="minha-loja"
-                    className="pl-12 font-mono text-sm"
+                    className="pl-6 font-mono text-sm"
                     maxLength={60}
                   />
                 </div>
@@ -196,11 +196,11 @@ export function LojaConfiguracao() {
               {form.slug && (
                 <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1">
                   <Link2 className="size-3" />
-                  <span className="font-mono">{window.location.origin}/loja/{form.slug}</span>
+                  <span className="font-mono">{window.location.origin}/{form.slug}</span>
                 </p>
               )}
               {!form.slug && (
-                <p className="text-[11px] text-muted-foreground mt-1">Opcional. Permite acessar via URL amigável em vez de /loja/123.</p>
+                <p className="text-[11px] text-muted-foreground mt-1">Opcional. Permite acessar via URL amigável em vez de /123.</p>
               )}
             </div>
 
