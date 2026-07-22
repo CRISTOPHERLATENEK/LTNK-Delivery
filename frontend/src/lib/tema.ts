@@ -29,6 +29,23 @@ const PADRAO: TemaMarca = {
   eh_master: true,
 };
 
+// Cache do último /api/tema resolvido pra ESTE domínio (localStorage já é
+// isolado por origem — cada domínio de loja tem o seu). Sem isso, todo F5 na
+// raiz nasce com o PADRAO (loja_id: 0) até o fetch responder, e um domínio
+// já amarrado a uma loja pisca a landing antes de trocar pro cardápio.
+const CHAVE_CACHE_TEMA = 'tema_cache_v1';
+
+function lerTemaCacheado(): TemaMarca | null {
+  try {
+    const bruto = localStorage.getItem(CHAVE_CACHE_TEMA);
+    return bruto ? { ...PADRAO, ...JSON.parse(bruto) } : null;
+  } catch { return null; }
+}
+
+function gravarTemaCache(m: TemaMarca) {
+  try { localStorage.setItem(CHAVE_CACHE_TEMA, JSON.stringify(m)); } catch { /* localStorage indisponível */ }
+}
+
 /* ───────────────────────── tabelas de raio e fonte ───────────────────────── */
 
 export const RAIOS: Record<RaioMarca, string> = {
@@ -283,7 +300,11 @@ export function aplicarMarca(m: TemaMarca) {
 /* ───────────────────────── hook do provider ───────────────────────── */
 
 export function useTemaProvider(): TemaCtx {
-  const [marca, setMarca] = useState<TemaMarca>(PADRAO);
+  // Inicializador preguiçoso: usa o tema cacheado do domínio (se houver) já
+  // na primeira renderização, em vez de sempre nascer no PADRAO — evita o
+  // "pisca pra landing" num F5 num domínio já amarrado a uma loja, antes do
+  // /api/tema (assíncrono) responder de verdade.
+  const [marca, setMarca] = useState<TemaMarca>(() => lerTemaCacheado() ?? PADRAO);
 
   const aplicarCorPrimaria = useCallback((hex: string | undefined | null, corSecundaria?: string | null) => {
     if (!hex) return;
@@ -314,6 +335,7 @@ export function useTemaProvider(): TemaCtx {
       const tema: TemaMarca = { ...PADRAO, ...dados };
       setMarca(tema);
       aplicarMarca(tema);
+      gravarTemaCache(tema);
     } catch {
       // Sem internet ou backend caiu: mantém o padrão
     }
