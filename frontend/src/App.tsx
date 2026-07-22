@@ -88,13 +88,18 @@ export function ClienteLayout({ children }: { children: React.ReactNode }) {
   const { marca, aplicarCorPrimaria, resetarCorPrimaria } = useTema();
   const location = useLocation();
 
+  // `marca` nas dependências: o tema da PLATAFORMA (/api/tema) carrega em
+  // paralelo e, se resolver DEPOIS (comum num F5 direto nessas páginas),
+  // sobrescreve --primary de volta pro padrão — reincluir `marca` faz esse
+  // efeito rodar de novo e reaplicar a cor da loja (mesmo motivo documentado
+  // em loja.tsx/pedido.tsx).
   useEffect(() => {
     if (!ROTAS_SEM_COR_PROPRIA.includes(location.pathname)) return;
     const cor = corLojaAtual();
     if (!cor) return;
     aplicarCorPrimaria(cor.cor, cor.corSecundaria);
     return () => { resetarCorPrimaria(); };
-  }, [location.pathname, aplicarCorPrimaria, resetarCorPrimaria]);
+  }, [location.pathname, aplicarCorPrimaria, resetarCorPrimaria, marca]);
 
   const itens = [
     { rota: rotaInicioCliente(marca.loja_id || undefined), icone: Home, rotulo: 'Início', fim: true },
