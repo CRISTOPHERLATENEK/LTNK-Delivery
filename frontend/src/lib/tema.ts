@@ -23,6 +23,10 @@ const PADRAO: TemaMarca = {
   og_image: '',
   login_banner_url: '',
   loja_id: 0,
+  // Assume master até o /api/tema real responder — evita que o guard do
+  // painel admin (SoDominioMaster) redirecione no primeiro render, antes de
+  // saber de fato qual domínio é esse.
+  eh_master: true,
 };
 
 /* ───────────────────────── tabelas de raio e fonte ───────────────────────── */
