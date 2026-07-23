@@ -126,6 +126,18 @@
   .animar-flutuar { animation: none; }
 }
 
+/* Pulso curto ao trocar de valor (ex.: quantidade no carrinho) — o elemento
+   precisa remontar (key diferente) pra animação disparar de novo a cada troca. */
+@keyframes pop-valor {
+  0%   { transform: scale(1); }
+  40%  { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+.anim-pop { animation: pop-valor 0.25s ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .anim-pop { animation: none; }
+}
+
 /* ====================================================================
    Landing do produto (Maxx Delivery) — utilidades visuais.
    Tickers, borda serrilhada do cupom e monospace do recibo. As CORES

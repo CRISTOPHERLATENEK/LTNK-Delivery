@@ -7,6 +7,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Minus, Plus, ShoppingBag, MapPin, CreditCard, Ticket, X, AlertTriangle, QrCode, Banknote, Copy, Check, Loader2, UtensilsCrossed } from 'lucide-react';
 import { useCarrinho, mudarQuantidade, limparCarrinho } from '@/lib/carrinho';
+import { rotaInicioCliente } from '@/lib/loja-atual';
+import { useTema } from '@/lib/tema';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { buscarCep, formatarCep, cepDigitos, normalizarBairro } from '@/lib/cep';
@@ -23,6 +25,7 @@ export function PaginaCarrinho() {
   const usuario = sessaoUsuario();
   const navigate = useNavigate();
   const { mostrar } = useToast();
+  const { marca } = useTema();
 
   const [cupom, setCupom] = useState<{ codigo: string; tipo: 'percentual' | 'fixo'; valor: number } | null>(null);
   const [freteEfetivo, setFreteEfetivo] = useState<number | null>(null);
@@ -74,15 +77,15 @@ export function PaginaCarrinho() {
   if (!carrinho) {
     return (
       <div className="flex flex-col items-center justify-center text-center py-20 space-y-4">
-        <div className="size-24 rounded-3xl bg-accent flex items-center justify-center">
+        <div className="size-24 rounded-3xl bg-accent flex items-center justify-center animar-flutuar">
           <ShoppingBag className="size-10 text-primary" />
         </div>
         <h2 className="text-xl font-bold">Carrinho vazio</h2>
         <p className="text-muted-foreground text-sm max-w-xs">
-          Explore as lojas e adicione seus itens favoritos ao carrinho.
+          Dá uma olhada no cardápio e escolhe algo gostoso.
         </p>
-        <Button asChild size="lg" className="rounded-2xl mt-2">
-          <Link to="/">Explorar lojas</Link>
+        <Button asChild size="lg" className="rounded-2xl mt-2 active:scale-[0.98] transition-transform">
+          <Link to={rotaInicioCliente(marca.loja_id || undefined)}>Ver cardápio</Link>
         </Button>
       </div>
     );
@@ -121,15 +124,15 @@ export function PaginaCarrinho() {
                     <div className="flex items-center gap-0.5 rounded-full bg-accent p-0.5">
                       <button
                         onClick={() => mudarQuantidade(item.chave, -1)}
-                        className="flex size-6 items-center justify-center rounded-full hover:bg-background transition-colors"
+                        className="flex size-6 items-center justify-center rounded-full hover:bg-background active:scale-90 transition-all"
                         aria-label="Diminuir"
                       >
                         <Minus className="size-3" />
                       </button>
-                      <span className="min-w-5 text-center text-sm font-bold">{item.quantidade}</span>
+                      <span key={item.quantidade} className="min-w-5 text-center text-sm font-bold anim-pop">{item.quantidade}</span>
                       <button
                         onClick={() => mudarQuantidade(item.chave, +1)}
-                        className="flex size-6 items-center justify-center rounded-full hover:bg-background transition-colors"
+                        className="flex size-6 items-center justify-center rounded-full hover:bg-background active:scale-90 transition-all"
                         aria-label="Aumentar"
                       >
                         <Plus className="size-3" />
@@ -456,7 +459,7 @@ function Checkout({
                 key={e.id}
                 onClick={() => setEnderecoId(e.id)}
                 className={cn(
-                  'flex w-full items-start gap-3 rounded-xl border-2 p-3.5 text-left transition-all',
+                  'flex w-full items-start gap-3 rounded-xl border-2 p-3.5 text-left transition-all active:scale-[0.98]',
                   enderecoId === e.id ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40',
                 )}
               >
@@ -477,7 +480,7 @@ function Checkout({
             <button
               onClick={() => setEnderecoId('novo')}
               className={cn(
-                'flex w-full items-center gap-3 rounded-xl border-2 border-dashed p-3.5 text-left text-sm font-semibold transition-colors',
+                'flex w-full items-center gap-3 rounded-xl border-2 border-dashed p-3.5 text-left text-sm font-semibold transition-all active:scale-[0.98]',
                 enderecoId === 'novo' ? 'border-primary text-primary bg-primary/5' : 'border-border text-muted-foreground hover:border-primary/40',
               )}
             >
@@ -503,7 +506,7 @@ function Checkout({
                 key={p.id}
                 onClick={() => setPagamento(p.id)}
                 className={cn(
-                  'flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 text-center transition-all',
+                  'flex flex-col items-center gap-1.5 rounded-xl border-2 p-3 text-center transition-all active:scale-[0.96]',
                   pagamento === p.id
                     ? 'border-primary bg-primary/5 text-primary'
                     : 'border-border hover:border-primary/40 text-muted-foreground',
@@ -548,7 +551,7 @@ function Checkout({
       {/* Finalizar */}
       <Button
         size="xl"
-        className="w-full rounded-2xl h-14 text-base font-bold"
+        className="w-full rounded-2xl h-14 text-base font-bold active:scale-[0.98] transition-transform"
         onClick={finalizar}
         disabled={enviando || enderecoId === null || bloqueado}
       >
