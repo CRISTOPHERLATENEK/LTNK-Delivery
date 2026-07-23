@@ -551,14 +551,14 @@ function ModalAdicionado({ produto, onFechar }: { produto: Produto | null; onFec
             <div className="flex items-center gap-2 border-t border-border/60 p-2.5">
               <button
                 onClick={onFechar}
-                className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-3 text-sm font-bold text-muted-foreground hover:bg-muted transition-colors"
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-2xl py-3 text-sm font-bold text-muted-foreground hover:bg-muted active:scale-[0.98] transition-all"
               >
                 Continuar comprando <ArrowRight className="size-4" />
               </button>
               <Link
                 to="/carrinho"
                 onClick={onFechar}
-                className="flex-1 flex items-center justify-center gap-2 rounded-2xl bg-primary py-3 text-sm font-bold text-primary-foreground shadow-sm shadow-primary/30 hover:opacity-90 transition-opacity"
+                className="flex-1 flex items-center justify-center gap-2 rounded-2xl bg-primary py-3 text-sm font-bold text-primary-foreground shadow-sm shadow-primary/30 hover:opacity-90 active:scale-[0.98] transition-all"
               >
                 <ShoppingCart className="size-4" /> Ver carrinho
               </Link>
@@ -617,11 +617,11 @@ function CarrinhoLateral({ loja }: { loja: Loja }) {
                   <div className="text-sm font-bold text-primary mt-0.5">{brl(item.preco_centavos * item.quantidade)}</div>
                 </div>
                 <div className="flex items-center gap-1 rounded-full border border-border bg-background shrink-0">
-                  <button onClick={() => mudarQuantidade(item.chave, -1)} className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-foreground">
+                  <button onClick={() => mudarQuantidade(item.chave, -1)} className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-foreground active:scale-90 transition-transform">
                     {item.quantidade === 1 ? <Trash2 className="size-3.5" /> : <Minus className="size-3.5" />}
                   </button>
-                  <span className="min-w-5 text-center text-sm font-bold tabular-nums">{item.quantidade}</span>
-                  <button onClick={() => mudarQuantidade(item.chave, 1)} className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-primary">
+                  <span key={item.quantidade} className="min-w-5 text-center text-sm font-bold tabular-nums anim-pop">{item.quantidade}</span>
+                  <button onClick={() => mudarQuantidade(item.chave, 1)} className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-primary active:scale-90 transition-transform">
                     <Plus className="size-3.5" />
                   </button>
                 </div>
@@ -638,7 +638,7 @@ function CarrinhoLateral({ loja }: { loja: Loja }) {
             <div className="flex justify-between font-extrabold text-lg pt-1"><span>Total</span><span className="tabular-nums text-primary">{brl(total)}</span></div>
             <Link
               to="/carrinho"
-              className="mt-2 flex items-center justify-center gap-2 rounded-full bg-primary py-3 text-sm font-bold text-primary-foreground shadow-sm shadow-primary/30 hover:opacity-90 transition-opacity"
+              className="mt-2 flex items-center justify-center gap-2 rounded-full bg-primary py-3 text-sm font-bold text-primary-foreground shadow-sm shadow-primary/30 hover:opacity-90 active:scale-[0.98] transition-all"
             >
               Finalizar pedido
             </Link>
@@ -655,7 +655,7 @@ function CardCategoria({ icone, imagem, label, ativo, onClick }: { icone: string
   return (
     <button
       onClick={onClick}
-      className="flex shrink-0 flex-col items-center gap-1.5 w-[68px]"
+      className="flex shrink-0 flex-col items-center gap-1.5 w-[68px] active:scale-90 transition-transform"
     >
       <span
         className={cn(
@@ -687,7 +687,7 @@ function ChipCategoria({ label, ativo, onClick }: { label: string; ativo: boolea
     <button
       onClick={onClick}
       className={cn(
-        'shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-all whitespace-nowrap',
+        'shrink-0 px-4 py-2 rounded-full text-sm font-semibold transition-all whitespace-nowrap active:scale-95',
         ativo
           ? 'bg-primary text-primary-foreground shadow-sm shadow-primary/30'
           : 'bg-muted text-muted-foreground hover:bg-muted/70',
@@ -704,7 +704,7 @@ function ChipSubcat({ label, ativo, onClick }: { label: string; ativo: boolean; 
     <button
       onClick={onClick}
       className={cn(
-        'shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap border',
+        'shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-all whitespace-nowrap border active:scale-95',
         ativo
           ? 'bg-primary/10 text-primary border-primary/30'
           : 'bg-background text-muted-foreground border-border hover:border-primary/30 hover:text-foreground',
