@@ -559,6 +559,7 @@ function FiscalLojaAdmin({ loja }: { loja: Loja }) {
   const [senhaCert, setSenhaCert] = useState('');
   const [subindoCert, setSubindoCert] = useState(false);
   const [produtos, setProdutos] = useState<ProdFiscal[]>([]);
+  const [carregandoProdutos, setCarregandoProdutos] = useState(false);
   const timerRef = useRef<Record<number, ReturnType<typeof setTimeout>>>({});
 
   function carregar() {
@@ -568,9 +569,11 @@ function FiscalLojaAdmin({ loja }: { loja: Loja }) {
   }
 
   function carregarProdutos() {
+    setCarregandoProdutos(true);
     api<{ produtos: ProdFiscal[] }>('GET', comTenant(`/api/admin/lojas/${lojaId}/fiscal/produtos`, loja))
       .then(r => setProdutos(r.produtos))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setCarregandoProdutos(false));
   }
 
   useEffect(() => { if (aberto && !cfg) carregar(); }, [aberto]);
@@ -829,7 +832,7 @@ function FiscalLojaAdmin({ loja }: { loja: Loja }) {
                 <tbody className="divide-y divide-border/60">
                   {produtos.length === 0 && (
                     <tr><td colSpan={7} className="px-3 py-6 text-center text-muted-foreground">
-                      {produtos.length === 0 ? 'Carregando produtos…' : 'Nenhum produto.'}
+                      {carregandoProdutos ? 'Carregando produtos…' : 'Nenhum produto cadastrado nesta loja.'}
                     </td></tr>
                   )}
                   {produtos.map(p => (
