@@ -156,19 +156,19 @@ function TextoComComplemento({ texto }: { texto: string }) {
 }
 
 /** Marquee reto (CSS puro), conteúdo duplicado pra emenda invisível. */
-function MarqueeSegmentos({ itens }: { itens: string[] }) {
+function MarqueeSegmentos({ itens, reverso, pontoClasse }: { itens: string[]; reverso?: boolean; pontoClasse?: string }) {
   const bloco = (dup: number) => (
     <div className="flex items-center" aria-hidden={dup === 1}>
       {itens.map((it, i) => (
         <span key={i} className="flex items-center">
           <span className="px-6 text-sm font-bold uppercase tracking-[0.2em] sm:text-base">{it}</span>
-          <span className="text-primary">•</span>
+          <span className={pontoClasse ?? 'text-primary'}>•</span>
         </span>
       ))}
     </div>
   );
   return (
-    <div className="marquee" aria-label={itens.join(', ')}>
+    <div className={cn('marquee', reverso && 'marquee--reverso')} aria-label={itens.join(', ')}>
       <div className="marquee__track">{bloco(0)}{bloco(1)}</div>
     </div>
   );
@@ -663,9 +663,14 @@ export function PaginaLanding() {
         </div>
       </section>
 
-      {/* ───── Faixa de segmentos (marquee reto, fundo escuro) ───── */}
-      <div className="bg-foreground py-3 text-background">
-        <MarqueeSegmentos itens={segmentos.map(s => s.toUpperCase())} />
+      {/* ───── Faixa de segmentos (2 marquees cruzadas em X, direções opostas) ───── */}
+      <div className="relative h-28 overflow-hidden sm:h-32">
+        <div className="absolute inset-x-0 top-1/2 w-[110%] -translate-x-[5%] -translate-y-[calc(50%+0.85rem)] -rotate-[4deg] bg-foreground py-2.5 text-background shadow-lg">
+          <MarqueeSegmentos itens={segmentos.map(s => s.toUpperCase())} pontoClasse="text-primary" />
+        </div>
+        <div className="absolute inset-x-0 top-1/2 w-[110%] -translate-x-[5%] translate-y-[calc(-50%+0.85rem)] rotate-[4deg] bg-destructive py-2.5 text-destructive-foreground shadow-lg">
+          <MarqueeSegmentos itens={segmentos.map(s => s.toUpperCase())} reverso pontoClasse="text-destructive-foreground/60" />
+        </div>
       </div>
 
       {/* ───── Diga adeus ao atendimento caótico ───── */}

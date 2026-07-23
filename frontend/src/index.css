@@ -160,6 +160,7 @@
   will-change: transform;
 }
 .marquee--rapido .marquee__track { animation-duration: 24s; }
+.marquee--reverso .marquee__track { animation-direction: reverse; }
 .marquee:hover .marquee__track { animation-play-state: paused; }
 @media (prefers-reduced-motion: reduce) {
   .marquee__track { animation: none; transform: none; }

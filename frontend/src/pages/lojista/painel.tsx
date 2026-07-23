@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Routes, Route, Link } from 'react-router-dom';
-import { CheckCircle2, ChefHat, XCircle, Package, Bell, Save, Eye, History, Printer, Store, Lock } from 'lucide-react';
+import { CheckCircle2, ChefHat, XCircle, Package, Bell, Save, Eye, EyeOff, History, Printer, Store, Lock } from 'lucide-react';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -936,9 +936,18 @@ function CardPedidoLojista({ pedido, aoAtualizar }: { pedido: PedidoComItens; ao
   );
 }
 
+const LOJISTA_ZAP_MSG = 'Olá! Preciso de ajuda pra entrar no painel do lojista.';
+const LOJISTA_VALOR = [
+  { icone: Bell, texto: 'Pedidos em tempo real, direto na cozinha' },
+  { icone: FileText, texto: 'NFC-e emitida na hora, sem outro sistema' },
+  { icone: BarChart3, texto: 'Relatórios e faturamento no painel' },
+];
+
 function LoginLojista() {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
+  const [mostrarSenha, setMostrarSenha] = useState(false);
+  const [lembrar, setLembrar] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [duploFator, setDuploFator] = useState<{ tokenPreAuth: string; modo: 'configurar' | 'verificar' } | null>(null);
   const { mostrar } = useToast();
@@ -958,7 +967,7 @@ function LoginLojista() {
         mostrar({ tipo: 'erro', titulo: 'Esta conta não é de lojista.' });
         return;
       }
-      salvarSessao(r.token, r.usuario);
+      salvarSessao(r.token, r.usuario, undefined, lembrar);
       window.location.reload();
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
@@ -976,7 +985,7 @@ function LoginLojista() {
             tokenPreAuth={duploFator.tokenPreAuth}
             modo={duploFator.modo}
             onCancelar={() => setDuploFator(null)}
-            onSucesso={(token, usuario) => { salvarSessao(token, usuario); window.location.reload(); }}
+            onSucesso={(token, usuario) => { salvarSessao(token, usuario, undefined, lembrar); window.location.reload(); }}
           />
         </div>
       </div>
@@ -984,68 +993,142 @@ function LoginLojista() {
   }
 
   return (
-    <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-background px-4 py-10">
-      <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-accent/30" />
-      <div className="relative w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex size-16 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30">
-            <Store className="size-8 text-primary-foreground" strokeWidth={2.5} />
+    <div className="flex min-h-dvh bg-background">
+      {/* Painel de marca — escondido em telas estreitas */}
+      <div className="relative hidden w-[44%] flex-col justify-between overflow-hidden bg-gradient-to-br from-primary via-primary to-primary/80 p-10 text-primary-foreground lg:flex xl:p-14">
+        <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-white/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-32 -left-16 size-80 rounded-full bg-black/10 blur-3xl" />
+
+        <div className="relative flex items-center gap-2.5">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-primary-foreground/15 backdrop-blur-sm">
+            <Store className="size-5" strokeWidth={2.5} />
           </div>
-          <h1 className="text-2xl font-extrabold">Painel do lojista</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Entre com sua conta para gerenciar a loja.</p>
+          <span className="text-lg font-extrabold">Painel do lojista</span>
         </div>
 
-        <Card className="border-border/60 shadow-xl shadow-black/5">
-          <CardContent className="p-6">
-            <form onSubmit={enviar} className="space-y-4">
-              <div>
-                <Label htmlFor="email-lojista">E-mail</Label>
-                <div className="relative mt-1.5">
-                  <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="email-lojista"
-                    type="email"
-                    required
-                    autoComplete="email"
-                    placeholder="seu@email.com"
-                    className="pl-9"
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                  />
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="senha-lojista">Senha</Label>
-                <div className="relative mt-1.5">
-                  <Lock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    id="senha-lojista"
-                    type="password"
-                    required
-                    autoComplete="current-password"
-                    placeholder="••••••••"
-                    className="pl-9"
-                    value={senha}
-                    onChange={e => setSenha(e.target.value)}
-                  />
-                </div>
-              </div>
-              <Button type="submit" size="lg" className="w-full shadow-lg shadow-primary/25" disabled={enviando}>
-                {enviando ? 'Entrando…' : 'Entrar'}
-              </Button>
-              <Link to="/esqueci-senha" className="block text-center text-sm text-muted-foreground hover:text-primary">
-                Esqueci minha senha
-              </Link>
-            </form>
-          </CardContent>
-        </Card>
+        <div className="relative max-w-md">
+          <h2 className="text-3xl font-black leading-tight tracking-tight xl:text-4xl">
+            Sua loja, seus pedidos, seu controle.
+          </h2>
+          <ul className="mt-8 space-y-4">
+            {LOJISTA_VALOR.map(v => (
+              <li key={v.texto} className="flex items-center gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary-foreground/15 backdrop-blur-sm">
+                  <v.icone className="size-4.5" />
+                </span>
+                <span className="text-sm font-medium text-primary-foreground/90">{v.texto}</span>
+              </li>
+            ))}
+          </ul>
 
-        <p className="mt-6 text-center text-xs text-muted-foreground">
-          Ainda não tem uma loja?{' '}
-          <a href="mailto:suporte.cristopher@unimaxx.com.br" className="font-semibold text-primary hover:underline">
-            Fale com a gente
+          {/* Card flutuante de prova social */}
+          <div className="mt-10 flex items-center gap-3 rounded-2xl bg-primary-foreground/10 p-4 backdrop-blur-sm">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-success/20 text-success">
+              <CheckCircle2 className="size-5" />
+            </span>
+            <div>
+              <div className="text-sm font-bold">Pedido #482 recebido</div>
+              <div className="text-xs text-primary-foreground/70">já está na cozinha</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="relative text-xs text-primary-foreground/60">© {new Date().getFullYear()} — plataforma multi-lojas</div>
+      </div>
+
+      {/* Formulário */}
+      <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-6">
+        <div className="w-full max-w-sm">
+          <div className="mb-8 text-center lg:text-left">
+            <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30 lg:hidden">
+              <Store className="size-7 text-primary-foreground" strokeWidth={2.5} />
+            </div>
+            <h1 className="text-2xl font-extrabold">Painel do lojista</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Bem-vindo de volta! Entre com sua conta para continuar.</p>
+          </div>
+
+          <form onSubmit={enviar} className="space-y-4">
+            <div>
+              <Label htmlFor="email-lojista">E-mail</Label>
+              <div className="relative mt-1.5">
+                <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="email-lojista"
+                  type="email"
+                  required
+                  autoComplete="email"
+                  placeholder="seu@email.com"
+                  className="pl-9"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                />
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="senha-lojista">Senha</Label>
+                <Link to="/esqueci-senha" className="text-xs font-semibold text-primary hover:underline">
+                  Esqueci minha senha
+                </Link>
+              </div>
+              <div className="relative mt-1.5">
+                <Lock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="senha-lojista"
+                  type={mostrarSenha ? 'text' : 'password'}
+                  required
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  className="pl-9 pr-10"
+                  value={senha}
+                  onChange={e => setSenha(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setMostrarSenha(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={mostrarSenha ? 'Esconder senha' : 'Mostrar senha'}
+                >
+                  {mostrarSenha ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={lembrar}
+                onChange={e => setLembrar(e.target.checked)}
+                className="size-4 rounded border-input text-primary focus:ring-2 focus:ring-primary/40"
+              />
+              Manter conectado neste dispositivo
+            </label>
+            <Button type="submit" size="lg" className="w-full shadow-lg shadow-primary/25 active:scale-[0.98]" disabled={enviando}>
+              {enviando ? 'Entrando…' : 'Entrar'}
+            </Button>
+          </form>
+
+          <div className="my-6 flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs font-medium text-muted-foreground">ou</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+
+          <a
+            href={`https://wa.me/?text=${encodeURIComponent(LOJISTA_ZAP_MSG)}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-input bg-background text-sm font-semibold text-foreground transition-colors hover:bg-accent active:scale-[0.98]"
+          >
+            <MessageCircle className="size-4" style={{ color: '#25d366' }} /> Precisa de ajuda? Fale no WhatsApp
           </a>
-        </p>
+
+          <p className="mt-6 text-center text-xs text-muted-foreground">
+            Ainda não tem uma loja?{' '}
+            <a href="mailto:suporte.cristopher@unimaxx.com.br" className="font-semibold text-primary hover:underline">
+              Fale com a gente
+            </a>
+          </p>
+        </div>
       </div>
     </div>
   );
