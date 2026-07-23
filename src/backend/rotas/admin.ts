@@ -7,7 +7,7 @@ import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-
 import bcrypt from 'bcryptjs';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
 import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, emailValido, cpfValido, cpfDigitos, telefoneDigitos } from '../util';
-import { criptografar } from '../cripto';
+import { criptografar, descriptografar } from '../cripto';
 import { garantirSessaoPlataforma, obterQrPlataforma, solicitarCodigoPlataforma, statusSessaoPlataforma, desconectarPlataforma } from '../whatsapp-nao-oficial';
 import { validarCertificado, } from '../assinatura';
 import { caminhoCertificado } from './lojista';
@@ -1116,6 +1116,14 @@ router.get('/configuracoes-gerais', async (_req, res, next) => {
       const [rows] = await abrirPool(BANCO_CENTRAL).query('SELECT valor FROM configuracoes WHERE chave = ?', [chave]);
       return (rows as { valor: string }[])[0]?.valor ?? '';
     };
+    // Token nunca volta em texto puro — só os últimos 8 caracteres, pra confirmar
+    // visualmente qual token está salvo sem expor o segredo inteiro.
+    const mascararTokenCentral = async (chave: string): Promise<string | null> => {
+      const cifrado = await valorCentral(chave);
+      if (!cifrado) return null;
+      try { return '****' + descriptografar(cifrado).slice(-8); } catch { return null; }
+    };
+    const modoMP = await valorCentral('mercadopago_modo');
     res.json({
       suporte_email:    await valor('suporte_email'),
       suporte_telefone: await valor('suporte_telefone'),
@@ -1124,6 +1132,9 @@ router.get('/configuracoes-gerais', async (_req, res, next) => {
       wbapi_session_id:  await valorCentral('wbapi_session_id'),
       // A chave nunca é devolvida — só se está configurada ou não (mesmo padrão do token oficial da Meta).
       wbapi_configurado: !!(await valorCentral('wbapi_api_key')),
+      mercadopago_modo: modoMP === 'teste' ? 'teste' : 'producao',
+      mercadopago_token_teste_mascarado:    await mascararTokenCentral('mercadopago_token_teste'),
+      mercadopago_token_producao_mascarado: await mascararTokenCentral('mercadopago_token_producao'),
     });
   } catch (e) { next(e); }
 });
@@ -1165,6 +1176,22 @@ router.put('/configuracoes-gerais', exigirSuperAdmin, async (req, res, next) => 
     // Só re-criptografa e salva se veio um valor novo não-vazio — campo em branco no form significa "não mexer".
     if (typeof req.body.wbapi_api_key === 'string' && req.body.wbapi_api_key.trim()) {
       await upsertCentral('wbapi_api_key', criptografar(req.body.wbapi_api_key.trim()));
+    }
+    if (req.body.mercadopago_modo !== undefined) {
+      if (req.body.mercadopago_modo !== 'teste' && req.body.mercadopago_modo !== 'producao') {
+        throw erroHttp(400, 'Modo do Mercado Pago inválido (use "teste" ou "producao").');
+      }
+      await upsertCentral('mercadopago_modo', req.body.mercadopago_modo);
+    }
+    if (typeof req.body.mercadopago_token_teste === 'string' && req.body.mercadopago_token_teste.trim()) {
+      const v = req.body.mercadopago_token_teste.trim();
+      if (!v.startsWith('TEST-')) throw erroHttp(400, 'O token de teste deve começar com TEST-.');
+      await upsertCentral('mercadopago_token_teste', criptografar(v));
+    }
+    if (typeof req.body.mercadopago_token_producao === 'string' && req.body.mercadopago_token_producao.trim()) {
+      const v = req.body.mercadopago_token_producao.trim();
+      if (!v.startsWith('APP_USR-')) throw erroHttp(400, 'O token de produção deve começar com APP_USR-.');
+      await upsertCentral('mercadopago_token_producao', criptografar(v));
     }
     await registrarAuditoria(req, 'configuracoes.editar');
     res.json({ ok: true });

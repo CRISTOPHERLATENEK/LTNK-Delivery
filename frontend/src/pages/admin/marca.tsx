@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2, Check, Users, Star, Tag, HelpCircle, RefreshCw } from 'lucide-react';
+import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2, Check, Users, Star, Tag, HelpCircle, RefreshCw, CreditCard, FlaskConical, Rocket } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -252,6 +252,9 @@ interface ConfiguracoesGerais {
   wbapi_server: string;
   wbapi_session_id: string;
   wbapi_configurado: boolean;
+  mercadopago_modo: 'teste' | 'producao';
+  mercadopago_token_teste_mascarado: string | null;
+  mercadopago_token_producao_mascarado: string | null;
 }
 
 /**
@@ -264,8 +267,13 @@ function SecaoConfiguracoesGerais() {
     queryKey: ['admin-configuracoes-gerais'],
     queryFn: () => api<ConfiguracoesGerais>('GET', '/api/admin/configuracoes-gerais'),
   });
-  const [form, setForm] = useState<ConfiguracoesGerais>({ suporte_email: '', suporte_telefone: '', termos_url: '', wbapi_server: '', wbapi_session_id: '', wbapi_configurado: false });
+  const [form, setForm] = useState<ConfiguracoesGerais>({
+    suporte_email: '', suporte_telefone: '', termos_url: '', wbapi_server: '', wbapi_session_id: '', wbapi_configurado: false,
+    mercadopago_modo: 'producao', mercadopago_token_teste_mascarado: null, mercadopago_token_producao_mascarado: null,
+  });
   const [wbapiApiKey, setWbapiApiKey] = useState(''); // write-only: nunca vem preenchido do servidor
+  const [tokenTeste, setTokenTeste] = useState('');
+  const [tokenProducao, setTokenProducao] = useState('');
   const [enviando, setEnviando] = useState(false);
 
   useEffect(() => { if (consulta.data) setForm(consulta.data); }, [consulta.data]);
@@ -281,8 +289,13 @@ function SecaoConfiguracoesGerais() {
         wbapi_server: form.wbapi_server,
         wbapi_session_id: form.wbapi_session_id,
         ...(wbapiApiKey.trim() ? { wbapi_api_key: wbapiApiKey.trim() } : {}),
+        mercadopago_modo: form.mercadopago_modo,
+        ...(tokenTeste.trim() ? { mercadopago_token_teste: tokenTeste.trim() } : {}),
+        ...(tokenProducao.trim() ? { mercadopago_token_producao: tokenProducao.trim() } : {}),
       });
       setWbapiApiKey('');
+      setTokenTeste('');
+      setTokenProducao('');
       mostrar({ tipo: 'sucesso', titulo: 'Configurações gerais salvas!' });
       consulta.refetch();
     } catch (err) {
@@ -345,6 +358,61 @@ function SecaoConfiguracoesGerais() {
           {form.wbapi_configurado && (
             <p className="mt-1 flex items-center gap-1 text-[11px] text-success">
               <CheckCircle2 className="size-3" /> Uma chave já está configurada.
+            </p>
+          )}
+        </div>
+      </Secao>
+
+      <Secao icone={CreditCard} titulo="Mercado Pago (token da plataforma)">
+        <p className="text-xs text-muted-foreground -mt-2">
+          Token usado como fallback do Pix pras lojas que não configuraram o próprio token. Guarde um token de
+          teste (sandbox) e um de produção lado a lado, e escolha qual dos dois vale agora — dá pra testar o
+          checkout sem risco de gerar cobrança real, e trocar pra produção só apertando o botão abaixo.
+        </p>
+
+        <div className="flex overflow-hidden rounded-lg border">
+          <button type="button"
+            onClick={() => setForm(f => ({ ...f, mercadopago_modo: 'teste' }))}
+            className={cn(
+              'flex flex-1 items-center justify-center gap-2 py-2 text-sm font-semibold transition-colors',
+              form.mercadopago_modo === 'teste' ? 'bg-warning/15 text-warning' : 'text-muted-foreground hover:bg-muted/50',
+            )}>
+            <FlaskConical className="size-4" /> Modo teste
+          </button>
+          <button type="button"
+            onClick={() => setForm(f => ({ ...f, mercadopago_modo: 'producao' }))}
+            className={cn(
+              'flex flex-1 items-center justify-center gap-2 py-2 text-sm font-semibold transition-colors',
+              form.mercadopago_modo === 'producao' ? 'bg-success/15 text-success' : 'text-muted-foreground hover:bg-muted/50',
+            )}>
+            <Rocket className="size-4" /> Produção
+          </button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          {form.mercadopago_modo === 'teste'
+            ? 'Ativo agora: token de TESTE — nenhum Pix gerado nessas lojas move dinheiro de verdade.'
+            : 'Ativo agora: token de PRODUÇÃO — Pix gerado nessas lojas é uma cobrança real.'}
+        </p>
+
+        <div>
+          <Label htmlFor="mp_token_teste">Access Token de teste (TEST-…)</Label>
+          <Input id="mp_token_teste" type="password" maxLength={300} value={tokenTeste}
+            onChange={e => setTokenTeste(e.target.value)}
+            placeholder={form.mercadopago_token_teste_mascarado || 'Cole o token TEST-… aqui'} className="font-mono" />
+          {form.mercadopago_token_teste_mascarado && (
+            <p className="mt-1 flex items-center gap-1 text-[11px] text-success">
+              <CheckCircle2 className="size-3" /> Configurado: {form.mercadopago_token_teste_mascarado}
+            </p>
+          )}
+        </div>
+        <div>
+          <Label htmlFor="mp_token_producao">Access Token de produção (APP_USR-…)</Label>
+          <Input id="mp_token_producao" type="password" maxLength={300} value={tokenProducao}
+            onChange={e => setTokenProducao(e.target.value)}
+            placeholder={form.mercadopago_token_producao_mascarado || 'Cole o token APP_USR-… aqui'} className="font-mono" />
+          {form.mercadopago_token_producao_mascarado && (
+            <p className="mt-1 flex items-center gap-1 text-[11px] text-success">
+              <CheckCircle2 className="size-3" /> Configurado: {form.mercadopago_token_producao_mascarado}
             </p>
           )}
         </div>

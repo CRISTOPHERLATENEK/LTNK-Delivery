@@ -3,7 +3,7 @@
  */
 import { Router } from 'express';
 import crypto from 'crypto';
-import db, { comTenant } from '../db-mysql';
+import db, { abrirPool, comTenant } from '../db-mysql';
 import { agoraUTC } from '../util';
 import { notificarLojistaNovoPedido } from '../notificacoes';
 import { descriptografar } from '../cripto';
@@ -12,14 +12,39 @@ import { Pedido } from '../../tipos/modelos';
 
 const router = Router();
 
-/** Obtém o token MP da loja (DB, criptografado) ou cai no env global. */
+const BANCO_CENTRAL = process.env.MYSQL_DATABASE_CENTRAL || process.env.MYSQL_DATABASE || '';
+
+/**
+ * Token da plataforma (fallback quando a loja não tem o próprio): configurável
+ * pelo admin com um token de teste (TEST-) e um de produção (APP_USR-) lado a
+ * lado, e um modo ativo escolhendo qual dos dois vale — assim dá pra testar o
+ * Pix sem risco de gerar cobrança real, e trocar pra produção só apertando um
+ * botão. Cai no MERCADOPAGO_ACCESS_TOKEN do .env se nada estiver configurado
+ * (compatibilidade com o que já estava em produção antes dessa tela existir).
+ */
+async function tokenPlataformaMP(): Promise<string | null> {
+  if (!BANCO_CENTRAL) return process.env.MERCADOPAGO_ACCESS_TOKEN || null;
+  const [rows] = await abrirPool(BANCO_CENTRAL).query(
+    "SELECT chave, valor FROM configuracoes WHERE chave IN ('mercadopago_modo', 'mercadopago_token_teste', 'mercadopago_token_producao')"
+  );
+  const cfg: Record<string, string> = {};
+  for (const r of rows as { chave: string; valor: string }[]) cfg[r.chave] = r.valor;
+  const modo = cfg.mercadopago_modo === 'teste' ? 'teste' : 'producao';
+  const cifrado = modo === 'teste' ? cfg.mercadopago_token_teste : cfg.mercadopago_token_producao;
+  if (cifrado) {
+    try { return descriptografar(cifrado); } catch { /* chave trocada/corrompido */ }
+  }
+  return process.env.MERCADOPAGO_ACCESS_TOKEN || null;
+}
+
+/** Obtém o token MP da loja (DB, criptografado) ou cai no token da plataforma. */
 export async function getTokenMP(lojaId: number): Promise<string | null> {
   const row = await db.prepare('SELECT mercadopago_token FROM lojas WHERE id = ?').get(lojaId) as
     { mercadopago_token: string | null } | undefined;
   if (row?.mercadopago_token) {
     try { return descriptografar(row.mercadopago_token); } catch { /* chave trocada/corrompido */ }
   }
-  return process.env.MERCADOPAGO_ACCESS_TOKEN || null;
+  return tokenPlataformaMP();
 }
 
 /** Pix online está disponível para essa loja? */
@@ -104,7 +129,7 @@ async function processarWebhookMP(pagamentoId: string): Promise<void> {
   const pedidoRow = await db.prepare(
     'SELECT loja_id FROM pedidos WHERE pagamento_gateway_id = ?'
   ).get(pagamentoId) as { loja_id: number } | undefined;
-  const token = pedidoRow ? await getTokenMP(pedidoRow.loja_id) : process.env.MERCADOPAGO_ACCESS_TOKEN;
+  const token = pedidoRow ? await getTokenMP(pedidoRow.loja_id) : await tokenPlataformaMP();
   if (!token) return;
 
   const resposta = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(pagamentoId)}`, {
