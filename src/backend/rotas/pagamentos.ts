@@ -37,12 +37,29 @@ async function tokenPlataformaMP(): Promise<string | null> {
   return process.env.MERCADOPAGO_ACCESS_TOKEN || null;
 }
 
-/** Obtém o token MP da loja (DB, criptografado) ou cai no token da plataforma. */
+/**
+ * Obtém o token MP da loja: cada loja usa sua PRÓPRIA conta (Mercado Pago,
+ * Sicoob, etc. — não tem token compartilhado entre lojas), com um par
+ * teste/produção e um modo ativo, igual ao token da plataforma. `mercadopago_token`
+ * é o campo antigo (uma loja, um token só) — mantido como fallback pra quem
+ * configurou antes dessa tela existir. Só cai no token da plataforma se a loja
+ * não tiver configurado nada disso ainda.
+ */
 export async function getTokenMP(lojaId: number): Promise<string | null> {
-  const row = await db.prepare('SELECT mercadopago_token FROM lojas WHERE id = ?').get(lojaId) as
-    { mercadopago_token: string | null } | undefined;
-  if (row?.mercadopago_token) {
-    try { return descriptografar(row.mercadopago_token); } catch { /* chave trocada/corrompido */ }
+  const row = await db.prepare(
+    'SELECT mercadopago_token, mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo FROM lojas WHERE id = ?'
+  ).get(lojaId) as {
+    mercadopago_token: string | null; mercadopago_token_teste: string | null;
+    mercadopago_token_producao: string | null; mercadopago_modo: string;
+  } | undefined;
+  if (row) {
+    const cifrado = row.mercadopago_modo === 'teste' ? row.mercadopago_token_teste : row.mercadopago_token_producao;
+    if (cifrado) {
+      try { return descriptografar(cifrado); } catch { /* chave trocada/corrompido */ }
+    }
+    if (row.mercadopago_token) {
+      try { return descriptografar(row.mercadopago_token); } catch { /* chave trocada/corrompido */ }
+    }
   }
   return tokenPlataformaMP();
 }

@@ -1379,42 +1379,89 @@ router.delete('/cozinha-contas/:id', async (req, res, next) => {
 });
 
 // ----- Pagamentos (Mercado Pago por loja) ---------------------------------
+//
+// Cada loja usa a PRÓPRIA conta (Mercado Pago, Sicoob, etc. — sem token
+// compartilhado entre lojas), com um token de teste e um de produção lado a
+// lado e um modo escolhendo qual dos dois vale agora. Assim o lojista testa
+// o Pix sem risco de cobrança real, e troca pra produção sem perder o token
+// de teste (nem precisar colar tudo de novo quando quiser voltar a testar).
 
-/** 'teste' (TEST-...) ou 'producao' (qualquer outro formato, ex. APP_USR-...) — ajuda o lojista a saber o que colou. */
-function tipoTokenMP(token: string): 'teste' | 'producao' {
-  return token.startsWith('TEST-') ? 'teste' : 'producao';
+function mascarar(token: string | null): string | null {
+  return token ? '****' + token.slice(-8) : null;
 }
 
-/** Retorna se o Pix online está ativo para a loja e o token mascarado. */
+/** Estado atual do Pix da loja: modo ativo, tokens mascarados, e se o token do modo ativo está configurado. */
 router.get('/pagamentos', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
-    const row = await db.prepare('SELECT mercadopago_token FROM lojas WHERE id = ?').get(loja.id) as
-      { mercadopago_token: string | null } | undefined;
-    const cifrado = row?.mercadopago_token || null;
-    let token: string | null = null;
-    if (cifrado) { try { token = descriptografar(cifrado); } catch { token = null; } }
-    const mascarado = token ? '****' + token.slice(-8) : null;
-    res.json({ ativo: !!cifrado, token_mascarado: mascarado, tipo: token ? tipoTokenMP(token) : null });
+    const row = await db.prepare(
+      'SELECT mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo FROM lojas WHERE id = ?'
+    ).get(loja.id) as
+      { mercadopago_token_teste: string | null; mercadopago_token_producao: string | null; mercadopago_modo: string } | undefined;
+    const modo: 'teste' | 'producao' = row?.mercadopago_modo === 'teste' ? 'teste' : 'producao';
+    const descriptografarOuNulo = (c: string | null) => {
+      if (!c) return null;
+      try { return descriptografar(c); } catch { return null; }
+    };
+    const tokenTeste = descriptografarOuNulo(row?.mercadopago_token_teste ?? null);
+    const tokenProducao = descriptografarOuNulo(row?.mercadopago_token_producao ?? null);
+    res.json({
+      modo,
+      ativo: modo === 'teste' ? !!tokenTeste : !!tokenProducao,
+      token_teste_mascarado: mascarar(tokenTeste),
+      token_producao_mascarado: mascarar(tokenProducao),
+    });
   } catch (e) { next(e); }
 });
 
-/** Salva ou limpa o token do Mercado Pago da loja. */
+/** Salva/limpa o token de teste e/ou produção, e/ou troca o modo ativo — cada campo só mexe se vier no corpo. */
 router.put('/pagamentos', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
-    const token = typeof req.body.token === 'string' ? req.body.token.trim() : '';
-    // Token de acesso do MP sempre começa com APP_USR- (produção) ou TEST- (sandbox).
-    // Sem essa checagem, qualquer texto colado por engano (ex. uma URL) vira um
-    // "token" inválido que só falha na hora de gerar o Pix, quebrando o checkout.
-    if (token && !/^(APP_USR|TEST)-/.test(token)) {
-      throw erroHttp(400, 'Isso não parece um token de acesso do Mercado Pago (deve começar com APP_USR- ou TEST-).');
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+
+    if (req.body.modo !== undefined) {
+      if (req.body.modo !== 'teste' && req.body.modo !== 'producao') {
+        throw erroHttp(400, 'Modo inválido (use "teste" ou "producao").');
+      }
+      sets.push('mercadopago_modo = ?');
+      vals.push(req.body.modo);
     }
-    // Token de pagamento é segredo: gravado CRIPTOGRAFADO (nunca volta no GET).
-    await db.prepare('UPDATE lojas SET mercadopago_token = ? WHERE id = ?')
-      .run(token ? criptografar(token) : null, loja.id);
-    const mascarado = token ? '****' + token.slice(-8) : null;
-    res.json({ ok: true, ativo: !!token, token_mascarado: mascarado, tipo: token ? tipoTokenMP(token) : null });
+    if (typeof req.body.token_teste === 'string') {
+      const v = req.body.token_teste.trim();
+      if (v && !v.startsWith('TEST-')) throw erroHttp(400, 'O token de teste deve começar com TEST-.');
+      sets.push('mercadopago_token_teste = ?');
+      vals.push(v ? criptografar(v) : null);
+    }
+    if (typeof req.body.token_producao === 'string') {
+      const v = req.body.token_producao.trim();
+      if (v && !v.startsWith('APP_USR-')) throw erroHttp(400, 'O token de produção deve começar com APP_USR-.');
+      sets.push('mercadopago_token_producao = ?');
+      vals.push(v ? criptografar(v) : null);
+    }
+    if (sets.length > 0) {
+      await db.prepare(`UPDATE lojas SET ${sets.join(', ')} WHERE id = ?`).run(...vals, loja.id);
+    }
+
+    const row = await db.prepare(
+      'SELECT mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo FROM lojas WHERE id = ?'
+    ).get(loja.id) as
+      { mercadopago_token_teste: string | null; mercadopago_token_producao: string | null; mercadopago_modo: string };
+    const modo: 'teste' | 'producao' = row.mercadopago_modo === 'teste' ? 'teste' : 'producao';
+    const descriptografarOuNulo = (c: string | null) => {
+      if (!c) return null;
+      try { return descriptografar(c); } catch { return null; }
+    };
+    const tokenTeste = descriptografarOuNulo(row.mercadopago_token_teste);
+    const tokenProducao = descriptografarOuNulo(row.mercadopago_token_producao);
+    res.json({
+      ok: true,
+      modo,
+      ativo: modo === 'teste' ? !!tokenTeste : !!tokenProducao,
+      token_teste_mascarado: mascarar(tokenTeste),
+      token_producao_mascarado: mascarar(tokenProducao),
+    });
   } catch (e) { next(e); }
 });
 

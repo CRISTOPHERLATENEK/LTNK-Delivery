@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check } from 'lucide-react';
+import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
 import { statusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
@@ -695,44 +695,64 @@ export function EntregadoresLoja() {
 
 /* ───────────────────────── Pagamentos (Mercado Pago) ───────────────────── */
 
+interface EstadoPagamentos {
+  modo: 'teste' | 'producao';
+  ativo: boolean;
+  token_teste_mascarado: string | null;
+  token_producao_mascarado: string | null;
+}
+
 export function PagamentosLoja() {
   const { mostrar } = useToast();
-  const [ativo, setAtivo] = useState(false);
-  const [tokenMascarado, setTokenMascarado] = useState<string | null>(null);
-  const [tipo, setTipo] = useState<'teste' | 'producao' | null>(null);
-  const [novoToken, setNovoToken] = useState('');
-  const [mostrarToken, setMostrarToken] = useState(false);
+  const [estado, setEstado] = useState<EstadoPagamentos | null>(null);
+  const [tokenTeste, setTokenTeste] = useState('');
+  const [tokenProducao, setTokenProducao] = useState('');
+  const [mostrarTeste, setMostrarTeste] = useState(false);
+  const [mostrarProducao, setMostrarProducao] = useState(false);
   const [enviando, setEnviando] = useState(false);
-  const [carregado, setCarregado] = useState(false);
   const [urlWebhookCopiada, setUrlWebhookCopiada] = useState(false);
 
   const urlWebhook = `${window.location.origin}/api/pagamentos/webhook/mercadopago`;
 
   function carregar() {
-    api<{ ativo: boolean; token_mascarado: string | null; tipo: 'teste' | 'producao' | null }>('GET', '/api/lojista/pagamentos')
-      .then(r => { setAtivo(r.ativo); setTokenMascarado(r.token_mascarado); setTipo(r.tipo); setCarregado(true); })
+    api<EstadoPagamentos>('GET', '/api/lojista/pagamentos')
+      .then(setEstado)
       .catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar configurações de pagamento.' }));
   }
 
   useEffect(() => { carregar(); }, []);
 
-  async function salvar(e: React.FormEvent) {
-    e.preventDefault();
+  async function enviar(corpo: Record<string, string>, mensagemSucesso: string) {
     setEnviando(true);
     try {
-      const r = await api<{ ok: boolean; ativo: boolean; token_mascarado: string | null; tipo: 'teste' | 'producao' | null }>(
-        'PUT', '/api/lojista/pagamentos', { token: novoToken }
-      );
-      setAtivo(r.ativo);
-      setTokenMascarado(r.token_mascarado);
-      setTipo(r.tipo);
-      setNovoToken('');
-      mostrar({ tipo: 'sucesso', titulo: r.ativo ? 'Token salvo! Pix online ativado.' : 'Token removido. Pix online desativado.' });
+      const r = await api<EstadoPagamentos>('PUT', '/api/lojista/pagamentos', corpo);
+      setEstado(r);
+      setTokenTeste('');
+      setTokenProducao('');
+      mostrar({ tipo: 'sucesso', titulo: mensagemSucesso });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
       setEnviando(false);
     }
+  }
+
+  async function salvarTokens(e: React.FormEvent) {
+    e.preventDefault();
+    const corpo: Record<string, string> = {};
+    if (tokenTeste.trim()) corpo.token_teste = tokenTeste.trim();
+    if (tokenProducao.trim()) corpo.token_producao = tokenProducao.trim();
+    if (Object.keys(corpo).length === 0) return;
+    await enviar(corpo, 'Token salvo!');
+  }
+
+  function trocarModo(modo: 'teste' | 'producao') {
+    if (!estado || estado.modo === modo) return;
+    enviar({ modo }, modo === 'teste' ? 'Modo teste ativado.' : 'Modo produção ativado.');
+  }
+
+  function removerToken(campo: 'token_teste' | 'token_producao') {
+    enviar({ [campo]: '' }, 'Token removido.');
   }
 
   async function copiarUrlWebhook() {
@@ -745,7 +765,8 @@ export function PagamentosLoja() {
     }
   }
 
-  if (!carregado) return <Skeleton className="h-64" />;
+  if (!estado) return <Skeleton className="h-64" />;
+  const { modo, ativo } = estado;
 
   return (
     <div className="space-y-4">
@@ -761,81 +782,120 @@ export function PagamentosLoja() {
           <div>
             <div className="font-bold flex items-center gap-2 flex-wrap">
               {ativo ? 'Pix online ativo' : 'Pix online inativo'}
-              {ativo && tipo === 'teste' && (
+              {ativo && modo === 'teste' && (
                 <Badge variant="warning" className="text-[10px]">Modo teste — pagamentos não são reais</Badge>
               )}
-              {ativo && tipo === 'producao' && (
+              {ativo && modo === 'producao' && (
                 <Badge variant="success" className="text-[10px]">Produção</Badge>
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               {ativo
-                ? `Token configurado: ${tokenMascarado}`
-                : 'Configure o Access Token do Mercado Pago para aceitar Pix.'}
+                ? `Usando o token de ${modo === 'teste' ? 'teste' : 'produção'} configurado abaixo.`
+                : `Configure o token de ${modo === 'teste' ? 'teste' : 'produção'} abaixo para aceitar Pix.`}
             </p>
           </div>
         </CardContent>
       </Card>
 
-      {/* Formulário para salvar token */}
+      {/* Modo ativo */}
+      <Card>
+        <CardContent className="p-5 space-y-3">
+          <div className="flex items-center gap-2">
+            <CreditCard className="size-4 text-primary" />
+            <span className="font-bold text-sm">Sua conta do Mercado Pago</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Cada loja usa a própria conta — guarde um token de teste e um de produção lado a lado, e escolha
+            qual dos dois vale agora. Dá pra testar o Pix sem gerar cobrança real, e trocar pra produção sem
+            perder o token de teste.
+          </p>
+          <div className="flex overflow-hidden rounded-lg border">
+            <button type="button" onClick={() => trocarModo('teste')} disabled={enviando}
+              className={cn(
+                'flex flex-1 items-center justify-center gap-2 py-2 text-sm font-semibold transition-colors',
+                modo === 'teste' ? 'bg-warning/15 text-warning' : 'text-muted-foreground hover:bg-muted/50',
+              )}>
+              <FlaskConical className="size-4" /> Modo teste
+            </button>
+            <button type="button" onClick={() => trocarModo('producao')} disabled={enviando}
+              className={cn(
+                'flex flex-1 items-center justify-center gap-2 py-2 text-sm font-semibold transition-colors',
+                modo === 'producao' ? 'bg-success/15 text-success' : 'text-muted-foreground hover:bg-muted/50',
+              )}>
+              <Rocket className="size-4" /> Produção
+            </button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Formulário: os dois tokens lado a lado */}
       <Card>
         <CardContent className="p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <CreditCard className="size-4 text-primary" />
-            <span className="font-bold text-sm">{ativo ? 'Trocar token' : 'Configurar token'}</span>
-          </div>
-          <form onSubmit={salvar} className="space-y-3">
+          <form onSubmit={salvarTokens} className="space-y-4">
             <div>
-              <Label>Access Token do Mercado Pago</Label>
+              <Label className="flex items-center gap-1.5"><FlaskConical className="size-3.5" /> Access Token de teste (TEST-…)</Label>
               <div className="relative mt-1">
                 <input
-                  type={mostrarToken ? 'text' : 'password'}
-                  value={novoToken}
-                  onChange={e => setNovoToken(e.target.value)}
-                  placeholder={ativo ? 'Cole o novo token para substituir' : 'APP_USR-xxxx...'}
+                  type={mostrarTeste ? 'text' : 'password'}
+                  value={tokenTeste}
+                  onChange={e => setTokenTeste(e.target.value)}
+                  placeholder={estado.token_teste_mascarado || 'Cole o token TEST-… aqui'}
                   className="w-full h-10 rounded-lg border border-input bg-background px-3 pr-10 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
                 />
-                <button
-                  type="button"
-                  onClick={() => setMostrarToken(v => !v)}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                >
-                  {mostrarToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                <button type="button" onClick={() => setMostrarTeste(v => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {mostrarTeste ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
               </div>
-              <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1 flex-wrap">
-                <span>
-                  Use o token de <strong>produção</strong> (<code className="font-mono">APP_USR-</code>) ou{' '}
-                  <strong>teste</strong> (<code className="font-mono">TEST-</code>) para sandbox.
-                </span>
-                <a
-                  href="https://www.mercadopago.com.br/developers/panel/app"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
-                >
-                  Pegar meu token <ExternalLink className="size-3" />
-                </a>
-              </p>
-            </div>
-
-            <div className="flex gap-2">
-              <Button type="submit" size="sm" disabled={enviando || !novoToken.trim()}>
-                <Save className="size-3.5" />
-                {enviando ? 'Salvando…' : 'Salvar token'}
-              </Button>
-              {ativo && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={enviando}
-                  onClick={() => { setNovoToken(''); salvar({ preventDefault: () => { } } as React.FormEvent); }}
-                >
-                  Remover Pix
-                </Button>
+              {estado.token_teste_mascarado && (
+                <div className="mt-1.5 flex items-center justify-between">
+                  <p className="flex items-center gap-1 text-[11px] text-success">
+                    <CheckCircle2 className="size-3" /> Configurado: {estado.token_teste_mascarado}
+                  </p>
+                  <button type="button" onClick={() => removerToken('token_teste')} disabled={enviando}
+                    className="text-[11px] font-semibold text-destructive hover:underline">Remover</button>
+                </div>
               )}
             </div>
+
+            <div>
+              <Label className="flex items-center gap-1.5"><Rocket className="size-3.5" /> Access Token de produção (APP_USR-…)</Label>
+              <div className="relative mt-1">
+                <input
+                  type={mostrarProducao ? 'text' : 'password'}
+                  value={tokenProducao}
+                  onChange={e => setTokenProducao(e.target.value)}
+                  placeholder={estado.token_producao_mascarado || 'Cole o token APP_USR-… aqui'}
+                  className="w-full h-10 rounded-lg border border-input bg-background px-3 pr-10 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+                <button type="button" onClick={() => setMostrarProducao(v => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {mostrarProducao ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+              {estado.token_producao_mascarado && (
+                <div className="mt-1.5 flex items-center justify-between">
+                  <p className="flex items-center gap-1 text-[11px] text-success">
+                    <CheckCircle2 className="size-3" /> Configurado: {estado.token_producao_mascarado}
+                  </p>
+                  <button type="button" onClick={() => removerToken('token_producao')} disabled={enviando}
+                    className="text-[11px] font-semibold text-destructive hover:underline">Remover</button>
+                </div>
+              )}
+            </div>
+
+            <p className="text-[11px] text-muted-foreground flex items-center gap-1 flex-wrap">
+              <a href="https://www.mercadopago.com.br/developers/panel/app" target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-1 font-semibold text-primary hover:underline">
+                Pegar meu token <ExternalLink className="size-3" />
+              </a>
+            </p>
+
+            <Button type="submit" size="sm" disabled={enviando || (!tokenTeste.trim() && !tokenProducao.trim())}>
+              <Save className="size-3.5" />
+              {enviando ? 'Salvando…' : 'Salvar token(s)'}
+            </Button>
           </form>
         </CardContent>
       </Card>
