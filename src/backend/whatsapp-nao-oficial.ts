@@ -17,12 +17,22 @@
  */
 import crypto from 'crypto';
 import { descriptografar } from './cripto';
-import db from './db-mysql';
+import { abrirPool } from './db-mysql';
 
 interface Credenciais { server: string; apiKey: string; sessionId: string }
 
+// Sessão única da PLATAFORMA (não por loja) — por isso lê/grava sempre no
+// banco central, nunca no `db` proxy (que resolve pro tenant da requisição
+// atual). Usar o proxy aqui era o bug: a config só existia no tenant master,
+// e pedidos de qualquer outro tenant liam um `configuracoes` vazio e
+// achavam que o WhatsApp não estava configurado.
+const BANCO_CENTRAL = process.env.MYSQL_DATABASE_CENTRAL || process.env.MYSQL_DATABASE || '';
+
 async function lerConfig(chave: string): Promise<string> {
-  const r = await db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
+  if (!BANCO_CENTRAL) return '';
+  const pool = abrirPool(BANCO_CENTRAL);
+  const [rows] = await pool.query('SELECT valor FROM configuracoes WHERE chave = ?', [chave]);
+  const r = (rows as { valor: string }[])[0];
   return r?.valor ?? '';
 }
 
@@ -47,8 +57,10 @@ export async function segredoWebhook(): Promise<string> {
   let s = await lerConfig('wbapi_webhook_secret');
   if (!s) {
     s = crypto.randomBytes(24).toString('hex');
-    await db.prepare("INSERT INTO configuracoes (chave, valor) VALUES ('wbapi_webhook_secret', ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)")
-      .run(s);
+    await abrirPool(BANCO_CENTRAL).query(
+      "INSERT INTO configuracoes (chave, valor) VALUES ('wbapi_webhook_secret', ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)",
+      [s],
+    );
   }
   return s;
 }

@@ -18,6 +18,13 @@ import path from 'path';
 import os from 'os';
 import { listarTenants, criarTenant, atualizarTenant, tenantPorId, ehMaster } from '../tenants-mysql';
 import { geocodificarTexto } from '../geo';
+
+/**
+ * WBAPI (WhatsApp não-oficial) é sessão ÚNICA da plataforma, não por tenant —
+ * por isso lê/grava sempre no banco central (nunca no `db` proxy, que resolve
+ * pro tenant da requisição). Mesmo raciocínio de ../whatsapp-nao-oficial.ts.
+ */
+const BANCO_CENTRAL = process.env.MYSQL_DATABASE_CENTRAL || process.env.MYSQL_DATABASE || '';
 import zlib from 'zlib';
 import { Banner } from '../../tipos/modelos';
 
@@ -1104,14 +1111,19 @@ router.get('/configuracoes-gerais', async (_req, res, next) => {
       const r = await db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
       return r?.valor ?? '';
     };
+    const valorCentral = async (chave: string): Promise<string> => {
+      if (!BANCO_CENTRAL) return '';
+      const [rows] = await abrirPool(BANCO_CENTRAL).query('SELECT valor FROM configuracoes WHERE chave = ?', [chave]);
+      return (rows as { valor: string }[])[0]?.valor ?? '';
+    };
     res.json({
       suporte_email:    await valor('suporte_email'),
       suporte_telefone: await valor('suporte_telefone'),
       termos_url:       await valor('termos_url'),
-      wbapi_server:      await valor('wbapi_server'),
-      wbapi_session_id:  await valor('wbapi_session_id'),
+      wbapi_server:      await valorCentral('wbapi_server'),
+      wbapi_session_id:  await valorCentral('wbapi_session_id'),
       // A chave nunca é devolvida — só se está configurada ou não (mesmo padrão do token oficial da Meta).
-      wbapi_configurado: !!(await valor('wbapi_api_key')),
+      wbapi_configurado: !!(await valorCentral('wbapi_api_key')),
     });
   } catch (e) { next(e); }
 });
@@ -1121,6 +1133,13 @@ router.put('/configuracoes-gerais', exigirSuperAdmin, async (req, res, next) => 
     const upsert = (chave: string, valor: string) =>
       db.prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)')
         .run(chave, valor);
+    const upsertCentral = (chave: string, valor: string) => {
+      if (!BANCO_CENTRAL) throw erroHttp(500, 'MYSQL_DATABASE_CENTRAL não configurado.');
+      return abrirPool(BANCO_CENTRAL).query(
+        'INSERT INTO configuracoes (chave, valor) VALUES (?, ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)',
+        [chave, valor],
+      );
+    };
 
     if (req.body.suporte_email !== undefined) {
       const v = textoLimpo(req.body.suporte_email, 200);
@@ -1138,14 +1157,14 @@ router.put('/configuracoes-gerais', exigirSuperAdmin, async (req, res, next) => 
     if (req.body.wbapi_server !== undefined) {
       const v = textoLimpo(req.body.wbapi_server, 300);
       if (v && !/^https?:\/\//i.test(v)) throw erroHttp(400, 'URL do servidor WBAPI inválida (use https://…).');
-      await upsert('wbapi_server', v);
+      await upsertCentral('wbapi_server', v);
     }
     if (req.body.wbapi_session_id !== undefined) {
-      await upsert('wbapi_session_id', textoLimpo(req.body.wbapi_session_id, 100));
+      await upsertCentral('wbapi_session_id', textoLimpo(req.body.wbapi_session_id, 100));
     }
     // Só re-criptografa e salva se veio um valor novo não-vazio — campo em branco no form significa "não mexer".
     if (typeof req.body.wbapi_api_key === 'string' && req.body.wbapi_api_key.trim()) {
-      await upsert('wbapi_api_key', criptografar(req.body.wbapi_api_key.trim()));
+      await upsertCentral('wbapi_api_key', criptografar(req.body.wbapi_api_key.trim()));
     }
     await registrarAuditoria(req, 'configuracoes.editar');
     res.json({ ok: true });
