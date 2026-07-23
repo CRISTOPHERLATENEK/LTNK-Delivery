@@ -418,6 +418,9 @@ router.post('/pedidos', async (req, res, next) => {
         notificarPedidoWhatsApp(pedidoId, `${req.protocol}://${req.get('host')}`).catch(() => { /* best-effort */ });
         return res.status(201).json({ pedido_id: pedidoId, total_centavos: total, pix });
       } catch (e) {
+        // Loga a causa real — sem isso, uma falha de Pix vira um 502 mudo,
+        // impossível de diagnosticar a partir dos logs do servidor.
+        console.error(`[Pix] Falha ao gerar cobrança do pedido #${pedidoId} (loja ${lojaId}):`, e);
         // Limpa o pedido recém-criado (e devolve estoque + uso do cupom).
         await comTransacao(async (tx) => {
           if (cupom) await tx.prepare('UPDATE cupons SET usos_count = GREATEST(usos_count - 1, 0) WHERE id = ?').run(cupom.id);

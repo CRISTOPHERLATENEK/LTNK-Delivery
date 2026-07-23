@@ -1404,6 +1404,12 @@ router.put('/pagamentos', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const token = typeof req.body.token === 'string' ? req.body.token.trim() : '';
+    // Token de acesso do MP sempre começa com APP_USR- (produção) ou TEST- (sandbox).
+    // Sem essa checagem, qualquer texto colado por engano (ex. uma URL) vira um
+    // "token" inválido que só falha na hora de gerar o Pix, quebrando o checkout.
+    if (token && !/^(APP_USR|TEST)-/.test(token)) {
+      throw erroHttp(400, 'Isso não parece um token de acesso do Mercado Pago (deve começar com APP_USR- ou TEST-).');
+    }
     // Token de pagamento é segredo: gravado CRIPTOGRAFADO (nunca volta no GET).
     await db.prepare('UPDATE lojas SET mercadopago_token = ? WHERE id = ?')
       .run(token ? criptografar(token) : null, loja.id);
