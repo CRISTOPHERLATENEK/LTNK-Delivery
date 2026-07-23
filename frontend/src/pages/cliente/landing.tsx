@@ -16,8 +16,8 @@
  * qualquer elemento ainda invisível E dentro da viewport a aparecer. Respeita
  * prefers-reduced-motion.
  */
-import { useLayoutEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
@@ -30,7 +30,7 @@ import {
 import { useTema, reaplicarPaletaTema } from '@/lib/tema';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { Loja, LandingRecurso, LandingIcone, LandingPlano, LandingFaq } from '@/types';
+import type { Loja, LandingRecurso, LandingIcone, LandingPlano, LandingFaq, TemaMarca } from '@/types';
 
 gsap.registerPlugin(ScrollTrigger, DrawSVGPlugin);
 
@@ -314,7 +314,28 @@ const ANCORAS = [
 ];
 
 export function PaginaLanding() {
-  const { marca } = useTema();
+  const { marca: marcaBase } = useTema();
+
+  // Modo preview: essa página roda dentro de um <iframe> no editor "Marca →
+  // Landing" do admin (mesmo padrão de pages/cliente/loja.tsx pro editor
+  // Visual da loja) — recebe por postMessage o estado AINDA NÃO SALVO do
+  // formulário. É a própria landing renderizando de verdade, então nunca
+  // diverge do site publicado (era exatamente esse o problema do mockup
+  // hand-rolled antigo: ficava desatualizado toda vez que a landing mudava).
+  const [searchParams] = useSearchParams();
+  const modoPreview = searchParams.get('preview') === '1';
+  const [previewOverride, setPreviewOverride] = useState<Partial<TemaMarca> | null>(null);
+  useEffect(() => {
+    if (!modoPreview) return;
+    function aoReceberMensagem(e: MessageEvent) {
+      if (e.data?.type === 'landing-preview') setPreviewOverride(e.data.payload);
+    }
+    window.addEventListener('message', aoReceberMensagem);
+    try { window.parent.postMessage({ type: 'preview-ready' }, window.location.origin); } catch { /* sem parent */ }
+    return () => window.removeEventListener('message', aoReceberMensagem);
+  }, [modoPreview]);
+  const marca = previewOverride ? { ...marcaBase, ...previewOverride } : marcaBase;
+
   const { escuro, alternar } = usarTemaLanding();
   const raiz = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement>(null);

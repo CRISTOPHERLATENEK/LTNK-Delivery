@@ -4,9 +4,9 @@
  * compartilhamento, cores (primária + secundária), cantos, tipografia e SEO.
  * Tudo com preview ao vivo aplicado na própria interface.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2, Check, Users, Star, Tag, HelpCircle } from 'lucide-react';
+import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2, Check, Users, Star, Tag, HelpCircle, RefreshCw } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -996,188 +996,87 @@ function SecaoLanding() {
   );
 }
 
-/** Mock em miniatura da landing pública, reagindo ao form em tempo real. */
+/**
+ * Preview ao vivo = a própria landing pública (`/?preview=1`) dentro de um
+ * <iframe> same-origin, recebendo o estado ainda não salvo via postMessage —
+ * mesmo padrão do preview da loja (visual/PhonePreview.tsx). Não é um mockup
+ * à parte: é literalmente o mesmo componente que o visitante vê, então nunca
+ * diverge da página real (era esse o problema do mock anterior — ficava pra
+ * trás toda vez que a landing mudava de estrutura).
+ */
 function PreviewLanding({ form }: { form: LandingConfig }) {
-  const { marca } = useTema();
-  const recursos = form.recursos.length ? form.recursos : null;
-  const beneficios = form.beneficios.filter(b => b.trim()).length ? form.beneficios.filter(b => b.trim()) : null;
-  const segmentos = form.segmentos.filter(s => s.trim()).length ? form.segmentos.filter(s => s.trim()) : SEGMENTOS_PADRAO_PREVIEW;
-  const sem = form.comparativo_sem.filter(s => s.trim()).length ? form.comparativo_sem.filter(s => s.trim()) : SEM_PADRAO_PREVIEW;
-  const com = form.comparativo_com.filter(s => s.trim()).length ? form.comparativo_com.filter(s => s.trim()) : COM_PADRAO_PREVIEW;
-  const depoimentos = form.depoimentos.filter(d => d.texto.trim());
-  const destaques = form.destaques.filter(d => d.titulo.trim());
+  const [pronto, setPronto] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+    function aoReceberMensagem(e: MessageEvent) {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type === 'preview-ready') setPronto(true);
+    }
+    window.addEventListener('message', aoReceberMensagem);
+    return () => window.removeEventListener('message', aoReceberMensagem);
+  }, []);
+
+  useEffect(() => {
+    if (!pronto) return;
+    const win = iframeRef.current?.contentWindow;
+    if (!win) return;
+    win.postMessage({
+      type: 'landing-preview',
+      payload: {
+        landing_cta_texto: form.cta_texto,
+        landing_recursos: form.recursos,
+        landing_beneficios: form.beneficios,
+        landing_comparativo_sem: form.comparativo_sem,
+        landing_comparativo_com: form.comparativo_com,
+        landing_segmentos: form.segmentos,
+        landing_depoimentos: form.depoimentos,
+        landing_destaques: form.destaques,
+        landing_planos: form.planos,
+        landing_faq: form.faq,
+        landing_hero_eyebrow: form.hero_eyebrow,
+        landing_hero_titulo: form.hero_titulo,
+        landing_hero_subtitulo: form.hero_subtitulo,
+        landing_hero_imagem: form.hero_imagem,
+        landing_hero_imagem_mobile: form.hero_imagem_mobile,
+        landing_whatsapp: form.whatsapp,
+        landing_demo_url: form.demo_url,
+      },
+    }, window.location.origin);
+  }, [form, pronto]);
+
+  function recarregar() {
+    setPronto(false);
+    const el = iframeRef.current;
+    if (el) el.src = el.src;
+  }
 
   return (
-    <div className="rounded-2xl border-2 border-dashed border-border p-3 bg-muted/30">
-      <div className="rounded-xl overflow-hidden border border-border bg-background shadow-sm max-h-[70vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-          <div className="flex items-center gap-1.5">
-            {marca.logo_url ? (
-              <img src={marca.logo_url} alt="" className="h-4 w-auto" />
-            ) : (
-              <Store className="size-3.5 text-primary" />
-            )}
-            <span className="text-[10px] font-extrabold">{marca.nome || 'Nome da marca'}</span>
-          </div>
-          <span className="rounded-md bg-primary text-primary-foreground text-[9px] font-bold px-2 py-1">
-            {form.cta_texto || 'Ver demonstração'}
-          </span>
-        </div>
-
-        {/* Hero */}
-        <div className="px-3 py-4 border-b border-border bg-gradient-to-br from-primary/10 via-background to-background">
-          <span className="inline-block rounded-full bg-primary/10 text-primary text-[7px] font-bold uppercase px-1.5 py-0.5">
-            {form.hero_eyebrow || 'Sistema para deliveries'}
-          </span>
-          <div className="font-extrabold text-[13px] leading-tight mt-1.5">
-            {form.hero_titulo || 'Gestão simples, fácil e eficiente'}
-          </div>
-          <div className="text-[9px] text-muted-foreground mt-1">
-            {form.hero_subtitulo || marca.slogan || 'Tudo em um só sistema.'}
-          </div>
-          <div className="mt-2 flex gap-1.5">
-            <span className="rounded-lg bg-primary text-primary-foreground text-[9px] font-bold px-2 py-1">
-              {form.cta_texto || 'Ver demonstração'}
-            </span>
-            <span className="rounded-lg border border-border text-[9px] font-bold px-2 py-1">Sou lojista</span>
-          </div>
-          {/* mockup mini */}
-          <div className="mt-2.5 overflow-hidden rounded-md border border-border bg-card">
-            <div className="flex gap-0.5 border-b border-border bg-muted/50 px-1.5 py-1">
-              <span className="size-1 rounded-full bg-red-400" />
-              <span className="size-1 rounded-full bg-yellow-400" />
-              <span className="size-1 rounded-full bg-green-400" />
-            </div>
-            {form.hero_imagem ? (
-              <img src={form.hero_imagem} alt="" className="w-full object-cover" />
-            ) : (
-              <div className="aspect-[5/3] flex items-center justify-center bg-gradient-to-br from-primary/5 to-muted">
-                <Store className="size-4 text-muted-foreground opacity-30" />
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Segmentos */}
-        <div className="border-b border-border bg-muted/30 p-3 flex flex-wrap justify-center gap-1">
-          {segmentos.slice(0, 8).map((s, i) => (
-            <span key={i} className="rounded-full border border-border bg-card text-[9px] font-semibold px-2 py-0.5">{s}</span>
-          ))}
-        </div>
-
-        {/* Comparativo */}
-        <div className="p-3 grid grid-cols-2 gap-1.5">
-          <div className="rounded-lg border border-border p-1.5">
-            <div className="text-[8px] font-bold text-muted-foreground">JEITO ANTIGO</div>
-            {sem.slice(0, 3).map((s, i) => (
-              <div key={i} className="mt-1 text-[8px] text-muted-foreground truncate">✕ {s}</div>
-            ))}
-          </div>
-          <div className="rounded-lg border-2 border-primary bg-primary/5 p-1.5">
-            <div className="text-[8px] font-bold text-primary">JEITO NOVO</div>
-            {com.slice(0, 3).map((s, i) => (
-              <div key={i} className="mt-1 text-[8px] font-medium truncate">✓ {s}</div>
-            ))}
-          </div>
-        </div>
-
-        {/* Destaques */}
-        {destaques.length > 0 && (
-          <div className="p-3 space-y-2">
-            {destaques.slice(0, 2).map((d, i) => (
-              <div key={i} className="rounded-lg border border-border overflow-hidden">
-                <div className="aspect-[3/1] bg-accent/40 flex items-center justify-center">
-                  {d.imagem_url ? (
-                    <img src={d.imagem_url} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <Store className="size-4 text-muted-foreground opacity-40" />
-                  )}
-                </div>
-                <div className="p-1.5">
-                  <div className="text-[9px] font-bold truncate">{d.titulo}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Recursos */}
-        <div className="p-3">
-          <div className="text-center text-[11px] font-bold mb-2">Tudo que uma operação de delivery precisa</div>
-          <div className="grid grid-cols-2 gap-1.5">
-            {(recursos ?? RECURSOS_PADRAO_PREVIEW).slice(0, 6).map((r, i) => {
-              const Icone = ICONES_LANDING[r.icone] || Store;
-              return (
-                <div key={i} className="rounded-lg border border-border p-1.5">
-                  <div className="flex size-5 items-center justify-center rounded-md bg-accent text-accent-foreground">
-                    <Icone className="size-3" />
-                  </div>
-                  <div className="mt-1 text-[9px] font-semibold leading-tight truncate">{r.titulo || 'Título'}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Depoimentos */}
-        {depoimentos.length > 0 && (
-          <div className="border-t border-border bg-muted/30 p-3">
-            <div className="text-center text-[11px] font-bold mb-2">O que dizem nossos clientes</div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {depoimentos.slice(0, 4).map((d, i) => (
-                <div key={i} className="rounded-lg border border-border bg-card p-1.5">
-                  <div className="text-[8px] text-muted-foreground line-clamp-2">"{d.texto}"</div>
-                  <div className="mt-1 text-[8px] font-bold truncate">{d.nome}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* CTA final */}
-        <div className="border-t border-border bg-accent/40 p-3 text-center">
-          <div className="text-[11px] font-bold">Quer ver funcionando na prática?</div>
-          <span className="mt-2 inline-block rounded-lg bg-primary text-primary-foreground text-[10px] font-bold px-2.5 py-1.5">
-            {form.cta_texto || 'Ver demonstração'}
-          </span>
-          <ul className="mt-2 space-y-1 text-left mx-auto w-fit">
-            {(beneficios ?? BENEFICIOS_PADRAO_PREVIEW).map((b, i) => (
-              <li key={i} className="flex items-center gap-1 text-[9px] text-muted-foreground">
-                <Check className="size-2.5 text-primary shrink-0" /> {b}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        {/* Rodapé */}
-        <div className="border-t border-border px-3 py-3 text-center">
-          <div className="text-[9px] font-bold">{marca.nome || 'Nome da marca'}</div>
-          <div className="text-[8px] text-muted-foreground mt-0.5">
-            © {new Date().getFullYear()} — Ver demonstração · Sou lojista{marca.termos_url ? ' · Termos de uso' : ''}
-          </div>
+    <div className="space-y-2">
+      <div className="flex items-center justify-end">
+        <button type="button" onClick={recarregar} title="Recarregar preview"
+          className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground">
+          <RefreshCw className="size-3.5" />
+        </button>
+      </div>
+      <div className="rounded-2xl border-2 border-dashed border-border p-2 bg-muted/30">
+        <div className="rounded-xl overflow-hidden border border-border bg-background shadow-sm">
+          <iframe
+            ref={iframeRef}
+            src="/?preview=1"
+            title="Pré-visualização da landing"
+            className="w-full border-0 bg-white"
+            style={{ height: '70vh' }}
+            onLoad={() => setPronto(false)}
+          />
         </div>
       </div>
-      <p className="text-[10px] text-center text-muted-foreground mt-2">
-        É assim que a landing pública fica.
+      <p className="text-[10px] text-center text-muted-foreground">
+        É a página real, ao vivo — não um mockup.
       </p>
     </div>
   );
 }
-
-const RECURSOS_PADRAO_PREVIEW: LandingRecurso[] = [
-  { icone: 'store', titulo: 'Multi-lojas', desc: '' },
-  { icone: 'palette', titulo: 'White label', desc: '' },
-  { icone: 'bike', titulo: 'Rastreio ao vivo', desc: '' },
-  { icone: 'chefhat', titulo: 'Cozinha (KDS)', desc: '' },
-  { icone: 'receipt', titulo: 'NFC-e integrada', desc: '' },
-  { icone: 'smartphone', titulo: 'PDV + Comandas', desc: '' },
-];
-
-const BENEFICIOS_PADRAO_PREVIEW = ['Sem taxa de setup', 'Cada loja com domínio próprio', 'Suporte a Pix, cartão e dinheiro'];
-const SEGMENTOS_PADRAO_PREVIEW = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria'];
-const SEM_PADRAO_PREVIEW = ['Desorganização no atendimento', 'Falhas de comunicação', 'Erros nos pedidos'];
-const COM_PADRAO_PREVIEW = ['Agilidade e organização', 'Cada loja com sua operação', 'Menos erro, mais venda'];
 
 /**
  * Backup manual completo: dump SQL (mysqldump) de cada banco MySQL — o
