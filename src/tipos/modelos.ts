@@ -37,6 +37,11 @@ export interface Usuario {
   /** Apenas para perfil='admin': 1 = super admin (dono do SaaS, pode tudo). */
   super_admin: NumeroBooleano;
   criado_em: string;
+  /** 2FA (TOTP) — obrigatório para lojista/admin. Secret cifrado (criptografar/descriptografar). */
+  totp_secret: string | null;
+  totp_ativo: NumeroBooleano;
+  /** JSON: array de hashes bcrypt (um por código de backup ainda não usado). */
+  totp_backup_codes: string | null;
 }
 
 export type UsuarioPublico = Omit<Usuario, 'senha_hash' | 'bloqueado'> & { bloqueado?: NumeroBooleano };

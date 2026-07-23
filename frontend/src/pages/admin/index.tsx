@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario, ehSuperAdmin, salvarSessao } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { Portal2FA } from '@/components/duplo-fator';
 
 interface DadosDashboard {
   pedidos_hoje: number;
@@ -372,13 +373,20 @@ function LoginAdmin() {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [carregando, setCarregando] = useState(false);
+  const [duploFator, setDuploFator] = useState<{ tokenPreAuth: string; modo: 'configurar' | 'verificar' } | null>(null);
   const { mostrar } = useToast();
 
   async function entrar(e: React.FormEvent) {
     e.preventDefault();
     setCarregando(true);
     try {
-      const r = await api<{ token: string; usuario: any }>('POST', '/api/auth/login', { email, senha });
+      const r = await api<{ token: string; usuario: any } | { precisa2fa: true; modo2fa: 'configurar' | 'verificar'; tokenPreAuth: string }>(
+        'POST', '/api/auth/login', { email, senha }
+      );
+      if ('precisa2fa' in r) {
+        setDuploFator({ tokenPreAuth: r.tokenPreAuth, modo: r.modo2fa });
+        return;
+      }
       if (r.usuario.perfil !== 'admin') {
         mostrar({ tipo: 'erro', titulo: 'Esta conta não é de admin.' });
         return;
@@ -394,6 +402,14 @@ function LoginAdmin() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
+      {duploFator ? (
+        <Portal2FA
+          tokenPreAuth={duploFator.tokenPreAuth}
+          modo={duploFator.modo}
+          onCancelar={() => setDuploFator(null)}
+          onSucesso={(token, usuario) => { salvarSessao(token, usuario); window.location.reload(); }}
+        />
+      ) : (
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
@@ -423,6 +439,7 @@ function LoginAdmin() {
           </Link>
         </form>
       </div>
+      )}
     </div>
   );
 }

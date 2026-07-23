@@ -1378,6 +1378,28 @@ router.delete('/cozinha-contas/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// ----- 2FA (própria conta do lojista) --------------------------------------
+
+/**
+ * Reseta o 2FA da própria conta (perdeu o celular / trocou de aparelho):
+ * exige a senha atual, apaga o secret e os códigos de backup. O próximo
+ * login cai automaticamente na tela de configurar o 2FA de novo (2FA
+ * continua obrigatório — isso não desativa, só força reconfiguração).
+ */
+router.post('/2fa/resetar', async (req, res, next) => {
+  try {
+    const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
+    const usuario = await db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?')
+      .get(req.usuario!.id) as { senha_hash: string } | undefined;
+    if (!usuario || !bcrypt.compareSync(senha, usuario.senha_hash)) {
+      throw erroHttp(401, 'Senha incorreta.');
+    }
+    await db.prepare('UPDATE usuarios SET totp_secret = NULL, totp_ativo = 0, totp_backup_codes = NULL WHERE id = ?')
+      .run(req.usuario!.id);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 // ----- Pagamentos (Mercado Pago por loja) ---------------------------------
 //
 // Cada loja usa a PRÓPRIA conta (Mercado Pago, Sicoob, etc. — sem token

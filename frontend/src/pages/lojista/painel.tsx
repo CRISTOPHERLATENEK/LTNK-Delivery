@@ -13,11 +13,12 @@ import { StatusBadge } from '@/components/ui/status-badge';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, sessaoUsuario, salvarSessao } from '@/lib/api';
+import { Portal2FA } from '@/components/duplo-fator';
 import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
 import { useTema, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
-import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag, MessageCircle } from 'lucide-react';
+import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag, MessageCircle, ShieldCheck } from 'lucide-react';
 import { ImageUpload } from '@/components/ui/image-upload';
 import {
   garantirPermissaoNotificacao, notificarNovoPedido,
@@ -27,7 +28,7 @@ import { suportaPush, ativarPush } from '@/lib/push';
 import { despacharImpressao, imprimirComandasProducao } from '@/lib/impressao';
 import type { BlocoImpressao } from '@/lib/agente';
 import { ProdutosLoja } from './produtos';
-import { LojaConfiguracao, HorarioLoja, ZonasEntrega, PagamentosLoja, ImpressaoLoja, EntregadoresLoja } from './loja-config';
+import { LojaConfiguracao, HorarioLoja, ZonasEntrega, PagamentosLoja, ImpressaoLoja, EntregadoresLoja, SegurancaLoja } from './loja-config';
 import { VisualLoja } from './visual';
 import { FiscalLoja } from './fiscal';
 import { CategoriasLoja } from './categorias';
@@ -156,7 +157,7 @@ export function PainelLojista() {
 /* ── Config da loja: só configuração de verdade.
    Cupons, Clientes e Avaliações agora vivem na aba "Mais" (operação). ── */
 function ConfiguracoesLoja() {
-  const [aba, setAba] = useState<'loja' | 'horario' | 'entrega' | 'entregadores' | 'visual' | 'banners' | 'pagamentos' | 'impressao' | 'fiscal' | 'whatsapp'>('loja');
+  const [aba, setAba] = useState<'loja' | 'horario' | 'entrega' | 'entregadores' | 'visual' | 'banners' | 'pagamentos' | 'impressao' | 'fiscal' | 'whatsapp' | 'seguranca'>('loja');
 
   const ABAS = [
     { id: 'loja' as const, label: 'Dados', icone: Settings },
@@ -169,6 +170,7 @@ function ConfiguracoesLoja() {
     { id: 'impressao' as const, label: 'Impressão', icone: Printer },
     { id: 'visual' as const, label: 'Visual', icone: Palette },
     { id: 'banners' as const, label: 'Banners', icone: Image },
+    { id: 'seguranca' as const, label: 'Segurança', icone: ShieldCheck },
   ];
 
   return (
@@ -205,6 +207,7 @@ function ConfiguracoesLoja() {
       {aba === 'impressao' && <ImpressaoLoja />}
       {aba === 'visual' && <VisualLoja />}
       {aba === 'banners' && <BannersLoja />}
+      {aba === 'seguranca' && <SegurancaLoja />}
     </div>
   );
 }
@@ -937,13 +940,20 @@ function LoginLojista() {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [duploFator, setDuploFator] = useState<{ tokenPreAuth: string; modo: 'configurar' | 'verificar' } | null>(null);
   const { mostrar } = useToast();
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
     setEnviando(true);
     try {
-      const r = await api<{ token: string; usuario: any }>('POST', '/api/auth/login', { email, senha });
+      const r = await api<{ token: string; usuario: any } | { precisa2fa: true; modo2fa: 'configurar' | 'verificar'; tokenPreAuth: string }>(
+        'POST', '/api/auth/login', { email, senha }
+      );
+      if ('precisa2fa' in r) {
+        setDuploFator({ tokenPreAuth: r.tokenPreAuth, modo: r.modo2fa });
+        return;
+      }
       if (r.usuario.perfil !== 'lojista') {
         mostrar({ tipo: 'erro', titulo: 'Esta conta não é de lojista.' });
         return;
@@ -955,6 +965,22 @@ function LoginLojista() {
     } finally {
       setEnviando(false);
     }
+  }
+
+  if (duploFator) {
+    return (
+      <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-background px-4 py-10">
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-accent/30" />
+        <div className="relative">
+          <Portal2FA
+            tokenPreAuth={duploFator.tokenPreAuth}
+            modo={duploFator.modo}
+            onCancelar={() => setDuploFator(null)}
+            onSucesso={(token, usuario) => { salvarSessao(token, usuario); window.location.reload(); }}
+          />
+        </div>
+      </div>
+    );
   }
 
   return (

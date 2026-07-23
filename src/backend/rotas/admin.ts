@@ -661,6 +661,27 @@ router.put('/minha-senha', exigirPerfil('admin'), async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * POST /api/admin/2fa/resetar — reseta o 2FA da própria conta (perdeu o
+ * celular / trocou de aparelho): exige a senha atual, apaga o secret e os
+ * códigos de backup. O próximo login cai automaticamente na tela de
+ * configurar o 2FA de novo (2FA continua obrigatório, isso só reconfigura).
+ */
+router.post('/2fa/resetar', exigirPerfil('admin'), async (req, res, next) => {
+  try {
+    const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
+    const eu = await db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?')
+      .get(req.usuario!.id) as { senha_hash: string } | undefined;
+    if (!eu || !bcrypt.compareSync(senha, eu.senha_hash)) {
+      throw erroHttp(401, 'Senha incorreta.');
+    }
+    await db.prepare('UPDATE usuarios SET totp_secret = NULL, totp_ativo = 0, totp_backup_codes = NULL WHERE id = ?')
+      .run(req.usuario!.id);
+    await registrarAuditoria(req, 'admin.2fa_resetar', { alvoTipo: 'admin', alvoId: req.usuario!.id, alvoDesc: req.usuario!.email });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 // ----- Comissão e repasses -------------------------------------------------
 
 router.get('/comissao', async (_req, res, next) => {

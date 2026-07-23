@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket } from 'lucide-react';
+import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
 import { statusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, encerrarSessao } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { brl } from '@/lib/format';
 import type { DiaHorario, Loja } from '@/types';
@@ -1195,5 +1195,65 @@ export function ImpressaoLoja() {
       )}
 
     </form>
+  );
+}
+
+/* ───────────────────────── Segurança (2FA) ───────────────────────── */
+
+export function SegurancaLoja() {
+  const { mostrar } = useToast();
+  const [senha, setSenha] = useState('');
+  const [enviando, setEnviando] = useState(false);
+
+  async function resetar(e: React.FormEvent) {
+    e.preventDefault();
+    setEnviando(true);
+    try {
+      await api('POST', '/api/lojista/2fa/resetar', { senha });
+      mostrar({ tipo: 'sucesso', titulo: '2FA resetado. Faça login de novo para configurar um novo app.' });
+      encerrarSessao();
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <div className="max-w-lg space-y-4">
+      <Card className="border-green-500/40 bg-green-500/5">
+        <CardContent className="p-5 flex items-center gap-4">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-green-500/15">
+            <ShieldCheck className="size-5 text-green-600" />
+          </div>
+          <div>
+            <div className="font-bold">Verificação em duas etapas ativa</div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Obrigatória nesta conta — protege seu acesso mesmo se sua senha vazar.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-5">
+          <div className="font-bold text-sm mb-1">Perdeu o celular ou trocou de aparelho?</div>
+          <p className="text-xs text-muted-foreground mb-4">
+            Resetar apaga o app autenticador atual e os códigos de backup — no próximo login você configura um novo, do zero.
+          </p>
+          <form onSubmit={resetar} className="space-y-3">
+            <div>
+              <Label htmlFor="senha-reset-2fa">Confirme sua senha</Label>
+              <Input id="senha-reset-2fa" type="password" autoComplete="current-password" className="mt-1.5"
+                value={senha} onChange={e => setSenha(e.target.value)} required />
+            </div>
+            <Button type="submit" variant="outline" disabled={enviando || !senha}>
+              {enviando ? 'Resetando…' : 'Resetar 2FA'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </div>
   );
 }

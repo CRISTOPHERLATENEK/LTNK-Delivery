@@ -16,7 +16,7 @@ if (!JWT_SECRET) {
 const JWT_EXPIRACAO = (process.env.JWT_EXPIRACAO || '12h') as SignOptions['expiresIn'];
 
 /** Dados do usuário autenticado que ficam disponíveis em req.usuario. */
-export type UsuarioAutenticado = Pick<Usuario, 'id' | 'nome' | 'email' | 'perfil' | 'telefone' | 'cpf' | 'bloqueado' | 'super_admin'>;
+export type UsuarioAutenticado = Pick<Usuario, 'id' | 'nome' | 'email' | 'perfil' | 'telefone' | 'cpf' | 'bloqueado' | 'super_admin' | 'totp_ativo'>;
 
 /**
  * Extrai o tenant (db_nome) embutido num token de sessão VÁLIDO, ou null.
@@ -104,18 +104,20 @@ export const autenticar: RequestHandler = async (req, _res, next) => {
     return next(erroHttp(401, 'Sessão inválida ou expirada. Faça login novamente.'));
   }
 
-  // SEGURANÇA: tokens de cozinha (KDS) são assinados com o MESMO segredo, mas
-  // seu `sub` é um id de `cozinha_contas`, não de `usuarios`. Sem esta guarda,
-  // um token de cozinha passaria por aqui e seria carregado como o `usuarios`
-  // de mesmo id — escalonamento de privilégio. Tokens de usuário legítimos
-  // sempre carregam o claim `perfil`; os de cozinha carregam `tipo:'cozinha'`.
-  if (dados.tipo === 'cozinha' || !dados.perfil) {
+  // SEGURANÇA: tokens de cozinha (KDS) e de pré-autenticação (2FA pendente)
+  // são assinados com o MESMO segredo, mas não dão acesso a rotas protegidas
+  // — cozinha porque seu `sub` é de `cozinha_contas`, não de `usuarios`
+  // (escalonamento de privilégio); pré-auth porque o login ainda não terminou
+  // (o 2FA não foi verificado). Ambos carregam `tipo` pra se identificar;
+  // tokens de usuário legítimos e completos sempre carregam `perfil` e NUNCA
+  // um `tipo`.
+  if (dados.tipo === 'cozinha' || dados.tipo === 'pre2fa' || !dados.perfil) {
     return next(erroHttp(401, 'Sessão inválida ou expirada. Faça login novamente.'));
   }
 
   const carregarUsuarioEContinuar = async () => {
     const usuario = await db.prepare(
-      'SELECT id, nome, email, perfil, telefone, cpf, bloqueado, super_admin FROM usuarios WHERE id = ?'
+      'SELECT id, nome, email, perfil, telefone, cpf, bloqueado, super_admin, totp_ativo FROM usuarios WHERE id = ?'
     ).get(dados.sub) as UsuarioAutenticado | undefined;
 
     if (!usuario) return next(erroHttp(401, 'Usuário não encontrado.'));
@@ -132,6 +134,54 @@ export const autenticar: RequestHandler = async (req, _res, next) => {
   } else {
     await carregarUsuarioEContinuar();
   }
+};
+
+// ----- Pré-autenticação (2FA obrigatório pra lojista/admin) ----------------
+//
+// Depois de validar email+senha, lojista/admin ainda não recebem o token
+// normal — recebem este, de curta duração e sem acesso a NENHUMA rota
+// protegida (`autenticar` recusa `tipo: 'pre2fa'` explicitamente, ver acima).
+// Só serve pra completar o setup (primeiro login) ou a verificação (logins
+// seguintes) do código de 6 dígitos nos endpoints /api/auth/2fa/*, que aí sim
+// devolvem o token normal via gerarToken().
+
+export type UsuarioPreAuth = { id: number; perfil: Perfil };
+
+export function gerarTokenPreAuth(usuario: UsuarioPreAuth): string {
+  return jwt.sign(
+    { sub: usuario.id, perfil: usuario.perfil, tipo: 'pre2fa' },
+    JWT_SECRET as string,
+    { expiresIn: '10m' }
+  );
+}
+
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      usuarioPreAuth?: UsuarioPreAuth;
+    }
+  }
+}
+
+/** Exige um token de pré-autenticação válido (ver gerarTokenPreAuth). */
+export const autenticarPreAuth: RequestHandler = (req, _res, next) => {
+  const cabecalho = req.headers.authorization || '';
+  const token = cabecalho.startsWith('Bearer ') ? cabecalho.slice(7) : null;
+  if (!token) return next(erroHttp(401, 'Sessão de login expirada. Comece de novo.'));
+
+  let dados: jwt.JwtPayload;
+  try {
+    dados = jwt.verify(token, JWT_SECRET as string) as jwt.JwtPayload;
+  } catch {
+    return next(erroHttp(401, 'Sessão de login expirada. Comece de novo.'));
+  }
+  if (dados.tipo !== 'pre2fa' || typeof dados.sub !== 'number' && typeof dados.sub !== 'string') {
+    return next(erroHttp(401, 'Sessão de login expirada. Comece de novo.'));
+  }
+
+  req.usuarioPreAuth = { id: Number(dados.sub), perfil: dados.perfil };
+  next();
 };
 
 // ----- Autenticação de cozinha (KDS) ---------------------------------------

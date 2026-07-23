@@ -5,11 +5,17 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
+import { authenticator } from 'otplib';
+import QRCode from 'qrcode';
 import db from '../db-mysql';
-import { gerarToken, autenticar } from '../auth';
+import { gerarToken, gerarTokenPreAuth, autenticar, autenticarPreAuth } from '../auth';
 import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, telefoneDigitos, erroHttp } from '../util';
 import { enviarEmail, emailRedefinirSenha, emailHabilitado } from '../email';
+import { criptografar, descriptografar } from '../cripto';
 import { Perfil, Usuario } from '../../tipos/modelos';
+
+/** Perfis que exigem 2FA (TOTP) obrigatório pra logar. */
+const PERFIS_2FA: Perfil[] = ['lojista', 'admin'];
 
 const router = Router();
 
@@ -40,6 +46,17 @@ const limiteRegistro = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { erro: 'Muitas tentativas de cadastro. Aguarde 15 minutos e tente novamente.' },
+});
+
+// Código de 6 dígitos é força-bruteável sem limite (1M combinações, mas a
+// janela TOTP é só 30s — poucas tentativas por minuto já bastam pra reduzir
+// bastante a chance). Mesma janela/limite do rate limit de login.
+const limite2fa = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { erro: 'Muitas tentativas. Aguarde 15 minutos e tente novamente.' },
 });
 
 const PERFIS_PUBLICOS: Perfil[] = ['cliente', 'entregador'];
@@ -147,6 +164,19 @@ router.post('/login', limiteLogin, async (req, res, next) => {
       throw erroHttp(401, 'E-mail ou senha incorretos.');
     }
 
+    // 2FA obrigatório pra lojista/admin: em vez do token normal, devolve um
+    // token de pré-autenticação de curta duração (sem acesso a rota nenhuma)
+    // — o frontend usa ele pra chamar /2fa/configurar (primeiro login, ainda
+    // sem TOTP ativo) ou /2fa/verificar (logins seguintes), que só aí emitem
+    // o token de verdade.
+    if (PERFIS_2FA.includes(usuario.perfil)) {
+      return res.json({
+        precisa2fa: true,
+        modo2fa: usuario.totp_ativo ? 'verificar' : 'configurar',
+        tokenPreAuth: gerarTokenPreAuth(usuario),
+      });
+    }
+
     res.json({
       token: gerarToken(usuario),
       usuario: {
@@ -155,6 +185,104 @@ router.post('/login', limiteLogin, async (req, res, next) => {
         super_admin: usuario.super_admin || 0,
       },
     });
+  } catch (e) { next(e); }
+});
+
+/** Monta o objeto usuário devolvido nas respostas de auth (mesmo shape do /login normal). */
+function usuarioPublico(usuario: Usuario) {
+  return {
+    id: usuario.id, nome: usuario.nome, email: usuario.email,
+    perfil: usuario.perfil, telefone: usuario.telefone, cpf: usuario.cpf || null,
+    super_admin: usuario.super_admin || 0,
+  };
+}
+
+/** Gera N códigos de backup (formato xxxxx-xxxxx), retorna o texto plano (mostrado 1x) + os hashes (salvos). */
+function gerarCodigosBackup(qtd = 8): { texto: string; hash: string }[] {
+  return Array.from({ length: qtd }, () => {
+    const bruto = crypto.randomBytes(5).toString('hex');
+    const texto = `${bruto.slice(0, 5)}-${bruto.slice(5, 10)}`;
+    return { texto, hash: bcrypt.hashSync(texto, 10) };
+  });
+}
+
+/**
+ * Início do setup do 2FA (primeiro login de lojista/admin, TOTP ainda não
+ * ativo): gera um secret novo, salva CIFRADO (mas com totp_ativo continua 0
+ * até /2fa/confirmar validar um código de verdade), devolve o QR pra escanear
+ * no app autenticador. Chamar de novo antes de confirmar gera um secret novo
+ * (descarta o anterior — sem problema, nada foi ativado ainda).
+ */
+router.post('/2fa/configurar', autenticarPreAuth, async (req, res, next) => {
+  try {
+    const usuario = await db.prepare('SELECT id, nome, email, perfil, totp_ativo FROM usuarios WHERE id = ?')
+      .get(req.usuarioPreAuth!.id) as Pick<Usuario, 'id' | 'nome' | 'email' | 'perfil' | 'totp_ativo'> | undefined;
+    if (!usuario) throw erroHttp(401, 'Usuário não encontrado.');
+    if (usuario.totp_ativo) throw erroHttp(400, 'O 2FA já está ativo nesta conta — use a verificação normal.');
+
+    const secret = authenticator.generateSecret();
+    await db.prepare('UPDATE usuarios SET totp_secret = ? WHERE id = ?').run(criptografar(secret), usuario.id);
+
+    const otpauth = authenticator.keyuri(usuario.email, 'Delivery Já', secret);
+    const qr = await QRCode.toDataURL(otpauth, { margin: 1, width: 240 });
+    res.json({ qr, chaveManual: secret });
+  } catch (e) { next(e); }
+});
+
+/** Confirma o setup: primeiro código de 6 dígitos válido ativa o 2FA e emite o token de verdade. */
+router.post('/2fa/confirmar', limite2fa, autenticarPreAuth, async (req, res, next) => {
+  try {
+    const codigo = textoLimpo(req.body.codigo, 10).replace(/\s+/g, '');
+    const usuario = await db.prepare('SELECT * FROM usuarios WHERE id = ?')
+      .get(req.usuarioPreAuth!.id) as Usuario | undefined;
+    if (!usuario) throw erroHttp(401, 'Usuário não encontrado.');
+    if (usuario.totp_ativo) throw erroHttp(400, 'O 2FA já está ativo nesta conta.');
+    if (!usuario.totp_secret) throw erroHttp(400, 'Comece pelo /2fa/configurar antes de confirmar.');
+
+    const secret = descriptografar(usuario.totp_secret);
+    if (!codigo || !authenticator.check(codigo, secret)) {
+      throw erroHttp(400, 'Código inválido. Confira o horário do celular e tente de novo.');
+    }
+
+    const codigos = gerarCodigosBackup();
+    await db.prepare('UPDATE usuarios SET totp_ativo = 1, totp_backup_codes = ? WHERE id = ?')
+      .run(JSON.stringify(codigos.map(c => c.hash)), usuario.id);
+
+    res.json({
+      token: gerarToken(usuario),
+      usuario: usuarioPublico(usuario),
+      codigosBackup: codigos.map(c => c.texto),
+    });
+  } catch (e) { next(e); }
+});
+
+/** Verificação normal (2FA já ativo): código do app OU um código de backup (uso único). */
+router.post('/2fa/verificar', limite2fa, autenticarPreAuth, async (req, res, next) => {
+  try {
+    const codigo = textoLimpo(req.body.codigo, 10).replace(/\s+/g, '');
+    const codigoBackup = textoLimpo(req.body.codigoBackup, 20).trim();
+    const usuario = await db.prepare('SELECT * FROM usuarios WHERE id = ?')
+      .get(req.usuarioPreAuth!.id) as Usuario | undefined;
+    if (!usuario) throw erroHttp(401, 'Usuário não encontrado.');
+    if (usuario.bloqueado) throw erroHttp(403, 'Sua conta está bloqueada. Fale com o suporte.');
+    if (!usuario.totp_ativo || !usuario.totp_secret) throw erroHttp(400, 'O 2FA não está configurado nesta conta.');
+
+    if (codigo) {
+      const secret = descriptografar(usuario.totp_secret);
+      if (!authenticator.check(codigo, secret)) throw erroHttp(400, 'Código inválido.');
+    } else if (codigoBackup) {
+      const hashes: string[] = usuario.totp_backup_codes ? JSON.parse(usuario.totp_backup_codes) : [];
+      const idx = hashes.findIndex(h => bcrypt.compareSync(codigoBackup, h));
+      if (idx === -1) throw erroHttp(400, 'Código de backup inválido ou já usado.');
+      // Uso único: remove o código usado da lista.
+      hashes.splice(idx, 1);
+      await db.prepare('UPDATE usuarios SET totp_backup_codes = ? WHERE id = ?')
+        .run(JSON.stringify(hashes), usuario.id);
+    } else {
+      throw erroHttp(400, 'Informe o código do app ou um código de backup.');
+    }
+
+    res.json({ token: gerarToken(usuario), usuario: usuarioPublico(usuario) });
   } catch (e) { next(e); }
 });
 

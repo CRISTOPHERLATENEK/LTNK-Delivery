@@ -168,9 +168,12 @@ export async function api<T = unknown>(
   metodo: 'GET' | 'POST' | 'PUT' | 'DELETE',
   caminho: string,
   corpo?: unknown,
+  tokenOverride?: string,
 ): Promise<T> {
   const cabecalhos: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = tokenSessao();
+  // tokenOverride: usado pelo fluxo de 2FA (token de pré-autenticação de curta
+  // duração, ainda sem sessão salva) — nesses casos NÃO cai pro tokenSessao().
+  const token = tokenOverride ?? tokenSessao();
   if (token) cabecalhos['Authorization'] = 'Bearer ' + token;
   const tenantDemo = tenantDemoAtivo();
   if (tenantDemo) cabecalhos['X-Demo-Tenant'] = tenantDemo;
