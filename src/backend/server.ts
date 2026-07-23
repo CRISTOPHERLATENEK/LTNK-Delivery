@@ -45,18 +45,20 @@ if (process.env.CONFIA_PROXY === '1') app.set('trust proxy', 1);
 app.use(express.json({ limit: '200kb' }));
 
 // Cabeçalhos de segurança básicos. Exceção estreita: a própria página da
-// loja em modo preview (`/:id?preview=1`) precisa poder ser embutida
-// num <iframe> — é o preview ao vivo do editor "Visual" do lojista (ver
-// frontend/src/pages/lojista/visual/PhonePreview.tsx), same-origin. Em vez
-// de tirar a proteção, trocamos por CSP `frame-ancestors 'self'`: continua
-// bloqueando qualquer site de FORA framear a loja (clickjacking), só libera
-// o próprio domínio embutir a própria página de preview.
+// loja (`/:id?preview=1`, PhonePreview.tsx) OU a landing (`/?preview=1`,
+// admin → Marca, PreviewLanding em marca.tsx) em modo preview precisam poder
+// ser embutidas num <iframe> — são os previews ao vivo dos respectivos
+// editores, same-origin. Em vez de tirar a proteção, trocamos por CSP
+// `frame-ancestors 'self'`: continua bloqueando qualquer site de FORA
+// framear a página (clickjacking), só libera o próprio domínio embutir a
+// própria página de preview.
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   // Loja em modo preview vive na raiz por slug/id (`/minha-loja?preview=1`,
-  // sem prefixo /loja/ — ver App.tsx `<Route path="/:id">`).
-  const ehPreviewDaLoja = /^\/[^/]+$/.test(req.path) && req.query.preview === '1';
-  if (ehPreviewDaLoja) {
+  // sem prefixo /loja/ — ver App.tsx `<Route path="/:id">`); a landing vive
+  // na própria raiz (`/?preview=1`).
+  const ehPreview = /^\/([^/]+)?$/.test(req.path) && req.query.preview === '1';
+  if (ehPreview) {
     res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
   } else {
     res.setHeader('X-Frame-Options', 'DENY');
