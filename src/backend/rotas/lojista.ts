@@ -1380,6 +1380,11 @@ router.delete('/cozinha-contas/:id', async (req, res, next) => {
 
 // ----- Pagamentos (Mercado Pago por loja) ---------------------------------
 
+/** 'teste' (TEST-...) ou 'producao' (qualquer outro formato, ex. APP_USR-...) — ajuda o lojista a saber o que colou. */
+function tipoTokenMP(token: string): 'teste' | 'producao' {
+  return token.startsWith('TEST-') ? 'teste' : 'producao';
+}
+
 /** Retorna se o Pix online está ativo para a loja e o token mascarado. */
 router.get('/pagamentos', async (req, res, next) => {
   try {
@@ -1390,7 +1395,7 @@ router.get('/pagamentos', async (req, res, next) => {
     let token: string | null = null;
     if (cifrado) { try { token = descriptografar(cifrado); } catch { token = null; } }
     const mascarado = token ? '****' + token.slice(-8) : null;
-    res.json({ ativo: !!cifrado, token_mascarado: mascarado });
+    res.json({ ativo: !!cifrado, token_mascarado: mascarado, tipo: token ? tipoTokenMP(token) : null });
   } catch (e) { next(e); }
 });
 
@@ -1403,7 +1408,7 @@ router.put('/pagamentos', async (req, res, next) => {
     await db.prepare('UPDATE lojas SET mercadopago_token = ? WHERE id = ?')
       .run(token ? criptografar(token) : null, loja.id);
     const mascarado = token ? '****' + token.slice(-8) : null;
-    res.json({ ok: true, ativo: !!token, token_mascarado: mascarado });
+    res.json({ ok: true, ativo: !!token, token_mascarado: mascarado, tipo: token ? tipoTokenMP(token) : null });
   } catch (e) { next(e); }
 });
 

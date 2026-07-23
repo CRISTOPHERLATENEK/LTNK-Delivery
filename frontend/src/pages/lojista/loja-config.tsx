@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe } from 'lucide-react';
+import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
 import { statusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
@@ -699,14 +699,18 @@ export function PagamentosLoja() {
   const { mostrar } = useToast();
   const [ativo, setAtivo] = useState(false);
   const [tokenMascarado, setTokenMascarado] = useState<string | null>(null);
+  const [tipo, setTipo] = useState<'teste' | 'producao' | null>(null);
   const [novoToken, setNovoToken] = useState('');
   const [mostrarToken, setMostrarToken] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [carregado, setCarregado] = useState(false);
+  const [urlWebhookCopiada, setUrlWebhookCopiada] = useState(false);
+
+  const urlWebhook = `${window.location.origin}/api/pagamentos/webhook/mercadopago`;
 
   function carregar() {
-    api<{ ativo: boolean; token_mascarado: string | null }>('GET', '/api/lojista/pagamentos')
-      .then(r => { setAtivo(r.ativo); setTokenMascarado(r.token_mascarado); setCarregado(true); })
+    api<{ ativo: boolean; token_mascarado: string | null; tipo: 'teste' | 'producao' | null }>('GET', '/api/lojista/pagamentos')
+      .then(r => { setAtivo(r.ativo); setTokenMascarado(r.token_mascarado); setTipo(r.tipo); setCarregado(true); })
       .catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar configurações de pagamento.' }));
   }
 
@@ -716,17 +720,28 @@ export function PagamentosLoja() {
     e.preventDefault();
     setEnviando(true);
     try {
-      const r = await api<{ ok: boolean; ativo: boolean; token_mascarado: string | null }>(
+      const r = await api<{ ok: boolean; ativo: boolean; token_mascarado: string | null; tipo: 'teste' | 'producao' | null }>(
         'PUT', '/api/lojista/pagamentos', { token: novoToken }
       );
       setAtivo(r.ativo);
       setTokenMascarado(r.token_mascarado);
+      setTipo(r.tipo);
       setNovoToken('');
       mostrar({ tipo: 'sucesso', titulo: r.ativo ? 'Token salvo! Pix online ativado.' : 'Token removido. Pix online desativado.' });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
       setEnviando(false);
+    }
+  }
+
+  async function copiarUrlWebhook() {
+    try {
+      await navigator.clipboard.writeText(urlWebhook);
+      setUrlWebhookCopiada(true);
+      setTimeout(() => setUrlWebhookCopiada(false), 2000);
+    } catch {
+      mostrar({ tipo: 'erro', titulo: 'Não consegui copiar — selecione o texto manualmente.' });
     }
   }
 
@@ -744,8 +759,14 @@ export function PagamentosLoja() {
             }
           </div>
           <div>
-            <div className="font-bold">
+            <div className="font-bold flex items-center gap-2 flex-wrap">
               {ativo ? 'Pix online ativo' : 'Pix online inativo'}
+              {ativo && tipo === 'teste' && (
+                <Badge variant="warning" className="text-[10px]">Modo teste — pagamentos não são reais</Badge>
+              )}
+              {ativo && tipo === 'producao' && (
+                <Badge variant="success" className="text-[10px]">Produção</Badge>
+              )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
               {ativo
@@ -782,10 +803,19 @@ export function PagamentosLoja() {
                   {mostrarToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                 </button>
               </div>
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Obtenha em{' '}
-                <span className="font-medium text-foreground">mercadopago.com.br → Desenvolvedores → Credenciais</span>.
-                Use o token de <strong>produção</strong> (APP_USR-...) ou <strong>teste</strong> (TEST-...) para sandbox.
+              <p className="text-[11px] text-muted-foreground mt-1.5 flex items-center gap-1 flex-wrap">
+                <span>
+                  Use o token de <strong>produção</strong> (<code className="font-mono">APP_USR-</code>) ou{' '}
+                  <strong>teste</strong> (<code className="font-mono">TEST-</code>) para sandbox.
+                </span>
+                <a
+                  href="https://www.mercadopago.com.br/developers/panel/app"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 font-semibold text-primary hover:underline"
+                >
+                  Pegar meu token <ExternalLink className="size-3" />
+                </a>
               </p>
             </div>
 
@@ -810,19 +840,24 @@ export function PagamentosLoja() {
         </CardContent>
       </Card>
 
-      {/* Info webhook */}
+      {/* Info webhook — opcional, o sistema já manda a URL certa em cada pagamento */}
       {ativo && (
         <Card className="border-dashed">
-          <CardContent className="p-4 text-xs text-muted-foreground space-y-1">
-            <p className="font-semibold text-foreground text-sm">Configurar webhook no Mercado Pago</p>
+          <CardContent className="p-4 text-xs text-muted-foreground space-y-2">
+            <p className="font-semibold text-foreground text-sm">Confirmação automática do Pix</p>
             <p>
-              Para o Pix ser confirmado automaticamente, adicione a URL abaixo no painel de
-              Notificações (IPN) do Mercado Pago:
+              Não precisa fazer nada — o sistema já avisa o Mercado Pago pra onde mandar a confirmação
+              a cada Pix gerado. Se quiser, você também pode adicionar a URL abaixo como webhook geral no
+              painel do Mercado Pago (reforço opcional, não é obrigatório):
             </p>
-            <code className="block bg-muted px-2 py-1.5 rounded text-[11px] font-mono break-all">
-              https://SEUDOMINIO/api/pagamentos/webhook/mercadopago
-            </code>
-            <p>Exige HTTPS. Em localhost use o token de teste + aprove manualmente pelo painel do MP.</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 block bg-muted px-2 py-1.5 rounded text-[11px] font-mono break-all">
+                {urlWebhook}
+              </code>
+              <Button type="button" variant="outline" size="icon" className="shrink-0" onClick={copiarUrlWebhook} title="Copiar">
+                {urlWebhookCopiada ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
