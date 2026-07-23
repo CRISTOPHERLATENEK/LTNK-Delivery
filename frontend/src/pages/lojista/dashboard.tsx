@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { ChatPedido } from '@/components/chat-pedido';
 import { api, ApiError } from '@/lib/api';
 import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
@@ -353,6 +354,7 @@ function CardPedidoDash({
   aoAtualizar: () => void;
 }) {
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const [atribuindo, setAtribuindo] = useState(false);
   const [recusando, setRecusando] = useState(false);
   const [motivoRecusa, setMotivoRecusa] = useState('');
@@ -375,7 +377,13 @@ function CardPedidoDash({
 
   const [estornando, setEstornando] = useState(false);
   async function estornar() {
-    if (!confirm('Estornar este pagamento Pix e cancelar o pedido? Essa ação não pode ser desfeita.')) return;
+    const ok = await confirmar({
+      titulo: 'Estornar pagamento e cancelar pedido?',
+      descricao: `O Pix do pedido #${p.id} volta pro cliente e o pedido é cancelado. Essa ação não pode ser desfeita.`,
+      confirmar: 'Estornar e cancelar',
+      destrutivo: true,
+    });
+    if (!ok) return;
     setEstornando(true);
     try {
       await api('POST', `/api/lojista/pedidos/${p.id}/estornar`);
