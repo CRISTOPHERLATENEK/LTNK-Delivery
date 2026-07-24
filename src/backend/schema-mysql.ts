@@ -563,7 +563,10 @@ const CONFIGS_PADRAO: Array<[string, string]> = [
   ['suporte_email', ''],
   ['suporte_telefone', ''],
   ['termos_url', ''],
-  ['comissao_percentual', '10'],
+  // 0 = a plataforma NÃO cobra comissão por pedido (modelo só-mensalidade, o
+  // que a landing anuncia). O motor de comissão continua existindo pra quem
+  // quiser cobrar: basta o admin definir um percentual global ou por loja.
+  ['comissao_percentual', '0'],
 ];
 
 /**

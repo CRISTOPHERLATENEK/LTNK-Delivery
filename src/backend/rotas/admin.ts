@@ -8,6 +8,7 @@ import bcrypt from 'bcryptjs';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
 import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, emailValido, cpfValido, cpfDigitos, telefoneDigitos } from '../util';
 import { criptografar, descriptografar } from '../cripto';
+import { montarLandingAdmin, salvarLanding } from '../landing-campos';
 import { garantirSessaoPlataforma, obterQrPlataforma, solicitarCodigoPlataforma, statusSessaoPlataforma, desconectarPlataforma } from '../whatsapp-nao-oficial';
 import { validarCertificado, } from '../assinatura';
 import { caminhoCertificado } from './lojista';
@@ -688,7 +689,7 @@ router.get('/comissao', async (_req, res, next) => {
   try {
     const r = await db.prepare("SELECT valor FROM configuracoes WHERE chave = 'comissao_percentual'")
       .get() as { valor: string } | undefined;
-    res.json({ comissao_percentual: Number(r?.valor ?? '10') });
+    res.json({ comissao_percentual: Number(r?.valor ?? '0') });
   } catch (e) { next(e); }
 });
 
@@ -1220,372 +1221,29 @@ router.put('/configuracoes-gerais', exigirSuperAdmin, async (req, res, next) => 
 });
 
 // ----- Landing page do produto (domínio principal, sem loja padrão) -----
+//
+// A lista de campos, os defaults e as validações vivem em ../landing-campos —
+// fonte ÚNICA compartilhada com o GET /api/tema (rotas/publico.ts). Campo novo
+// se declara lá e passa a funcionar nos três caminhos sozinho.
 
-const LANDING_ICONES = [
-  'store', 'palette', 'bike', 'chefhat', 'receipt', 'smartphone', 'check', 'star', 'shield', 'users',
-  'ticket', 'chart', 'list', 'share', 'rocket', 'printer', 'qrcode', 'key', 'cloud', 'zap', 'bell', 'pin',
-] as const;
+const lerConfig = async (chave: string): Promise<string> => {
+  const r = await db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
+  return r?.valor ?? '';
+};
 
-const LANDING_RECURSOS_PADRAO = [
-  { icone: 'store', titulo: 'Multi-lojas', desc: 'Cada loja com seu próprio painel, cardápio e domínio.' },
-  { icone: 'palette', titulo: 'White label', desc: 'Cores, logo e visual totalmente personalizáveis por loja.' },
-  { icone: 'bike', titulo: 'Rastreio ao vivo', desc: 'Entregador com GPS em tempo real, do jeito que o cliente vê no mapa.' },
-  { icone: 'chefhat', titulo: 'Cozinha (KDS)', desc: 'Painel de produção próprio, sem misturar com o financeiro.' },
-  { icone: 'receipt', titulo: 'NFC-e integrada', desc: 'Emissão fiscal direto na venda, sem depender de outro sistema.' },
-  { icone: 'smartphone', titulo: 'PDV + Comandas', desc: 'Venda no balcão e mesas do salão, tudo no mesmo lugar.' },
-];
-
-const LANDING_BENEFICIOS_PADRAO = ['Sem taxa de setup', 'Cada loja com domínio próprio', 'Suporte a Pix, cartão e dinheiro'];
-
-const LANDING_SEM_PADRAO = ['Desorganização no atendimento', 'Falhas de comunicação', 'Erros nos pedidos'];
-const LANDING_COM_PADRAO = ['Agilidade e organização nos pedidos', 'Cada loja com sua própria operação', 'Menos erro, mais venda'];
-
-const LANDING_SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria'];
-
-const LANDING_DEPOIMENTOS_PADRAO: { texto: string; nome: string; negocio: string }[] = [];
-
-const LANDING_FORMATOS = ['celular', 'navegador', 'livre'] as const;
-
-const LANDING_DESTAQUES_PADRAO: { imagem_url: string; titulo: string; desc: string; formato: string }[] = [
-  { imagem_url: '/landing/storefront-mobile.png', formato: 'celular', titulo: 'Seu cliente pede direto pelo celular', desc: 'Cardápio digital com foto, categorias e busca — sem app pra baixar. O cliente monta o pedido e finaliza em segundos, com Pix, cartão ou dinheiro.' },
-  { imagem_url: '/landing/storefront-desktop.png', formato: 'navegador', titulo: 'Sua loja online com a sua cara', desc: 'Cores, logo e capa personalizados por loja. Cada negócio com seu próprio endereço, cardápio e visual — do jeito da marca.' },
-];
-
-const LANDING_PLANOS_PADRAO = [
-  { nome: 'Iniciante', preco: 'R$ 97/mês', destaque: false, cta: 'Começar agora', recursos: ['1 loja com domínio próprio', 'Cardápio digital ilimitado', 'Pedidos, cozinha e PDV', 'Pix, cartão e dinheiro', 'Suporte por WhatsApp'] },
-  { nome: 'Profissional', preco: 'R$ 197/mês', destaque: true, cta: 'Assinar Profissional', recursos: ['Tudo do Iniciante', 'NFC-e integrada (nota na venda)', 'Rastreio de entregador ao vivo', 'Comandas e mesas do salão', 'Relatórios completos', 'Suporte prioritário'] },
-  { nome: 'Multi-lojas', preco: 'Sob consulta', destaque: false, cta: 'Falar com a gente', recursos: ['Várias lojas num painel só', 'Cada loja com sua marca e domínio', 'Gestão centralizada', 'Onboarding assistido', 'Gerente de conta dedicado'] },
-];
-
-const LANDING_FAQ_PADRAO = [
-  { pergunta: 'Preciso de CNPJ pra usar?', resposta: 'Pra vender e emitir NFC-e, sim (a nota exige CNPJ e certificado A1). Mas você pode montar o cardápio e testar tudo antes de decidir.' },
-  { pergunta: 'Em quanto tempo minha loja fica no ar?', resposta: 'No mesmo dia. Você cadastra os produtos, define cores e logo, e já compartilha o link da sua loja com os clientes.' },
-  { pergunta: 'Vocês cobram taxa por pedido?', resposta: 'Não. Você paga só a mensalidade do plano — nenhuma comissão por venda. O que você fatura é seu.' },
-  { pergunta: 'Tem fidelidade ou multa de cancelamento?', resposta: 'Não. Sem contrato de fidelidade e sem multa. Você cancela quando quiser.' },
-  { pergunta: 'Funciona com a minha impressora?', resposta: 'Sim. Somos compatíveis com as principais impressoras térmicas do mercado (80mm e 58mm), pro cupom e pro DANFE da NFC-e.' },
-  { pergunta: 'Preciso instalar algo pra imprimir os pedidos?', resposta: 'Não. Por padrão a impressão sai pelo diálogo do navegador, sem instalar nada. Se quiser imprimir direto na térmica sem esse diálogo (mais rápido pro balcão), tem um agente opcional pra Windows que faz isso automaticamente.' },
-  { pergunta: 'Como funciona o domínio da minha loja?', resposta: 'Você recebe um link pronto assim que cadastra a loja (ex.: seusite.com/sua-loja). Se preferir, também pode apontar o seu próprio domínio (ex.: sualoja.com.br) — é só ajustar o DNS e colar o domínio no painel.' },
-  { pergunta: 'Dá pra criar cupom de desconto?', resposta: 'Sim. Você cria cupons por valor fixo ou percentual, com validade e limite de usos — o cliente aplica no carrinho e o desconto sai certinho no pedido e na nota.' },
-];
-
-const LANDING_COMO_FUNCIONA_PADRAO = [
-  { icone: 'list' as const, titulo: 'Monte seu cardápio', desc: 'Cadastre produtos, fotos, categorias e preços — leva minutos, sem depender de ninguém.' },
-  { icone: 'share' as const, titulo: 'Compartilhe o link da sua loja', desc: 'Domínio próprio, sem app pra instalar. O cliente abre e já pede.' },
-  { icone: 'rocket' as const, titulo: 'Comece a vender', desc: 'Pedido cai direto na cozinha, entregador sai com rastreio ao vivo e o pagamento (Pix, cartão ou dinheiro) já cai na sua conta.' },
-];
-
-const LANDING_STATS_PADRAO = [
-  { numero: '2 min', texto: 'do pedido à cozinha' },
-  { numero: '100%', texto: 'NFC-e autorizada na SEFAZ' },
-  { numero: '0', texto: 'taxa por pedido' },
-  { numero: '1 dia', texto: 'para a loja ficar no ar' },
-];
-
-const LANDING_AUTOMACAO_PADRAO = [
-  {
-    icone: 'zap' as const, titulo: 'Pix automático', desc: 'O pagamento se confirma sozinho — sem conferência manual.',
-    itens: ['Pix, cartão e dinheiro aceitos', 'Confirmação automática via Mercado Pago', 'Sem digitar nada no caixa'],
-  },
-  {
-    icone: 'bell' as const, titulo: 'Notificação automática', desc: 'Seu cliente acompanha o pedido sem precisar perguntar.',
-    itens: ['Aviso quando o pedido é aceito', 'Aviso quando sai pra entrega', 'Aviso quando é entregue'],
-  },
-  {
-    icone: 'star' as const, titulo: 'Avaliações dos clientes', desc: 'Cada pedido entregue pode ser avaliado — e você acompanha tudo.',
-    itens: ['Nota e comentário por pedido', 'Média da loja no seu painel', 'Ajuda a enxergar o que melhorar'],
-  },
-];
-
-const LANDING_FISCAL_MINI_PADRAO = [
-  { icone: 'printer' as const, titulo: 'Emissão automática', desc: 'NFC-e sai na finalização do pedido.' },
-  { icone: 'qrcode' as const, titulo: 'QR Code', desc: 'Consulta rápida pelo consumidor.' },
-  { icone: 'key' as const, titulo: 'Chave de acesso', desc: 'Válida em qualquer portal da SEFAZ.' },
-  { icone: 'cloud' as const, titulo: 'Impressão', desc: 'Compatível com térmicas 80/58mm.' },
-];
-
-const LANDING_CUPOM_ITENS_PADRAO = [
-  { q: 1, nome: 'X-SALADA ARTESANAL', v: '28,00' },
-  { q: 1, nome: 'PORCAO BATATA RUSTICA', v: '16,00' },
-  { q: 2, nome: 'REFRIGERANTE LATA', v: '12,00' },
-];
+const gravarConfig = (chave: string, valor: string) =>
+  db.prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)')
+    .run(chave, valor);
 
 router.get('/landing', async (_req, res, next) => {
   try {
-    const valor = async (chave: string): Promise<string> => {
-      const r = await db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
-      return r?.valor ?? '';
-    };
-    const recursosRaw = await valor('landing_recursos_json');
-    const beneficiosRaw = await valor('landing_beneficios_json');
-    const semRaw = await valor('landing_comparativo_sem_json');
-    const comRaw = await valor('landing_comparativo_com_json');
-    const segmentosRaw = await valor('landing_segmentos_json');
-    const depoimentosRaw = await valor('landing_depoimentos_json');
-    const destaquesRaw = await valor('landing_destaques_json');
-    const planosRaw = await valor('landing_planos_json');
-    const faqRaw = await valor('landing_faq_json');
-    const comoFuncionaRaw = await valor('landing_como_funciona_json');
-    const statsRaw = await valor('landing_stats_json');
-    const automacaoRaw = await valor('landing_automacao_json');
-    const fiscalMiniRaw = await valor('landing_fiscal_mini_json');
-    const cupomItensRaw = await valor('landing_cupom_itens_json');
-    res.json({
-      cta_texto: (await valor('landing_cta_texto')) || 'Ver demonstração',
-      recursos: recursosRaw ? JSON.parse(recursosRaw) : LANDING_RECURSOS_PADRAO,
-      beneficios: beneficiosRaw ? JSON.parse(beneficiosRaw) : LANDING_BENEFICIOS_PADRAO,
-      comparativo_sem: semRaw ? JSON.parse(semRaw) : LANDING_SEM_PADRAO,
-      comparativo_com: comRaw ? JSON.parse(comRaw) : LANDING_COM_PADRAO,
-      segmentos: segmentosRaw ? JSON.parse(segmentosRaw) : LANDING_SEGMENTOS_PADRAO,
-      depoimentos: depoimentosRaw ? JSON.parse(depoimentosRaw) : LANDING_DEPOIMENTOS_PADRAO,
-      destaques: destaquesRaw ? JSON.parse(destaquesRaw) : LANDING_DESTAQUES_PADRAO,
-      planos: planosRaw ? JSON.parse(planosRaw) : LANDING_PLANOS_PADRAO,
-      faq: faqRaw ? JSON.parse(faqRaw) : LANDING_FAQ_PADRAO,
-      hero_eyebrow:   await valor('landing_hero_eyebrow'),
-      hero_titulo:    await valor('landing_hero_titulo'),
-      hero_subtitulo: await valor('landing_hero_subtitulo'),
-      hero_imagem:    await valor('landing_hero_imagem'),
-      hero_imagem_mobile: await valor('landing_hero_imagem_mobile'),
-      whatsapp:       await valor('landing_whatsapp'),
-      demo_url:       await valor('landing_demo_url'),
-      como_funciona_titulo:    await valor('landing_como_funciona_titulo'),
-      como_funciona_subtitulo: await valor('landing_como_funciona_subtitulo'),
-      como_funciona: comoFuncionaRaw ? JSON.parse(comoFuncionaRaw) : LANDING_COMO_FUNCIONA_PADRAO,
-      atendimento_titulo:    await valor('landing_atendimento_titulo'),
-      atendimento_subtitulo: await valor('landing_atendimento_subtitulo'),
-      stats: statsRaw ? JSON.parse(statsRaw) : LANDING_STATS_PADRAO,
-      automacao_titulo:    await valor('landing_automacao_titulo'),
-      automacao_subtitulo: await valor('landing_automacao_subtitulo'),
-      automacao: automacaoRaw ? JSON.parse(automacaoRaw) : LANDING_AUTOMACAO_PADRAO,
-      fiscal_eyebrow:    await valor('landing_fiscal_eyebrow'),
-      fiscal_titulo:     await valor('landing_fiscal_titulo'),
-      fiscal_texto:      await valor('landing_fiscal_texto'),
-      fiscal_selo_titulo: await valor('landing_fiscal_selo_titulo'),
-      fiscal_selo_desc:   await valor('landing_fiscal_selo_desc'),
-      fiscal_mini: fiscalMiniRaw ? JSON.parse(fiscalMiniRaw) : LANDING_FISCAL_MINI_PADRAO,
-      cupom_itens: cupomItensRaw ? JSON.parse(cupomItensRaw) : LANDING_CUPOM_ITENS_PADRAO,
-      cupom_total: (await valor('landing_cupom_total')) || '56,00',
-      recursos_titulo: await valor('landing_recursos_titulo'),
-      planos_titulo:    await valor('landing_planos_titulo'),
-      planos_subtitulo: await valor('landing_planos_subtitulo'),
-      duvidas_titulo: await valor('landing_duvidas_titulo'),
-      cta_titulo:    await valor('landing_cta_titulo'),
-      cta_subtitulo: await valor('landing_cta_subtitulo'),
-      cta_botao_demo_texto: await valor('landing_cta_botao_demo_texto'),
-      whatsapp_msg_hero:      await valor('landing_whatsapp_msg_hero'),
-      whatsapp_msg_cta:       await valor('landing_whatsapp_msg_cta'),
-      whatsapp_msg_flutuante: await valor('landing_whatsapp_msg_flutuante'),
-      footer_coluna_sistema: await valor('landing_footer_coluna_sistema'),
-      footer_coluna_contato: await valor('landing_footer_coluna_contato'),
-      endereco:          await valor('landing_endereco'),
-      social_instagram:  await valor('landing_social_instagram'),
-      social_facebook:   await valor('landing_social_facebook'),
-      social_tiktok:     await valor('landing_social_tiktok'),
-      social_youtube:    await valor('landing_social_youtube'),
-      social_x:          await valor('landing_social_x'),
-    });
+    res.json(await montarLandingAdmin(lerConfig));
   } catch (e) { next(e); }
 });
 
 router.put('/landing', exigirSuperAdmin, async (req, res, next) => {
   try {
-    const upsert = (chave: string, valor: string) =>
-      db.prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)')
-        .run(chave, valor);
-
-    if (req.body.cta_texto !== undefined) {
-      await upsert('landing_cta_texto', textoLimpo(req.body.cta_texto, 60));
-    }
-    if (req.body.hero_eyebrow !== undefined) await upsert('landing_hero_eyebrow', textoLimpo(req.body.hero_eyebrow, 80));
-    if (req.body.hero_titulo !== undefined) await upsert('landing_hero_titulo', textoLimpo(req.body.hero_titulo, 120));
-    if (req.body.hero_subtitulo !== undefined) await upsert('landing_hero_subtitulo', textoLimpo(req.body.hero_subtitulo, 240));
-    if (req.body.hero_imagem !== undefined) await upsert('landing_hero_imagem', textoLimpo(req.body.hero_imagem, 500));
-    if (req.body.hero_imagem_mobile !== undefined) await upsert('landing_hero_imagem_mobile', textoLimpo(req.body.hero_imagem_mobile, 500));
-    if (req.body.whatsapp !== undefined) await upsert('landing_whatsapp', textoLimpo(req.body.whatsapp, 30));
-    if (req.body.demo_url !== undefined) await upsert('landing_demo_url', textoLimpo(req.body.demo_url, 300));
-    if (req.body.recursos !== undefined) {
-      if (!Array.isArray(req.body.recursos) || req.body.recursos.length > 9) {
-        throw erroHttp(400, 'Lista de recursos inválida (máximo 9 itens).');
-      }
-      const recursos = req.body.recursos.map((r: unknown) => {
-        const item = r as { icone?: unknown; titulo?: unknown; desc?: unknown };
-        const icone = LANDING_ICONES.includes(item.icone as typeof LANDING_ICONES[number]) ? item.icone : 'store';
-        const titulo = textoLimpo(item.titulo, 60);
-        const desc = textoLimpo(item.desc, 160);
-        if (!titulo) throw erroHttp(400, 'Todo recurso precisa de um título.');
-        return { icone, titulo, desc };
-      });
-      await upsert('landing_recursos_json', JSON.stringify(recursos));
-    }
-    if (req.body.beneficios !== undefined) {
-      if (!Array.isArray(req.body.beneficios) || req.body.beneficios.length > 6) {
-        throw erroHttp(400, 'Lista de benefícios inválida (máximo 6 itens).');
-      }
-      const beneficios = req.body.beneficios.map((b: unknown) => textoLimpo(b, 80)).filter(Boolean);
-      await upsert('landing_beneficios_json', JSON.stringify(beneficios));
-    }
-    if (req.body.comparativo_sem !== undefined) {
-      if (!Array.isArray(req.body.comparativo_sem) || req.body.comparativo_sem.length > 6) {
-        throw erroHttp(400, 'Lista "sem a plataforma" inválida (máximo 6 itens).');
-      }
-      await upsert('landing_comparativo_sem_json', JSON.stringify(req.body.comparativo_sem.map((b: unknown) => textoLimpo(b, 80)).filter(Boolean)));
-    }
-    if (req.body.comparativo_com !== undefined) {
-      if (!Array.isArray(req.body.comparativo_com) || req.body.comparativo_com.length > 6) {
-        throw erroHttp(400, 'Lista "com a plataforma" inválida (máximo 6 itens).');
-      }
-      await upsert('landing_comparativo_com_json', JSON.stringify(req.body.comparativo_com.map((b: unknown) => textoLimpo(b, 80)).filter(Boolean)));
-    }
-    if (req.body.segmentos !== undefined) {
-      if (!Array.isArray(req.body.segmentos) || req.body.segmentos.length > 16) {
-        throw erroHttp(400, 'Lista de segmentos inválida (máximo 16 itens).');
-      }
-      await upsert('landing_segmentos_json', JSON.stringify(req.body.segmentos.map((s: unknown) => textoLimpo(s, 40)).filter(Boolean)));
-    }
-    if (req.body.depoimentos !== undefined) {
-      if (!Array.isArray(req.body.depoimentos) || req.body.depoimentos.length > 12) {
-        throw erroHttp(400, 'Lista de depoimentos inválida (máximo 12 itens).');
-      }
-      const depoimentos = req.body.depoimentos.map((d: unknown) => {
-        const item = d as { texto?: unknown; nome?: unknown; negocio?: unknown };
-        const texto = textoLimpo(item.texto, 300);
-        const nome = textoLimpo(item.nome, 60);
-        const negocio = textoLimpo(item.negocio, 60);
-        if (!texto || !nome) throw erroHttp(400, 'Todo depoimento precisa de texto e nome.');
-        return { texto, nome, negocio };
-      });
-      await upsert('landing_depoimentos_json', JSON.stringify(depoimentos));
-    }
-    if (req.body.destaques !== undefined) {
-      if (!Array.isArray(req.body.destaques) || req.body.destaques.length > 4) {
-        throw erroHttp(400, 'Lista de destaques inválida (máximo 4 itens).');
-      }
-      const destaques = req.body.destaques.map((d: unknown) => {
-        const item = d as { imagem_url?: unknown; titulo?: unknown; desc?: unknown; formato?: unknown };
-        const imagemUrl = textoLimpo(item.imagem_url, 500);
-        const titulo = textoLimpo(item.titulo, 80);
-        const desc = textoLimpo(item.desc, 240);
-        const formato = LANDING_FORMATOS.includes(item.formato as typeof LANDING_FORMATOS[number]) ? item.formato : 'navegador';
-        if (!titulo) throw erroHttp(400, 'Todo destaque precisa de um título.');
-        return { imagem_url: imagemUrl, titulo, desc, formato };
-      });
-      await upsert('landing_destaques_json', JSON.stringify(destaques));
-    }
-    if (req.body.planos !== undefined) {
-      if (!Array.isArray(req.body.planos) || req.body.planos.length > 6) {
-        throw erroHttp(400, 'Lista de planos inválida (máximo 6 itens).');
-      }
-      const planos = req.body.planos.map((p: unknown) => {
-        const item = p as { nome?: unknown; preco?: unknown; destaque?: unknown; cta?: unknown; recursos?: unknown };
-        const nome = textoLimpo(item.nome, 40);
-        if (!nome) throw erroHttp(400, 'Todo plano precisa de um nome.');
-        const recursos = Array.isArray(item.recursos) ? item.recursos.slice(0, 12).map((r) => textoLimpo(r, 80)).filter(Boolean) : [];
-        return { nome, preco: textoLimpo(item.preco, 40), destaque: !!item.destaque, cta: textoLimpo(item.cta, 40) || 'Falar no WhatsApp', recursos };
-      });
-      await upsert('landing_planos_json', JSON.stringify(planos));
-    }
-    if (req.body.faq !== undefined) {
-      if (!Array.isArray(req.body.faq) || req.body.faq.length > 15) {
-        throw erroHttp(400, 'Lista de dúvidas inválida (máximo 15 itens).');
-      }
-      const faq = req.body.faq.map((f: unknown) => {
-        const item = f as { pergunta?: unknown; resposta?: unknown };
-        const pergunta = textoLimpo(item.pergunta, 160);
-        const resposta = textoLimpo(item.resposta, 600);
-        if (!pergunta) throw erroHttp(400, 'Toda dúvida precisa de uma pergunta.');
-        return { pergunta, resposta };
-      });
-      await upsert('landing_faq_json', JSON.stringify(faq));
-    }
-
-    // ── Títulos/subtítulos de seção (texto simples) ──
-    const CAMPOS_TEXTO: Array<[string, number]> = [
-      ['como_funciona_titulo', 100], ['como_funciona_subtitulo', 200],
-      ['atendimento_titulo', 100], ['atendimento_subtitulo', 200],
-      ['automacao_titulo', 100], ['automacao_subtitulo', 200],
-      ['fiscal_eyebrow', 60], ['fiscal_titulo', 100], ['fiscal_texto', 300],
-      ['fiscal_selo_titulo', 100], ['fiscal_selo_desc', 160],
-      ['cupom_total', 20], ['recursos_titulo', 100],
-      ['planos_titulo', 100], ['planos_subtitulo', 200], ['duvidas_titulo', 100],
-      ['cta_titulo', 100], ['cta_subtitulo', 240], ['cta_botao_demo_texto', 40],
-      ['whatsapp_msg_hero', 200], ['whatsapp_msg_cta', 200], ['whatsapp_msg_flutuante', 200],
-      ['footer_coluna_sistema', 40], ['footer_coluna_contato', 40],
-      ['endereco', 200],
-      ['social_instagram', 300], ['social_facebook', 300], ['social_tiktok', 300],
-      ['social_youtube', 300], ['social_x', 300],
-    ];
-    for (const [campo, max] of CAMPOS_TEXTO) {
-      if (req.body[campo] !== undefined) await upsert(`landing_${campo}`, textoLimpo(req.body[campo], max));
-    }
-
-    // ── Listas de ícone+título+descrição (Como funciona, mini-cards fiscais) ──
-    const validarIconeTituloDesc = (lista: unknown, maxItens: number, maxDesc: number, nomeLista: string) => {
-      if (!Array.isArray(lista) || lista.length > maxItens) {
-        throw erroHttp(400, `Lista "${nomeLista}" inválida (máximo ${maxItens} itens).`);
-      }
-      return lista.map((r: unknown) => {
-        const item = r as { icone?: unknown; titulo?: unknown; desc?: unknown };
-        const icone = LANDING_ICONES.includes(item.icone as typeof LANDING_ICONES[number]) ? item.icone : 'store';
-        const titulo = textoLimpo(item.titulo, 60);
-        const desc = textoLimpo(item.desc, maxDesc);
-        if (!titulo) throw erroHttp(400, `Todo item de "${nomeLista}" precisa de um título.`);
-        return { icone, titulo, desc };
-      });
-    };
-    if (req.body.como_funciona !== undefined) {
-      await upsert('landing_como_funciona_json', JSON.stringify(validarIconeTituloDesc(req.body.como_funciona, 3, 160, 'Como funciona')));
-    }
-    if (req.body.fiscal_mini !== undefined) {
-      await upsert('landing_fiscal_mini_json', JSON.stringify(validarIconeTituloDesc(req.body.fiscal_mini, 4, 120, 'Mini-cards fiscais')));
-    }
-
-    // ── Faixa de números (stats) ──
-    if (req.body.stats !== undefined) {
-      if (!Array.isArray(req.body.stats) || req.body.stats.length > 4) {
-        throw erroHttp(400, 'Lista de estatísticas inválida (máximo 4 itens).');
-      }
-      const stats = req.body.stats.map((s: unknown) => {
-        const item = s as { numero?: unknown; texto?: unknown };
-        const numero = textoLimpo(item.numero, 20);
-        const texto = textoLimpo(item.texto, 60);
-        if (!numero) throw erroHttp(400, 'Toda estatística precisa de um número.');
-        return { numero, texto };
-      });
-      await upsert('landing_stats_json', JSON.stringify(stats));
-    }
-
-    // ── Destaques de automação (ícone+título+descrição+sub-itens) ──
-    if (req.body.automacao !== undefined) {
-      if (!Array.isArray(req.body.automacao) || req.body.automacao.length > 3) {
-        throw erroHttp(400, 'Lista de automação inválida (máximo 3 itens).');
-      }
-      const automacao = req.body.automacao.map((a: unknown) => {
-        const item = a as { icone?: unknown; titulo?: unknown; desc?: unknown; itens?: unknown };
-        const icone = LANDING_ICONES.includes(item.icone as typeof LANDING_ICONES[number]) ? item.icone : 'star';
-        const titulo = textoLimpo(item.titulo, 60);
-        const desc = textoLimpo(item.desc, 160);
-        if (!titulo) throw erroHttp(400, 'Todo destaque de automação precisa de um título.');
-        const itens = Array.isArray(item.itens) ? item.itens.slice(0, 5).map((i) => textoLimpo(i, 100)).filter(Boolean) : [];
-        return { icone, titulo, desc, itens };
-      });
-      await upsert('landing_automacao_json', JSON.stringify(automacao));
-    }
-
-    // ── Itens do cupom fiscal de exemplo ──
-    if (req.body.cupom_itens !== undefined) {
-      if (!Array.isArray(req.body.cupom_itens) || req.body.cupom_itens.length > 6) {
-        throw erroHttp(400, 'Lista de itens do cupom inválida (máximo 6 itens).');
-      }
-      const cupomItens = req.body.cupom_itens.map((c: unknown) => {
-        const item = c as { q?: unknown; nome?: unknown; v?: unknown };
-        const q = Math.min(Math.max(Number(item.q) || 1, 1), 99);
-        const nome = textoLimpo(item.nome, 60);
-        const v = textoLimpo(item.v, 10);
-        if (!nome) throw erroHttp(400, 'Todo item do cupom precisa de um nome.');
-        return { q, nome, v };
-      });
-      await upsert('landing_cupom_itens_json', JSON.stringify(cupomItens));
-    }
-
+    await salvarLanding(req.body ?? {}, gravarConfig);
     await registrarAuditoria(req, 'landing.editar');
     res.json({ ok: true });
   } catch (e) { next(e); }

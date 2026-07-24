@@ -6,6 +6,7 @@ import db, { bancoTenantAtual } from '../db-mysql';
 import { erroHttp } from '../util';
 import { chavePublicaVapid } from '../push';
 import { ehMaster } from '../tenants-mysql';
+import { montarLandingPublica } from '../landing-campos';
 import { GrupoComOpcoes, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
 
 const router = Router();
@@ -53,21 +54,6 @@ router.get('/tema', async (req, res, next) => {
 
     // Conteúdo da landing page do produto (só relevante quando lojaId=0, mas
     // sempre incluído — barato e evita um segundo round-trip no boot).
-    const recursosRaw = await valor('landing_recursos_json');
-    const beneficiosRaw = await valor('landing_beneficios_json');
-    const semRaw = await valor('landing_comparativo_sem_json');
-    const comRaw = await valor('landing_comparativo_com_json');
-    const segmentosRaw = await valor('landing_segmentos_json');
-    const depoimentosRaw = await valor('landing_depoimentos_json');
-    const destaquesRaw = await valor('landing_destaques_json');
-    const planosRaw = await valor('landing_planos_json');
-    const faqRaw = await valor('landing_faq_json');
-    const comoFuncRaw = await valor('landing_como_funciona_json');
-    const statsRaw = await valor('landing_stats_json');
-    const automacaoRaw = await valor('landing_automacao_json');
-    const fiscalMiniRaw = await valor('landing_fiscal_mini_json');
-    const cupomItensRaw = await valor('landing_cupom_itens_json');
-
     res.json({
       nome:              await valor('marca_nome', 'Delivery Já'),
       slogan:            await valor('marca_slogan', 'Peça das melhores lojas da sua região'),
@@ -79,59 +65,9 @@ router.get('/tema', async (req, res, next) => {
       // Só o tenant master (banco padrão da plataforma) expõe o painel admin
       // — domínio de loja/demo não deve nem mostrar a tela de login dele.
       eh_master:         ehMaster(bancoTenantAtual()),
-      landing_cta_texto:      (await valor('landing_cta_texto')) || 'Ver demonstração',
-      landing_recursos:       recursosRaw ? JSON.parse(recursosRaw) : null,
-      landing_beneficios:     beneficiosRaw ? JSON.parse(beneficiosRaw) : null,
-      landing_comparativo_sem: semRaw ? JSON.parse(semRaw) : null,
-      landing_comparativo_com: comRaw ? JSON.parse(comRaw) : null,
-      landing_segmentos:      segmentosRaw ? JSON.parse(segmentosRaw) : null,
-      landing_depoimentos:    depoimentosRaw ? JSON.parse(depoimentosRaw) : null,
-      landing_destaques:      destaquesRaw ? JSON.parse(destaquesRaw) : null,
-      landing_hero_eyebrow:   await valor('landing_hero_eyebrow'),
-      landing_hero_titulo:    await valor('landing_hero_titulo'),
-      landing_hero_subtitulo: await valor('landing_hero_subtitulo'),
-      landing_hero_imagem:    await valor('landing_hero_imagem'),
-      landing_hero_imagem_mobile: await valor('landing_hero_imagem_mobile'),
-      landing_demo_url:       await valor('landing_demo_url'),
-      landing_whatsapp:       await valor('landing_whatsapp'),
-      landing_planos:         planosRaw ? JSON.parse(planosRaw) : null,
-      landing_faq:            faqRaw ? JSON.parse(faqRaw) : null,
-      // Seções tornadas 100% editáveis (títulos, automação, fiscal, cupom, CTA, rodapé).
-      landing_como_funciona_titulo:    await valor('landing_como_funciona_titulo'),
-      landing_como_funciona_subtitulo: await valor('landing_como_funciona_subtitulo'),
-      landing_como_funciona:  comoFuncRaw ? JSON.parse(comoFuncRaw) : null,
-      landing_atendimento_titulo:    await valor('landing_atendimento_titulo'),
-      landing_atendimento_subtitulo: await valor('landing_atendimento_subtitulo'),
-      landing_stats:          statsRaw ? JSON.parse(statsRaw) : null,
-      landing_automacao_titulo:    await valor('landing_automacao_titulo'),
-      landing_automacao_subtitulo: await valor('landing_automacao_subtitulo'),
-      landing_automacao:      automacaoRaw ? JSON.parse(automacaoRaw) : null,
-      landing_fiscal_eyebrow:     await valor('landing_fiscal_eyebrow'),
-      landing_fiscal_titulo:      await valor('landing_fiscal_titulo'),
-      landing_fiscal_texto:       await valor('landing_fiscal_texto'),
-      landing_fiscal_selo_titulo: await valor('landing_fiscal_selo_titulo'),
-      landing_fiscal_selo_desc:   await valor('landing_fiscal_selo_desc'),
-      landing_fiscal_mini:    fiscalMiniRaw ? JSON.parse(fiscalMiniRaw) : null,
-      landing_cupom_itens:    cupomItensRaw ? JSON.parse(cupomItensRaw) : null,
-      landing_cupom_total:    await valor('landing_cupom_total'),
-      landing_recursos_titulo: await valor('landing_recursos_titulo'),
-      landing_planos_titulo:    await valor('landing_planos_titulo'),
-      landing_planos_subtitulo: await valor('landing_planos_subtitulo'),
-      landing_duvidas_titulo:   await valor('landing_duvidas_titulo'),
-      landing_cta_titulo:       await valor('landing_cta_titulo'),
-      landing_cta_subtitulo:    await valor('landing_cta_subtitulo'),
-      landing_cta_botao_demo_texto: await valor('landing_cta_botao_demo_texto'),
-      landing_whatsapp_msg_hero:      await valor('landing_whatsapp_msg_hero'),
-      landing_whatsapp_msg_cta:       await valor('landing_whatsapp_msg_cta'),
-      landing_whatsapp_msg_flutuante: await valor('landing_whatsapp_msg_flutuante'),
-      landing_footer_coluna_sistema: await valor('landing_footer_coluna_sistema'),
-      landing_footer_coluna_contato: await valor('landing_footer_coluna_contato'),
-      landing_endereco:         await valor('landing_endereco'),
-      landing_social_instagram: await valor('landing_social_instagram'),
-      landing_social_facebook:  await valor('landing_social_facebook'),
-      landing_social_tiktok:    await valor('landing_social_tiktok'),
-      landing_social_youtube:   await valor('landing_social_youtube'),
-      landing_social_x:         await valor('landing_social_x'),
+      // Conteúdo da landing: derivado da fonte única (../landing-campos),
+      // a mesma usada pelo GET/PUT de /api/admin/landing.
+      ...(await montarLandingPublica(valor)),
       // Usados no rodapé da landing — mesmos campos já editáveis em Marca → Configurações gerais.
       suporte_email:     await valor('suporte_email'),
       suporte_telefone:  await valor('suporte_telefone'),

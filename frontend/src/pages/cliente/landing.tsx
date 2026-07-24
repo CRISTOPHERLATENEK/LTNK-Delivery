@@ -88,9 +88,14 @@ const COMO_FUNCIONA_PADRAO: LandingIconeTituloDesc[] = [
   { icone: 'rocket', titulo: 'Comece a vender', desc: 'Pedido cai direto na cozinha, entregador sai com rastreio ao vivo e o pagamento (Pix, cartão ou dinheiro) já cai na sua conta.' },
 ];
 
+// ATENÇÃO ao mexer aqui: são promessas comerciais públicas. Nada de claim
+// absoluto que a operação não controla — a autorização de uma NFC-e depende da
+// SEFAZ (sefaz.ts trata rejeição como caminho normal), então "100% autorizada"
+// seria propaganda indefensável. Descreva o que o sistema FAZ, não o que o
+// órgão externo vai responder.
 const STATS_PADRAO: LandingStat[] = [
   { numero: '2 min', texto: 'do pedido à cozinha' },
-  { numero: '100%', texto: 'NFC-e autorizada na SEFAZ' },
+  { numero: 'NFC-e', texto: 'emitida direto na SEFAZ' },
   { numero: '0', texto: 'taxa por pedido' },
   { numero: '1 dia', texto: 'para a loja ficar no ar' },
 ];
@@ -524,8 +529,8 @@ export function PaginaLanding() {
   const fiscalEyebrow = marca.landing_fiscal_eyebrow || 'Emissão fiscal';
   const fiscalTitulo = marca.landing_fiscal_titulo || 'Cupom fiscal (NFC-e) *na hora da venda*';
   const fiscalTexto = marca.landing_fiscal_texto || 'A nota sai com itens, total, chave de acesso e QR Code — direto do sistema, sem precisar de outro programa nem digitar os dados de novo.';
-  const fiscalSeloTitulo = marca.landing_fiscal_selo_titulo || '100% em conformidade com a SEFAZ';
-  const fiscalSeloDesc = marca.landing_fiscal_selo_desc || 'Emissão segura, autorizada e sem complicação.';
+  const fiscalSeloTitulo = marca.landing_fiscal_selo_titulo || 'No padrão exigido pela SEFAZ';
+  const fiscalSeloDesc = marca.landing_fiscal_selo_desc || 'XML assinado com seu certificado A1 e transmitido direto pra SEFAZ.';
   const fiscalMini = marca.landing_fiscal_mini?.length ? marca.landing_fiscal_mini : FISCAL_MINI_PADRAO;
   const cupomItens = marca.landing_cupom_itens?.length ? marca.landing_cupom_itens : CUPOM_ITENS_PADRAO;
   const cupomTotal = marca.landing_cupom_total || CUPOM_TOTAL_PADRAO;
