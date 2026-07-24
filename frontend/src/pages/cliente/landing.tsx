@@ -664,11 +664,14 @@ export function PaginaLanding() {
       </section>
 
       {/* ───── Faixa de segmentos (2 marquees cruzadas em X, direções opostas) ───── */}
-      <div className="relative h-28 overflow-hidden sm:h-32">
-        <div className="absolute inset-x-0 top-1/2 w-[110%] -translate-x-[5%] -translate-y-[calc(50%+0.85rem)] -rotate-[4deg] bg-foreground py-2.5 text-background shadow-lg">
+      <div
+        className="relative h-28 overflow-hidden sm:h-32"
+        style={{ maskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)', WebkitMaskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)' }}
+      >
+        <div className="absolute inset-x-0 top-1/2 w-[130%] -translate-x-[15%] -translate-y-[calc(50%+0.85rem)] -rotate-[4deg] bg-foreground py-2.5 text-background shadow-lg">
           <MarqueeSegmentos itens={segmentos.map(s => s.toUpperCase())} pontoClasse="text-primary" />
         </div>
-        <div className="absolute inset-x-0 top-1/2 w-[110%] -translate-x-[5%] translate-y-[calc(-50%+0.85rem)] rotate-[4deg] bg-destructive py-2.5 text-destructive-foreground shadow-lg">
+        <div className="absolute inset-x-0 top-1/2 w-[130%] -translate-x-[15%] translate-y-[calc(-50%+0.85rem)] rotate-[4deg] bg-destructive py-2.5 text-destructive-foreground shadow-lg">
           <MarqueeSegmentos itens={segmentos.map(s => s.toUpperCase())} reverso pontoClasse="text-destructive-foreground/60" />
         </div>
       </div>
