@@ -664,17 +664,13 @@ export function PaginaLanding() {
       </section>
 
       {/* ───── Faixa de segmentos (2 marquees cruzadas em X, direções opostas) ─────
-           SEM overflow-hidden aqui de propósito: setar overflow-x sem overflow-y
-           faz o navegador computar overflow-y como "auto" (que ainda corta) em
-           vez de "visible" — não dá pra ter só um eixo travado com overflow
-           normal. A faixa girada é mais alta que a caixa lógica; deixando os
-           dois eixos livres ela "sangra" pra cima/baixo na mesma cor da página
-           (sem moldura), e quem contém o excesso horizontal é o
-           overflow-x-clip do elemento raiz da página. O fade nas bordas é só
-           o mask-image (a transparência dele já esconde a ponta, não precisa
-           de clipping nenhum pra isso). */}
+           A caixa é alta o SUFICIENTE pra conter as duas faixas giradas por
+           inteiro — nada sangra pra fora nem pra dentro das seções vizinhas
+           (senão sobrepõe o mockup do celular no hero acima). O único corte é
+           o fade lateral do mask-image; verticalmente não tem clipping porque
+           não precisa: tudo cabe dentro da própria caixa. */}
       <div
-        className="relative h-28 sm:h-32"
+        className="relative h-44 overflow-hidden sm:h-52"
         style={{
           maskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)',
           WebkitMaskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)',
