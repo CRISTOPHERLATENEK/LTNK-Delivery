@@ -26,7 +26,7 @@ import {
   Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star,
   Shield, ShieldCheck, Users, Mail, Phone, Printer, QrCode, KeyRound, Cloud,
   BarChart3, Sun, Moon, Menu, X, ChevronDown, Lock, MapPin, ClipboardList,
-  Share2, Rocket, type LucideIcon,
+  Share2, Rocket, Ticket, Bell, Zap, type LucideIcon,
 } from 'lucide-react';
 import { useTema, reaplicarPaletaTema } from '@/lib/tema';
 import { api } from '@/lib/api';
@@ -41,6 +41,7 @@ gsap.registerPlugin(ScrollTrigger, DrawSVGPlugin);
 export const ICONES_LANDING: Record<LandingIcone, LucideIcon> = {
   store: Store, palette: Palette, bike: Bike, chefhat: ChefHat, receipt: Receipt,
   smartphone: Smartphone, check: Check, star: Star, shield: Shield, users: Users,
+  ticket: Ticket, chart: BarChart3,
 };
 
 const RECURSOS_PADRAO: LandingRecurso[] = [
@@ -51,6 +52,24 @@ const RECURSOS_PADRAO: LandingRecurso[] = [
   { icone: 'chefhat', titulo: 'Cozinha (KDS)', desc: 'Painel de produção próprio, sem misturar com o financeiro.' },
   { icone: 'receipt', titulo: 'NFC-e integrada', desc: 'Emissão fiscal direto na venda, sem depender de outro sistema.' },
   { icone: 'smartphone', titulo: 'PDV + Comandas', desc: 'Venda no balcão e mesas do salão, tudo no mesmo lugar.' },
+  { icone: 'ticket', titulo: 'Cupons de desconto', desc: 'Crie cupons por valor fixo ou percentual, com validade e limite de usos.' },
+  { icone: 'chart', titulo: 'Relatórios', desc: 'Faturamento, ticket médio, cancelamento e produtos mais vendidos — tudo por período.' },
+];
+
+/** Blocos de destaque (automação real do sistema) — conteúdo fixo, não editável no admin. */
+const DESTAQUES_AUTOMACAO: { icone: LucideIcon; titulo: string; desc: string; itens: string[] }[] = [
+  {
+    icone: Zap, titulo: 'Pix automático', desc: 'O pagamento se confirma sozinho — sem conferência manual.',
+    itens: ['Pix, cartão e dinheiro aceitos', 'Confirmação automática via Mercado Pago', 'Sem digitar nada no caixa'],
+  },
+  {
+    icone: Bell, titulo: 'Notificação automática', desc: 'Seu cliente acompanha o pedido sem precisar perguntar.',
+    itens: ['Aviso quando o pedido é aceito', 'Aviso quando sai pra entrega', 'Aviso quando é entregue'],
+  },
+  {
+    icone: Star, titulo: 'Avaliações dos clientes', desc: 'Cada pedido entregue pode ser avaliado — e você acompanha tudo.',
+    itens: ['Nota e comentário por pedido', 'Média da loja no seu painel', 'Ajuda a enxergar o que melhorar'],
+  },
 ];
 
 const BENEFICIOS_PADRAO = ['Sem taxa de setup', 'Seu domínio próprio', 'Suporte a Pix, cartão e dinheiro'];
@@ -95,6 +114,9 @@ const FAQ_PADRAO: LandingFaq[] = [
   { pergunta: 'Vocês cobram taxa por pedido?', resposta: 'Não. Você paga só a mensalidade do plano — nenhuma comissão por venda. O que você fatura é seu.' },
   { pergunta: 'Tem fidelidade ou multa de cancelamento?', resposta: 'Não. Sem contrato de fidelidade e sem multa. Você cancela quando quiser.' },
   { pergunta: 'Funciona com a minha impressora?', resposta: 'Sim. Somos compatíveis com as principais impressoras térmicas do mercado (80mm e 58mm), pro cupom e pro DANFE da NFC-e.' },
+  { pergunta: 'Preciso instalar algo pra imprimir os pedidos?', resposta: 'Não. Por padrão a impressão sai pelo diálogo do navegador, sem instalar nada. Se quiser imprimir direto na térmica sem esse diálogo (mais rápido pro balcão), tem um agente opcional pra Windows que faz isso automaticamente.' },
+  { pergunta: 'Como funciona o domínio da minha loja?', resposta: 'Você recebe um link pronto assim que cadastra a loja (ex.: seusite.com/sua-loja). Se preferir, também pode apontar o seu próprio domínio (ex.: sualoja.com.br) — é só ajustar o DNS e colar o domínio no painel.' },
+  { pergunta: 'Dá pra criar cupom de desconto?', resposta: 'Sim. Você cria cupons por valor fixo ou percentual, com validade e limite de usos — o cliente aplica no carrinho e o desconto sai certinho no pedido e na nota.' },
 ];
 
 const CUPOM_ITENS = [
@@ -762,6 +784,31 @@ export function PaginaLanding() {
               ))}
             </ul>
           </div>
+        </div>
+      </section>
+
+      {/* ───── Destaques de automação (Pix, notificação, avaliação) ───── */}
+      <section data-reveal className="mx-auto max-w-6xl px-5 py-16 sm:px-6 sm:py-20">
+        <TituloSecao texto="Automação de *verdade*, não só promessa" className="text-center text-3xl sm:text-4xl" />
+        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">O sistema trabalha sozinho nos detalhes que tomam seu tempo.</p>
+        <div className="mt-12 grid gap-6 md:grid-cols-3">
+          {DESTAQUES_AUTOMACAO.map(d => (
+            <div key={d.titulo} className="rounded-3xl border border-border bg-card p-7">
+              <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <d.icone className="size-6" />
+              </div>
+              <h3 className="mt-5 text-lg font-bold">{d.titulo}</h3>
+              <p className="mt-1.5 text-sm text-muted-foreground">{d.desc}</p>
+              <ul className="mt-5 space-y-2.5 border-t border-border pt-5">
+                {d.itens.map(item => (
+                  <li key={item} className="flex items-start gap-2.5 text-sm">
+                    <Check className="mt-0.5 size-4 shrink-0 text-primary" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
       </section>
 

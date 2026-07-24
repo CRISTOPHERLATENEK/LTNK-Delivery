@@ -254,7 +254,7 @@ export interface LandingDestaque {
 }
 
 /** Ícones disponíveis para os cards de recursos da landing page (ver ÍCONES_LANDING em landing.tsx). */
-export type LandingIcone = 'store' | 'palette' | 'bike' | 'chefhat' | 'receipt' | 'smartphone' | 'check' | 'star' | 'shield' | 'users';
+export type LandingIcone = 'store' | 'palette' | 'bike' | 'chefhat' | 'receipt' | 'smartphone' | 'check' | 'star' | 'shield' | 'users' | 'ticket' | 'chart';
 
 export interface LandingRecurso {
   icone: LandingIcone;
