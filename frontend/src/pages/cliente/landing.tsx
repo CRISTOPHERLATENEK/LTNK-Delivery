@@ -1183,13 +1183,12 @@ export function PaginaLanding() {
               fundo removido em tempo real) flutuando por cima. Só no desktop. */}
           {ehDesktop && (
             <div className="relative mx-auto aspect-square w-full max-w-md">
-              {/* blob preenchido */}
-              <div className="absolute inset-0 bg-primary/90 [border-radius:42%_58%_63%_37%/45%_38%_62%_55%]" />
-              {/* blob de contorno, deslocado (como o traço do Deeliv) */}
-              <div className="absolute inset-1 rotate-6 border-2 border-primary/40 [border-radius:58%_42%_37%_63%/38%_55%_45%_62%]" />
-              {/* personagem recortado, flutuando (pode "sangrar" um pouco pra fora) */}
+              {/* só a linha (contorno orgânico) — sem o blob preenchido */}
+              <div className="absolute inset-2 rotate-6 border-2 border-primary/50 [border-radius:58%_42%_37%_63%/38%_55%_45%_62%]" />
+              {/* personagem recortado, flutuando */}
               <VideoRecortado
                 src="/mascote/entregador.mp4"
+                tolerancia={70}
                 className="js-mascote absolute inset-0 h-full w-full scale-110 object-contain drop-shadow-2xl"
               />
             </div>
