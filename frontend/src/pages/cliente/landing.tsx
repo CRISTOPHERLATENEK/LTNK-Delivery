@@ -25,7 +25,8 @@ import { DrawSVGPlugin } from 'gsap/DrawSVGPlugin';
 import {
   Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star,
   Shield, ShieldCheck, Users, Mail, Phone, Printer, QrCode, KeyRound, Cloud,
-  BarChart3, Sun, Moon, Menu, X, ChevronDown, Lock, MapPin, type LucideIcon,
+  BarChart3, Sun, Moon, Menu, X, ChevronDown, Lock, MapPin, ClipboardList,
+  Share2, Rocket, type LucideIcon,
 } from 'lucide-react';
 import { useTema, reaplicarPaletaTema } from '@/lib/tema';
 import { api } from '@/lib/api';
@@ -45,7 +46,8 @@ export const ICONES_LANDING: Record<LandingIcone, LucideIcon> = {
 const RECURSOS_PADRAO: LandingRecurso[] = [
   { icone: 'store', titulo: 'Multi-lojas', desc: 'Cada loja com painel, cardápio e domínio próprios.' },
   { icone: 'palette', titulo: 'White label', desc: 'Cores, logo e visual totalmente do jeito da sua marca.' },
-  { icone: 'bike', titulo: 'Rastreio ao vivo', desc: 'Entregador com GPS em tempo real, do jeito que o cliente vê no mapa.' },
+  { icone: 'bike', titulo: 'Rastreio ao vivo', desc: 'O cliente acompanha o entregador em tempo real no mapa, do pedido até a porta.' },
+  { icone: 'bike', titulo: 'App do entregador', desc: 'App próprio pra aceitar a corrida, navegar até o destino e avisar o cliente — sem depender de outro sistema.' },
   { icone: 'chefhat', titulo: 'Cozinha (KDS)', desc: 'Painel de produção próprio, sem misturar com o financeiro.' },
   { icone: 'receipt', titulo: 'NFC-e integrada', desc: 'Emissão fiscal direto na venda, sem depender de outro sistema.' },
   { icone: 'smartphone', titulo: 'PDV + Comandas', desc: 'Venda no balcão e mesas do salão, tudo no mesmo lugar.' },
@@ -60,6 +62,12 @@ const COM_PADRAO = [
   'Cupom fiscal na hora (NFC-e sai junto com a venda, direto na SEFAZ)',
 ];
 const SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria', 'Cafeteria', 'Marmitaria'];
+
+const COMO_FUNCIONA: { icone: LucideIcon; titulo: string; desc: string }[] = [
+  { icone: ClipboardList, titulo: 'Monte seu cardápio', desc: 'Cadastre produtos, fotos, categorias e preços — leva minutos, sem depender de ninguém.' },
+  { icone: Share2, titulo: 'Compartilhe o link da sua loja', desc: 'Domínio próprio, sem app pra instalar. O cliente abre e já pede.' },
+  { icone: Rocket, titulo: 'Comece a vender', desc: 'Pedido cai direto na cozinha, entregador sai com rastreio ao vivo e o pagamento (Pix, cartão ou dinheiro) já cai na sua conta.' },
+];
 
 const STATS_PADRAO = [
   { numero: '2 min', texto: 'do pedido à cozinha' },
@@ -683,6 +691,29 @@ export function PaginaLanding() {
           <MarqueeSegmentos itens={segmentos.map(s => s.toUpperCase())} reverso pontoClasse="text-destructive-foreground/60" />
         </div>
       </div>
+
+      {/* ───── Como funciona (3 passos) ───── */}
+      <section data-reveal className="mx-auto max-w-5xl px-5 py-16 sm:px-6 sm:py-20">
+        <TituloSecao texto="Do zero ao primeiro pedido em *3 passos*" className="text-center text-3xl sm:text-4xl" />
+        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">Sem complicação, sem depender de ninguém pra configurar.</p>
+
+        <div className="relative mt-12 grid gap-8 sm:grid-cols-3 sm:gap-6">
+          {/* Linha conectando os passos (só desktop) */}
+          <div className="pointer-events-none absolute inset-x-0 top-7 hidden border-t-2 border-dashed border-border sm:block" aria-hidden="true" />
+          {COMO_FUNCIONA.map((p, i) => (
+            <div key={p.titulo} className="relative flex flex-col items-center text-center sm:items-start sm:text-left">
+              <div className="relative z-10 flex size-14 shrink-0 items-center justify-center rounded-2xl border-4 border-background bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+                <p.icone className="size-6" />
+              </div>
+              <div className="mt-4">
+                <div className="text-xs font-bold uppercase tracking-widest text-primary">Passo {i + 1}</div>
+                <h3 className="mt-1 text-lg font-bold">{p.titulo}</h3>
+                <p className="mt-1.5 text-sm text-muted-foreground">{p.desc}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
 
       {/* ───── Diga adeus ao atendimento caótico ───── */}
       <section data-reveal className="mx-auto max-w-5xl px-5 py-16 sm:px-6 sm:py-20">
