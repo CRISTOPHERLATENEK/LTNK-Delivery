@@ -1071,6 +1071,11 @@ router.get('/tema', async (_req, res, next) => {
       logo_url:          await valor('marca_logo_url'),
       favicon_url:       await valor('marca_favicon_url'),
       cor_primaria:      await valor('marca_cor_primaria', '#dc2640'),
+      cor_secundaria:    await valor('marca_cor_secundaria'),
+      raio:              await valor('marca_raio', 'suave'),
+      fonte:             await valor('marca_fonte', 'inter'),
+      descricao:         await valor('marca_descricao'),
+      og_image:          await valor('marca_og_image'),
       login_banner_url:  await valor('marca_login_banner_url'),
       loja_id:           Number(await valor('loja_padrao_id', '0')),
     });
@@ -1114,6 +1119,34 @@ router.put('/tema', exigirSuperAdmin, async (req, res, next) => {
       const cor = textoLimpo(req.body.cor_primaria, 20);
       if (!/^#[0-9a-fA-F]{6}$/.test(cor)) throw erroHttp(400, 'Use uma cor em formato hexadecimal (#RRGGBB).');
       await set(cor, 'marca_cor_primaria');
+    }
+    // Os 5 campos abaixo já eram editáveis na tela de Marca e já eram aplicados
+    // pelo frontend (lib/tema.ts), mas não eram persistidos aqui — o admin
+    // salvava e o valor sumia. Listas de valores aceitos espelham RaioMarca /
+    // FonteMarca em frontend/src/types.ts.
+    if (req.body.cor_secundaria !== undefined) {
+      const cor = textoLimpo(req.body.cor_secundaria, 20);
+      // Vazio é válido: significa "derivar da primária" (ver aplicarPaleta).
+      if (cor && !/^#[0-9a-fA-F]{6}$/.test(cor)) throw erroHttp(400, 'Cor secundária inválida (use #RRGGBB ou deixe vazio).');
+      await set(cor, 'marca_cor_secundaria');
+    }
+    if (req.body.raio !== undefined) {
+      const v = textoLimpo(req.body.raio, 20);
+      if (!['reto', 'suave', 'redondo'].includes(v)) throw erroHttp(400, 'Estilo de cantos inválido.');
+      await set(v, 'marca_raio');
+    }
+    if (req.body.fonte !== undefined) {
+      const v = textoLimpo(req.body.fonte, 20);
+      if (!['inter', 'poppins', 'montserrat', 'roboto', 'sistema'].includes(v)) throw erroHttp(400, 'Fonte inválida.');
+      await set(v, 'marca_fonte');
+    }
+    if (req.body.descricao !== undefined) {
+      await set(textoLimpo(req.body.descricao, 200), 'marca_descricao');
+    }
+    if (req.body.og_image !== undefined) {
+      const v = textoLimpo(req.body.og_image, 500);
+      if (v && !/^https?:\/\//i.test(v) && !v.startsWith('/uploads/')) throw erroHttp(400, 'URL da imagem de compartilhamento inválida (use https://… ou faça upload).');
+      await set(v, 'marca_og_image');
     }
     if (req.body.loja_id !== undefined) {
       const id = parseInt(String(req.body.loja_id), 10);

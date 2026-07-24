@@ -60,6 +60,11 @@ router.get('/tema', async (req, res, next) => {
       logo_url:          await valor('marca_logo_url'),
       favicon_url:       favicon,
       cor_primaria:      await valor('marca_cor_primaria', '#dc2640'),
+      cor_secundaria:    await valor('marca_cor_secundaria'),
+      raio:              await valor('marca_raio', 'suave'),
+      fonte:             await valor('marca_fonte', 'inter'),
+      descricao:         await valor('marca_descricao'),
+      og_image:          await valor('marca_og_image'),
       login_banner_url:  await valor('marca_login_banner_url'),
       loja_id:           lojaId,
       // Só o tenant master (banco padrão da plataforma) expõe o painel admin
