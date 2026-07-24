@@ -749,8 +749,8 @@ export function PaginaLanding() {
         <div className="absolute inset-x-0 top-1/2 w-[118%] -translate-x-[9%] -translate-y-[calc(50%+0.85rem)] -rotate-[4deg] bg-foreground py-2.5 text-background shadow-lg">
           <MarqueeSegmentos itens={segmentos.map(s => s.toUpperCase())} pontoClasse="text-primary" />
         </div>
-        <div className="absolute inset-x-0 top-1/2 w-[118%] -translate-x-[9%] translate-y-[calc(-50%+0.85rem)] rotate-[4deg] bg-destructive py-2.5 text-destructive-foreground shadow-lg">
-          <MarqueeSegmentos itens={segmentos.map(s => s.toUpperCase())} reverso pontoClasse="text-destructive-foreground/60" />
+        <div className="absolute inset-x-0 top-1/2 w-[118%] -translate-x-[9%] translate-y-[calc(-50%+0.85rem)] rotate-[4deg] bg-primary py-2.5 text-primary-foreground shadow-lg">
+          <MarqueeSegmentos itens={segmentos.map(s => s.toUpperCase())} reverso pontoClasse="text-primary-foreground/60" />
         </div>
       </div>
 
