@@ -1376,6 +1376,12 @@ router.get('/landing', async (_req, res, next) => {
       whatsapp_msg_flutuante: await valor('landing_whatsapp_msg_flutuante'),
       footer_coluna_sistema: await valor('landing_footer_coluna_sistema'),
       footer_coluna_contato: await valor('landing_footer_coluna_contato'),
+      endereco:          await valor('landing_endereco'),
+      social_instagram:  await valor('landing_social_instagram'),
+      social_facebook:   await valor('landing_social_facebook'),
+      social_tiktok:     await valor('landing_social_tiktok'),
+      social_youtube:    await valor('landing_social_youtube'),
+      social_x:          await valor('landing_social_x'),
     });
   } catch (e) { next(e); }
 });
@@ -1503,6 +1509,9 @@ router.put('/landing', exigirSuperAdmin, async (req, res, next) => {
       ['cta_titulo', 100], ['cta_subtitulo', 240], ['cta_botao_demo_texto', 40],
       ['whatsapp_msg_hero', 200], ['whatsapp_msg_cta', 200], ['whatsapp_msg_flutuante', 200],
       ['footer_coluna_sistema', 40], ['footer_coluna_contato', 40],
+      ['endereco', 200],
+      ['social_instagram', 300], ['social_facebook', 300], ['social_tiktok', 300],
+      ['social_youtube', 300], ['social_x', 300],
     ];
     for (const [campo, max] of CAMPOS_TEXTO) {
       if (req.body[campo] !== undefined) await upsert(`landing_${campo}`, textoLimpo(req.body[campo], max));

@@ -16,7 +16,7 @@
  * qualquer elemento ainda invisível E dentro da viewport a aparecer. Respeita
  * prefers-reduced-motion.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { gsap } from 'gsap';
@@ -135,6 +135,47 @@ function IconeWhatsapp({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
       <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.372-.025-.521-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.71.306 1.263.489 1.694.625.712.227 1.36.195 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z" />
+    </svg>
+  );
+}
+
+/** Ícones de marca (o lucide desta versão não traz os de redes sociais). */
+function IconeInstagram({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <rect x="2" y="2" width="20" height="20" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+function IconeFacebook({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M14 8.5V7c0-.7.3-1 1-1h1.5V3H14c-2.2 0-3.5 1.3-3.5 3.6V8.5H8V11h2.5v10H14V11h2.2l.4-2.5H14Z" />
+    </svg>
+  );
+}
+function IconeYoutube({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M22.5 7.2a2.7 2.7 0 0 0-1.9-1.9C18.9 4.8 12 4.8 12 4.8s-6.9 0-8.6.5A2.7 2.7 0 0 0 1.5 7.2 28 28 0 0 0 1 12a28 28 0 0 0 .5 4.8 2.7 2.7 0 0 0 1.9 1.9c1.7.5 8.6.5 8.6.5s6.9 0 8.6-.5a2.7 2.7 0 0 0 1.9-1.9A28 28 0 0 0 23 12a28 28 0 0 0-.5-4.8ZM9.9 15.3V8.7l5.7 3.3-5.7 3.3Z" />
+    </svg>
+  );
+}
+
+/** Ícone do TikTok (glifo simplificado) — não existe no lucide. */
+function IconeTiktok({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M16.6 5.82a4.28 4.28 0 0 1-1.04-2.82h-3.1v12.4a2.53 2.53 0 1 1-2.53-2.53c.26 0 .5.04.74.11V9.8a5.64 5.64 0 0 0-.74-.05 5.62 5.62 0 1 0 5.62 5.62V9.01a7.34 7.34 0 0 0 4.3 1.38V7.3a4.29 4.29 0 0 1-3.25-1.48Z" />
+    </svg>
+  );
+}
+
+/** Ícone do X (ex-Twitter) — não existe no lucide como marca. */
+function IconeX({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M18.9 2H22l-7.5 8.57L23 22h-6.86l-5.37-7.02L4.6 22H1.5l8.02-9.17L1 2h7.03l4.86 6.43L18.9 2Zm-2.4 18h1.7L7.6 3.72H5.77L16.5 20Z" />
     </svg>
   );
 }
@@ -500,6 +541,14 @@ export function PaginaLanding() {
   const zapMsgFlutuante = marca.landing_whatsapp_msg_flutuante || 'Olá! Quero saber mais sobre o sistema.';
   const footerColunaSistema = marca.landing_footer_coluna_sistema || 'O sistema';
   const footerColunaContato = marca.landing_footer_coluna_contato || 'Contato';
+  const endereco = marca.landing_endereco?.trim();
+  const redesSociais = [
+    { url: marca.landing_social_instagram, Icone: IconeInstagram, label: 'Instagram' },
+    { url: marca.landing_social_facebook, Icone: IconeFacebook, label: 'Facebook' },
+    { url: marca.landing_social_tiktok, Icone: IconeTiktok, label: 'TikTok' },
+    { url: marca.landing_social_youtube, Icone: IconeYoutube, label: 'YouTube' },
+    { url: marca.landing_social_x, Icone: IconeX, label: 'X' },
+  ].filter((r): r is { url: string; Icone: (p: { className?: string }) => ReactElement; label: string } => !!r.url?.trim());
 
   // Link do WhatsApp (número editável no admin; cai no suporte_telefone).
   const zapDigitos = (marca.landing_whatsapp || marca.suporte_telefone || '').replace(/\D/g, '');
@@ -703,6 +752,19 @@ export function PaginaLanding() {
         aoVer(mascote, () => gsap.to(mascote, { y: 0, opacity: 1, duration: 0.7, ease: 'back.out(1.4)' }));
       }
 
+      // ── Redes sociais: entram em stagger + "pop" no hover ──
+      const socials = q('.js-social');
+      if (socials.length) {
+        gsap.set(socials, { scale: 0, opacity: 0 });
+        aoVer(socials[0], () => gsap.to(socials, { scale: 1, opacity: 1, stagger: 0.08, duration: 0.4, ease: 'back.out(2)' }));
+        if (window.matchMedia('(hover: hover)').matches) {
+          socials.forEach((el) => {
+            el.addEventListener('mouseenter', () => gsap.to(el, { scale: 1.18, duration: 0.25, ease: 'back.out(3)' }));
+            el.addEventListener('mouseleave', () => gsap.to(el, { scale: 1, duration: 0.25, ease: 'power2.out' }));
+          });
+        }
+      }
+
       // ── Contador animado nos números (stats) ──
       q('.js-stat-num').forEach((el) => {
         const d = (el as HTMLElement).dataset;
@@ -755,7 +817,7 @@ export function PaginaLanding() {
     // ainda escondido (opacity 0 ou visibility hidden) é forçado a aparecer, e
     // os traços SVG são completados — cobre qualquer falha do IO/GSAP.
     const failsafe = window.setTimeout(() => {
-      el.querySelectorAll<HTMLElement>('.js-hero-item,.js-notebook-screen,.js-hero-phone,[data-reveal],.js-stat,.js-lista-item,.js-lista-div,.js-fone-sec,.js-fone-card,.js-cupom,.js-cupom-linha,.js-cupom-qr,.js-mascote').forEach((n) => {
+      el.querySelectorAll<HTMLElement>('.js-hero-item,.js-notebook-screen,.js-hero-phone,[data-reveal],.js-stat,.js-lista-item,.js-lista-div,.js-fone-sec,.js-fone-card,.js-cupom,.js-cupom-linha,.js-cupom-qr,.js-mascote,.js-social').forEach((n) => {
         const cs = getComputedStyle(n);
         if (cs.opacity === '0' || cs.visibility === 'hidden') gsap.set(n, { clearProps: 'opacity,visibility,transform,clipPath' });
       });
@@ -1206,6 +1268,18 @@ export function PaginaLanding() {
               {marca.nome}
             </div>
             <p className="mt-2 max-w-xs text-sm text-neutral-400">{marca.slogan || 'Seu delivery white label: com a sua marca e o seu domínio.'}</p>
+            {redesSociais.length > 0 && (
+              <div className="mt-4 flex items-center gap-2.5">
+                {redesSociais.map(({ url, Icone, label }) => (
+                  <a
+                    key={label} href={url} target="_blank" rel="noreferrer" aria-label={label}
+                    className="js-social flex size-9 items-center justify-center rounded-full border border-neutral-800 bg-neutral-900 text-neutral-300 transition-colors hover:border-primary hover:bg-primary hover:text-primary-foreground"
+                  >
+                    <Icone className="size-4" />
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <div className="text-xs font-bold uppercase tracking-wider text-neutral-500">{footerColunaSistema}</div>
@@ -1229,6 +1303,9 @@ export function PaginaLanding() {
               )}
               {marca.suporte_telefone && (
                 <li className="flex items-center gap-1.5 text-neutral-400"><Phone className="h-3.5 w-3.5 shrink-0" /> {marca.suporte_telefone}</li>
+              )}
+              {endereco && (
+                <li className="flex items-start gap-1.5 text-neutral-400"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" /> <span>{endereco}</span></li>
               )}
             </ul>
           </div>

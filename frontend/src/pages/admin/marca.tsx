@@ -614,6 +614,12 @@ interface LandingConfig {
   whatsapp_msg_flutuante: string;
   footer_coluna_sistema: string;
   footer_coluna_contato: string;
+  endereco: string;
+  social_instagram: string;
+  social_facebook: string;
+  social_tiktok: string;
+  social_youtube: string;
+  social_x: string;
 }
 
 const ICONES_DISPONIVEIS = Object.keys(ICONES_LANDING) as LandingIcone[];
@@ -716,6 +722,7 @@ function SecaoLanding() {
     cta_titulo: '', cta_subtitulo: '', cta_botao_demo_texto: '',
     whatsapp_msg_hero: '', whatsapp_msg_cta: '', whatsapp_msg_flutuante: '',
     footer_coluna_sistema: '', footer_coluna_contato: '',
+    endereco: '', social_instagram: '', social_facebook: '', social_tiktok: '', social_youtube: '', social_x: '',
   });
   const [enviando, setEnviando] = useState(false);
 
@@ -911,6 +918,12 @@ function SecaoLanding() {
         whatsapp_msg_flutuante: form.whatsapp_msg_flutuante,
         footer_coluna_sistema: form.footer_coluna_sistema,
         footer_coluna_contato: form.footer_coluna_contato,
+        endereco: form.endereco,
+        social_instagram: form.social_instagram,
+        social_facebook: form.social_facebook,
+        social_tiktok: form.social_tiktok,
+        social_youtube: form.social_youtube,
+        social_x: form.social_x,
       });
       mostrar({ tipo: 'sucesso', titulo: 'Landing page atualizada!' });
       consulta.refetch();
@@ -1297,6 +1310,41 @@ function SecaoLanding() {
                       onChange={e => setForm(f => ({ ...f, footer_coluna_contato: e.target.value }))} />
                   </div>
                 </div>
+                <div className="border-t border-border pt-4 space-y-3">
+                  <SecaoTituloEditor titulo="Rodapé — endereço e redes sociais" desc="E-mail e telefone vêm de Marca → Configurações gerais (suporte). Aqui você adiciona o endereço e os links das redes (vazio = o ícone não aparece)." />
+                  <div>
+                    <Label>Endereço</Label>
+                    <Input maxLength={200} value={form.endereco} placeholder="Rua Exemplo, 123 — Centro, Cidade/UF"
+                      onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} />
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div>
+                      <Label>Instagram (link)</Label>
+                      <Input maxLength={300} value={form.social_instagram} placeholder="https://instagram.com/sua_loja"
+                        onChange={e => setForm(f => ({ ...f, social_instagram: e.target.value }))} />
+                    </div>
+                    <div>
+                      <Label>Facebook (link)</Label>
+                      <Input maxLength={300} value={form.social_facebook} placeholder="https://facebook.com/sua_loja"
+                        onChange={e => setForm(f => ({ ...f, social_facebook: e.target.value }))} />
+                    </div>
+                    <div>
+                      <Label>TikTok (link)</Label>
+                      <Input maxLength={300} value={form.social_tiktok} placeholder="https://tiktok.com/@sua_loja"
+                        onChange={e => setForm(f => ({ ...f, social_tiktok: e.target.value }))} />
+                    </div>
+                    <div>
+                      <Label>YouTube (link)</Label>
+                      <Input maxLength={300} value={form.social_youtube} placeholder="https://youtube.com/@sua_loja"
+                        onChange={e => setForm(f => ({ ...f, social_youtube: e.target.value }))} />
+                    </div>
+                    <div>
+                      <Label>X / Twitter (link)</Label>
+                      <Input maxLength={300} value={form.social_x} placeholder="https://x.com/sua_loja"
+                        onChange={e => setForm(f => ({ ...f, social_x: e.target.value }))} />
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1532,6 +1580,12 @@ function PreviewLanding({ form }: { form: LandingConfig }) {
         landing_whatsapp_msg_flutuante: form.whatsapp_msg_flutuante,
         landing_footer_coluna_sistema: form.footer_coluna_sistema,
         landing_footer_coluna_contato: form.footer_coluna_contato,
+        landing_endereco: form.endereco,
+        landing_social_instagram: form.social_instagram,
+        landing_social_facebook: form.social_facebook,
+        landing_social_tiktok: form.social_tiktok,
+        landing_social_youtube: form.social_youtube,
+        landing_social_x: form.social_x,
       },
     }, window.location.origin);
   }, [form, pronto]);

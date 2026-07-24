@@ -265,6 +265,14 @@ export interface TemaMarca {
   /** Rótulos das colunas do rodapé. */
   landing_footer_coluna_sistema?: string;
   landing_footer_coluna_contato?: string;
+  /** Endereço exibido no rodapé (vazio = não mostra). */
+  landing_endereco?: string;
+  /** Links das redes sociais no rodapé (vazio = o ícone não aparece). */
+  landing_social_instagram?: string;
+  landing_social_facebook?: string;
+  landing_social_tiktok?: string;
+  landing_social_youtube?: string;
+  landing_social_x?: string;
 }
 
 /** Um plano/preço exibido na seção de planos da landing. */
