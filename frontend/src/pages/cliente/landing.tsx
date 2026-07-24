@@ -1182,15 +1182,16 @@ export function PaginaLanding() {
           {/* Composição: formas orgânicas na cor da marca + o personagem (vídeo com
               fundo removido em tempo real) flutuando por cima. Só no desktop. */}
           {ehDesktop && (
-            <div className="relative mx-auto aspect-square w-full max-w-md">
-              {/* só a linha (contorno orgânico) — sem o blob preenchido */}
-              <div className="absolute inset-2 rotate-6 border-2 border-primary/50 [border-radius:58%_42%_37%_63%/38%_55%_45%_62%]" />
-              {/* personagem recortado, flutuando */}
-              <VideoRecortado
-                src="/mascote/entregador.mp4"
-                tolerancia={70}
-                className="js-mascote absolute inset-0 h-full w-full scale-110 object-contain drop-shadow-2xl"
-              />
+            <div className="js-mascote relative mx-auto aspect-square w-full max-w-md">
+              {/* forma orgânica: a linha (contorno) E o recorte do conteúdo são a
+                  MESMA forma — overflow-hidden faz o personagem não vazar da linha. */}
+              <div className="absolute inset-2 overflow-hidden border-2 border-primary/50 [border-radius:58%_42%_37%_63%/38%_55%_45%_62%]">
+                <VideoRecortado
+                  src="/mascote/entregador.mp4"
+                  tolerancia={70}
+                  className="h-full w-full scale-105 object-cover"
+                />
+              </div>
             </div>
           )}
         </div>
