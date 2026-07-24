@@ -215,7 +215,6 @@ function CupomTermico({ itens, total, nomeLoja }: { itens: LandingCupomItem[]; t
   serra += ' Z';
   return (
     <div className="relative mx-auto w-[280px] max-w-full [transform:rotate(3deg)]">
-      <div className="absolute inset-0 -z-10 translate-y-6 scale-95 rounded-2xl bg-primary/20 blur-2xl" />
       <div className="js-cupom will-change-transform overflow-hidden rounded-t-md bg-white text-neutral-900 shadow-2xl">
         <div className="fonte-cupom px-5 py-5 text-[11px] leading-relaxed">
           <div className="js-cupom-linha text-center">
