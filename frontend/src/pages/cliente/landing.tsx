@@ -44,7 +44,7 @@ export const ICONES_LANDING: Record<LandingIcone, LucideIcon> = {
 };
 
 const RECURSOS_PADRAO: LandingRecurso[] = [
-  { icone: 'store', titulo: 'Multi-lojas', desc: 'Cada loja com painel, cardápio e domínio próprios.' },
+  { icone: 'store', titulo: 'Loja própria', desc: 'Seu painel, seu cardápio e seu domínio — só seu, nada compartilhado.' },
   { icone: 'palette', titulo: 'White label', desc: 'Cores, logo e visual totalmente do jeito da sua marca.' },
   { icone: 'bike', titulo: 'Rastreio ao vivo', desc: 'O cliente acompanha o entregador em tempo real no mapa, do pedido até a porta.' },
   { icone: 'bike', titulo: 'App do entregador', desc: 'App próprio pra aceitar a corrida, navegar até o destino e avisar o cliente — sem depender de outro sistema.' },
@@ -53,11 +53,11 @@ const RECURSOS_PADRAO: LandingRecurso[] = [
   { icone: 'smartphone', titulo: 'PDV + Comandas', desc: 'Venda no balcão e mesas do salão, tudo no mesmo lugar.' },
 ];
 
-const BENEFICIOS_PADRAO = ['Sem taxa de setup', 'Cada loja com domínio próprio', 'Suporte a Pix, cartão e dinheiro'];
+const BENEFICIOS_PADRAO = ['Sem taxa de setup', 'Seu domínio próprio', 'Suporte a Pix, cartão e dinheiro'];
 const SEM_PADRAO = ['Desorganização no atendimento', 'Falhas de comunicação', 'Erros nos pedidos', 'Nota fiscal em outro programa'];
 const COM_PADRAO = [
   'Agilidade e organização (pedido entra e já aparece na cozinha)',
-  'Cada loja com sua operação (painel, cardápio e domínio próprios)',
+  'Sua operação completa (painel, cardápio e domínio próprios)',
   'Menos erro, mais venda (nada de anotar pedido no papel)',
   'Cupom fiscal na hora (NFC-e sai junto com a venda, direto na SEFAZ)',
 ];
@@ -86,7 +86,7 @@ const FISCAL_MINI: { icone: LucideIcon; titulo: string; desc: string }[] = [
 const PLANOS_PADRAO: LandingPlano[] = [
   { nome: 'Iniciante', preco: 'R$ 97/mês', cta: 'Começar agora', recursos: ['1 loja com domínio próprio', 'Cardápio digital ilimitado', 'Pedidos, cozinha e PDV', 'Pix, cartão e dinheiro', 'Suporte por WhatsApp'] },
   { nome: 'Profissional', preco: 'R$ 197/mês', destaque: true, cta: 'Assinar Profissional', recursos: ['Tudo do Iniciante', 'NFC-e integrada (nota na venda)', 'Rastreio de entregador ao vivo', 'Comandas e mesas do salão', 'Relatórios completos', 'Suporte prioritário'] },
-  { nome: 'Multi-lojas', preco: 'Sob consulta', cta: 'Falar com a gente', recursos: ['Várias lojas num painel só', 'Cada loja com sua marca e domínio', 'Gestão centralizada', 'Onboarding assistido', 'Gerente de conta dedicado'] },
+  { nome: 'Mais de uma unidade', preco: 'Sob medida', cta: 'Falar com a gente', recursos: ['Cada unidade é um acesso próprio', 'Banco e domínio separados por unidade', 'A sua marca em cada uma', 'Sem taxa de setup'] },
 ];
 
 const FAQ_PADRAO: LandingFaq[] = [
@@ -360,7 +360,7 @@ export function PaginaLanding() {
 
   const heroEyebrow = marca.landing_hero_eyebrow || 'Sistema para deliveries e restaurantes';
   const heroTitulo = marca.landing_hero_titulo || 'Seu delivery rodando liso, do pedido à *nota fiscal*.';
-  const heroSubtitulo = marca.landing_hero_subtitulo || 'Cardápio, pedidos, cozinha, PDV e NFC-e num sistema só. Cada loja com seu domínio e a sua cara.';
+  const heroSubtitulo = marca.landing_hero_subtitulo || 'Cardápio, pedidos, cozinha, PDV e NFC-e num sistema só. Com o seu domínio e a sua cara.';
   const heroImagem = marca.landing_hero_imagem || '/landing/storefront-desktop.png';
   const heroImagemMobile = marca.landing_hero_imagem_mobile || '/landing/storefront-mobile.png';
 
@@ -977,10 +977,10 @@ export function PaginaLanding() {
               {marca.logo_url ? <img src={marca.logo_url} alt={marca.nome} className="h-6 w-auto" /> : <Store className="h-5 w-5 text-primary" />}
               {marca.nome}
             </div>
-            <p className="mt-2 max-w-xs text-sm text-muted-foreground">{marca.slogan || 'A plataforma completa de delivery multi-lojas.'}</p>
+            <p className="mt-2 max-w-xs text-sm text-muted-foreground">{marca.slogan || 'Seu delivery white label: com a sua marca e o seu domínio.'}</p>
           </div>
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Plataforma</div>
+            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">O sistema</div>
             <ul className="mt-3 space-y-2 text-sm">
               {linkDemo && (
                 <li>{demoExterna

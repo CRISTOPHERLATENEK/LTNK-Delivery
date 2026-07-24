@@ -1033,7 +1033,7 @@ function LoginLojista() {
           </div>
         </div>
 
-        <div className="relative text-xs text-primary-foreground/60">© {new Date().getFullYear()} — plataforma multi-lojas</div>
+        <div className="relative text-xs text-primary-foreground/60">© {new Date().getFullYear()} — sistema de delivery</div>
       </div>
 
       {/* Formulário */}
