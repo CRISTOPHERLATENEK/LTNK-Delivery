@@ -1198,42 +1198,42 @@ export function PaginaLanding() {
       </section>
 
       {/* ───── Rodapé ───── */}
-      <footer className="mt-auto border-t border-border bg-background">
+      <footer className="mt-auto bg-neutral-950 text-neutral-400">
         <div className="mx-auto grid max-w-6xl gap-8 px-5 py-12 sm:px-6 sm:grid-cols-3">
           <div>
-            <div className="flex items-center gap-2 font-extrabold">
+            <div className="flex items-center gap-2 font-extrabold text-white">
               {marca.logo_url ? <img src={marca.logo_url} alt={marca.nome} className="h-6 w-auto" /> : <Store className="h-5 w-5 text-primary" />}
               {marca.nome}
             </div>
-            <p className="mt-2 max-w-xs text-sm text-muted-foreground">{marca.slogan || 'Seu delivery white label: com a sua marca e o seu domínio.'}</p>
+            <p className="mt-2 max-w-xs text-sm text-neutral-400">{marca.slogan || 'Seu delivery white label: com a sua marca e o seu domínio.'}</p>
           </div>
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{footerColunaSistema}</div>
+            <div className="text-xs font-bold uppercase tracking-wider text-neutral-500">{footerColunaSistema}</div>
             <ul className="mt-3 space-y-2 text-sm">
               {linkDemo && (
                 <li>{demoExterna
-                  ? <a href={linkDemo} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground">Ver demonstração</a>
-                  : <Link to={linkDemo} className="text-muted-foreground hover:text-foreground">Ver demonstração</Link>}</li>
+                  ? <a href={linkDemo} target="_blank" rel="noreferrer" className="text-neutral-400 hover:text-white">Ver demonstração</a>
+                  : <Link to={linkDemo} className="text-neutral-400 hover:text-white">Ver demonstração</Link>}</li>
               )}
-              <li><a href="#planos" className="text-muted-foreground hover:text-foreground">Planos</a></li>
-              <li><a href="#duvidas" className="text-muted-foreground hover:text-foreground">Dúvidas</a></li>
-              <li><Link to="/lojista" className="text-muted-foreground hover:text-foreground">Sou lojista</Link></li>
-              {marca.termos_url && <li><a href={marca.termos_url} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-foreground">Termos de uso</a></li>}
+              <li><a href="#planos" className="text-neutral-400 hover:text-white">Planos</a></li>
+              <li><a href="#duvidas" className="text-neutral-400 hover:text-white">Dúvidas</a></li>
+              <li><Link to="/lojista" className="text-neutral-400 hover:text-white">Sou lojista</Link></li>
+              {marca.termos_url && <li><a href={marca.termos_url} target="_blank" rel="noreferrer" className="text-neutral-400 hover:text-white">Termos de uso</a></li>}
             </ul>
           </div>
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{footerColunaContato}</div>
+            <div className="text-xs font-bold uppercase tracking-wider text-neutral-500">{footerColunaContato}</div>
             <ul className="mt-3 space-y-2 text-sm">
               {marca.suporte_email && (
-                <li><a href={`mailto:${marca.suporte_email}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"><Mail className="h-3.5 w-3.5 shrink-0" /> {marca.suporte_email}</a></li>
+                <li><a href={`mailto:${marca.suporte_email}`} className="flex items-center gap-1.5 text-neutral-400 hover:text-white"><Mail className="h-3.5 w-3.5 shrink-0" /> {marca.suporte_email}</a></li>
               )}
               {marca.suporte_telefone && (
-                <li className="flex items-center gap-1.5 text-muted-foreground"><Phone className="h-3.5 w-3.5 shrink-0" /> {marca.suporte_telefone}</li>
+                <li className="flex items-center gap-1.5 text-neutral-400"><Phone className="h-3.5 w-3.5 shrink-0" /> {marca.suporte_telefone}</li>
               )}
             </ul>
           </div>
         </div>
-        <div className="border-t border-border px-6 py-4 text-center text-xs text-muted-foreground">
+        <div className="border-t border-neutral-800 px-6 py-4 text-center text-xs text-neutral-500">
           © {new Date().getFullYear()} {marca.nome}. Todos os direitos reservados.
         </div>
       </footer>
