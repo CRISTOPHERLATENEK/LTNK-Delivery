@@ -2,7 +2,7 @@
  * Roteamento principal — cliente como app principal; outros perfis em rotas
  * dedicadas (lojista, entregador, admin).
  */
-import { useEffect } from 'react';
+import { useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { Home, ShoppingBag, Receipt, User, ChevronRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -11,6 +11,8 @@ import { useCarrinho, totalItensCarrinho } from '@/lib/carrinho';
 import { rotaInicioCliente, corLojaAtual } from '@/lib/loja-atual';
 import { api, sessaoUsuario } from '@/lib/api';
 import { useTema } from '@/lib/tema';
+// Área do CLIENTE fica no bundle principal: é a rota que todo visitante abre
+// (cardápio, carrinho, checkout) — atrasá-la com um chunk extra só pioraria.
 import { PaginaVitrine } from '@/pages/cliente/vitrine';
 import { PaginaDemo } from '@/pages/cliente/demo';
 import { PaginaLoja } from '@/pages/cliente/loja';
@@ -18,23 +20,39 @@ import { PaginaCarrinho } from '@/pages/cliente/carrinho';
 import { PaginaPedidos } from '@/pages/cliente/pedidos';
 import { PaginaPedido } from '@/pages/cliente/pedido';
 import { PaginaConta } from '@/pages/cliente/conta';
-import { PainelLojista } from '@/pages/lojista/painel';
-import { TelaEntregador } from '@/pages/entregador';
-import { PainelCozinha } from '@/pages/cozinha/painel';
-import { TelaAdmin } from '@/pages/admin';
-import { TelaMarca } from '@/pages/admin/marca';
-import { TelaAdmins } from '@/pages/admin/admins';
-import { TelaLojistas } from '@/pages/admin/lojistas';
-import { TelaLojas } from '@/pages/admin/lojas';
-import { TelaPedidosAdmin } from '@/pages/admin/pedidos-admin';
-import { TelaBanners } from '@/pages/admin/banners';
-import { TelaRepasses } from '@/pages/admin/repasses';
-import { TelaMonitor } from '@/pages/admin/monitor';
-import { TelaEntregadores } from '@/pages/admin/entregadores';
-import { TelaTenants } from '@/pages/admin/tenants';
-import { TelaAuditoria } from '@/pages/admin/auditoria';
 import { EsqueciSenha, RedefinirSenha } from '@/pages/esqueci-senha';
 import { Guard } from '@/components/guards';
+
+/**
+ * Painéis internos (lojista, entregador, cozinha, admin) entram por lazy: são
+ * usados por uma minoria de sessões, mas somavam ~1 MB baixado por TODO
+ * visitante do cardápio. Com import() o chunk só desce quando alguém abre a
+ * rota — o cliente final passa a baixar apenas o app dele.
+ */
+const PainelLojista = lazy(() => import('@/pages/lojista/painel').then(m => ({ default: m.PainelLojista })));
+const TelaEntregador = lazy(() => import('@/pages/entregador').then(m => ({ default: m.TelaEntregador })));
+const PainelCozinha = lazy(() => import('@/pages/cozinha/painel').then(m => ({ default: m.PainelCozinha })));
+const TelaAdmin = lazy(() => import('@/pages/admin').then(m => ({ default: m.TelaAdmin })));
+const TelaMarca = lazy(() => import('@/pages/admin/marca').then(m => ({ default: m.TelaMarca })));
+const TelaAdmins = lazy(() => import('@/pages/admin/admins').then(m => ({ default: m.TelaAdmins })));
+const TelaLojistas = lazy(() => import('@/pages/admin/lojistas').then(m => ({ default: m.TelaLojistas })));
+const TelaLojas = lazy(() => import('@/pages/admin/lojas').then(m => ({ default: m.TelaLojas })));
+const TelaPedidosAdmin = lazy(() => import('@/pages/admin/pedidos-admin').then(m => ({ default: m.TelaPedidosAdmin })));
+const TelaBanners = lazy(() => import('@/pages/admin/banners').then(m => ({ default: m.TelaBanners })));
+const TelaRepasses = lazy(() => import('@/pages/admin/repasses').then(m => ({ default: m.TelaRepasses })));
+const TelaMonitor = lazy(() => import('@/pages/admin/monitor').then(m => ({ default: m.TelaMonitor })));
+const TelaEntregadores = lazy(() => import('@/pages/admin/entregadores').then(m => ({ default: m.TelaEntregadores })));
+const TelaTenants = lazy(() => import('@/pages/admin/tenants').then(m => ({ default: m.TelaTenants })));
+const TelaAuditoria = lazy(() => import('@/pages/admin/auditoria').then(m => ({ default: m.TelaAuditoria })));
+
+/** Fallback enquanto o chunk do painel baixa. */
+function CarregandoPainel() {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-background">
+      <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+    </div>
+  );
+}
 
 const STATUS_ATIVOS = ['pendente', 'aceito', 'preparando', 'pronto', 'em_entrega'];
 const STATUS_EMOJI: Record<string, string> = {
@@ -133,6 +151,9 @@ export default function App() {
   }, []);
 
   return (
+    // Suspense cobre as rotas lazy (painéis internos). As rotas do cliente são
+    // estáticas e não passam por aqui — renderizam sem fallback nenhum.
+    <Suspense fallback={<CarregandoPainel />}>
     <Routes>
       {/* Sem ClienteLayout: "/" tanto pode ser a landing do produto (sem nav de
           compras — carrinho/pedidos não fazem sentido numa página de marketing)
@@ -177,5 +198,6 @@ export default function App() {
         <Route path="/painel-admin/*" element={<TelaAdmin />} />
       </Route>
     </Routes>
+    </Suspense>
   );
 }

@@ -25,9 +25,11 @@ export default defineConfig({
           if (id.includes('node_modules/@tanstack')) return 'vendor-query';
           if (id.includes('node_modules/framer-motion')) return 'vendor-motion';
           if (id.includes('node_modules/@radix-ui')) return 'vendor-ui';
-          if (id.includes('/pages/admin/')) return 'painel-admin';
-          if (id.includes('/pages/lojista/')) return 'painel-lojista';
-          if (id.includes('/pages/entregador/')) return 'painel-entregador';
+          // Os painéis internos NÃO entram em manualChunks: eles são carregados
+          // via React.lazy (App.tsx) e o próprio bundler já cria um chunk por
+          // import(). Forçá-los num chunk nomeado aqui os colocava no grafo
+          // inicial — o index.html ganhava <link modulepreload> pra cada um e o
+          // visitante do cardápio baixava ~1 MB de painel que nunca abriria.
         },
       },
     },
