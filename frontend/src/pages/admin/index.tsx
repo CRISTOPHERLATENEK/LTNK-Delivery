@@ -431,8 +431,8 @@ function LoginAdmin() {
             type="password" required placeholder="Senha" autoComplete="current-password"
             value={senha} onChange={e => setSenha(e.target.value)}
           />
-          <Button type="submit" size="lg" className="w-full" disabled={carregando}>
-            {carregando ? 'Entrando…' : 'Entrar no painel'}
+          <Button type="submit" size="lg" className="w-full" loading={carregando} loadingText="Entrando…">
+            Entrar no painel
           </Button>
           <Link to="/esqueci-senha" className="block text-center text-sm text-zinc-400 hover:text-primary">
             Esqueci minha senha

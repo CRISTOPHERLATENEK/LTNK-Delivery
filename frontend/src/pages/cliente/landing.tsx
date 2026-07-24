@@ -389,9 +389,15 @@ export function PaginaLanding() {
     const alturas = { sm: 'h-9 px-4 text-xs rounded-xl', lg: 'h-12 px-7 text-base rounded-2xl', xl: 'h-14 px-8 text-base rounded-2xl' };
     const cor = variant === 'branco'
       ? 'bg-background text-foreground hover:bg-background/90'
-      : 'bg-primary text-primary-foreground hover:bg-primary/90';
-    const base = cn('inline-flex items-center justify-center gap-2 font-semibold shadow-sm transition-all active:scale-[0.98]', alturas[size], cor, className);
-    const conteudo = <>{texto || ctaTexto} <ArrowRight className="size-4" /></>;
+      : 'bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25';
+    const base = cn(
+      'relative isolate inline-flex items-center justify-center gap-2 overflow-hidden font-semibold shadow-sm transition-all',
+      'active:scale-[0.98] active:brightness-95',
+      '[&_svg]:transition-transform [&_svg]:duration-300 hover:[&_svg]:translate-x-0.5',
+      'before:absolute before:inset-0 before:origin-left before:scale-x-0 before:bg-white/15 before:transition-transform before:duration-300 before:content-[""] hover:before:scale-x-100',
+      alturas[size], cor, className,
+    );
+    const conteudo = <span className="relative z-10 inline-flex items-center gap-2">{texto || ctaTexto} <ArrowRight className="size-4" /></span>;
     if (!linkDemo) return <button type="button" disabled className={cn(base, 'cursor-not-allowed opacity-50')}>{texto || ctaTexto}</button>;
     if (demoExterna) return <a href={linkDemo} target="_blank" rel="noreferrer" className={base}>{conteudo}</a>;
     return <Link to={linkDemo} className={base}>{conteudo}</Link>;
@@ -400,8 +406,13 @@ export function PaginaLanding() {
   /** Botão do WhatsApp (cai pro /lojista quando não há número). */
   const BotaoZap = ({ size, texto, msg, className }: { size: 'sm' | 'lg' | 'xl'; texto: string; msg?: string; className?: string }) => {
     const alturas = { sm: 'h-9 px-4 text-xs rounded-xl', lg: 'h-12 px-7 text-base rounded-2xl', xl: 'h-14 px-8 text-base rounded-2xl' };
-    const base = cn('inline-flex items-center justify-center gap-2 border border-input bg-background font-semibold text-foreground transition-all hover:bg-accent active:scale-[0.98]', alturas[size], className);
-    const conteudo = <><IconeWhatsapp className="size-[1.1em]" /> {texto}</>;
+    const base = cn(
+      'relative isolate inline-flex items-center justify-center gap-2 overflow-hidden border border-input bg-background font-semibold text-foreground transition-all',
+      'hover:shadow-sm active:scale-[0.98] active:brightness-95',
+      'before:absolute before:inset-0 before:origin-left before:scale-x-0 before:bg-accent before:transition-transform before:duration-300 before:content-[""] hover:before:scale-x-100',
+      alturas[size], className,
+    );
+    const conteudo = <span className="relative z-10 inline-flex items-center gap-2"><IconeWhatsapp className="size-[1.1em]" /> {texto}</span>;
     const href = linkZap(msg);
     if (href) return <a href={href} target="_blank" rel="noreferrer" className={base}>{conteudo}</a>;
     return <Link to="/lojista" className={base}>{texto}</Link>;

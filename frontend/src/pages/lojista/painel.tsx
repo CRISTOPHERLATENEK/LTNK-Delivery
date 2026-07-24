@@ -1102,8 +1102,8 @@ function LoginLojista() {
               />
               Manter conectado neste dispositivo
             </label>
-            <Button type="submit" size="lg" className="w-full shadow-lg shadow-primary/25 active:scale-[0.98]" disabled={enviando}>
-              {enviando ? 'Entrando…' : 'Entrar'}
+            <Button type="submit" size="lg" className="w-full" loading={enviando} loadingText="Entrando…">
+              Entrar
             </Button>
           </form>
 
