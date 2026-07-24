@@ -663,15 +663,24 @@ export function PaginaLanding() {
         </div>
       </section>
 
-      {/* ───── Faixa de segmentos (2 marquees cruzadas em X, direções opostas) ───── */}
+      {/* ───── Faixa de segmentos (2 marquees cruzadas em X, direções opostas) ─────
+           Overflow só no eixo X (mask de fade nas bordas laterais) — no eixo Y
+           fica visível de propósito: a faixa girada é mais alta que sua caixa
+           lógica, e o fundo em volta é a mesma cor da página, então deixar
+           "sangrar" pra cima/baixo evita o corte reto que travava no fundo da
+           caixa (visualmente igual a uma fita cruzando a página, sem moldura). */}
       <div
-        className="relative h-28 overflow-hidden sm:h-32"
-        style={{ maskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)', WebkitMaskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)' }}
+        className="relative h-28 sm:h-32"
+        style={{
+          overflowX: 'hidden', overflowY: 'visible',
+          maskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)',
+          WebkitMaskImage: 'linear-gradient(to right, transparent, black 8%, black 92%, transparent)',
+        }}
       >
-        <div className="absolute inset-x-0 top-1/2 w-[130%] -translate-x-[15%] -translate-y-[calc(50%+0.85rem)] -rotate-[4deg] bg-foreground py-2.5 text-background shadow-lg">
+        <div className="absolute inset-x-0 top-1/2 w-[118%] -translate-x-[9%] -translate-y-[calc(50%+0.85rem)] -rotate-[4deg] bg-foreground py-2.5 text-background shadow-lg">
           <MarqueeSegmentos itens={segmentos.map(s => s.toUpperCase())} pontoClasse="text-primary" />
         </div>
-        <div className="absolute inset-x-0 top-1/2 w-[130%] -translate-x-[15%] translate-y-[calc(-50%+0.85rem)] rotate-[4deg] bg-destructive py-2.5 text-destructive-foreground shadow-lg">
+        <div className="absolute inset-x-0 top-1/2 w-[118%] -translate-x-[9%] translate-y-[calc(-50%+0.85rem)] rotate-[4deg] bg-destructive py-2.5 text-destructive-foreground shadow-lg">
           <MarqueeSegmentos itens={segmentos.map(s => s.toUpperCase())} reverso pontoClasse="text-destructive-foreground/60" />
         </div>
       </div>
