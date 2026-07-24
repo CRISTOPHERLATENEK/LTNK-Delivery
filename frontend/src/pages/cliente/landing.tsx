@@ -391,13 +391,12 @@ export function PaginaLanding() {
       ? 'bg-background text-foreground hover:bg-background/90'
       : 'bg-primary text-primary-foreground hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25';
     const base = cn(
-      'relative isolate inline-flex items-center justify-center gap-2 overflow-hidden font-semibold shadow-sm transition-all',
+      'inline-flex items-center justify-center gap-2 font-semibold shadow-sm transition-all',
       'active:scale-[0.98] active:brightness-95',
       '[&_svg]:transition-transform [&_svg]:duration-300 hover:[&_svg]:translate-x-0.5',
-      'before:absolute before:inset-0 before:origin-left before:scale-x-0 before:bg-white/15 before:transition-transform before:duration-300 before:content-[""] hover:before:scale-x-100',
       alturas[size], cor, className,
     );
-    const conteudo = <span className="relative z-10 inline-flex items-center gap-2">{texto || ctaTexto} <ArrowRight className="size-4" /></span>;
+    const conteudo = <>{texto || ctaTexto} <ArrowRight className="size-4" /></>;
     if (!linkDemo) return <button type="button" disabled className={cn(base, 'cursor-not-allowed opacity-50')}>{texto || ctaTexto}</button>;
     if (demoExterna) return <a href={linkDemo} target="_blank" rel="noreferrer" className={base}>{conteudo}</a>;
     return <Link to={linkDemo} className={base}>{conteudo}</Link>;

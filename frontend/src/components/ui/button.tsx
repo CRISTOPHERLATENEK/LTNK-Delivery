@@ -8,10 +8,13 @@ import { cn } from '@/lib/utils';
  * Botão polivalente — varia por intenção (default, secondary, ghost…) e tamanho.
  *
  * Micro-interações padrão (todas via CSS, sem JS): o ícone à direita (ex.
- * ArrowRight num CTA) desliza no hover — sinaliza "avançar" sem ser chamativo;
- * variantes de cor sólida (default/destructive/success) ganham um "sweep" de
- * preenchimento no hover via ::before (mesma técnica de contained overlay,
- * sem precisar de wrapper extra); active reforça o toque (scale + brightness).
+ * ArrowRight num CTA) desliza no hover; active reforça o toque (scale +
+ * brightness). O "sweep" de preenchimento (::before crescendo da esquerda)
+ * só existe em outline/ghost — ali faz sentido (transparente → preenchido).
+ * Nos botões de cor sólida (default/destructive/success) ele NÃO é usado:
+ * competia com a troca de opacidade do hover ao mesmo tempo, misturando duas
+ * animações de cor e ficando poluído — nesses o hover é só escurecer +
+ * levantar sombra, mais limpo.
  */
 const buttonVariants = cva(
   cn(
@@ -20,18 +23,22 @@ const buttonVariants = cva(
     'active:scale-[0.98] active:brightness-95',
     '[&_svg]:size-4 [&_svg]:shrink-0',
     '[&_svg:last-child]:transition-transform [&_svg:last-child]:duration-300 hover:[&_svg:last-child]:translate-x-0.5',
-    // Sweep de preenchimento (overlay sutil), some por padrão e cresce da esquerda no hover.
-    'before:absolute before:inset-0 before:origin-left before:scale-x-0 before:bg-white/15 before:transition-transform before:duration-300 before:content-[""] hover:before:scale-x-100',
   ),
   {
     variants: {
       variant: {
         default: 'bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/25',
         destructive: 'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90 hover:shadow-lg hover:shadow-destructive/25',
-        outline: 'border border-input bg-background before:bg-accent hover:text-accent-foreground hover:shadow-sm',
+        outline: cn(
+          'border border-input bg-background transition-colors duration-300 hover:text-accent-foreground hover:shadow-sm',
+          'before:absolute before:inset-0 before:origin-left before:scale-x-0 before:bg-accent before:transition-transform before:duration-300 before:content-[""] hover:before:scale-x-100',
+        ),
         secondary: 'bg-secondary text-secondary-foreground hover:bg-secondary/80',
-        ghost: 'before:bg-accent hover:text-accent-foreground',
-        link: 'text-primary underline-offset-4 hover:underline before:hidden',
+        ghost: cn(
+          'transition-colors duration-300 hover:text-accent-foreground',
+          'before:absolute before:inset-0 before:origin-left before:scale-x-0 before:bg-accent before:transition-transform before:duration-300 before:content-[""] hover:before:scale-x-100',
+        ),
+        link: 'text-primary underline-offset-4 hover:underline',
         success: 'bg-success text-success-foreground shadow-sm hover:bg-success/90 hover:shadow-lg hover:shadow-success/25',
       },
       size: {
