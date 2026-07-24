@@ -185,6 +185,12 @@ function TextoComComplemento({ texto }: { texto: string }) {
   );
 }
 
+/** Separa "2 min" em { pre:'', num:'2', suf:' min' } pro contador animado. Null se não tiver número. */
+function partesStat(numero: string): { pre: string; num: string; suf: string } | null {
+  const m = /^(\D*)(\d+)(.*)$/.exec(numero.trim());
+  return m ? { pre: m[1], num: m[2], suf: m[3] } : null;
+}
+
 /** Marquee reto (CSS puro), conteúdo duplicado pra emenda invisível. */
 function MarqueeSegmentos({ itens, reverso, pontoClasse }: { itens: string[]; reverso?: boolean; pontoClasse?: string }) {
   const bloco = (dup: number) => (
@@ -617,6 +623,53 @@ export function PaginaLanding() {
         gsap.set(mascote, { y: 40, opacity: 0 });
         aoVer(mascote, () => gsap.to(mascote, { y: 0, opacity: 1, duration: 0.7, ease: 'back.out(1.4)' }));
       }
+
+      // ── Contador animado nos números (stats) ──
+      q('.js-stat-num').forEach((el) => {
+        const d = (el as HTMLElement).dataset;
+        const alvo = Number(d.num || '0');
+        if (!alvo) return; // "0" ou sem número: mantém o texto original
+        const pre = d.pre || '', suf = d.suf || '';
+        const obj = { v: 0 };
+        aoVer(el, () => gsap.to(obj, {
+          v: alvo, duration: 1.3, ease: 'power2.out',
+          onUpdate: () => { el.textContent = pre + Math.round(obj.v) + suf; },
+        }));
+      });
+
+      // ── Botões magnéticos: seguem o cursor de leve (só ponteiro fino c/ hover) ──
+      if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+        q('.js-magnetico').forEach((el) => {
+          const alvo = el as HTMLElement;
+          const xTo = gsap.quickTo(alvo, 'x', { duration: 0.5, ease: 'power3.out' });
+          const yTo = gsap.quickTo(alvo, 'y', { duration: 0.5, ease: 'power3.out' });
+          const mover = (e: Event) => {
+            const ev = e as MouseEvent;
+            const r = alvo.getBoundingClientRect();
+            xTo((ev.clientX - (r.left + r.width / 2)) * 0.35);
+            yTo((ev.clientY - (r.top + r.height / 2)) * 0.5);
+          };
+          const sair = () => { xTo(0); yTo(0); };
+          alvo.addEventListener('mousemove', mover);
+          alvo.addEventListener('mouseleave', sair);
+        });
+      }
+
+      // ── Parallax suave no scroll: dá profundidade ao topo e ao cupom ──
+      const palcoHero = q('.js-hero-palco')[0];
+      if (palcoHero) {
+        gsap.to(palcoHero, {
+          yPercent: -10, ease: 'none',
+          scrollTrigger: { trigger: palcoHero, start: 'top top', end: 'bottom top', scrub: true },
+        });
+      }
+      const cupomWrap = q('.js-cupom-parallax')[0];
+      if (cupomWrap) {
+        gsap.fromTo(cupomWrap, { yPercent: 6 }, {
+          yPercent: -6, ease: 'none',
+          scrollTrigger: { trigger: cupomWrap, start: 'top bottom', end: 'bottom top', scrub: true },
+        });
+      }
     }, el);
 
     // FAIL-SAFE: nada pode ficar preso invisível. Após 3.5s, qualquer elemento
@@ -701,8 +754,8 @@ export function PaginaLanding() {
             </h1>
             <p className="js-hero-item mx-auto mt-5 max-w-xl text-lg text-muted-foreground lg:mx-0">{heroSubtitulo}</p>
             <div className="js-hero-item mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center lg:justify-start">
-              <BotaoDemo size="xl" className="bg-foreground text-background hover:bg-foreground/90" />
-              <BotaoZap size="xl" texto="Falar no WhatsApp" msg={zapMsgHero} />
+              <BotaoDemo size="xl" className="js-magnetico bg-foreground text-background hover:bg-foreground/90" />
+              <BotaoZap size="xl" texto="Falar no WhatsApp" msg={zapMsgHero} className="js-magnetico" />
             </div>
             <ul className="js-hero-item mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground lg:justify-start">
               {beneficios.slice(0, 3).map(b => (
@@ -851,12 +904,16 @@ export function PaginaLanding() {
       {/* ───── Faixa de números ───── */}
       <div className="js-stats bg-foreground text-background">
         <div className="mx-auto grid max-w-6xl gap-8 px-5 py-14 sm:grid-cols-2 sm:px-6 lg:grid-cols-4">
-          {stats.map((s, i) => (
+          {stats.map((s, i) => {
+            const p = partesStat(s.numero);
+            return (
             <div key={i} className="js-stat text-center lg:text-left">
-              <div className="text-4xl font-black text-primary sm:text-5xl">{s.numero}</div>
+              <div className="js-stat-num text-4xl font-black text-primary sm:text-5xl"
+                data-pre={p?.pre ?? ''} data-num={p?.num ?? ''} data-suf={p?.suf ?? ''}>{s.numero}</div>
               <div className="mt-1.5 text-sm text-background/70">{s.texto}</div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -941,7 +998,7 @@ export function PaginaLanding() {
               </div>
             </div>
           </div>
-          <div className="relative mx-auto">
+          <div className="js-cupom-parallax relative mx-auto">
             <CupomTermico itens={cupomItens} total={cupomTotal} nomeLoja={marca.nome} />
           </div>
         </div>
@@ -1032,7 +1089,7 @@ export function PaginaLanding() {
             <h2 className="text-3xl font-black tracking-tight sm:text-4xl">{ctaTitulo}</h2>
             <p className="mt-3 max-w-lg text-primary-foreground/80">{ctaSubtitulo}</p>
             <div className="mt-7 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center lg:justify-start">
-              <BotaoDemo size="lg" variant="branco" texto={ctaBotaoDemoTexto} />
+              <BotaoDemo size="lg" variant="branco" texto={ctaBotaoDemoTexto} className="js-magnetico" />
               <a
                 href={linkZap(zapMsgCta) || '/lojista'}
                 {...(linkZap() ? { target: '_blank', rel: 'noreferrer' } : {})}
