@@ -62,6 +62,11 @@ router.get('/tema', async (req, res, next) => {
     const destaquesRaw = await valor('landing_destaques_json');
     const planosRaw = await valor('landing_planos_json');
     const faqRaw = await valor('landing_faq_json');
+    const comoFuncRaw = await valor('landing_como_funciona_json');
+    const statsRaw = await valor('landing_stats_json');
+    const automacaoRaw = await valor('landing_automacao_json');
+    const fiscalMiniRaw = await valor('landing_fiscal_mini_json');
+    const cupomItensRaw = await valor('landing_cupom_itens_json');
 
     res.json({
       nome:              await valor('marca_nome', 'Delivery Já'),
@@ -91,6 +96,42 @@ router.get('/tema', async (req, res, next) => {
       landing_whatsapp:       await valor('landing_whatsapp'),
       landing_planos:         planosRaw ? JSON.parse(planosRaw) : null,
       landing_faq:            faqRaw ? JSON.parse(faqRaw) : null,
+      // Seções tornadas 100% editáveis (títulos, automação, fiscal, cupom, CTA, rodapé).
+      landing_como_funciona_titulo:    await valor('landing_como_funciona_titulo'),
+      landing_como_funciona_subtitulo: await valor('landing_como_funciona_subtitulo'),
+      landing_como_funciona:  comoFuncRaw ? JSON.parse(comoFuncRaw) : null,
+      landing_atendimento_titulo:    await valor('landing_atendimento_titulo'),
+      landing_atendimento_subtitulo: await valor('landing_atendimento_subtitulo'),
+      landing_stats:          statsRaw ? JSON.parse(statsRaw) : null,
+      landing_automacao_titulo:    await valor('landing_automacao_titulo'),
+      landing_automacao_subtitulo: await valor('landing_automacao_subtitulo'),
+      landing_automacao:      automacaoRaw ? JSON.parse(automacaoRaw) : null,
+      landing_fiscal_eyebrow:     await valor('landing_fiscal_eyebrow'),
+      landing_fiscal_titulo:      await valor('landing_fiscal_titulo'),
+      landing_fiscal_texto:       await valor('landing_fiscal_texto'),
+      landing_fiscal_selo_titulo: await valor('landing_fiscal_selo_titulo'),
+      landing_fiscal_selo_desc:   await valor('landing_fiscal_selo_desc'),
+      landing_fiscal_mini:    fiscalMiniRaw ? JSON.parse(fiscalMiniRaw) : null,
+      landing_cupom_itens:    cupomItensRaw ? JSON.parse(cupomItensRaw) : null,
+      landing_cupom_total:    await valor('landing_cupom_total'),
+      landing_recursos_titulo: await valor('landing_recursos_titulo'),
+      landing_planos_titulo:    await valor('landing_planos_titulo'),
+      landing_planos_subtitulo: await valor('landing_planos_subtitulo'),
+      landing_duvidas_titulo:   await valor('landing_duvidas_titulo'),
+      landing_cta_titulo:       await valor('landing_cta_titulo'),
+      landing_cta_subtitulo:    await valor('landing_cta_subtitulo'),
+      landing_cta_botao_demo_texto: await valor('landing_cta_botao_demo_texto'),
+      landing_whatsapp_msg_hero:      await valor('landing_whatsapp_msg_hero'),
+      landing_whatsapp_msg_cta:       await valor('landing_whatsapp_msg_cta'),
+      landing_whatsapp_msg_flutuante: await valor('landing_whatsapp_msg_flutuante'),
+      landing_footer_coluna_sistema: await valor('landing_footer_coluna_sistema'),
+      landing_footer_coluna_contato: await valor('landing_footer_coluna_contato'),
+      landing_endereco:         await valor('landing_endereco'),
+      landing_social_instagram: await valor('landing_social_instagram'),
+      landing_social_facebook:  await valor('landing_social_facebook'),
+      landing_social_tiktok:    await valor('landing_social_tiktok'),
+      landing_social_youtube:   await valor('landing_social_youtube'),
+      landing_social_x:         await valor('landing_social_x'),
       // Usados no rodapé da landing — mesmos campos já editáveis em Marca → Configurações gerais.
       suporte_email:     await valor('suporte_email'),
       suporte_telefone:  await valor('suporte_telefone'),
