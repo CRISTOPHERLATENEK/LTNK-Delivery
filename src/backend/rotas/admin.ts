@@ -1221,7 +1221,10 @@ router.put('/configuracoes-gerais', exigirSuperAdmin, async (req, res, next) => 
 
 // ----- Landing page do produto (domínio principal, sem loja padrão) -----
 
-const LANDING_ICONES = ['store', 'palette', 'bike', 'chefhat', 'receipt', 'smartphone', 'check', 'star', 'shield', 'users'] as const;
+const LANDING_ICONES = [
+  'store', 'palette', 'bike', 'chefhat', 'receipt', 'smartphone', 'check', 'star', 'shield', 'users',
+  'ticket', 'chart', 'list', 'share', 'rocket', 'printer', 'qrcode', 'key', 'cloud', 'zap', 'bell', 'pin',
+] as const;
 
 const LANDING_RECURSOS_PADRAO = [
   { icone: 'store', titulo: 'Multi-lojas', desc: 'Cada loja com seu próprio painel, cardápio e domínio.' },
@@ -1260,6 +1263,50 @@ const LANDING_FAQ_PADRAO = [
   { pergunta: 'Vocês cobram taxa por pedido?', resposta: 'Não. Você paga só a mensalidade do plano — nenhuma comissão por venda. O que você fatura é seu.' },
   { pergunta: 'Tem fidelidade ou multa de cancelamento?', resposta: 'Não. Sem contrato de fidelidade e sem multa. Você cancela quando quiser.' },
   { pergunta: 'Funciona com a minha impressora?', resposta: 'Sim. Somos compatíveis com as principais impressoras térmicas do mercado (80mm e 58mm), pro cupom e pro DANFE da NFC-e.' },
+  { pergunta: 'Preciso instalar algo pra imprimir os pedidos?', resposta: 'Não. Por padrão a impressão sai pelo diálogo do navegador, sem instalar nada. Se quiser imprimir direto na térmica sem esse diálogo (mais rápido pro balcão), tem um agente opcional pra Windows que faz isso automaticamente.' },
+  { pergunta: 'Como funciona o domínio da minha loja?', resposta: 'Você recebe um link pronto assim que cadastra a loja (ex.: seusite.com/sua-loja). Se preferir, também pode apontar o seu próprio domínio (ex.: sualoja.com.br) — é só ajustar o DNS e colar o domínio no painel.' },
+  { pergunta: 'Dá pra criar cupom de desconto?', resposta: 'Sim. Você cria cupons por valor fixo ou percentual, com validade e limite de usos — o cliente aplica no carrinho e o desconto sai certinho no pedido e na nota.' },
+];
+
+const LANDING_COMO_FUNCIONA_PADRAO = [
+  { icone: 'list' as const, titulo: 'Monte seu cardápio', desc: 'Cadastre produtos, fotos, categorias e preços — leva minutos, sem depender de ninguém.' },
+  { icone: 'share' as const, titulo: 'Compartilhe o link da sua loja', desc: 'Domínio próprio, sem app pra instalar. O cliente abre e já pede.' },
+  { icone: 'rocket' as const, titulo: 'Comece a vender', desc: 'Pedido cai direto na cozinha, entregador sai com rastreio ao vivo e o pagamento (Pix, cartão ou dinheiro) já cai na sua conta.' },
+];
+
+const LANDING_STATS_PADRAO = [
+  { numero: '2 min', texto: 'do pedido à cozinha' },
+  { numero: '100%', texto: 'NFC-e autorizada na SEFAZ' },
+  { numero: '0', texto: 'taxa por pedido' },
+  { numero: '1 dia', texto: 'para a loja ficar no ar' },
+];
+
+const LANDING_AUTOMACAO_PADRAO = [
+  {
+    icone: 'zap' as const, titulo: 'Pix automático', desc: 'O pagamento se confirma sozinho — sem conferência manual.',
+    itens: ['Pix, cartão e dinheiro aceitos', 'Confirmação automática via Mercado Pago', 'Sem digitar nada no caixa'],
+  },
+  {
+    icone: 'bell' as const, titulo: 'Notificação automática', desc: 'Seu cliente acompanha o pedido sem precisar perguntar.',
+    itens: ['Aviso quando o pedido é aceito', 'Aviso quando sai pra entrega', 'Aviso quando é entregue'],
+  },
+  {
+    icone: 'star' as const, titulo: 'Avaliações dos clientes', desc: 'Cada pedido entregue pode ser avaliado — e você acompanha tudo.',
+    itens: ['Nota e comentário por pedido', 'Média da loja no seu painel', 'Ajuda a enxergar o que melhorar'],
+  },
+];
+
+const LANDING_FISCAL_MINI_PADRAO = [
+  { icone: 'printer' as const, titulo: 'Emissão automática', desc: 'NFC-e sai na finalização do pedido.' },
+  { icone: 'qrcode' as const, titulo: 'QR Code', desc: 'Consulta rápida pelo consumidor.' },
+  { icone: 'key' as const, titulo: 'Chave de acesso', desc: 'Válida em qualquer portal da SEFAZ.' },
+  { icone: 'cloud' as const, titulo: 'Impressão', desc: 'Compatível com térmicas 80/58mm.' },
+];
+
+const LANDING_CUPOM_ITENS_PADRAO = [
+  { q: 1, nome: 'X-SALADA ARTESANAL', v: '28,00' },
+  { q: 1, nome: 'PORCAO BATATA RUSTICA', v: '16,00' },
+  { q: 2, nome: 'REFRIGERANTE LATA', v: '12,00' },
 ];
 
 router.get('/landing', async (_req, res, next) => {
@@ -1277,6 +1324,11 @@ router.get('/landing', async (_req, res, next) => {
     const destaquesRaw = await valor('landing_destaques_json');
     const planosRaw = await valor('landing_planos_json');
     const faqRaw = await valor('landing_faq_json');
+    const comoFuncionaRaw = await valor('landing_como_funciona_json');
+    const statsRaw = await valor('landing_stats_json');
+    const automacaoRaw = await valor('landing_automacao_json');
+    const fiscalMiniRaw = await valor('landing_fiscal_mini_json');
+    const cupomItensRaw = await valor('landing_cupom_itens_json');
     res.json({
       cta_texto: (await valor('landing_cta_texto')) || 'Ver demonstração',
       recursos: recursosRaw ? JSON.parse(recursosRaw) : LANDING_RECURSOS_PADRAO,
@@ -1295,6 +1347,35 @@ router.get('/landing', async (_req, res, next) => {
       hero_imagem_mobile: await valor('landing_hero_imagem_mobile'),
       whatsapp:       await valor('landing_whatsapp'),
       demo_url:       await valor('landing_demo_url'),
+      como_funciona_titulo:    await valor('landing_como_funciona_titulo'),
+      como_funciona_subtitulo: await valor('landing_como_funciona_subtitulo'),
+      como_funciona: comoFuncionaRaw ? JSON.parse(comoFuncionaRaw) : LANDING_COMO_FUNCIONA_PADRAO,
+      atendimento_titulo:    await valor('landing_atendimento_titulo'),
+      atendimento_subtitulo: await valor('landing_atendimento_subtitulo'),
+      stats: statsRaw ? JSON.parse(statsRaw) : LANDING_STATS_PADRAO,
+      automacao_titulo:    await valor('landing_automacao_titulo'),
+      automacao_subtitulo: await valor('landing_automacao_subtitulo'),
+      automacao: automacaoRaw ? JSON.parse(automacaoRaw) : LANDING_AUTOMACAO_PADRAO,
+      fiscal_eyebrow:    await valor('landing_fiscal_eyebrow'),
+      fiscal_titulo:     await valor('landing_fiscal_titulo'),
+      fiscal_texto:      await valor('landing_fiscal_texto'),
+      fiscal_selo_titulo: await valor('landing_fiscal_selo_titulo'),
+      fiscal_selo_desc:   await valor('landing_fiscal_selo_desc'),
+      fiscal_mini: fiscalMiniRaw ? JSON.parse(fiscalMiniRaw) : LANDING_FISCAL_MINI_PADRAO,
+      cupom_itens: cupomItensRaw ? JSON.parse(cupomItensRaw) : LANDING_CUPOM_ITENS_PADRAO,
+      cupom_total: (await valor('landing_cupom_total')) || '56,00',
+      recursos_titulo: await valor('landing_recursos_titulo'),
+      planos_titulo:    await valor('landing_planos_titulo'),
+      planos_subtitulo: await valor('landing_planos_subtitulo'),
+      duvidas_titulo: await valor('landing_duvidas_titulo'),
+      cta_titulo:    await valor('landing_cta_titulo'),
+      cta_subtitulo: await valor('landing_cta_subtitulo'),
+      cta_botao_demo_texto: await valor('landing_cta_botao_demo_texto'),
+      whatsapp_msg_hero:      await valor('landing_whatsapp_msg_hero'),
+      whatsapp_msg_cta:       await valor('landing_whatsapp_msg_cta'),
+      whatsapp_msg_flutuante: await valor('landing_whatsapp_msg_flutuante'),
+      footer_coluna_sistema: await valor('landing_footer_coluna_sistema'),
+      footer_coluna_contato: await valor('landing_footer_coluna_contato'),
     });
   } catch (e) { next(e); }
 });
@@ -1409,6 +1490,93 @@ router.put('/landing', exigirSuperAdmin, async (req, res, next) => {
       });
       await upsert('landing_faq_json', JSON.stringify(faq));
     }
+
+    // ── Títulos/subtítulos de seção (texto simples) ──
+    const CAMPOS_TEXTO: Array<[string, number]> = [
+      ['como_funciona_titulo', 100], ['como_funciona_subtitulo', 200],
+      ['atendimento_titulo', 100], ['atendimento_subtitulo', 200],
+      ['automacao_titulo', 100], ['automacao_subtitulo', 200],
+      ['fiscal_eyebrow', 60], ['fiscal_titulo', 100], ['fiscal_texto', 300],
+      ['fiscal_selo_titulo', 100], ['fiscal_selo_desc', 160],
+      ['cupom_total', 20], ['recursos_titulo', 100],
+      ['planos_titulo', 100], ['planos_subtitulo', 200], ['duvidas_titulo', 100],
+      ['cta_titulo', 100], ['cta_subtitulo', 240], ['cta_botao_demo_texto', 40],
+      ['whatsapp_msg_hero', 200], ['whatsapp_msg_cta', 200], ['whatsapp_msg_flutuante', 200],
+      ['footer_coluna_sistema', 40], ['footer_coluna_contato', 40],
+    ];
+    for (const [campo, max] of CAMPOS_TEXTO) {
+      if (req.body[campo] !== undefined) await upsert(`landing_${campo}`, textoLimpo(req.body[campo], max));
+    }
+
+    // ── Listas de ícone+título+descrição (Como funciona, mini-cards fiscais) ──
+    const validarIconeTituloDesc = (lista: unknown, maxItens: number, maxDesc: number, nomeLista: string) => {
+      if (!Array.isArray(lista) || lista.length > maxItens) {
+        throw erroHttp(400, `Lista "${nomeLista}" inválida (máximo ${maxItens} itens).`);
+      }
+      return lista.map((r: unknown) => {
+        const item = r as { icone?: unknown; titulo?: unknown; desc?: unknown };
+        const icone = LANDING_ICONES.includes(item.icone as typeof LANDING_ICONES[number]) ? item.icone : 'store';
+        const titulo = textoLimpo(item.titulo, 60);
+        const desc = textoLimpo(item.desc, maxDesc);
+        if (!titulo) throw erroHttp(400, `Todo item de "${nomeLista}" precisa de um título.`);
+        return { icone, titulo, desc };
+      });
+    };
+    if (req.body.como_funciona !== undefined) {
+      await upsert('landing_como_funciona_json', JSON.stringify(validarIconeTituloDesc(req.body.como_funciona, 3, 160, 'Como funciona')));
+    }
+    if (req.body.fiscal_mini !== undefined) {
+      await upsert('landing_fiscal_mini_json', JSON.stringify(validarIconeTituloDesc(req.body.fiscal_mini, 4, 120, 'Mini-cards fiscais')));
+    }
+
+    // ── Faixa de números (stats) ──
+    if (req.body.stats !== undefined) {
+      if (!Array.isArray(req.body.stats) || req.body.stats.length > 4) {
+        throw erroHttp(400, 'Lista de estatísticas inválida (máximo 4 itens).');
+      }
+      const stats = req.body.stats.map((s: unknown) => {
+        const item = s as { numero?: unknown; texto?: unknown };
+        const numero = textoLimpo(item.numero, 20);
+        const texto = textoLimpo(item.texto, 60);
+        if (!numero) throw erroHttp(400, 'Toda estatística precisa de um número.');
+        return { numero, texto };
+      });
+      await upsert('landing_stats_json', JSON.stringify(stats));
+    }
+
+    // ── Destaques de automação (ícone+título+descrição+sub-itens) ──
+    if (req.body.automacao !== undefined) {
+      if (!Array.isArray(req.body.automacao) || req.body.automacao.length > 3) {
+        throw erroHttp(400, 'Lista de automação inválida (máximo 3 itens).');
+      }
+      const automacao = req.body.automacao.map((a: unknown) => {
+        const item = a as { icone?: unknown; titulo?: unknown; desc?: unknown; itens?: unknown };
+        const icone = LANDING_ICONES.includes(item.icone as typeof LANDING_ICONES[number]) ? item.icone : 'star';
+        const titulo = textoLimpo(item.titulo, 60);
+        const desc = textoLimpo(item.desc, 160);
+        if (!titulo) throw erroHttp(400, 'Todo destaque de automação precisa de um título.');
+        const itens = Array.isArray(item.itens) ? item.itens.slice(0, 5).map((i) => textoLimpo(i, 100)).filter(Boolean) : [];
+        return { icone, titulo, desc, itens };
+      });
+      await upsert('landing_automacao_json', JSON.stringify(automacao));
+    }
+
+    // ── Itens do cupom fiscal de exemplo ──
+    if (req.body.cupom_itens !== undefined) {
+      if (!Array.isArray(req.body.cupom_itens) || req.body.cupom_itens.length > 6) {
+        throw erroHttp(400, 'Lista de itens do cupom inválida (máximo 6 itens).');
+      }
+      const cupomItens = req.body.cupom_itens.map((c: unknown) => {
+        const item = c as { q?: unknown; nome?: unknown; v?: unknown };
+        const q = Math.min(Math.max(Number(item.q) || 1, 1), 99);
+        const nome = textoLimpo(item.nome, 60);
+        const v = textoLimpo(item.v, 10);
+        if (!nome) throw erroHttp(400, 'Todo item do cupom precisa de um nome.');
+        return { q, nome, v };
+      });
+      await upsert('landing_cupom_itens_json', JSON.stringify(cupomItens));
+    }
+
     await registrarAuditoria(req, 'landing.editar');
     res.json({ ok: true });
   } catch (e) { next(e); }

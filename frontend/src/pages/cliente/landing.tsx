@@ -31,7 +31,7 @@ import {
 import { useTema, reaplicarPaletaTema } from '@/lib/tema';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import type { Loja, LandingRecurso, LandingIcone, LandingPlano, LandingFaq, TemaMarca } from '@/types';
+import type { Loja, LandingRecurso, LandingIcone, LandingPlano, LandingFaq, TemaMarca, LandingIconeTituloDesc, LandingStat, LandingAutomacaoItem, LandingCupomItem } from '@/types';
 
 gsap.registerPlugin(ScrollTrigger, DrawSVGPlugin);
 
@@ -41,7 +41,8 @@ gsap.registerPlugin(ScrollTrigger, DrawSVGPlugin);
 export const ICONES_LANDING: Record<LandingIcone, LucideIcon> = {
   store: Store, palette: Palette, bike: Bike, chefhat: ChefHat, receipt: Receipt,
   smartphone: Smartphone, check: Check, star: Star, shield: Shield, users: Users,
-  ticket: Ticket, chart: BarChart3,
+  ticket: Ticket, chart: BarChart3, list: ClipboardList, share: Share2, rocket: Rocket,
+  printer: Printer, qrcode: QrCode, key: KeyRound, cloud: Cloud, zap: Zap, bell: Bell, pin: MapPin,
 };
 
 const RECURSOS_PADRAO: LandingRecurso[] = [
@@ -56,18 +57,17 @@ const RECURSOS_PADRAO: LandingRecurso[] = [
   { icone: 'chart', titulo: 'Relatórios', desc: 'Faturamento, ticket médio, cancelamento e produtos mais vendidos — tudo por período.' },
 ];
 
-/** Blocos de destaque (automação real do sistema) — conteúdo fixo, não editável no admin. */
-const DESTAQUES_AUTOMACAO: { icone: LucideIcon; titulo: string; desc: string; itens: string[] }[] = [
+const AUTOMACAO_PADRAO: LandingAutomacaoItem[] = [
   {
-    icone: Zap, titulo: 'Pix automático', desc: 'O pagamento se confirma sozinho — sem conferência manual.',
+    icone: 'zap', titulo: 'Pix automático', desc: 'O pagamento se confirma sozinho — sem conferência manual.',
     itens: ['Pix, cartão e dinheiro aceitos', 'Confirmação automática via Mercado Pago', 'Sem digitar nada no caixa'],
   },
   {
-    icone: Bell, titulo: 'Notificação automática', desc: 'Seu cliente acompanha o pedido sem precisar perguntar.',
+    icone: 'bell', titulo: 'Notificação automática', desc: 'Seu cliente acompanha o pedido sem precisar perguntar.',
     itens: ['Aviso quando o pedido é aceito', 'Aviso quando sai pra entrega', 'Aviso quando é entregue'],
   },
   {
-    icone: Star, titulo: 'Avaliações dos clientes', desc: 'Cada pedido entregue pode ser avaliado — e você acompanha tudo.',
+    icone: 'star', titulo: 'Avaliações dos clientes', desc: 'Cada pedido entregue pode ser avaliado — e você acompanha tudo.',
     itens: ['Nota e comentário por pedido', 'Média da loja no seu painel', 'Ajuda a enxergar o que melhorar'],
   },
 ];
@@ -82,24 +82,24 @@ const COM_PADRAO = [
 ];
 const SEGMENTOS_PADRAO = ['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria', 'Cafeteria', 'Marmitaria'];
 
-const COMO_FUNCIONA: { icone: LucideIcon; titulo: string; desc: string }[] = [
-  { icone: ClipboardList, titulo: 'Monte seu cardápio', desc: 'Cadastre produtos, fotos, categorias e preços — leva minutos, sem depender de ninguém.' },
-  { icone: Share2, titulo: 'Compartilhe o link da sua loja', desc: 'Domínio próprio, sem app pra instalar. O cliente abre e já pede.' },
-  { icone: Rocket, titulo: 'Comece a vender', desc: 'Pedido cai direto na cozinha, entregador sai com rastreio ao vivo e o pagamento (Pix, cartão ou dinheiro) já cai na sua conta.' },
+const COMO_FUNCIONA_PADRAO: LandingIconeTituloDesc[] = [
+  { icone: 'list', titulo: 'Monte seu cardápio', desc: 'Cadastre produtos, fotos, categorias e preços — leva minutos, sem depender de ninguém.' },
+  { icone: 'share', titulo: 'Compartilhe o link da sua loja', desc: 'Domínio próprio, sem app pra instalar. O cliente abre e já pede.' },
+  { icone: 'rocket', titulo: 'Comece a vender', desc: 'Pedido cai direto na cozinha, entregador sai com rastreio ao vivo e o pagamento (Pix, cartão ou dinheiro) já cai na sua conta.' },
 ];
 
-const STATS_PADRAO = [
+const STATS_PADRAO: LandingStat[] = [
   { numero: '2 min', texto: 'do pedido à cozinha' },
   { numero: '100%', texto: 'NFC-e autorizada na SEFAZ' },
   { numero: '0', texto: 'taxa por pedido' },
   { numero: '1 dia', texto: 'para a loja ficar no ar' },
 ];
 
-const FISCAL_MINI: { icone: LucideIcon; titulo: string; desc: string }[] = [
-  { icone: Printer, titulo: 'Emissão automática', desc: 'NFC-e sai na finalização do pedido.' },
-  { icone: QrCode, titulo: 'QR Code', desc: 'Consulta rápida pelo consumidor.' },
-  { icone: KeyRound, titulo: 'Chave de acesso', desc: 'Válida em qualquer portal da SEFAZ.' },
-  { icone: Cloud, titulo: 'Impressão', desc: 'Compatível com térmicas 80/58mm.' },
+const FISCAL_MINI_PADRAO: LandingIconeTituloDesc[] = [
+  { icone: 'printer', titulo: 'Emissão automática', desc: 'NFC-e sai na finalização do pedido.' },
+  { icone: 'qrcode', titulo: 'QR Code', desc: 'Consulta rápida pelo consumidor.' },
+  { icone: 'key', titulo: 'Chave de acesso', desc: 'Válida em qualquer portal da SEFAZ.' },
+  { icone: 'cloud', titulo: 'Impressão', desc: 'Compatível com térmicas 80/58mm.' },
 ];
 
 const PLANOS_PADRAO: LandingPlano[] = [
@@ -119,12 +119,12 @@ const FAQ_PADRAO: LandingFaq[] = [
   { pergunta: 'Dá pra criar cupom de desconto?', resposta: 'Sim. Você cria cupons por valor fixo ou percentual, com validade e limite de usos — o cliente aplica no carrinho e o desconto sai certinho no pedido e na nota.' },
 ];
 
-const CUPOM_ITENS = [
+const CUPOM_ITENS_PADRAO: LandingCupomItem[] = [
   { q: 1, nome: 'X-SALADA ARTESANAL', v: '28,00' },
   { q: 1, nome: 'PORCAO BATATA RUSTICA', v: '16,00' },
   { q: 2, nome: 'REFRIGERANTE LATA', v: '12,00' },
 ];
-const CUPOM_TOTAL = '56,00';
+const CUPOM_TOTAL_PADRAO = '56,00';
 
 const WHATSAPP_VERDE = '#25d366'; // única cor de marca fixa: convenção universal do WhatsApp.
 
@@ -208,7 +208,7 @@ function MarqueeSegmentos({ itens, reverso, pontoClasse }: { itens: string[]; re
  * Cupom fiscal (NFC-e) desenhado como recibo térmico — papel branco, fonte
  * monoespaçada, borda serrilhada. Cores fixas de propósito (papel impresso).
  */
-function CupomTermico() {
+function CupomTermico({ itens, total, nomeLoja }: { itens: LandingCupomItem[]; total: string; nomeLoja: string }) {
   const dentes = 26, prof = 7, largura = 300, passo = largura / dentes;
   let serra = 'M0 0';
   for (let i = 0; i < dentes; i++) serra += ` L${(i * passo + passo / 2).toFixed(1)} ${prof} L${(i + 1) * passo} 0`;
@@ -219,7 +219,7 @@ function CupomTermico() {
       <div className="js-cupom will-change-transform overflow-hidden rounded-t-md bg-white text-neutral-900 shadow-2xl">
         <div className="fonte-cupom px-5 py-5 text-[11px] leading-relaxed">
           <div className="js-cupom-linha text-center">
-            <div className="text-[13px] font-bold tracking-tight">UNIMAXX — MOSTRUÁRIO</div>
+            <div className="text-[13px] font-bold tracking-tight">{nomeLoja}</div>
             <div className="text-[10px] text-neutral-500">CNPJ 00.000.000/0001-00</div>
           </div>
           <div className="js-cupom-linha my-2 border-t border-dashed border-neutral-300" />
@@ -227,7 +227,7 @@ function CupomTermico() {
             DANFE NFC-e — DOCUMENTO AUXILIAR<br />DA NOTA FISCAL DE CONSUMIDOR ELETRÔNICA
           </div>
           <div className="js-cupom-linha my-2 border-t border-dashed border-neutral-300" />
-          {CUPOM_ITENS.map((it, i) => (
+          {itens.map((it, i) => (
             <div key={i} className="js-cupom-linha flex justify-between gap-2">
               <span className="truncate">{it.q}x {it.nome}</span>
               <span className="shrink-0 tabular-nums">{it.v}</span>
@@ -235,7 +235,7 @@ function CupomTermico() {
           ))}
           <div className="js-cupom-linha my-2 border-t border-dashed border-neutral-300" />
           <div className="js-cupom-linha flex justify-between text-[13px] font-bold">
-            <span>VALOR TOTAL</span><span className="tabular-nums">R$ {CUPOM_TOTAL}</span>
+            <span>VALOR TOTAL</span><span className="tabular-nums">R$ {total}</span>
           </div>
           <div className="js-cupom-linha mt-1 flex justify-between text-[10px] text-neutral-600">
             <span>FORMA PGTO</span><span>PIX</span>
@@ -385,6 +385,37 @@ export function PaginaLanding() {
   const heroSubtitulo = marca.landing_hero_subtitulo || 'Cardápio, pedidos, cozinha, PDV e NFC-e num sistema só. Com o seu domínio e a sua cara.';
   const heroImagem = marca.landing_hero_imagem || '/landing/storefront-desktop.png';
   const heroImagemMobile = marca.landing_hero_imagem_mobile || '/landing/storefront-mobile.png';
+
+  // ── Seções agora 100% editáveis (fallback nos padrões embutidos) ──
+  const comoFuncionaTitulo = marca.landing_como_funciona_titulo || 'Do zero ao primeiro pedido em *3 passos*';
+  const comoFuncionaSubtitulo = marca.landing_como_funciona_subtitulo || 'Sem complicação, sem depender de ninguém pra configurar.';
+  const comoFunciona = marca.landing_como_funciona?.length ? marca.landing_como_funciona : COMO_FUNCIONA_PADRAO;
+  const atendimentoTitulo = marca.landing_atendimento_titulo || 'Diga adeus ao atendimento *caótico*';
+  const atendimentoSubtitulo = marca.landing_atendimento_subtitulo || 'O futuro é integrado, rápido e automatizado.';
+  const stats = marca.landing_stats?.length ? marca.landing_stats : STATS_PADRAO;
+  const automacaoTitulo = marca.landing_automacao_titulo || 'Automação de *verdade*, não só promessa';
+  const automacaoSubtitulo = marca.landing_automacao_subtitulo || 'O sistema trabalha sozinho nos detalhes que tomam seu tempo.';
+  const automacao = marca.landing_automacao?.length ? marca.landing_automacao : AUTOMACAO_PADRAO;
+  const fiscalEyebrow = marca.landing_fiscal_eyebrow || 'Emissão fiscal';
+  const fiscalTitulo = marca.landing_fiscal_titulo || 'Cupom fiscal (NFC-e) *na hora da venda*';
+  const fiscalTexto = marca.landing_fiscal_texto || 'A nota sai com itens, total, chave de acesso e QR Code — direto do sistema, sem precisar de outro programa nem digitar os dados de novo.';
+  const fiscalSeloTitulo = marca.landing_fiscal_selo_titulo || '100% em conformidade com a SEFAZ';
+  const fiscalSeloDesc = marca.landing_fiscal_selo_desc || 'Emissão segura, autorizada e sem complicação.';
+  const fiscalMini = marca.landing_fiscal_mini?.length ? marca.landing_fiscal_mini : FISCAL_MINI_PADRAO;
+  const cupomItens = marca.landing_cupom_itens?.length ? marca.landing_cupom_itens : CUPOM_ITENS_PADRAO;
+  const cupomTotal = marca.landing_cupom_total || CUPOM_TOTAL_PADRAO;
+  const recursosTitulo = marca.landing_recursos_titulo || 'Tudo que uma operação de delivery *precisa*';
+  const planosTitulo = marca.landing_planos_titulo || 'Planos sem *pegadinha*';
+  const planosSubtitulo = marca.landing_planos_subtitulo || 'Sem taxa por pedido, sem fidelidade. Você paga a mensalidade e pronto.';
+  const duvidasTitulo = marca.landing_duvidas_titulo || 'Dúvidas *frequentes*';
+  const ctaTitulo = marca.landing_cta_titulo || 'Quer ver funcionando na prática?';
+  const ctaSubtitulo = marca.landing_cta_subtitulo || 'Explore uma loja de demonstração completa — cardápio, carrinho e checkout de verdade.';
+  const ctaBotaoDemoTexto = marca.landing_cta_botao_demo_texto || 'Abrir loja demo';
+  const zapMsgHero = marca.landing_whatsapp_msg_hero || 'Olá! Quero saber mais sobre o sistema de delivery.';
+  const zapMsgCta = marca.landing_whatsapp_msg_cta || 'Olá! Quero falar sobre o sistema de delivery.';
+  const zapMsgFlutuante = marca.landing_whatsapp_msg_flutuante || 'Olá! Quero saber mais sobre o sistema.';
+  const footerColunaSistema = marca.landing_footer_coluna_sistema || 'O sistema';
+  const footerColunaContato = marca.landing_footer_coluna_contato || 'Contato';
 
   // Link do WhatsApp (número editável no admin; cai no suporte_telefone).
   const zapDigitos = (marca.landing_whatsapp || marca.suporte_telefone || '').replace(/\D/g, '');
@@ -672,7 +703,7 @@ export function PaginaLanding() {
             <p className="js-hero-item mx-auto mt-5 max-w-xl text-lg text-muted-foreground lg:mx-0">{heroSubtitulo}</p>
             <div className="js-hero-item mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center lg:justify-start">
               <BotaoDemo size="xl" className="bg-foreground text-background hover:bg-foreground/90" />
-              <BotaoZap size="xl" texto="Falar no WhatsApp" msg="Olá! Quero saber mais sobre o sistema de delivery." />
+              <BotaoZap size="xl" texto="Falar no WhatsApp" msg={zapMsgHero} />
             </div>
             <ul className="js-hero-item mt-7 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground lg:justify-start">
               {beneficios.slice(0, 3).map(b => (
@@ -726,16 +757,18 @@ export function PaginaLanding() {
 
       {/* ───── Como funciona (3 passos) ───── */}
       <section data-reveal className="mx-auto max-w-5xl px-5 py-16 sm:px-6 sm:py-20">
-        <TituloSecao texto="Do zero ao primeiro pedido em *3 passos*" className="text-center text-3xl sm:text-4xl" />
-        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">Sem complicação, sem depender de ninguém pra configurar.</p>
+        <TituloSecao texto={comoFuncionaTitulo} className="text-center text-3xl sm:text-4xl" />
+        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">{comoFuncionaSubtitulo}</p>
 
         <div className="relative mt-12 grid gap-8 sm:grid-cols-3 sm:gap-6">
           {/* Linha conectando os passos (só desktop) */}
           <div className="pointer-events-none absolute inset-x-0 top-7 hidden border-t-2 border-dashed border-border sm:block" aria-hidden="true" />
-          {COMO_FUNCIONA.map((p, i) => (
-            <div key={p.titulo} className="relative flex flex-col items-center text-center sm:items-start sm:text-left">
+          {comoFunciona.map((p, i) => {
+            const Icone = ICONES_LANDING[p.icone] || ClipboardList;
+            return (
+            <div key={i} className="relative flex flex-col items-center text-center sm:items-start sm:text-left">
               <div className="relative z-10 flex size-14 shrink-0 items-center justify-center rounded-2xl border-4 border-background bg-primary text-primary-foreground shadow-lg shadow-primary/20">
-                <p.icone className="size-6" />
+                <Icone className="size-6" />
               </div>
               <div className="mt-4">
                 <div className="text-xs font-bold uppercase tracking-widest text-primary">Passo {i + 1}</div>
@@ -743,14 +776,15 @@ export function PaginaLanding() {
                 <p className="mt-1.5 text-sm text-muted-foreground">{p.desc}</p>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
       {/* ───── Diga adeus ao atendimento caótico ───── */}
       <section data-reveal className="mx-auto max-w-5xl px-5 py-16 sm:px-6 sm:py-20">
-        <TituloSecao texto="Diga adeus ao atendimento *caótico*" className="text-center text-3xl sm:text-4xl" />
-        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">O futuro é integrado, rápido e automatizado.</p>
+        <TituloSecao texto={atendimentoTitulo} className="text-center text-3xl sm:text-4xl" />
+        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">{atendimentoSubtitulo}</p>
 
         <div className="mt-10 grid gap-6 md:grid-cols-2">
           {/* Jeito antigo */}
@@ -789,13 +823,15 @@ export function PaginaLanding() {
 
       {/* ───── Destaques de automação (Pix, notificação, avaliação) ───── */}
       <section data-reveal className="mx-auto max-w-6xl px-5 py-16 sm:px-6 sm:py-20">
-        <TituloSecao texto="Automação de *verdade*, não só promessa" className="text-center text-3xl sm:text-4xl" />
-        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">O sistema trabalha sozinho nos detalhes que tomam seu tempo.</p>
+        <TituloSecao texto={automacaoTitulo} className="text-center text-3xl sm:text-4xl" />
+        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">{automacaoSubtitulo}</p>
         <div className="mt-12 grid gap-6 md:grid-cols-3">
-          {DESTAQUES_AUTOMACAO.map(d => (
-            <div key={d.titulo} className="rounded-3xl border border-border bg-card p-7">
+          {automacao.map((d, di) => {
+            const Icone = ICONES_LANDING[d.icone] || Zap;
+            return (
+            <div key={di} className="rounded-3xl border border-border bg-card p-7">
               <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <d.icone className="size-6" />
+                <Icone className="size-6" />
               </div>
               <h3 className="mt-5 text-lg font-bold">{d.titulo}</h3>
               <p className="mt-1.5 text-sm text-muted-foreground">{d.desc}</p>
@@ -808,14 +844,15 @@ export function PaginaLanding() {
                 ))}
               </ul>
             </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
       {/* ───── Faixa de números ───── */}
       <div className="js-stats bg-foreground text-background">
         <div className="mx-auto grid max-w-6xl gap-8 px-5 py-14 sm:grid-cols-2 sm:px-6 lg:grid-cols-4">
-          {STATS_PADRAO.map((s, i) => (
+          {stats.map((s, i) => (
             <div key={i} className="js-stat text-center lg:text-left">
               <div className="text-4xl font-black text-primary sm:text-5xl">{s.numero}</div>
               <div className="mt-1.5 text-sm text-background/70">{s.texto}</div>
@@ -882,37 +919,38 @@ export function PaginaLanding() {
         <div className="absolute inset-0 bg-primary/5" />
         <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-5 sm:px-6 lg:grid-cols-2">
           <div>
-            <p className="text-sm font-bold uppercase tracking-widest text-primary">Emissão fiscal</p>
-            <TituloSecao texto="Cupom fiscal (NFC-e) *na hora da venda*" className="mt-4 text-3xl leading-tight sm:text-4xl" />
-            <p className="mt-4 max-w-md text-muted-foreground">
-              A nota sai com itens, total, chave de acesso e QR Code — direto do sistema, sem precisar de outro programa nem digitar os dados de novo.
-            </p>
+            <p className="text-sm font-bold uppercase tracking-widest text-primary">{fiscalEyebrow}</p>
+            <TituloSecao texto={fiscalTitulo} className="mt-4 text-3xl leading-tight sm:text-4xl" />
+            <p className="mt-4 max-w-md text-muted-foreground">{fiscalTexto}</p>
             <div className="mt-8 grid grid-cols-2 gap-4">
-              {FISCAL_MINI.map(b => (
-                <div key={b.titulo} className="rounded-2xl border border-border bg-card p-4">
-                  <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary"><b.icone className="size-5" /></div>
+              {fiscalMini.map((b, bi) => {
+                const Icone = ICONES_LANDING[b.icone] || Printer;
+                return (
+                <div key={bi} className="rounded-2xl border border-border bg-card p-4">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icone className="size-5" /></div>
                   <div className="mt-2.5 text-sm font-semibold">{b.titulo}</div>
                   <div className="text-xs text-muted-foreground">{b.desc}</div>
                 </div>
-              ))}
+                );
+              })}
             </div>
             <div className="mt-6 flex items-center gap-3 rounded-2xl bg-primary/10 p-4">
               <ShieldCheck className="h-7 w-7 shrink-0 text-primary" />
               <div>
-                <div className="text-sm font-bold">100% em conformidade com a SEFAZ</div>
-                <div className="text-xs text-muted-foreground">Emissão segura, autorizada e sem complicação.</div>
+                <div className="text-sm font-bold">{fiscalSeloTitulo}</div>
+                <div className="text-xs text-muted-foreground">{fiscalSeloDesc}</div>
               </div>
             </div>
           </div>
           <div className="relative mx-auto">
-            <CupomTermico />
+            <CupomTermico itens={cupomItens} total={cupomTotal} nomeLoja={marca.nome} />
           </div>
         </div>
       </section>
 
       {/* ───── Recursos: lista 01-06 ───── */}
       <section id="recursos" data-reveal className="mx-auto max-w-4xl px-5 py-16 sm:px-6">
-        <TituloSecao texto="Tudo que uma operação de delivery *precisa*" className="text-center text-3xl sm:text-4xl" />
+        <TituloSecao texto={recursosTitulo} className="text-center text-3xl sm:text-4xl" />
         <div className="js-lista mt-12">
           {recursos.map(({ titulo, desc }, i) => (
             <div key={titulo}>
@@ -933,10 +971,8 @@ export function PaginaLanding() {
 
       {/* ───── Planos ───── */}
       <section id="planos" data-reveal className="mx-auto max-w-6xl px-5 py-16 sm:px-6 sm:py-20">
-        <TituloSecao texto="Planos sem *pegadinha*" className="text-center text-3xl sm:text-4xl" />
-        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">
-          Sem taxa por pedido, sem fidelidade. Você paga a mensalidade e pronto.
-        </p>
+        <TituloSecao texto={planosTitulo} className="text-center text-3xl sm:text-4xl" />
+        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">{planosSubtitulo}</p>
         <div className="mt-12 grid items-start gap-6 lg:grid-cols-3">
           {planos.map((p) => {
             const destaque = !!p.destaque;
@@ -976,7 +1012,7 @@ export function PaginaLanding() {
 
       {/* ───── FAQ ───── */}
       <section id="duvidas" data-reveal className="mx-auto max-w-3xl px-5 py-16 sm:px-6">
-        <TituloSecao texto="Dúvidas *frequentes*" className="text-center text-3xl sm:text-4xl" />
+        <TituloSecao texto={duvidasTitulo} className="text-center text-3xl sm:text-4xl" />
         <div className="mt-10 space-y-3">
           {faq.map((f, i) => (
             <details key={i} className="faq group rounded-2xl border border-border bg-card px-5">
@@ -994,14 +1030,12 @@ export function PaginaLanding() {
       <section data-reveal className="relative overflow-hidden bg-primary text-primary-foreground">
         <div className="relative mx-auto grid max-w-6xl items-center gap-8 px-5 py-16 sm:px-6 sm:py-20 lg:grid-cols-[1fr_auto]">
           <div className="text-center lg:text-left">
-            <h2 className="text-3xl font-black tracking-tight sm:text-4xl">Quer ver funcionando na prática?</h2>
-            <p className="mt-3 max-w-lg text-primary-foreground/80">
-              Explore uma loja de demonstração completa — cardápio, carrinho e checkout de verdade.
-            </p>
+            <h2 className="text-3xl font-black tracking-tight sm:text-4xl">{ctaTitulo}</h2>
+            <p className="mt-3 max-w-lg text-primary-foreground/80">{ctaSubtitulo}</p>
             <div className="mt-7 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center lg:justify-start">
-              <BotaoDemo size="lg" variant="branco" texto="Abrir loja demo" />
+              <BotaoDemo size="lg" variant="branco" texto={ctaBotaoDemoTexto} />
               <a
-                href={linkZap('Olá! Quero falar sobre o sistema de delivery.') || '/lojista'}
+                href={linkZap(zapMsgCta) || '/lojista'}
                 {...(linkZap() ? { target: '_blank', rel: 'noreferrer' } : {})}
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-primary-foreground/40 px-7 text-base font-semibold text-primary-foreground transition-colors hover:bg-primary-foreground/10"
               >
@@ -1027,7 +1061,7 @@ export function PaginaLanding() {
             <p className="mt-2 max-w-xs text-sm text-muted-foreground">{marca.slogan || 'Seu delivery white label: com a sua marca e o seu domínio.'}</p>
           </div>
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">O sistema</div>
+            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{footerColunaSistema}</div>
             <ul className="mt-3 space-y-2 text-sm">
               {linkDemo && (
                 <li>{demoExterna
@@ -1041,7 +1075,7 @@ export function PaginaLanding() {
             </ul>
           </div>
           <div>
-            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Contato</div>
+            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">{footerColunaContato}</div>
             <ul className="mt-3 space-y-2 text-sm">
               {marca.suporte_email && (
                 <li><a href={`mailto:${marca.suporte_email}`} className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground"><Mail className="h-3.5 w-3.5 shrink-0" /> {marca.suporte_email}</a></li>
@@ -1060,7 +1094,7 @@ export function PaginaLanding() {
       {/* ───── Botão flutuante do WhatsApp ───── */}
       {linkZap() && (
         <a
-          href={linkZap('Olá! Quero saber mais sobre o sistema.')}
+          href={linkZap(zapMsgFlutuante)}
           target="_blank" rel="noreferrer"
           aria-label="Falar no WhatsApp"
           className="fixed bottom-5 right-5 z-50 flex size-14 items-center justify-center rounded-full text-white shadow-2xl transition-transform hover:scale-105 active:scale-95"

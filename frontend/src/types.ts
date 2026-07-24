@@ -224,6 +224,47 @@ export interface TemaMarca {
   landing_planos?: LandingPlano[] | null;
   /** Perguntas frequentes (acordeão) da landing. */
   landing_faq?: LandingFaq[] | null;
+  /** Seção "3 passos" (Do zero ao primeiro pedido). */
+  landing_como_funciona_titulo?: string;
+  landing_como_funciona_subtitulo?: string;
+  landing_como_funciona?: LandingIconeTituloDesc[] | null;
+  /** Seção "Diga adeus ao atendimento caótico" (título; os itens ficam em comparativo_sem/com). */
+  landing_atendimento_titulo?: string;
+  landing_atendimento_subtitulo?: string;
+  /** Faixa de números (stats) logo após o comparativo. */
+  landing_stats?: LandingStat[] | null;
+  /** Seção "Automação de verdade" (Pix/notificação/avaliação). */
+  landing_automacao_titulo?: string;
+  landing_automacao_subtitulo?: string;
+  landing_automacao?: LandingAutomacaoItem[] | null;
+  /** Seção NFC-e (título + selo de conformidade + mini-cards fiscais). */
+  landing_fiscal_eyebrow?: string;
+  landing_fiscal_titulo?: string;
+  landing_fiscal_texto?: string;
+  landing_fiscal_selo_titulo?: string;
+  landing_fiscal_selo_desc?: string;
+  landing_fiscal_mini?: LandingIconeTituloDesc[] | null;
+  /** Itens do cupom fiscal de exemplo mostrado na seção NFC-e. */
+  landing_cupom_itens?: LandingCupomItem[] | null;
+  landing_cupom_total?: string;
+  /** Título da seção de recursos (lista numerada 01-09). */
+  landing_recursos_titulo?: string;
+  /** Título/subtítulo da seção de planos. */
+  landing_planos_titulo?: string;
+  landing_planos_subtitulo?: string;
+  /** Título da seção de dúvidas frequentes. */
+  landing_duvidas_titulo?: string;
+  /** CTA final (antes do rodapé). */
+  landing_cta_titulo?: string;
+  landing_cta_subtitulo?: string;
+  landing_cta_botao_demo_texto?: string;
+  /** Mensagens pré-preenchidas dos botões de WhatsApp (hero, CTA final, botão flutuante). */
+  landing_whatsapp_msg_hero?: string;
+  landing_whatsapp_msg_cta?: string;
+  landing_whatsapp_msg_flutuante?: string;
+  /** Rótulos das colunas do rodapé. */
+  landing_footer_coluna_sistema?: string;
+  landing_footer_coluna_contato?: string;
 }
 
 /** Um plano/preço exibido na seção de planos da landing. */
@@ -254,12 +295,42 @@ export interface LandingDestaque {
 }
 
 /** Ícones disponíveis para os cards de recursos da landing page (ver ÍCONES_LANDING em landing.tsx). */
-export type LandingIcone = 'store' | 'palette' | 'bike' | 'chefhat' | 'receipt' | 'smartphone' | 'check' | 'star' | 'shield' | 'users' | 'ticket' | 'chart';
+export type LandingIcone =
+  | 'store' | 'palette' | 'bike' | 'chefhat' | 'receipt' | 'smartphone' | 'check' | 'star' | 'shield' | 'users'
+  | 'ticket' | 'chart' | 'list' | 'share' | 'rocket' | 'printer' | 'qrcode' | 'key' | 'cloud' | 'zap' | 'bell' | 'pin';
 
 export interface LandingRecurso {
   icone: LandingIcone;
   titulo: string;
   desc: string;
+}
+
+/** Item genérico ícone+título+descrição (usado em "Como funciona", mini-cards fiscais e bullets do celular). */
+export interface LandingIconeTituloDesc {
+  icone: LandingIcone;
+  titulo: string;
+  desc: string;
+}
+
+/** Um número em destaque da faixa de estatísticas (ex.: "2 min" / "do pedido à cozinha"). */
+export interface LandingStat {
+  numero: string;
+  texto: string;
+}
+
+/** Bloco de destaque de automação (ícone + título + descrição + lista de sub-itens). */
+export interface LandingAutomacaoItem {
+  icone: LandingIcone;
+  titulo: string;
+  desc: string;
+  itens: string[];
+}
+
+/** Linha do cupom fiscal de exemplo mostrado na seção NFC-e. */
+export interface LandingCupomItem {
+  q: number;
+  nome: string;
+  v: string;
 }
 
 export interface LandingDepoimento {

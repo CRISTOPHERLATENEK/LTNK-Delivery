@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2, Check, Users, Star, Tag, HelpCircle, RefreshCw, CreditCard, FlaskConical, Rocket } from 'lucide-react';
+import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, LayoutTemplate, Plus, Trash2, Check, Users, Star, Tag, HelpCircle, RefreshCw, CreditCard, FlaskConical, Rocket, Zap, Receipt } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,7 +19,7 @@ import { api, ApiError, tokenSessao } from '@/lib/api';
 import { useTema, FONTES, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
 import { ICONES_LANDING } from '@/pages/cliente/landing';
-import type { TemaMarca, RaioMarca, FonteMarca, LandingRecurso, LandingIcone, LandingDepoimento, LandingDestaque, LandingPlano, LandingFaq } from '@/types';
+import type { TemaMarca, RaioMarca, FonteMarca, LandingRecurso, LandingIcone, LandingDepoimento, LandingDestaque, LandingPlano, LandingFaq, LandingIconeTituloDesc, LandingStat, LandingAutomacaoItem, LandingCupomItem } from '@/types';
 
 const RAIO_OPCOES: { valor: RaioMarca; label: string; classe: string }[] = [
   { valor: 'reto', label: 'Reto', classe: 'rounded-[3px]' },
@@ -585,6 +585,35 @@ interface LandingConfig {
   hero_imagem_mobile: string;
   whatsapp: string;
   demo_url: string;
+  como_funciona_titulo: string;
+  como_funciona_subtitulo: string;
+  como_funciona: LandingIconeTituloDesc[];
+  atendimento_titulo: string;
+  atendimento_subtitulo: string;
+  stats: LandingStat[];
+  automacao_titulo: string;
+  automacao_subtitulo: string;
+  automacao: LandingAutomacaoItem[];
+  fiscal_eyebrow: string;
+  fiscal_titulo: string;
+  fiscal_texto: string;
+  fiscal_selo_titulo: string;
+  fiscal_selo_desc: string;
+  fiscal_mini: LandingIconeTituloDesc[];
+  cupom_itens: LandingCupomItem[];
+  cupom_total: string;
+  recursos_titulo: string;
+  planos_titulo: string;
+  planos_subtitulo: string;
+  duvidas_titulo: string;
+  cta_titulo: string;
+  cta_subtitulo: string;
+  cta_botao_demo_texto: string;
+  whatsapp_msg_hero: string;
+  whatsapp_msg_cta: string;
+  whatsapp_msg_flutuante: string;
+  footer_coluna_sistema: string;
+  footer_coluna_contato: string;
 }
 
 const ICONES_DISPONIVEIS = Object.keys(ICONES_LANDING) as LandingIcone[];
@@ -626,6 +655,44 @@ function ListaTextoEditavel({ titulo, itens, onChange, max, placeholder }: {
   );
 }
 
+/** Editor de uma lista de itens ícone + título + descrição (Como funciona, mini-cards fiscais). */
+function ListaIconeTituloDescEditavel({ itens, onUp, onAdd, onRemove, max, descMax }: {
+  itens: LandingIconeTituloDesc[];
+  onUp: (i: number, campo: keyof LandingIconeTituloDesc, valor: string) => void;
+  onAdd: () => void; onRemove: (i: number) => void; max: number; descMax: number;
+}) {
+  const iconesDisp = Object.keys(ICONES_LANDING) as LandingIcone[];
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button type="button" variant="outline" size="sm" onClick={onAdd} disabled={itens.length >= max}>
+          <Plus className="size-3.5" /> Adicionar
+        </Button>
+      </div>
+      {itens.map((r, i) => {
+        const Icone = ICONES_LANDING[r.icone] || Store;
+        return (
+          <div key={i} className="rounded-xl border border-border p-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <select value={r.icone} onChange={e => onUp(i, 'icone', e.target.value)}
+                className="h-10 px-2 rounded-lg border border-input bg-background text-sm shrink-0">
+                {iconesDisp.map(k => <option key={k} value={k}>{k}</option>)}
+              </select>
+              <Icone className="size-4 text-primary shrink-0" />
+              <Input value={r.titulo} maxLength={60} placeholder="Título" onChange={e => onUp(i, 'titulo', e.target.value)} />
+              <Button type="button" variant="ghost" size="icon" onClick={() => onRemove(i)}>
+                <Trash2 className="size-4 text-destructive" />
+              </Button>
+            </div>
+            <Input value={r.desc} maxLength={descMax} placeholder="Descrição curta" onChange={e => onUp(i, 'desc', e.target.value)} />
+          </div>
+        );
+      })}
+      {itens.length === 0 && <p className="text-xs text-muted-foreground">Nenhum item — usando os padrões embutidos.</p>}
+    </div>
+  );
+}
+
 /**
  * Conteúdo editável da landing page do produto (domínio principal quando não
  * há loja padrão — ver "Modo de exibição" acima e frontend/src/pages/cliente/landing.tsx).
@@ -640,6 +707,15 @@ function SecaoLanding() {
     cta_texto: 'Ver demonstração', recursos: [], beneficios: [],
     comparativo_sem: [], comparativo_com: [], segmentos: [], depoimentos: [], destaques: [], planos: [], faq: [],
     hero_eyebrow: '', hero_titulo: '', hero_subtitulo: '', hero_imagem: '', hero_imagem_mobile: '', whatsapp: '', demo_url: '',
+    como_funciona_titulo: '', como_funciona_subtitulo: '', como_funciona: [],
+    atendimento_titulo: '', atendimento_subtitulo: '', stats: [],
+    automacao_titulo: '', automacao_subtitulo: '', automacao: [],
+    fiscal_eyebrow: '', fiscal_titulo: '', fiscal_texto: '', fiscal_selo_titulo: '', fiscal_selo_desc: '', fiscal_mini: [],
+    cupom_itens: [], cupom_total: '',
+    recursos_titulo: '', planos_titulo: '', planos_subtitulo: '', duvidas_titulo: '',
+    cta_titulo: '', cta_subtitulo: '', cta_botao_demo_texto: '',
+    whatsapp_msg_hero: '', whatsapp_msg_cta: '', whatsapp_msg_flutuante: '',
+    footer_coluna_sistema: '', footer_coluna_contato: '',
   });
   const [enviando, setEnviando] = useState(false);
 
@@ -682,6 +758,64 @@ function SecaoLanding() {
 
   function removerDestaque(i: number) {
     setForm(f => ({ ...f, destaques: f.destaques.filter((_, idx) => idx !== i) }));
+  }
+
+  function upComoFunciona(i: number, campo: keyof LandingIconeTituloDesc, valor: string) {
+    setForm(f => ({ ...f, como_funciona: f.como_funciona.map((r, idx) => idx === i ? { ...r, [campo]: valor } as LandingIconeTituloDesc : r) }));
+  }
+  function adicionarComoFuncionaItem() {
+    if (form.como_funciona.length >= 3) return;
+    setForm(f => ({ ...f, como_funciona: [...f.como_funciona, { icone: 'list', titulo: '', desc: '' }] }));
+  }
+  function removerComoFuncionaItem(i: number) {
+    setForm(f => ({ ...f, como_funciona: f.como_funciona.filter((_, idx) => idx !== i) }));
+  }
+
+  function upFiscalMini(i: number, campo: keyof LandingIconeTituloDesc, valor: string) {
+    setForm(f => ({ ...f, fiscal_mini: f.fiscal_mini.map((r, idx) => idx === i ? { ...r, [campo]: valor } as LandingIconeTituloDesc : r) }));
+  }
+  function adicionarFiscalMini() {
+    if (form.fiscal_mini.length >= 4) return;
+    setForm(f => ({ ...f, fiscal_mini: [...f.fiscal_mini, { icone: 'printer', titulo: '', desc: '' }] }));
+  }
+  function removerFiscalMini(i: number) {
+    setForm(f => ({ ...f, fiscal_mini: f.fiscal_mini.filter((_, idx) => idx !== i) }));
+  }
+
+  function upStat(i: number, campo: keyof LandingStat, valor: string) {
+    setForm(f => ({ ...f, stats: f.stats.map((s, idx) => idx === i ? { ...s, [campo]: valor } : s) }));
+  }
+  function adicionarStat() {
+    if (form.stats.length >= 4) return;
+    setForm(f => ({ ...f, stats: [...f.stats, { numero: '', texto: '' }] }));
+  }
+  function removerStat(i: number) {
+    setForm(f => ({ ...f, stats: f.stats.filter((_, idx) => idx !== i) }));
+  }
+
+  function upAutomacao(i: number, campo: 'icone' | 'titulo' | 'desc', valor: string) {
+    setForm(f => ({ ...f, automacao: f.automacao.map((a, idx) => idx === i ? { ...a, [campo]: valor } as LandingAutomacaoItem : a) }));
+  }
+  function upAutomacaoItens(i: number, itens: string[]) {
+    setForm(f => ({ ...f, automacao: f.automacao.map((a, idx) => idx === i ? { ...a, itens } : a) }));
+  }
+  function adicionarAutomacao() {
+    if (form.automacao.length >= 3) return;
+    setForm(f => ({ ...f, automacao: [...f.automacao, { icone: 'zap', titulo: '', desc: '', itens: [] }] }));
+  }
+  function removerAutomacao(i: number) {
+    setForm(f => ({ ...f, automacao: f.automacao.filter((_, idx) => idx !== i) }));
+  }
+
+  function upCupomItem(i: number, campo: keyof LandingCupomItem, valor: string) {
+    setForm(f => ({ ...f, cupom_itens: f.cupom_itens.map((c, idx) => idx === i ? { ...c, [campo]: campo === 'q' ? Number(valor) || 1 : valor } as LandingCupomItem : c) }));
+  }
+  function adicionarCupomItem() {
+    if (form.cupom_itens.length >= 6) return;
+    setForm(f => ({ ...f, cupom_itens: [...f.cupom_itens, { q: 1, nome: '', v: '' }] }));
+  }
+  function removerCupomItem(i: number) {
+    setForm(f => ({ ...f, cupom_itens: f.cupom_itens.filter((_, idx) => idx !== i) }));
   }
 
   function upPlano(i: number, campo: keyof LandingPlano, valor: unknown) {
@@ -748,6 +882,35 @@ function SecaoLanding() {
         hero_imagem_mobile: form.hero_imagem_mobile,
         whatsapp: form.whatsapp,
         demo_url: form.demo_url,
+        como_funciona_titulo: form.como_funciona_titulo,
+        como_funciona_subtitulo: form.como_funciona_subtitulo,
+        como_funciona: form.como_funciona,
+        atendimento_titulo: form.atendimento_titulo,
+        atendimento_subtitulo: form.atendimento_subtitulo,
+        stats: form.stats,
+        automacao_titulo: form.automacao_titulo,
+        automacao_subtitulo: form.automacao_subtitulo,
+        automacao: form.automacao.map(a => ({ ...a, itens: a.itens.filter(x => x.trim()) })),
+        fiscal_eyebrow: form.fiscal_eyebrow,
+        fiscal_titulo: form.fiscal_titulo,
+        fiscal_texto: form.fiscal_texto,
+        fiscal_selo_titulo: form.fiscal_selo_titulo,
+        fiscal_selo_desc: form.fiscal_selo_desc,
+        fiscal_mini: form.fiscal_mini,
+        cupom_itens: form.cupom_itens,
+        cupom_total: form.cupom_total,
+        recursos_titulo: form.recursos_titulo,
+        planos_titulo: form.planos_titulo,
+        planos_subtitulo: form.planos_subtitulo,
+        duvidas_titulo: form.duvidas_titulo,
+        cta_titulo: form.cta_titulo,
+        cta_subtitulo: form.cta_subtitulo,
+        cta_botao_demo_texto: form.cta_botao_demo_texto,
+        whatsapp_msg_hero: form.whatsapp_msg_hero,
+        whatsapp_msg_cta: form.whatsapp_msg_cta,
+        whatsapp_msg_flutuante: form.whatsapp_msg_flutuante,
+        footer_coluna_sistema: form.footer_coluna_sistema,
+        footer_coluna_contato: form.footer_coluna_contato,
       });
       mostrar({ tipo: 'sucesso', titulo: 'Landing page atualizada!' });
       consulta.refetch();
@@ -761,13 +924,18 @@ function SecaoLanding() {
   const ABAS_LANDING = [
     { key: 'hero' as const, label: 'Topo', icone: LayoutTemplate },
     { key: 'geral' as const, label: 'Botão & benefícios', icone: Check },
-    { key: 'recursos' as const, label: 'Recursos', icone: Store, count: form.recursos.length },
-    { key: 'destaques' as const, label: 'Destaques', icone: ImageIcon, count: form.destaques.length },
+    { key: 'passos' as const, label: 'Como funciona', icone: Rocket, count: form.como_funciona.length },
     { key: 'comparativo' as const, label: 'Comparativo', icone: Users, count: form.comparativo_sem.filter(s => s.trim()).length + form.comparativo_com.filter(s => s.trim()).length },
+    { key: 'numeros' as const, label: 'Números', icone: Tag, count: form.stats.length },
+    { key: 'automacao' as const, label: 'Automação', icone: Zap, count: form.automacao.length },
+    { key: 'celular' as const, label: 'Destaques', icone: ImageIcon, count: form.destaques.length },
+    { key: 'fiscal' as const, label: 'Nota fiscal', icone: Receipt, count: form.fiscal_mini.length },
+    { key: 'recursos' as const, label: 'Recursos', icone: Store, count: form.recursos.length },
     { key: 'segmentos' as const, label: 'Segmentos', icone: Store, count: form.segmentos.filter(s => s.trim()).length },
     { key: 'planos' as const, label: 'Planos', icone: Tag, count: form.planos.length },
     { key: 'faq' as const, label: 'Dúvidas', icone: HelpCircle, count: form.faq.length },
     { key: 'depoimentos' as const, label: 'Depoimentos', icone: Star, count: form.depoimentos.length },
+    { key: 'final' as const, label: 'CTA & rodapé', icone: Megaphone },
   ];
   type AbaLanding = typeof ABAS_LANDING[number]['key'];
   const [aba, setAba] = useState<AbaLanding>('hero');
@@ -869,8 +1037,272 @@ function SecaoLanding() {
               </div>
             )}
 
+            {aba === 'passos' && (
+              <div className="space-y-4">
+                <SecaoTituloEditor titulo="Como funciona (3 passos)" desc="A seção de passos do zero ao primeiro pedido." />
+                <div>
+                  <Label>Título da seção</Label>
+                  <Input maxLength={100} value={form.como_funciona_titulo} placeholder="Do zero ao primeiro pedido em *3 passos*"
+                    onChange={e => setForm(f => ({ ...f, como_funciona_titulo: e.target.value }))} />
+                  <p className="text-[11px] text-muted-foreground mt-1">Coloque *asteriscos* na palavra que deve ficar destacada (ex.: *3 passos*).</p>
+                </div>
+                <div>
+                  <Label>Subtítulo</Label>
+                  <Input maxLength={200} value={form.como_funciona_subtitulo} placeholder="Sem complicação, sem depender de ninguém pra configurar."
+                    onChange={e => setForm(f => ({ ...f, como_funciona_subtitulo: e.target.value }))} />
+                </div>
+                <ListaIconeTituloDescEditavel itens={form.como_funciona} onUp={upComoFunciona} onAdd={adicionarComoFuncionaItem} onRemove={removerComoFuncionaItem} max={3} descMax={160} />
+              </div>
+            )}
+
+            {aba === 'numeros' && (
+              <div className="space-y-4">
+                <SecaoTituloEditor titulo="Faixa de números" desc="Os 4 destaques em números (ex.: 2 min / do pedido à cozinha). Máx. 4." />
+                <div className="flex justify-end">
+                  <Button type="button" variant="outline" size="sm" onClick={adicionarStat} disabled={form.stats.length >= 4}>
+                    <Plus className="size-3.5" /> Adicionar
+                  </Button>
+                </div>
+                {form.stats.map((s, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <Input value={s.numero} maxLength={20} placeholder="Número (ex.: 2 min)" className="w-32 shrink-0" onChange={e => upStat(i, 'numero', e.target.value)} />
+                    <Input value={s.texto} maxLength={60} placeholder="Texto (ex.: do pedido à cozinha)" onChange={e => upStat(i, 'texto', e.target.value)} />
+                    <Button type="button" variant="ghost" size="icon" onClick={() => removerStat(i)}><Trash2 className="size-4 text-destructive" /></Button>
+                  </div>
+                ))}
+                {form.stats.length === 0 && <p className="text-xs text-muted-foreground">Nenhum número — usando os padrões embutidos.</p>}
+              </div>
+            )}
+
+            {aba === 'automacao' && (
+              <div className="space-y-4">
+                <SecaoTituloEditor titulo="Automação de verdade" desc="Os 3 blocos de automação (Pix, notificação, avaliações). Máx. 3." />
+                <div>
+                  <Label>Título da seção</Label>
+                  <Input maxLength={100} value={form.automacao_titulo} placeholder="Automação de *verdade*, não só promessa"
+                    onChange={e => setForm(f => ({ ...f, automacao_titulo: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Subtítulo</Label>
+                  <Input maxLength={200} value={form.automacao_subtitulo} placeholder="O sistema trabalha sozinho nos detalhes que tomam seu tempo."
+                    onChange={e => setForm(f => ({ ...f, automacao_subtitulo: e.target.value }))} />
+                </div>
+                <div className="flex justify-end">
+                  <Button type="button" variant="outline" size="sm" onClick={adicionarAutomacao} disabled={form.automacao.length >= 3}>
+                    <Plus className="size-3.5" /> Adicionar bloco
+                  </Button>
+                </div>
+                {form.automacao.map((a, i) => {
+                  const Icone = ICONES_LANDING[a.icone] || Zap;
+                  return (
+                    <div key={i} className="rounded-xl border border-border p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <select value={a.icone} onChange={e => upAutomacao(i, 'icone', e.target.value)}
+                          className="h-10 px-2 rounded-lg border border-input bg-background text-sm shrink-0">
+                          {ICONES_DISPONIVEIS.map(k => <option key={k} value={k}>{k}</option>)}
+                        </select>
+                        <Icone className="size-4 text-primary shrink-0" />
+                        <Input value={a.titulo} maxLength={60} placeholder="Título" onChange={e => upAutomacao(i, 'titulo', e.target.value)} />
+                        <Button type="button" variant="ghost" size="icon" onClick={() => removerAutomacao(i)}><Trash2 className="size-4 text-destructive" /></Button>
+                      </div>
+                      <Input value={a.desc} maxLength={160} placeholder="Descrição curta" onChange={e => upAutomacao(i, 'desc', e.target.value)} />
+                      <ListaTextoEditavel titulo="Sub-itens (com check)" max={5} placeholder="Ex.: Confirmação automática via Mercado Pago"
+                        itens={a.itens} onChange={v => upAutomacaoItens(i, v)} />
+                    </div>
+                  );
+                })}
+                {form.automacao.length === 0 && <p className="text-xs text-muted-foreground">Nenhum bloco — usando os padrões embutidos.</p>}
+              </div>
+            )}
+
+            {aba === 'fiscal' && (
+              <div className="space-y-4">
+                <SecaoTituloEditor titulo="Seção Nota fiscal (NFC-e)" desc="Textos, selo de conformidade, mini-cards e o cupom de exemplo." />
+                <div>
+                  <Label>Selo (texto pequeno acima do título)</Label>
+                  <Input maxLength={60} value={form.fiscal_eyebrow} placeholder="Emissão fiscal"
+                    onChange={e => setForm(f => ({ ...f, fiscal_eyebrow: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Título</Label>
+                  <Input maxLength={100} value={form.fiscal_titulo} placeholder="Cupom fiscal (NFC-e) *na hora da venda*"
+                    onChange={e => setForm(f => ({ ...f, fiscal_titulo: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Texto</Label>
+                  <textarea maxLength={300} rows={2} value={form.fiscal_texto} placeholder="A nota sai com itens, total, chave de acesso e QR Code…"
+                    onChange={e => setForm(f => ({ ...f, fiscal_texto: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <Label>Selo — título</Label>
+                    <Input maxLength={100} value={form.fiscal_selo_titulo} placeholder="100% em conformidade com a SEFAZ"
+                      onChange={e => setForm(f => ({ ...f, fiscal_selo_titulo: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Selo — descrição</Label>
+                    <Input maxLength={160} value={form.fiscal_selo_desc} placeholder="Emissão segura, autorizada e sem complicação."
+                      onChange={e => setForm(f => ({ ...f, fiscal_selo_desc: e.target.value }))} />
+                  </div>
+                </div>
+                <div>
+                  <Label className="mb-1 block">Mini-cards (4)</Label>
+                  <ListaIconeTituloDescEditavel itens={form.fiscal_mini} onUp={upFiscalMini} onAdd={adicionarFiscalMini} onRemove={removerFiscalMini} max={4} descMax={120} />
+                </div>
+                <div className="border-t border-border pt-4">
+                  <Label className="mb-1 block">Cupom de exemplo (itens mostrados no recibo)</Label>
+                  <div className="flex justify-end">
+                    <Button type="button" variant="outline" size="sm" onClick={adicionarCupomItem} disabled={form.cupom_itens.length >= 6}>
+                      <Plus className="size-3.5" /> Adicionar item
+                    </Button>
+                  </div>
+                  <div className="mt-2 space-y-2">
+                    {form.cupom_itens.map((c, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <Input value={String(c.q)} type="number" min={1} max={99} className="w-16 shrink-0" onChange={e => upCupomItem(i, 'q', e.target.value)} />
+                        <Input value={c.nome} maxLength={60} placeholder="Nome do item" onChange={e => upCupomItem(i, 'nome', e.target.value)} />
+                        <Input value={c.v} maxLength={10} placeholder="Valor" className="w-24 shrink-0" onChange={e => upCupomItem(i, 'v', e.target.value)} />
+                        <Button type="button" variant="ghost" size="icon" onClick={() => removerCupomItem(i)}><Trash2 className="size-4 text-destructive" /></Button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2">
+                    <Label>Valor total do cupom</Label>
+                    <Input maxLength={20} value={form.cupom_total} placeholder="56,00" className="w-32"
+                      onChange={e => setForm(f => ({ ...f, cupom_total: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {aba === 'celular' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">Blocos grandes com imagem, tipo "vitrine" de uma funcionalidade. Máx. 4.</p>
+                  <Button type="button" variant="outline" size="sm" onClick={adicionarDestaque} disabled={form.destaques.length >= 4}>
+                    <Plus className="size-3.5" /> Adicionar
+                  </Button>
+                </div>
+                {form.destaques.map((d, i) => (
+                  <div key={i} className="rounded-xl border border-border p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <ImageUpload label="Imagem" value={d.imagem_url}
+                        onChange={v => upDestaque(i, 'imagem_url', v)} aspectRatio="wide" />
+                      <Button type="button" variant="ghost" size="icon" onClick={() => removerDestaque(i)}>
+                        <Trash2 className="size-4 text-destructive" />
+                      </Button>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Moldura da imagem</Label>
+                      <select value={d.formato || 'navegador'} onChange={e => upDestaque(i, 'formato', e.target.value)}
+                        className="w-full h-10 px-2 rounded-lg border border-input bg-background text-sm">
+                        <option value="navegador">Navegador (desktop)</option>
+                        <option value="celular">Celular (mobile)</option>
+                        <option value="livre">Sem moldura (imagem solta)</option>
+                      </select>
+                    </div>
+                    <Input value={d.titulo} maxLength={80} placeholder="Título"
+                      onChange={e => upDestaque(i, 'titulo', e.target.value)} />
+                    <textarea value={d.desc} maxLength={240} rows={2} placeholder="Descrição"
+                      onChange={e => upDestaque(i, 'desc', e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
+                  </div>
+                ))}
+                {form.destaques.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Nenhum destaque ainda.</p>
+                )}
+              </div>
+            )}
+
+            {aba === 'final' && (
+              <div className="space-y-4">
+                <SecaoTituloEditor titulo="CTA final, títulos de seção e rodapé" desc="Textos avulsos que aparecem espalhados pela página." />
+                <div>
+                  <Label>Título da seção de recursos</Label>
+                  <Input maxLength={100} value={form.recursos_titulo} placeholder="Tudo que uma operação de delivery *precisa*"
+                    onChange={e => setForm(f => ({ ...f, recursos_titulo: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Título "Atendimento caótico"</Label>
+                  <Input maxLength={100} value={form.atendimento_titulo} placeholder="Diga adeus ao atendimento *caótico*"
+                    onChange={e => setForm(f => ({ ...f, atendimento_titulo: e.target.value }))} />
+                </div>
+                <div>
+                  <Label>Subtítulo "Atendimento caótico"</Label>
+                  <Input maxLength={200} value={form.atendimento_subtitulo} placeholder="O futuro é integrado, rápido e automatizado."
+                    onChange={e => setForm(f => ({ ...f, atendimento_subtitulo: e.target.value }))} />
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <Label>Título dos planos</Label>
+                    <Input maxLength={100} value={form.planos_titulo} placeholder="Planos sem *pegadinha*"
+                      onChange={e => setForm(f => ({ ...f, planos_titulo: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Subtítulo dos planos</Label>
+                    <Input maxLength={200} value={form.planos_subtitulo} placeholder="Sem taxa por pedido, sem fidelidade."
+                      onChange={e => setForm(f => ({ ...f, planos_subtitulo: e.target.value }))} />
+                  </div>
+                </div>
+                <div>
+                  <Label>Título das dúvidas</Label>
+                  <Input maxLength={100} value={form.duvidas_titulo} placeholder="Dúvidas *frequentes*"
+                    onChange={e => setForm(f => ({ ...f, duvidas_titulo: e.target.value }))} />
+                </div>
+                <div className="border-t border-border pt-4 space-y-3">
+                  <div>
+                    <Label>CTA final — título</Label>
+                    <Input maxLength={100} value={form.cta_titulo} placeholder="Quer ver funcionando na prática?"
+                      onChange={e => setForm(f => ({ ...f, cta_titulo: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>CTA final — subtítulo</Label>
+                    <Input maxLength={240} value={form.cta_subtitulo} placeholder="Explore uma loja de demonstração completa…"
+                      onChange={e => setForm(f => ({ ...f, cta_subtitulo: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>CTA final — texto do botão de demo</Label>
+                    <Input maxLength={40} value={form.cta_botao_demo_texto} placeholder="Abrir loja demo"
+                      onChange={e => setForm(f => ({ ...f, cta_botao_demo_texto: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="border-t border-border pt-4 space-y-3">
+                  <SecaoTituloEditor titulo="Mensagens do WhatsApp" desc="Texto que já vem preenchido quando o cliente clica pra falar com você." />
+                  <div>
+                    <Label>Mensagem — botão do topo</Label>
+                    <Input maxLength={200} value={form.whatsapp_msg_hero} placeholder="Olá! Quero saber mais sobre o sistema de delivery."
+                      onChange={e => setForm(f => ({ ...f, whatsapp_msg_hero: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Mensagem — CTA final</Label>
+                    <Input maxLength={200} value={form.whatsapp_msg_cta} placeholder="Olá! Quero falar sobre o sistema de delivery."
+                      onChange={e => setForm(f => ({ ...f, whatsapp_msg_cta: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Mensagem — botão flutuante</Label>
+                    <Input maxLength={200} value={form.whatsapp_msg_flutuante} placeholder="Olá! Quero saber mais sobre o sistema."
+                      onChange={e => setForm(f => ({ ...f, whatsapp_msg_flutuante: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="border-t border-border pt-4 grid gap-2 sm:grid-cols-2">
+                  <div>
+                    <Label>Rodapé — título da coluna de links</Label>
+                    <Input maxLength={40} value={form.footer_coluna_sistema} placeholder="O sistema"
+                      onChange={e => setForm(f => ({ ...f, footer_coluna_sistema: e.target.value }))} />
+                  </div>
+                  <div>
+                    <Label>Rodapé — título da coluna de contato</Label>
+                    <Input maxLength={40} value={form.footer_coluna_contato} placeholder="Contato"
+                      onChange={e => setForm(f => ({ ...f, footer_coluna_contato: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {aba === 'recursos' && (
               <div className="space-y-3">
+                <SecaoTituloEditor titulo="Recursos (lista numerada)" desc="A lista 01-09 de recursos. O título da seção fica na aba 'CTA & rodapé'." />
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-muted-foreground">Cards da grade "Tudo que uma operação de delivery precisa". Máx. 9.</p>
                   <Button type="button" variant="outline" size="sm" onClick={adicionarRecurso} disabled={form.recursos.length >= 9}>
@@ -1005,44 +1437,6 @@ function SecaoLanding() {
               </div>
             )}
 
-            {aba === 'destaques' && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-muted-foreground">Blocos grandes com imagem, tipo "vitrine" de uma funcionalidade. Máx. 4.</p>
-                  <Button type="button" variant="outline" size="sm" onClick={adicionarDestaque} disabled={form.destaques.length >= 4}>
-                    <Plus className="size-3.5" /> Adicionar
-                  </Button>
-                </div>
-                {form.destaques.map((d, i) => (
-                  <div key={i} className="rounded-xl border border-border p-3 space-y-2">
-                    <div className="flex items-start justify-between gap-2">
-                      <ImageUpload label="Imagem" value={d.imagem_url}
-                        onChange={v => upDestaque(i, 'imagem_url', v)} aspectRatio="wide" />
-                      <Button type="button" variant="ghost" size="icon" onClick={() => removerDestaque(i)}>
-                        <Trash2 className="size-4 text-destructive" />
-                      </Button>
-                    </div>
-                    <div>
-                      <Label className="text-xs">Moldura da imagem</Label>
-                      <select value={d.formato || 'navegador'} onChange={e => upDestaque(i, 'formato', e.target.value)}
-                        className="w-full h-10 px-2 rounded-lg border border-input bg-background text-sm">
-                        <option value="navegador">Navegador (desktop)</option>
-                        <option value="celular">Celular (mobile)</option>
-                        <option value="livre">Sem moldura (imagem solta)</option>
-                      </select>
-                    </div>
-                    <Input value={d.titulo} maxLength={80} placeholder="Título"
-                      onChange={e => upDestaque(i, 'titulo', e.target.value)} />
-                    <textarea value={d.desc} maxLength={240} rows={2} placeholder="Descrição"
-                      onChange={e => upDestaque(i, 'desc', e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
-                  </div>
-                ))}
-                {form.destaques.length === 0 && (
-                  <p className="text-xs text-muted-foreground">Nenhum destaque ainda.</p>
-                )}
-              </div>
-            )}
           </CardContent>
         </Card>
 
@@ -1109,6 +1503,35 @@ function PreviewLanding({ form }: { form: LandingConfig }) {
         landing_hero_imagem_mobile: form.hero_imagem_mobile,
         landing_whatsapp: form.whatsapp,
         landing_demo_url: form.demo_url,
+        landing_como_funciona_titulo: form.como_funciona_titulo,
+        landing_como_funciona_subtitulo: form.como_funciona_subtitulo,
+        landing_como_funciona: form.como_funciona,
+        landing_atendimento_titulo: form.atendimento_titulo,
+        landing_atendimento_subtitulo: form.atendimento_subtitulo,
+        landing_stats: form.stats,
+        landing_automacao_titulo: form.automacao_titulo,
+        landing_automacao_subtitulo: form.automacao_subtitulo,
+        landing_automacao: form.automacao,
+        landing_fiscal_eyebrow: form.fiscal_eyebrow,
+        landing_fiscal_titulo: form.fiscal_titulo,
+        landing_fiscal_texto: form.fiscal_texto,
+        landing_fiscal_selo_titulo: form.fiscal_selo_titulo,
+        landing_fiscal_selo_desc: form.fiscal_selo_desc,
+        landing_fiscal_mini: form.fiscal_mini,
+        landing_cupom_itens: form.cupom_itens,
+        landing_cupom_total: form.cupom_total,
+        landing_recursos_titulo: form.recursos_titulo,
+        landing_planos_titulo: form.planos_titulo,
+        landing_planos_subtitulo: form.planos_subtitulo,
+        landing_duvidas_titulo: form.duvidas_titulo,
+        landing_cta_titulo: form.cta_titulo,
+        landing_cta_subtitulo: form.cta_subtitulo,
+        landing_cta_botao_demo_texto: form.cta_botao_demo_texto,
+        landing_whatsapp_msg_hero: form.whatsapp_msg_hero,
+        landing_whatsapp_msg_cta: form.whatsapp_msg_cta,
+        landing_whatsapp_msg_flutuante: form.whatsapp_msg_flutuante,
+        landing_footer_coluna_sistema: form.footer_coluna_sistema,
+        landing_footer_coluna_contato: form.footer_coluna_contato,
       },
     }, window.location.origin);
   }, [form, pronto]);
