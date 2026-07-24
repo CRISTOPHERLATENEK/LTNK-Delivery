@@ -1082,26 +1082,39 @@ export function PaginaLanding() {
         </div>
       </section>
 
-      {/* ───── CTA final ───── */}
-      <section data-reveal className="relative overflow-hidden bg-primary text-primary-foreground">
-        <div className="relative mx-auto grid max-w-6xl items-center gap-8 px-5 py-16 sm:px-6 sm:py-20 lg:grid-cols-[1fr_auto]">
+      {/* ───── CTA final (estilo "blobs" + vídeo em card) ───── */}
+      <section data-reveal className="relative overflow-hidden bg-background">
+        <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-16 sm:px-6 sm:py-24 lg:grid-cols-2">
           <div className="text-center lg:text-left">
-            <h2 className="text-3xl font-black tracking-tight sm:text-4xl">{ctaTitulo}</h2>
-            <p className="mt-3 max-w-lg text-primary-foreground/80">{ctaSubtitulo}</p>
+            <h2 className="text-3xl font-black tracking-tight text-foreground sm:text-4xl">{ctaTitulo}</h2>
+            <p className="mt-3 max-w-lg text-muted-foreground">{ctaSubtitulo}</p>
             <div className="mt-7 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center lg:justify-start">
-              <BotaoDemo size="lg" variant="branco" texto={ctaBotaoDemoTexto} className="js-magnetico" />
+              <BotaoDemo size="lg" texto={ctaBotaoDemoTexto} className="js-magnetico" />
               <a
                 href={linkZap(zapMsgCta) || '/lojista'}
                 {...(linkZap() ? { target: '_blank', rel: 'noreferrer' } : {})}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-primary-foreground/40 px-7 text-base font-semibold text-primary-foreground transition-colors hover:bg-primary-foreground/10"
+                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-input bg-background px-7 text-base font-semibold text-foreground transition-colors hover:bg-accent"
               >
                 <IconeWhatsapp className="size-5" /> Falar no WhatsApp
               </a>
             </div>
           </div>
-          {/* Mascote sangrando na borda inferior */}
-          <div className="pointer-events-none relative hidden justify-center self-end lg:flex">
-            <img src="/mascote/mascote.png" alt="" className="js-mascote -mb-16 sm:-mb-20 h-56 w-auto drop-shadow-2xl" />
+
+          {/* Composição: formas orgânicas na cor da marca + o vídeo num card por cima (só desktop). */}
+          <div className="relative mx-auto hidden aspect-square w-full max-w-md lg:block">
+            {/* blob preenchido */}
+            <div className="absolute inset-0 bg-primary/90 [border-radius:42%_58%_63%_37%/45%_38%_62%_55%]" />
+            {/* blob de contorno, deslocado (como o traço do Deeliv) */}
+            <div className="absolute inset-1 rotate-6 border-2 border-primary/40 [border-radius:58%_42%_37%_63%/38%_55%_45%_62%]" />
+            {/* vídeo animado em card */}
+            <div className="js-mascote absolute inset-7 overflow-hidden rounded-[2rem] shadow-2xl">
+              <video
+                src="/mascote/entregador.mp4"
+                autoPlay muted loop playsInline preload="auto"
+                className="h-full w-full object-cover"
+                aria-hidden="true"
+              />
+            </div>
           </div>
         </div>
       </section>
