@@ -1,0 +1,35 @@
+name: Deploy VPS
+
+# Dispara a cada push na branch de produção (e dá pra rodar na mão pelo botão
+# "Run workflow" na aba Actions do GitHub).
+on:
+  push:
+    branches: [migracao-mysql]
+  workflow_dispatch:
+
+# Evita dois deploys ao mesmo tempo (se empurrar dois commits seguidos, o
+# segundo cancela o primeiro em vez de rodarem em paralelo).
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Conectar no VPS e rodar o deploy
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          command_timeout: 20m
+          script: |
+            cd /opt/delivery
+            git fetch origin migracao-mysql
+            git reset --hard origin/migracao-mysql
+            npm install
+            npm run build
+            pm2 restart all
+            pm2 save
