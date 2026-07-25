@@ -41,3 +41,24 @@ process.on('unhandledRejection', (e) => {
   capturarErro(e, { fase: 'unhandledRejection' });
   if (dentroDaJanelaDeBoot) drenarMonitoramento().finally(() => process.exit(1));
 });
+
+/**
+ * Grita sobre proteções que estão silenciosamente DESLIGADAS por falta de
+ * config. Várias verificações do projeto são opt-in de propósito (sem o
+ * segredo, a proteção não roda, e quem ainda não configurou não fica
+ * travado) — o efeito colateral é que elas podem ficar desligadas pra sempre
+ * sem ninguém perceber. Um aviso no boot é barato e resolve isso.
+ */
+function avisarProtecaoDesligada(): void {
+  // Só avisa se o Mercado Pago está de fato em uso — senão vira ruído.
+  if (process.env.MERCADOPAGO_ACCESS_TOKEN && !process.env.MERCADOPAGO_WEBHOOK_SECRET) {
+    console.warn(
+      '⚠️  [SEGURANCA] MERCADOPAGO_WEBHOOK_SECRET ausente — a validação de assinatura ' +
+      '(x-signature) do webhook está DESLIGADA: quem descobrir a URL consegue POSTar ' +
+      'uma notificação forjada. O impacto é limitado (o status é sempre reconsultado ' +
+      'na API do MP antes de valer), mas o certo é pegar o segredo em Mercado Pago → ' +
+      'Suas integrações → Webhooks e definir no .env.',
+    );
+  }
+}
+avisarProtecaoDesligada();
