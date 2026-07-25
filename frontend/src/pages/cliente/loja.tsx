@@ -150,7 +150,29 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
   }, [JSON.stringify(visual.avancado), !!consulta.data, modoPreview]);
 
   if (consulta.isLoading) return <Skeleton_Loja />;
-  if (!consulta.data) return null;
+  // Sem `data` a página não tem o que renderizar. Antes devolvia null aqui, o
+  // que deixava só o cabeçalho e a nav do layout na tela (parecia um bug de
+  // tela preta) — a causa mais comum é a loja não existir NESTE tenant, ex.
+  // abrir /:slug de outro tenant direto no domínio da plataforma.
+  if (!consulta.data) {
+    return (
+      <div className="flex min-h-[60vh] flex-col items-center justify-center gap-3 px-6 text-center">
+        <div className="flex size-14 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+          <UtensilsCrossed className="size-7" />
+        </div>
+        <h1 className="text-lg font-bold">Loja não encontrada</h1>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          Esse endereço não corresponde a nenhuma loja disponível aqui. Confira o link ou volte para o início.
+        </p>
+        <Link
+          to="/"
+          className="mt-1 inline-flex h-11 items-center justify-center rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground transition-all hover:bg-primary/90 active:scale-[0.98]"
+        >
+          Voltar ao início
+        </Link>
+      </div>
+    );
+  }
 
   const { cardapio, banners } = consulta.data;
   const loja = previewOverride ? {

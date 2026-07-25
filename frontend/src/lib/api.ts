@@ -149,18 +149,21 @@ export function definirTenantDemo(slug: string | null) {
 }
 
 /**
- * Só considera o modo demo ativo dentro das rotas da área cliente que a
- * vitrine de demo realmente usa (/demo, /loja, /carrinho, /pedido*, /conta).
- * Fora delas (lojista/entregador/cozinha/admin, ou de volta pra home) o flag
- * é ignorado — e apagado — pra uma sessionStorage esquecida nunca desviar
- * chamadas reais de outra área pro tenant de demonstração.
+ * O modo demo vale em toda a área CLIENTE e é ignorado — e apagado — nas
+ * outras áreas, pra uma sessionStorage esquecida nunca desviar chamadas reais
+ * de lojista/entregador/cozinha/admin pro tenant de demonstração.
+ *
+ * A regra é por EXCLUSÃO (o que NÃO é área cliente) de propósito: a loja mora
+ * em "/:slug" desde que a URL perdeu o prefixo /loja/, então qualquer caminho
+ * de um segmento pode ser uma loja e não dá mais pra listar as rotas de
+ * cliente. A lista antiga ainda citava "/loja" e, por isso, o redirect de
+ * /demo/:slug pro storefront caía fora dela: o flag era apagado no meio do
+ * caminho, a chamada seguinte ia pro tenant master e voltava 404.
  */
 export function tenantDemoAtivo(): string | null {
   const slug = sessionStorage.getItem(CHAVE_TENANT_DEMO);
   if (!slug) return null;
-  const p = typeof window !== 'undefined' ? window.location.pathname : '/';
-  const dentroDaDemo = /^\/(demo|loja|carrinho|pedidos|pedido|conta)(\/|$)/.test(p);
-  if (!dentroDaDemo) { sessionStorage.removeItem(CHAVE_TENANT_DEMO); return null; }
+  if (areaAtual() !== 'cliente') { sessionStorage.removeItem(CHAVE_TENANT_DEMO); return null; }
   return slug;
 }
 
