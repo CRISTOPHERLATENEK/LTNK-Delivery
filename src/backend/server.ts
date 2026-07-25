@@ -52,17 +52,75 @@ app.use(express.json({ limit: '200kb' }));
 // `frame-ancestors 'self'`: continua bloqueando qualquer site de FORA
 // framear a página (clickjacking), só libera o próprio domínio embutir a
 // própria página de preview.
+/**
+ * Content-Security-Policy.
+ *
+ * LIMITE CONHECIDO E DELIBERADO: `script-src` precisa de 'unsafe-inline'.
+ * O lojista pode plugar o próprio GA4/GTM/Meta/TikTok/Clarity (visual_json →
+ * avancado), e esses snippets são injetados como <script> inline em runtime
+ * (ver frontend/src/lib/visual.ts). Com 'unsafe-inline' a CSP deixa de ser
+ * defesa forte contra XSS — isso só muda reescrevendo a injeção de analytics
+ * pra usar nonce por request. O que esta política ENTREGA de verdade:
+ *   - object-src 'none'  → mata plugin/Flash como vetor
+ *   - base-uri 'self'    → bloqueia sequestro de URL relativa via <base>
+ *   - form-action 'self' → impede POST de formulário pra domínio de fora
+ *   - allowlist de origem pra script/connect/font/style: um XSS não consegue
+ *     exfiltrar dado pra um servidor arbitrário, só pros domínios abaixo
+ *   - upgrade-insecure-requests → sub-recurso em http:// vira https://
+ *
+ * img-src aceita `https:` de propósito: logo, capa e imagem do hero podem
+ * apontar pra URL externa escolhida pelo lojista (não dá pra listar).
+ */
+const ORIGENS_ANALYTICS = [
+  'https://www.googletagmanager.com',   // GA4 + GTM
+  'https://connect.facebook.net',       // Meta Pixel
+  'https://analytics.tiktok.com',       // TikTok Pixel
+  'https://www.clarity.ms',             // Microsoft Clarity
+];
+const CSP_BASE = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "form-action 'self'",
+  "frame-src 'self'",
+  "worker-src 'self'",                  // service worker do PWA (push)
+  "manifest-src 'self'",
+  "img-src 'self' data: blob: https:",  // QR em base64, uploads, imagem externa da loja
+  "media-src 'self' blob:",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  `script-src 'self' 'unsafe-inline' ${ORIGENS_ANALYTICS.join(' ')}`,
+  [
+    "connect-src 'self'",
+    'https://viacep.com.br',              // busca de CEP no checkout
+    'https://brasilapi.com.br',           // consulta de CNPJ no painel fiscal
+    'https://router.project-osrm.org',    // rota do entregador no mapa
+    'https://*.tile.openstreetmap.org',   // tiles do mapa
+    ...ORIGENS_ANALYTICS,
+    'https://*.google-analytics.com',
+    'https://*.analytics.google.com',
+    'https://*.facebook.com',
+    'https://*.clarity.ms',
+  ].join(' '),
+  'upgrade-insecure-requests',
+].join('; ');
+
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   // Loja em modo preview vive na raiz por slug/id (`/minha-loja?preview=1`,
   // sem prefixo /loja/ — ver App.tsx `<Route path="/:id">`); a landing vive
   // na própria raiz (`/?preview=1`).
   const ehPreview = /^\/([^/]+)?$/.test(req.path) && req.query.preview === '1';
-  if (ehPreview) {
-    res.setHeader('Content-Security-Policy', "frame-ancestors 'self'");
-  } else {
-    res.setHeader('X-Frame-Options', 'DENY');
-  }
+  // frame-ancestors é a única diretiva que muda entre preview e página normal:
+  // o preview PRECISA ser embutível (same-origin) pelos editores; o resto não
+  // pode ser framado por ninguém. X-Frame-Options fica só pra navegador antigo
+  // que ignora frame-ancestors — e não pode ser mandado no preview, porque não
+  // tem equivalente a 'self' confiável entre navegadores.
+  res.setHeader(
+    'Content-Security-Policy',
+    `${CSP_BASE}; frame-ancestors ${ehPreview ? "'self'" : "'none'"}`,
+  );
+  if (!ehPreview) res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
 
   // HSTS: manda o navegador só falar HTTPS com este domínio pelo próximo ano.
