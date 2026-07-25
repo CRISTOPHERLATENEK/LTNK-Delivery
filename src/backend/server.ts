@@ -64,6 +64,23 @@ app.use((req, res, next) => {
     res.setHeader('X-Frame-Options', 'DENY');
   }
   res.setHeader('Referrer-Policy', 'no-referrer');
+
+  // HSTS: manda o navegador só falar HTTPS com este domínio pelo próximo ano.
+  // Sem isso, a PRIMEIRA visita por http:// (link antigo, usuário digitando o
+  // domínio, rede hostil) trafega em claro antes do redirect — janela clássica
+  // de SSL-strip, séria num app que passa senha e pagamento.
+  //
+  // Só envia quando a requisição original chegou por HTTPS: o nginx termina o
+  // TLS e fala HTTP com o app, então o protocolo real vem no x-forwarded-proto
+  // (mandar HSTS numa resposta HTTP é inválido pela spec e ignorado).
+  //
+  // Deliberadamente SEM `includeSubDomains` e SEM `preload`: com domínio
+  // próprio por loja, subdomínio ainda em HTTP quebraria de vez, e `preload` é
+  // praticamente irreversível (entra numa lista embutida nos navegadores).
+  // Ambos são decisão de negócio, não default técnico.
+  if (req.headers['x-forwarded-proto'] === 'https' || (req.socket as { encrypted?: boolean }).encrypted) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  }
   next();
 });
 
