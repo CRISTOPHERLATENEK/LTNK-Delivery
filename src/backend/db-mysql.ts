@@ -44,8 +44,12 @@ const CONFIG_BASE = {
   charset: 'utf8mb4',
 };
 
-/** Banco do tenant padrão (fora de request: boot, jobs). Ex.: u438637664_delivery. */
-const BANCO_PADRAO = process.env.MYSQL_DATABASE || 'delivery';
+/**
+ * Banco do tenant padrão/master. Use SEMPRE de forma explícita, via
+ * `comTenant(BANCO_PADRAO, fn)` — nunca como fallback implícito (ver
+ * bancoTenantAtual abaixo).
+ */
+export const BANCO_PADRAO = process.env.MYSQL_DATABASE || 'delivery';
 
 // ── Multi-tenant: um pool por banco, resolvido via AsyncLocalStorage ──
 
@@ -75,9 +79,28 @@ export function comTenant<T>(database: string, fn: () => T): T {
   return contexto.run({ database }, fn);
 }
 
-/** Banco do tenant atual (ou o padrão, fora de request). */
+/**
+ * Banco do tenant atual. FAIL-CLOSED de propósito: sem contexto, LANÇA.
+ *
+ * Antes isso caía silenciosamente no BANCO_PADRAO. Num SaaS multi-tenant esse
+ * fallback é perigoso: se o contexto se perde em algum caminho (um job novo,
+ * um callback que escapa do request, um webhook sem `comTenant`), a query não
+ * falha — ela lê/grava no banco MASTER, que aqui é um tenant real com dados
+ * reais. O erro vira vazamento silencioso entre tenants em vez de exceção.
+ *
+ * Fora de request (boot, jobs, scripts) o banco tem que ser DECLARADO:
+ *   comTenant(BANCO_PADRAO, fn)   // master, explicitamente
+ *   comTenant(tenant.db_nome, fn) // um tenant específico
+ */
 export function bancoTenantAtual(): string {
-  return contexto.getStore()?.database ?? BANCO_PADRAO;
+  const store = contexto.getStore();
+  if (!store) {
+    throw new Error(
+      'Nenhum tenant no contexto: toda query precisa rodar dentro de comTenant(). ' +
+      'Fora de request (boot, jobs, scripts), declare o banco: comTenant(BANCO_PADRAO, fn).',
+    );
+  }
+  return store.database;
 }
 
 function poolAtual(): Pool {

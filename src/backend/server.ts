@@ -24,7 +24,7 @@ import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
 import { ErroHttp, lojaAbertaPorAgenda, agoraUTC } from './util';
-import db, { comTenant } from './db-mysql';
+import db, { comTenant, BANCO_PADRAO } from './db-mysql';
 import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants } from './tenants-mysql';
 import { tenantDoToken } from './auth';
 import { capturarErro } from './monitoramento';
@@ -204,7 +204,9 @@ const PORT = Number(process.env.PORT) || 3000;
   if (process.env.SEED_ON_START === '1') {
     console.log('🌱 SEED_ON_START=1 — rodando seed inicial (idempotente)...');
     const { seed } = await import('./seed');
-    await seed();
+    // Boot roda fora de request: o banco tem que ser declarado explicitamente
+    // (bancoTenantAtual() lança sem contexto — ver db-mysql.ts).
+    await comTenant(BANCO_PADRAO, seed);
   }
   sincronizarHorarios().catch(e => console.error('[HORARIO AUTO] falha:', e));
   setInterval(() => { sincronizarHorarios().catch(e => console.error('[HORARIO AUTO] falha:', e)); }, 60_000);
