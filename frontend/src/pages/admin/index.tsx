@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import {
   Store, Users, ShoppingBag, TrendingUp, AlertCircle,
   Crown, ArrowRight, Image, Palette, Shield, Clock,
+  Mail, Lock, Eye, EyeOff, ScrollText, Wallet,
 } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -14,6 +15,8 @@ import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario, ehSuperAdmin, salvarSessao } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Portal2FA } from '@/components/duplo-fator';
 
 interface DadosDashboard {
@@ -373,6 +376,7 @@ function LoginAdmin() {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [carregando, setCarregando] = useState(false);
+  const [mostrarSenha, setMostrarSenha] = useState(false);
   const [duploFator, setDuploFator] = useState<{ tokenPreAuth: string; modo: 'configurar' | 'verificar' } | null>(null);
   const { mostrar } = useToast();
 
@@ -400,46 +404,125 @@ function LoginAdmin() {
     }
   }
 
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
-      {duploFator ? (
+  if (duploFator) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-background px-4 py-10">
         <Portal2FA
           tokenPreAuth={duploFator.tokenPreAuth}
           modo={duploFator.modo}
           onCancelar={() => setDuploFator(null)}
           onSucesso={(token, usuario) => { salvarSessao(token, usuario); window.location.reload(); }}
         />
-      ) : (
-      <div className="w-full max-w-sm">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div className="inline-flex size-16 items-center justify-center rounded-2xl bg-primary mb-4 shadow-lg shadow-primary/30">
-            <Shield className="size-8 text-primary-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-dvh bg-background">
+      {/* Painel de marca. Usa bg-foreground/text-background (mesmo recurso da
+          faixa de números da landing) em vez de zinc fixo: fica escuro no tema
+          claro e claro no escuro, acompanhando a marca do cliente — a versão
+          anterior tinha 13 cores zinc hardcoded e ignorava o white-label. */}
+      <div className="relative hidden w-[44%] flex-col justify-between overflow-hidden bg-foreground p-10 text-background lg:flex xl:p-14">
+        <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-primary/20 blur-3xl" />
+
+        <div className="relative flex items-center gap-2.5">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <Shield className="size-5" strokeWidth={2.5} />
           </div>
-          <h1 className="text-2xl font-extrabold text-white">Painel Admin</h1>
-          <p className="text-zinc-400 text-sm mt-1">Acesso restrito a administradores</p>
+          <span className="text-lg font-extrabold">Painel Admin</span>
         </div>
 
-        <form onSubmit={entrar} className="space-y-3">
-          <input
-            className="w-full h-12 px-4 rounded-xl bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all text-sm"
-            type="email" required placeholder="E-mail" autoComplete="email"
-            value={email} onChange={e => setEmail(e.target.value)}
-          />
-          <input
-            className="w-full h-12 px-4 rounded-xl bg-zinc-800 border border-zinc-700 text-white placeholder:text-zinc-500 outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all text-sm"
-            type="password" required placeholder="Senha" autoComplete="current-password"
-            value={senha} onChange={e => setSenha(e.target.value)}
-          />
-          <Button type="submit" size="lg" className="w-full" loading={carregando} loadingText="Entrando…">
-            Entrar no painel
-          </Button>
-          <Link to="/esqueci-senha" className="block text-center text-sm text-zinc-400 hover:text-primary">
-            Esqueci minha senha
-          </Link>
-        </form>
+        <div className="relative max-w-md">
+          <h2 className="text-3xl font-black leading-tight tracking-tight xl:text-4xl">
+            A plataforma inteira, num lugar só.
+          </h2>
+          <ul className="mt-8 space-y-4">
+            {[
+              { icone: Store, texto: 'Lojas, planos e aprovações' },
+              { icone: Wallet, texto: 'Comissão e repasses dos lojistas' },
+              { icone: ScrollText, texto: 'Auditoria de tudo que foi alterado' },
+            ].map(v => (
+              <li key={v.texto} className="flex items-center gap-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-background/10">
+                  <v.icone className="size-4" />
+                </span>
+                <span className="text-sm font-medium text-background/90">{v.texto}</span>
+              </li>
+            ))}
+          </ul>
+
+          <div className="mt-10 flex items-center gap-3 rounded-2xl bg-background/10 p-4">
+            <Lock className="size-5 shrink-0 text-primary" />
+            <div className="text-xs text-background/70">
+              Área restrita. Todo acesso exige verificação em duas etapas e fica registrado na auditoria.
+            </div>
+          </div>
+        </div>
+
+        <div className="relative text-xs text-background/50">© {new Date().getFullYear()}</div>
       </div>
-      )}
+
+      {/* Formulário */}
+      <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-6">
+        <div className="w-full max-w-sm">
+          <div className="mb-8 text-center lg:text-left">
+            <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30 lg:hidden">
+              <Shield className="size-7 text-primary-foreground" strokeWidth={2.5} />
+            </div>
+            <h1 className="text-2xl font-extrabold">Entrar no painel</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Acesso restrito a administradores da plataforma.</p>
+          </div>
+
+          <form onSubmit={entrar} className="space-y-4">
+            <div>
+              <Label htmlFor="email-admin">E-mail</Label>
+              <div className="relative mt-1.5">
+                <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="email-admin" type="email" required autoComplete="email"
+                  placeholder="voce@empresa.com.br" className="pl-9"
+                  value={email} onChange={e => setEmail(e.target.value)}
+                />
+              </div>
+            </div>
+            <div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="senha-admin">Senha</Label>
+                <Link to="/esqueci-senha" className="text-xs font-semibold text-primary hover:underline">
+                  Esqueci minha senha
+                </Link>
+              </div>
+              <div className="relative mt-1.5">
+                <Lock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="senha-admin" type={mostrarSenha ? 'text' : 'password'} required autoComplete="current-password"
+                  placeholder="••••••••" className="pl-9 pr-10"
+                  value={senha} onChange={e => setSenha(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setMostrarSenha(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={mostrarSenha ? 'Esconder senha' : 'Mostrar senha'}
+                >
+                  {mostrarSenha ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+            </div>
+            <Button type="submit" size="lg" className="w-full" loading={carregando} loadingText="Entrando…">
+              Entrar no painel
+            </Button>
+          </form>
+
+          {/* Sem "manter conectado" aqui, ao contrário do painel do lojista:
+              conta de admin é o alvo mais valioso da plataforma e sessão
+              persistente em máquina compartilhada é risco desproporcional. */}
+          <p className="mt-6 text-center text-xs text-muted-foreground lg:hidden">
+            Área restrita. Todo acesso fica registrado na auditoria.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
