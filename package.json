@@ -5,9 +5,10 @@
   "main": "dist/backend/server.js",
   "scripts": {
     "postinstall": "npm --prefix frontend install",
-    "build": "tsc -p tsconfig.backend.json && cd frontend && npm run build",
+    "build": "tsc -p tsconfig.backend.json && npm run limpar:assets && cd frontend && npm run build",
     "build:backend": "tsc -p tsconfig.backend.json",
-    "build:react": "cd frontend && npm run build",
+    "build:react": "npm run limpar:assets && cd frontend && npm run build",
+    "limpar:assets": "node -e \"require('fs').rmSync('public/app-assets',{recursive:true,force:true})\"",
     "dev:react": "cd frontend && npm run dev",
     "dev:backend": "tsc -p tsconfig.backend.json --watch",
     "dev:server": "node --watch dist/backend/server.js",

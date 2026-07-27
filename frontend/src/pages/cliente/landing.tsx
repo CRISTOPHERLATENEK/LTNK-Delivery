@@ -401,23 +401,58 @@ function VideoRecortado({ src, className, tolerancia = 96 }: { src: string; clas
       ctx.putImageData(frame, 0, 0);
     };
 
+    let visivel = false;
+
     const aoCarregar = () => {
       const escala = Math.min(1, 460 / (video.videoWidth || 460)); // limita custo
       canvas.width = Math.round((video.videoWidth || 460) * escala);
       canvas.height = Math.round((video.videoHeight || 460) * escala);
+      if (!visivel) return; // saiu da tela antes de carregar: não começa a girar
       video.play().catch(() => { /* autoplay bloqueado: ignora */ });
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(render);
     };
     video.addEventListener('loadeddata', aoCarregar);
-    if (video.readyState >= 2) aoCarregar();
 
-    return () => { cancelAnimationFrame(raf); video.removeEventListener('loadeddata', aoCarregar); };
+    /**
+     * O vídeo só é BAIXADO quando o elemento se aproxima da viewport, e o loop
+     * de chroma-key só roda enquanto ele está visível. Isso importa: o arquivo
+     * tem ~7 MB e vive no CTA final da página, muito abaixo da dobra — com
+     * `preload="auto"` todo desktop pagava os 7 MB no carregamento inicial,
+     * concorrendo com o conteúdo que a pessoa realmente está vendo. E o render
+     * faz `getImageData` + varredura por pixel a cada frame, então deixá-lo
+     * girando fora da tela é ventoinha ligada à toa.
+     */
+    const observador = new IntersectionObserver(
+      ([entrada]) => {
+        visivel = entrada.isIntersecting;
+        if (visivel) {
+          if (!video.src) video.src = src;
+          // Com `preload="none"` o navegador NÃO busca o arquivo só por causa do
+          // `src` — quem dispara o download é o play(). Sem esta linha o vídeo
+          // nunca carrega, `loadeddata` nunca chega e o mascote fica em branco.
+          video.play().catch(() => { /* autoplay bloqueado: ignora */ });
+          if (video.readyState >= 2) aoCarregar();
+        } else {
+          video.pause();
+          cancelAnimationFrame(raf);
+        }
+      },
+      { rootMargin: '300px' }, // começa a baixar um pouco antes de aparecer
+    );
+    observador.observe(canvas);
+
+    return () => {
+      observador.disconnect();
+      cancelAnimationFrame(raf);
+      video.removeEventListener('loadeddata', aoCarregar);
+    };
   }, [src, tolerancia]);
 
   return (
     <>
-      <video ref={videoRef} src={src} muted loop playsInline preload="auto" className="hidden" aria-hidden="true" />
+      {/* sem `src`: quem define é o IntersectionObserver acima */}
+      <video ref={videoRef} muted loop playsInline preload="none" className="hidden" aria-hidden="true" />
       <canvas ref={canvasRef} className={className} aria-hidden="true" />
     </>
   );
@@ -893,7 +928,16 @@ export function PaginaLanding() {
             <p className="js-hero-item text-sm font-bold uppercase tracking-widest text-primary">{heroEyebrow}</p>
             <h1 className="mt-4 text-[38px] font-black leading-[1.04] tracking-tight sm:text-5xl lg:text-[52px]">
               {heroSegs.map((seg, si) => (
-                <span key={si} className={cn('js-hero-item relative inline', seg.d && 'text-primary')}>
+                /* O segmento destacado precisa ser `inline-block`, como em
+                   TituloSecao. Um inline que quebra em duas linhas tem bloco de
+                   contenção degenerado, e o `w-full` do Rabisco resolvia pra 5px
+                   — no mobile o sublinhado virava um risquinho vertical sob a
+                   última letra. Como inline-block ele vira uma caixa só e desce
+                   inteiro pra própria linha quando não cabe. Efeito colateral
+                   bem-vindo: transform passa a valer, então a palavra entra
+                   deslizando junto com o resto do hero (spans `inline` ignoram
+                   o `y` do GSAP em silêncio). */
+                <span key={si} className={cn('js-hero-item relative', seg.d ? 'inline-block text-primary' : 'inline')}>
                   {seg.t}{seg.d && <Rabisco anima />}
                 </span>
               ))}
@@ -959,13 +1003,22 @@ export function PaginaLanding() {
         <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">{comoFuncionaSubtitulo}</p>
 
         <div className="relative mt-12 grid gap-8 sm:grid-cols-3 sm:gap-6">
-          {/* Linha conectando os passos (só desktop) */}
-          <div className="pointer-events-none absolute inset-x-0 top-7 hidden border-t-2 border-dashed border-border sm:block" aria-hidden="true" />
           {comoFunciona.map((p, i) => {
             const Icone = ICONES_LANDING[p.icone] || ClipboardList;
             return (
             <div key={i} className="relative flex flex-col items-center text-center sm:items-start sm:text-left">
-              <div className="relative z-10 flex size-14 shrink-0 items-center justify-center rounded-2xl border-4 border-background bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+              {/* Conector até o PRÓXIMO passo (só desktop). Um segmento por passo,
+                  e não uma faixa única sobre o grid: assim ele começa no centro
+                  deste ícone (left-7 = metade de size-14) e termina no centro do
+                  próximo (100% da coluna + o gap de 1.5rem), sem sobrar linha
+                  solta depois do último passo. Fica atrás dos ícones, que têm z-10. */}
+              {i < comoFunciona.length - 1 && (
+                <div
+                  className="pointer-events-none absolute left-7 top-7 hidden w-[calc(100%+1.5rem)] border-t-2 border-dashed border-border sm:block"
+                  aria-hidden="true"
+                />
+              )}
+              <div className="relative z-10 flex size-14 shrink-0 items-center justify-center rounded-2xl border-4 border-background bg-marca-2 text-marca-2-foreground shadow-lg shadow-marca-2/20">
                 <Icone className="size-6" />
               </div>
               <div className="mt-4">
@@ -985,8 +1038,13 @@ export function PaginaLanding() {
         <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">{atendimentoSubtitulo}</p>
 
         <div className="mt-10 grid gap-6 md:grid-cols-2">
-          {/* Jeito antigo */}
-          <div className="js-antigo rounded-3xl bg-muted p-7">
+          {/* Jeito antigo.
+              `self-start`: os itens daqui são frases curtas de uma linha, enquanto
+              os do "jeito novo" têm complemento entre parênteses e ocupam duas.
+              Esticado pra casar a altura, este card ficava com ~130px de cinza
+              vazio embaixo e parecia inacabado. Hugging o conteúdo, a diferença
+              de tamanho vira ênfase no card destacado em vez de buraco. */}
+          <div className="js-antigo self-start rounded-3xl bg-muted p-7">
             <div className="text-sm font-bold uppercase tracking-wider text-muted-foreground">O jeito antigo</div>
             <ul className="mt-5 space-y-4">
               {semLista.map((item, i) => (
@@ -1028,7 +1086,7 @@ export function PaginaLanding() {
             const Icone = ICONES_LANDING[d.icone] || Zap;
             return (
             <div key={di} className="rounded-3xl border border-border bg-card p-7">
-              <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <div className="flex size-12 items-center justify-center rounded-2xl bg-marca-2/10 text-marca-2">
                 <Icone className="size-6" />
               </div>
               <h3 className="mt-5 text-lg font-bold">{d.titulo}</h3>
@@ -1104,7 +1162,7 @@ export function PaginaLanding() {
                 { i: Receipt, t: 'Pix, cartão ou dinheiro', d: 'Pagamento na hora ou na entrega, do jeito que ele preferir.' },
               ].map(b => (
                 <li key={b.t} className="flex gap-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><b.i className="size-5" /></span>
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-marca-2/10 text-marca-2"><b.i className="size-5" /></span>
                   <div>
                     <div className="text-sm font-semibold">{b.t}</div>
                     <div className="text-sm text-muted-foreground">{b.d}</div>
@@ -1129,7 +1187,7 @@ export function PaginaLanding() {
                 const Icone = ICONES_LANDING[b.icone] || Printer;
                 return (
                 <div key={bi} className="rounded-2xl border border-border bg-card p-4">
-                  <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary"><Icone className="size-5" /></div>
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-marca-2/10 text-marca-2"><Icone className="size-5" /></div>
                   <div className="mt-2.5 text-sm font-semibold">{b.titulo}</div>
                   <div className="text-xs text-muted-foreground">{b.desc}</div>
                 </div>
@@ -1252,7 +1310,7 @@ export function PaginaLanding() {
             <div className="js-mascote relative mx-auto aspect-square w-full max-w-md">
               {/* forma orgânica: a linha (contorno) E o recorte do conteúdo são a
                   MESMA forma — overflow-hidden faz o personagem não vazar da linha. */}
-              <div className="absolute inset-2 overflow-hidden border-2 border-primary/50 [border-radius:58%_42%_37%_63%/38%_55%_45%_62%]">
+              <div className="absolute inset-2 overflow-hidden border-2 border-marca-2/50 [border-radius:58%_42%_37%_63%/38%_55%_45%_62%]">
                 <VideoRecortado
                   src="/mascote/entregador.mp4"
                   tolerancia={70}

@@ -13,6 +13,14 @@ export default {
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         primary: { DEFAULT: 'hsl(var(--primary))', foreground: 'hsl(var(--primary-foreground))' },
+        // Segunda cor da MARCA (laranja do mascote). Não confundir com
+        // `secondary`, que é a superfície cinza neutra do Tailwind — daí o nome
+        // em português, pra `bg-marca-2` e `bg-secondary` não se parecerem.
+        'marca-2': {
+          DEFAULT: 'hsl(var(--marca-2))',
+          foreground: 'hsl(var(--marca-2-foreground))',
+          suave: 'hsl(var(--marca-2-suave))',
+        },
         secondary: { DEFAULT: 'hsl(var(--secondary))', foreground: 'hsl(var(--secondary-foreground))' },
         destructive: { DEFAULT: 'hsl(var(--destructive))', foreground: 'hsl(var(--destructive-foreground))' },
         muted: { DEFAULT: 'hsl(var(--muted))', foreground: 'hsl(var(--muted-foreground))' },
