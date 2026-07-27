@@ -48,6 +48,20 @@ describe('gerarTokenPreAuth', () => {
     expect(dados.sub).toBe(7);
   });
 
+  it('no login central, nasce carimbado com o tenant DA CONTA — não com o do request', () => {
+    // O login feito no domínio da plataforma roda no contexto do tenant PADRÃO
+    // (A), mas a conta pode morar em outro (B). Se o token for gerado fora do
+    // `comTenant` do tenant encontrado, ele sai carimbado com A e o destino o
+    // recusa — o lojista seria redirecionado só pra levar "sessão expirada".
+    const token = comTenant(TENANT_A, () =>
+      comTenant(TENANT_B, () => gerarTokenPreAuth({ id: 5, perfil: 'lojista' })));
+
+    expect((jwt.verify(token, SEGREDO) as jwt.JwtPayload).tenant).toBe(TENANT_B);
+    // e ele de fato só vale no destino:
+    expect(comTenant(TENANT_B, () => rodarMiddleware(autenticarPreAuth, token)).erro).toBeNull();
+    expect(comTenant(TENANT_A, () => rodarMiddleware(autenticarPreAuth, token)).erro?.statusHttp).toBe(401);
+  });
+
   it('expira em 10 minutos (janela curta: só pra completar o 2FA)', () => {
     const token = comTenant(TENANT_A, () => gerarTokenPreAuth({ id: 1, perfil: 'admin' }));
     const { iat, exp } = jwt.verify(token, SEGREDO) as jwt.JwtPayload;

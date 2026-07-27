@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { lerRepasse2FA, destinoRepasse2FA } from '../../lib/repasse-2fa';
 import { useQuery } from '@tanstack/react-query';
 import { Routes, Route, Link } from 'react-router-dom';
 import { CheckCircle2, ChefHat, XCircle, Package, Bell, Save, Eye, EyeOff, History, Printer, Store, Lock } from 'lucide-react';
@@ -1015,15 +1016,32 @@ function LoginLojista() {
   const [duploFator, setDuploFator] = useState<{ tokenPreAuth: string; modo: 'configurar' | 'verificar' } | null>(null);
   const { mostrar } = useToast();
 
+  // Chegada vinda do login da plataforma (ver `lerRepasse2FA`): retoma o 2FA
+  // aqui, já no domínio do tenant dono da conta.
+  useEffect(() => {
+    const repasse = lerRepasse2FA();
+    if (repasse) setDuploFator(repasse);
+  }, []);
+
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
     setEnviando(true);
     try {
-      const r = await api<{ token: string; usuario: any } | { precisa2fa: true; modo2fa: 'configurar' | 'verificar'; tokenPreAuth: string }>(
-        'POST', '/api/auth/login', { email, senha }
-      );
+      const r = await api<
+        | { token: string; usuario: any }
+        | { precisa2fa: true; modo2fa: 'configurar' | 'verificar'; tokenPreAuth: string; redirecionar?: string | null }
+      >('POST', '/api/auth/login', { email, senha });
       if ('precisa2fa' in r) {
-        setDuploFator({ tokenPreAuth: r.tokenPreAuth, modo: r.modo2fa });
+        // Conta que mora em OUTRA marca: o 2FA precisa ser concluído no
+        // domínio dela, porque o token de pré-autenticação é carimbado com
+        // aquele tenant e seria recusado aqui.
+        const repasse = { tokenPreAuth: r.tokenPreAuth, modo: r.modo2fa };
+        const destino = destinoRepasse2FA(r.redirecionar, '/lojista', repasse);
+        if (destino) {
+          window.location.assign(destino);
+          return;
+        }
+        setDuploFator(repasse);
         return;
       }
       if (r.usuario.perfil !== 'lojista') {

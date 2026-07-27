@@ -142,6 +142,28 @@ app.use((req, res, next) => {
   next();
 });
 
+/**
+ * Portas de entrada da PLATAFORMA (não de uma marca), declaradas em
+ * DOMINIO_PLATAFORMA — lista separada por vírgula, ex.:
+ *   DOMINIO_PLATAFORMA=maxxdelivery.app.br,www.maxxdelivery.app.br
+ *
+ * É nesses domínios (e só neles) que o login procura a conta nos outros
+ * tenants. Declarar explicitamente evita depender de o domínio "por acaso" não
+ * estar cadastrado como tenant.
+ */
+const HOSTS_PLATAFORMA = new Set(
+  (process.env.DOMINIO_PLATAFORMA || '')
+    .split(',')
+    .map((d) => d.trim().toLowerCase().replace(/^www\./, ''))
+    .filter(Boolean),
+);
+
+function ehHostDaPlataforma(host: string | undefined): boolean {
+  if (!host || HOSTS_PLATAFORMA.size === 0) return false;
+  const h = host.toLowerCase().split(':')[0].replace(/^www\./, '');
+  return HOSTS_PLATAFORMA.has(h);
+}
+
 // ── Multi-tenant (SILO): resolve o tenant pelo domínio e fixa o .db do request.
 // Sem match (localhost / domínio não cadastrado) usa o tenant padrão.
 // Todo o restante do request roda dentro do contexto desse tenant.
@@ -175,7 +197,22 @@ app.use((req, _res, next) => {
     const slugDemo = semAuth && typeof req.headers['x-demo-tenant'] === 'string' ? req.headers['x-demo-tenant'] : undefined;
     const tenantDemo = slugDemo ? await tenantPorSlug(slugDemo) : undefined;
 
-    const tenant = tenantDoTokenReq ?? tenantDemo ?? (await resolverPorHost(req.headers.host)) ?? (await tenantPadrao());
+    const tenantDoHost = await resolverPorHost(req.headers.host);
+
+    // O login precisa distinguir "cheguei pelo domínio de um tenant" de
+    // "cheguei pelo domínio da plataforma". Só no segundo caso ele procura a
+    // conta nos OUTROS tenants (ver `autenticacao.ts`, POST /login): num
+    // domínio de tenant, esse domínio é a fronteira white-label e não pode
+    // sequer admitir que contas de outras marcas existem.
+    //
+    // "Não casou com tenant nenhum" já indica a porta da plataforma, mas isso
+    // é frágil: basta alguém cadastrar esse domínio como tenant pra a busca
+    // parar de rodar, e o lojista voltar a levar "e-mail ou senha incorretos"
+    // sem ninguém entender por quê. DOMINIO_PLATAFORMA (lista separada por
+    // vírgula) declara essas portas de forma explícita e vence o palpite.
+    req.hostEhDaPlataforma = ehHostDaPlataforma(req.headers.host) || !tenantDoHost;
+
+    const tenant = tenantDoTokenReq ?? tenantDemo ?? tenantDoHost ?? (await tenantPadrao());
     await comTenant(tenant.db_nome, async () => { next(); });
   })().catch(next);
 });

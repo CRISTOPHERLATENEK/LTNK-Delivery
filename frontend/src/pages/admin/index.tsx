@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { lerRepasse2FA, destinoRepasse2FA } from '../../lib/repasse-2fa';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -380,15 +381,31 @@ function LoginAdmin() {
   const [duploFator, setDuploFator] = useState<{ tokenPreAuth: string; modo: 'configurar' | 'verificar' } | null>(null);
   const { mostrar } = useToast();
 
+  // Chegada vinda do login da plataforma: retoma o 2FA já no domínio do tenant
+  // dono da conta (ver lib/repasse-2fa).
+  useEffect(() => {
+    const repasse = lerRepasse2FA();
+    if (repasse) setDuploFator(repasse);
+  }, []);
+
   async function entrar(e: React.FormEvent) {
     e.preventDefault();
     setCarregando(true);
     try {
-      const r = await api<{ token: string; usuario: any } | { precisa2fa: true; modo2fa: 'configurar' | 'verificar'; tokenPreAuth: string }>(
-        'POST', '/api/auth/login', { email, senha }
-      );
+      const r = await api<
+        | { token: string; usuario: any }
+        | { precisa2fa: true; modo2fa: 'configurar' | 'verificar'; tokenPreAuth: string; redirecionar?: string | null }
+      >('POST', '/api/auth/login', { email, senha });
       if ('precisa2fa' in r) {
-        setDuploFator({ tokenPreAuth: r.tokenPreAuth, modo: r.modo2fa });
+        // Admin de outra marca: o token de pré-autenticação é carimbado com
+        // aquele tenant e seria recusado aqui — o 2FA termina no domínio de lá.
+        const repasse = { tokenPreAuth: r.tokenPreAuth, modo: r.modo2fa };
+        const destino = destinoRepasse2FA(r.redirecionar, '/painel-admin', repasse);
+        if (destino) {
+          window.location.assign(destino);
+          return;
+        }
+        setDuploFator(repasse);
         return;
       }
       if (r.usuario.perfil !== 'admin') {

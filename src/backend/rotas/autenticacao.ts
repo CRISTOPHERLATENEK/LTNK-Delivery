@@ -7,7 +7,8 @@ import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
-import db from '../db-mysql';
+import db, { comTenant } from '../db-mysql';
+import { listarTenants, Tenant } from '../tenants-mysql';
 import { gerarToken, gerarTokenPreAuth, autenticar, autenticarPreAuth } from '../auth';
 import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, telefoneDigitos, erroHttp } from '../util';
 import { enviarEmail, emailRedefinirSenha, emailHabilitado } from '../email';
@@ -123,6 +124,55 @@ router.post('/registrar', limiteRegistro, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * Endereço público de um tenant, na mesma ordem que `resolverPorHost` usa pra
+ * fazer o caminho inverso: domínio próprio, senão `<slug>.<DOMINIO_BASE>`.
+ * Devolve null quando não dá pra montar URL nenhuma (sem domínio e sem
+ * DOMINIO_BASE configurado) — aí não há pra onde redirecionar.
+ */
+function urlDoTenant(tenant: Tenant): string | null {
+  if (tenant.dominio) return `https://${tenant.dominio}`;
+  const base = (process.env.DOMINIO_BASE || '').toLowerCase().replace(/^www\./, '');
+  return base ? `https://${tenant.slug}.${base}` : null;
+}
+
+/**
+ * Procura em TODOS os tenants a conta de lojista/admin cujo e-mail E senha
+ * batem — o que faz o login do domínio da plataforma funcionar pra quem tem
+ * conta em outra marca.
+ *
+ * POR QUE SÓ COM A SENHA CONFERIDA: devolver "achei" a partir do e-mail sozinho
+ * transformaria o login central num oráculo — qualquer pessoa digitaria um
+ * e-mail e descobriria se ele existe na plataforma e de qual marca é, coisa que
+ * hoje o isolamento por banco impede. Conferindo a senha antes, quem não tem a
+ * credencial recebe sempre o mesmo erro genérico e não aprende nada.
+ *
+ * POR QUE SÓ PERFIS_2FA: lojista/admin terminam o login com o 2FA, então o que
+ * viaja entre domínios é o token de PRÉ-autenticação (10 min, inútil sem o
+ * código TOTP), não uma sessão. Cliente e entregador logam no domínio da
+ * própria loja e não passam por aqui — não vale abrir um repasse de sessão
+ * pronta entre domínios só por eles.
+ *
+ * Um tenant com banco fora do ar não pode derrubar o login dos demais: falha
+ * isolada é registrada e a varredura continua.
+ */
+async function acharContaNosTenants(email: string, senha: string): Promise<{ tenant: Tenant; usuario: Usuario }[]> {
+  const achados: { tenant: Tenant; usuario: Usuario }[] = [];
+  for (const tenant of await listarTenants()) {
+    if (!tenant.ativo) continue;
+    try {
+      const u = await comTenant(tenant.db_nome, async () =>
+        await db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email) as Usuario | undefined);
+      if (!u || !PERFIS_2FA.includes(u.perfil)) continue;
+      if (!bcrypt.compareSync(senha, u.senha_hash)) continue;
+      achados.push({ tenant, usuario: u });
+    } catch (e) {
+      console.error(`[LOGIN CENTRAL] falha ao consultar tenant ${tenant.slug}:`, e);
+    }
+  }
+  return achados;
+}
+
 router.post('/login', limiteLogin, async (req, res, next) => {
   try {
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
@@ -152,6 +202,43 @@ router.post('/login', limiteLogin, async (req, res, next) => {
       usuario = await db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email) as Usuario | undefined;
     }
     if (!usuario || !bcrypt.compareSync(senha, usuario.senha_hash)) {
+      // Não achou NESTE tenant. Se a pessoa entrou pelo domínio da plataforma
+      // (que cai no tenant padrão), a conta pode simplesmente morar em outra
+      // marca — antes disso ela levava "e-mail ou senha incorretos" mesmo
+      // digitando tudo certo, e só conseguia entrar se soubesse o endereço
+      // exato da própria loja.
+      if (req.hostEhDaPlataforma && !porTelefone && !porCpf && email) {
+        const achados = await acharContaNosTenants(email, senha);
+
+        // Mesmo e-mail com a MESMA senha em duas marcas: não dá pra adivinhar
+        // qual delas a pessoa quer, e escolher por conta própria colocaria
+        // alguém na marca errada sem explicação. Erro claro e o endereço da
+        // loja resolve. (Só chega aqui quem acertou a credencial.)
+        if (achados.length > 1) {
+          throw erroHttp(409, 'Este e-mail tem conta em mais de uma marca da plataforma. Entre pelo endereço da sua loja.');
+        }
+
+        if (achados.length === 1) {
+          const { tenant, usuario: achado } = achados[0];
+          if (achado.bloqueado) throw erroHttp(403, 'Sua conta está bloqueada. Fale com o suporte.');
+
+          // O token de pré-autenticação PRECISA nascer dentro do tenant da
+          // conta: ele embute `bancoTenantAtual()` e `autenticarPreAuth` o
+          // recusa em qualquer outro banco. Gerado aqui fora, ele nasceria
+          // carimbado com o tenant padrão e seria rejeitado no destino.
+          const tokenPreAuth = await comTenant(tenant.db_nome, async () => gerarTokenPreAuth(achado));
+
+          return res.json({
+            precisa2fa: true,
+            modo2fa: achado.totp_ativo ? 'verificar' : 'configurar',
+            tokenPreAuth,
+            // null quando o tenant não tem domínio próprio nem DOMINIO_BASE:
+            // o frontend segue o 2FA no próprio domínio da plataforma, que
+            // funciona porque o token já carrega o tenant certo.
+            redirecionar: urlDoTenant(tenant),
+          });
+        }
+      }
       throw erroHttp(401, credErrada);
     }
     if (usuario.bloqueado) throw erroHttp(403, 'Sua conta está bloqueada. Fale com o suporte.');

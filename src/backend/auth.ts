@@ -45,6 +45,8 @@ declare global {
     interface Request {
       usuario?: UsuarioAutenticado;
       cozinha?: CozinhaAutenticada;
+      /** true quando o Host NÃO casou com nenhum tenant (domínio da plataforma). */
+      hostEhDaPlataforma?: boolean;
     }
   }
 }
