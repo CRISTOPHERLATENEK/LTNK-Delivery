@@ -1,18 +1,39 @@
 /**
  * POST /api/upload/imagem — recebe multipart/form-data com campo "imagem",
  * salva em dados/uploads/ e retorna a URL pública /uploads/<filename>.
- * Qualquer usuário autenticado pode fazer upload.
+ *
+ * Só LOJISTA e ADMIN. Antes era "qualquer usuário autenticado", o que incluía
+ * cliente e entregador — e cliente é auto-cadastro, então qualquer pessoa
+ * criava uma conta e gravava 8 MB por requisição, sem limite, no disco do VPS
+ * (que é compartilhado por todos os tenants). Nenhuma tela de cliente ou
+ * entregador faz upload: só produtos, banners, logo/capa e marca, que são
+ * telas de lojista/admin.
  */
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import { autenticar } from '../auth';
+import rateLimit from 'express-rate-limit';
+import { autenticar, exigirPerfil } from '../auth';
 import { erroHttp } from '../util';
 
 const router = Router();
-router.use(autenticar);
+router.use(autenticar, exigirPerfil('lojista', 'admin'));
+
+/**
+ * Segunda camada: limita o volume por CONTA (não por IP — o lojista legítimo
+ * costuma estar atrás do mesmo IP da loja inteira). Cadastrar um cardápio
+ * grande de uma vez cabe folgado em 60; um script de flood, não.
+ */
+const limiteUpload = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => String(req.usuario?.id ?? req.ip),
+  message: { erro: 'Muitos envios de imagem seguidos. Aguarde alguns minutos e tente de novo.' },
+});
 
 const UPLOAD_DIR = path.resolve('./dados/uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -49,7 +70,7 @@ const upload = multer({
   },
 });
 
-router.post('/imagem', upload.single('imagem'), (req, res, next) => {
+router.post('/imagem', limiteUpload, upload.single('imagem'), (req, res, next) => {
   try {
     if (!req.file) throw erroHttp(400, 'Nenhuma imagem recebida.');
     const url = `/uploads/${req.file.filename}`;
