@@ -156,47 +156,55 @@ export function PainelLojista() {
 
 /* ── Config da loja: só configuração de verdade.
    Cupons, Clientes e Avaliações agora vivem na aba "Mais" (operação). ── */
+type AbaConfig =
+  | 'loja' | 'horario' | 'entrega' | 'entregadores' | 'visual'
+  | 'banners' | 'pagamentos' | 'impressao' | 'fiscal' | 'whatsapp' | 'seguranca';
+
+/**
+ * Agrupadas por TAREFA, não pela ordem em que foram construídas: eram 11 abas
+ * numa barra com rolagem horizontal, onde as últimas ficavam fora da tela e
+ * "Pix" aparecia colado em "Entregadores". O lojista pensa "vou mexer no
+ * dinheiro" ou "vou mexer na operação" — os grupos seguem isso.
+ */
+const GRUPOS_CONFIG: { titulo: string; itens: { id: AbaConfig; label: string; icone: typeof Settings }[] }[] = [
+  {
+    titulo: 'A loja',
+    itens: [
+      { id: 'loja', label: 'Dados', icone: Settings },
+      { id: 'horario', label: 'Horário', icone: Clock },
+    ],
+  },
+  {
+    titulo: 'Operação',
+    itens: [
+      { id: 'entrega', label: 'Entrega', icone: Bike },
+      { id: 'entregadores', label: 'Entregadores', icone: Users },
+      { id: 'impressao', label: 'Impressão', icone: Printer },
+    ],
+  },
+  {
+    titulo: 'Dinheiro',
+    itens: [
+      { id: 'pagamentos', label: 'Pix', icone: CreditCard },
+      { id: 'fiscal', label: 'Fiscal', icone: FileText },
+    ],
+  },
+  {
+    titulo: 'Aparência e acesso',
+    itens: [
+      { id: 'visual', label: 'Visual', icone: Palette },
+      { id: 'banners', label: 'Banners', icone: Image },
+      { id: 'whatsapp', label: 'WhatsApp', icone: MessageCircle },
+      { id: 'seguranca', label: 'Segurança', icone: ShieldCheck },
+    ],
+  },
+];
+
 function ConfiguracoesLoja() {
-  const [aba, setAba] = useState<'loja' | 'horario' | 'entrega' | 'entregadores' | 'visual' | 'banners' | 'pagamentos' | 'impressao' | 'fiscal' | 'whatsapp' | 'seguranca'>('loja');
+  const [aba, setAba] = useState<AbaConfig>('loja');
 
-  const ABAS = [
-    { id: 'loja' as const, label: 'Dados', icone: Settings },
-    { id: 'horario' as const, label: 'Horário', icone: Clock },
-    { id: 'entrega' as const, label: 'Entrega', icone: Bike },
-    { id: 'entregadores' as const, label: 'Entregadores', icone: Users },
-    { id: 'pagamentos' as const, label: 'Pix', icone: CreditCard },
-    { id: 'whatsapp' as const, label: 'WhatsApp', icone: MessageCircle },
-    { id: 'fiscal' as const, label: 'Fiscal', icone: FileText },
-    { id: 'impressao' as const, label: 'Impressão', icone: Printer },
-    { id: 'visual' as const, label: 'Visual', icone: Palette },
-    { id: 'banners' as const, label: 'Banners', icone: Image },
-    { id: 'seguranca' as const, label: 'Segurança', icone: ShieldCheck },
-  ];
-
-  return (
-    <div className="space-y-4">
-      {/* Seletor de aba estilo pill — rola na horizontal no mobile */}
-      <div className="flex gap-1 rounded-xl bg-muted p-1 overflow-x-auto scrollbar-hide">
-        {ABAS.map(a => {
-          const Icone = a.icone;
-          return (
-            <button
-              key={a.id}
-              onClick={() => setAba(a.id)}
-              className={cn(
-                'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap',
-                aba === a.id
-                  ? 'bg-background shadow-sm text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Icone className="size-3.5 shrink-0" />
-              {a.label}
-            </button>
-          );
-        })}
-      </div>
-
+  const conteudo = (
+    <>
       {aba === 'loja' && <LojaConfiguracao />}
       {aba === 'horario' && <HorarioLoja />}
       {aba === 'entrega' && <ZonasEntrega />}
@@ -208,6 +216,61 @@ function ConfiguracoesLoja() {
       {aba === 'visual' && <VisualLoja />}
       {aba === 'banners' && <BannersLoja />}
       {aba === 'seguranca' && <SegurancaLoja />}
+    </>
+  );
+
+  return (
+    <div className="lg:grid lg:grid-cols-[210px_minmax(0,1fr)] lg:gap-6">
+      {/* Mobile: select nativo com optgroup — mantém o agrupamento sem gastar
+          15 linhas de tela nem rolar de lado (o problema original). */}
+      <div className="mb-4 lg:hidden">
+        <label htmlFor="aba-config" className="sr-only">Seção das configurações</label>
+        <select
+          id="aba-config"
+          value={aba}
+          onChange={e => setAba(e.target.value as AbaConfig)}
+          className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm font-semibold"
+        >
+          {GRUPOS_CONFIG.map(g => (
+            <optgroup key={g.titulo} label={g.titulo}>
+              {g.itens.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
+            </optgroup>
+          ))}
+        </select>
+      </div>
+
+      {/* Desktop: navegação vertical agrupada, tudo visível de uma vez. */}
+      <nav className="hidden lg:block" aria-label="Configurações">
+        {GRUPOS_CONFIG.map(g => (
+          <div key={g.titulo} className="mb-5">
+            <div className="mb-1.5 px-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              {g.titulo}
+            </div>
+            {g.itens.map(i => {
+              const Icone = i.icone;
+              const ativo = aba === i.id;
+              return (
+                <button
+                  key={i.id}
+                  onClick={() => setAba(i.id)}
+                  aria-current={ativo ? 'page' : undefined}
+                  className={cn(
+                    'flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-sm font-medium transition-colors',
+                    ativo
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                  )}
+                >
+                  <Icone className="size-4 shrink-0" />
+                  {i.label}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </nav>
+
+      <div className="min-w-0">{conteudo}</div>
     </div>
   );
 }
