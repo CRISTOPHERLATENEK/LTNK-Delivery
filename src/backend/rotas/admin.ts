@@ -936,7 +936,9 @@ router.post('/lojas/:id/fiscal/certificado', exigirSuperAdmin, uploadCertAdmin.s
     } catch (err) {
       throw erroHttp(400, err instanceof Error ? err.message : 'Certificado inválido.');
     }
-    fs.writeFileSync(caminhoCertificado(loja.id), req.file.buffer);
+    // 0600: chave privada de assinatura. Sem o mode explicito o umask (0022)
+    // grava 0644 — legivel por qualquer usuario do servidor.
+    fs.writeFileSync(caminhoCertificado(loja.id), req.file.buffer, { mode: 0o600 });
     await db.prepare('UPDATE lojas SET nfce_cert_senha = ?, nfce_cert_titular = ?, nfce_cert_validade = ? WHERE id = ?')
       .run(criptografar(senha), cert.titular, cert.validade, loja.id);
     res.json({ ok: true, titular: cert.titular, validade: cert.validade });

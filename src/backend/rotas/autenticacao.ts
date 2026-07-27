@@ -236,6 +236,9 @@ router.post('/2fa/confirmar', limite2fa, autenticarPreAuth, async (req, res, nex
     const usuario = await db.prepare('SELECT * FROM usuarios WHERE id = ?')
       .get(req.usuarioPreAuth!.id) as Usuario | undefined;
     if (!usuario) throw erroHttp(401, 'Usuário não encontrado.');
+    // Mesma checagem do /2fa/verificar: a conta pode ter sido bloqueada DEPOIS
+    // do login, dentro da janela de 10 min do token de pré-autenticação.
+    if (usuario.bloqueado) throw erroHttp(403, 'Sua conta está bloqueada. Fale com o suporte.');
     if (usuario.totp_ativo) throw erroHttp(400, 'O 2FA já está ativo nesta conta.');
     if (!usuario.totp_secret) throw erroHttp(400, 'Comece pelo /2fa/configurar antes de confirmar.');
 

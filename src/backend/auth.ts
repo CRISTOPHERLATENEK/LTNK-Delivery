@@ -147,9 +147,18 @@ export const autenticar: RequestHandler = async (req, _res, next) => {
 
 export type UsuarioPreAuth = { id: number; perfil: Perfil };
 
+/**
+ * O claim `tenant` é OBRIGATÓRIO aqui, pelo mesmo motivo do token normal (ver
+ * gerarToken e o comentário da middleware de tenant em server.ts): sem ele, o
+ * tenant desta etapa do login seria resolvido pelo Host, e um token emitido no
+ * tenant A poderia ser apresentado no domínio do tenant B. Como o `sub` é só
+ * um id numérico e ids colidem entre bancos (id=1/2 existem em quase todo
+ * tenant), o backend carregaria o usuário de MESMO ID do tenant B e emitiria
+ * uma sessão válida pra ele — troca de conta entre tenants sem saber a senha.
+ */
 export function gerarTokenPreAuth(usuario: UsuarioPreAuth): string {
   return jwt.sign(
-    { sub: usuario.id, perfil: usuario.perfil, tipo: 'pre2fa' },
+    { sub: usuario.id, perfil: usuario.perfil, tipo: 'pre2fa', tenant: bancoTenantAtual() },
     JWT_SECRET as string,
     { expiresIn: '10m' }
   );
@@ -177,6 +186,15 @@ export const autenticarPreAuth: RequestHandler = (req, _res, next) => {
     return next(erroHttp(401, 'Sessão de login expirada. Comece de novo.'));
   }
   if (dados.tipo !== 'pre2fa' || typeof dados.sub !== 'number' && typeof dados.sub !== 'string') {
+    return next(erroHttp(401, 'Sessão de login expirada. Comece de novo.'));
+  }
+
+  // Defesa em profundidade: a middleware de tenant (server.ts) já troca o banco
+  // pro claim `tenant` deste token, então em condição normal os dois batem.
+  // Recusar explicitamente quando NÃO batem garante que, se aquela ordem mudar
+  // algum dia, isto falha fechado em vez de carregar o usuário de mesmo id no
+  // banco errado — que é justamente a troca de conta entre tenants.
+  if (typeof dados.tenant !== 'string' || dados.tenant !== bancoTenantAtual()) {
     return next(erroHttp(401, 'Sessão de login expirada. Comece de novo.'));
   }
 

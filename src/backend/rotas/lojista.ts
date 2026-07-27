@@ -40,7 +40,9 @@ const SLUGS_RESERVADOS = new Set([
 export function caminhoCertificado(lojaId: number): string {
   const base = bancoTenantAtual();
   const dir = path.resolve('./dados/certificados');
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  // 0700: só o dono lista/entra. Sem isso o umask deixa 0755 e qualquer
+  // usuário do servidor consegue enumerar de quais lojas há certificado.
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   return path.join(dir, `${base}__loja-${lojaId}.pfx`);
 }
 
@@ -1600,7 +1602,9 @@ router.post('/nfce/certificado', uploadCert.single('certificado'), async (req, r
     }
 
     // Grava o .pfx em pasta protegida (fora da web) e a senha criptografada.
-    fs.writeFileSync(caminhoCertificado(loja.id), req.file.buffer);
+    // 0600: chave privada de assinatura. Sem o mode explicito o umask (0022)
+    // grava 0644 — legivel por qualquer usuario do servidor.
+    fs.writeFileSync(caminhoCertificado(loja.id), req.file.buffer, { mode: 0o600 });
     await db.prepare(
       'UPDATE lojas SET nfce_cert_senha = ?, nfce_cert_titular = ?, nfce_cert_validade = ? WHERE id = ?'
     ).run(criptografar(senha), cert.titular, cert.validade, loja.id);
