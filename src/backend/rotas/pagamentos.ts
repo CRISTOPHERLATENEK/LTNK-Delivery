@@ -7,7 +7,7 @@ import db, { abrirPool, comTenant } from '../db-mysql';
 import { agoraUTC } from '../util';
 import { notificarLojistaNovoPedido } from '../notificacoes';
 import { descriptografar } from '../cripto';
-import { tenantPorDbNome } from '../tenants-mysql';
+import { tenantPorDbNome, listarTenants } from '../tenants-mysql';
 import * as onz from '../onz';
 import { Pedido } from '../../tipos/modelos';
 
@@ -293,17 +293,17 @@ function tokenConfere(recebido: string, esperado: string): boolean {
  * Idempotente: o UPDATE condicional só "vence" a primeira confirmação, então
  * reenvios do webhook (a ONZ re-tenta) não notificam o lojista duas vezes.
  */
-async function confirmarPixOnz(txid: string, valorCentavos: number): Promise<void> {
+async function confirmarPixOnz(txid: string, valorCentavos: number): Promise<boolean> {
   const pedido = await db.prepare(
     "SELECT id, total_centavos FROM pedidos WHERE pagamento_gateway = 'onz' AND pagamento_gateway_id = ?"
   ).get(txid) as { id: number; total_centavos: number } | undefined;
-  if (!pedido) return; // txid desconhecido (outro sistema/ambiente) — ignora
+  if (!pedido) return false; // não é deste tenant — quem chamou tenta o próximo
 
   // Confere o valor: pagamento a menos NÃO aprova o pedido (evita liberar
   // pedido pago parcialmente). Fica em 'aguardando' pro lojista resolver.
   if (valorCentavos > 0 && valorCentavos < pedido.total_centavos) {
     console.warn(`[onz] Pix de ${valorCentavos} < total ${pedido.total_centavos} do pedido ${pedido.id} — não aprovado.`);
-    return;
+    return true; // achamos o pedido (só não aprovamos) — não procure em outro tenant
   }
 
   const r = await db.prepare(
@@ -311,6 +311,37 @@ async function confirmarPixOnz(txid: string, valorCentavos: number): Promise<voi
       WHERE id = ? AND pagamento_status <> 'aprovado'`
   ).run(agoraUTC(), pedido.id);
   if (r.changes > 0) await notificarLojistaNovoPedido(pedido.id);
+  return true;
+}
+
+/**
+ * Acha o tenant dono do txid e confirma lá. Tenta primeiro o tenant sugerido
+ * na URL (`?t=`, caminho rápido) e, se não achar, varre os demais.
+ *
+ * POR QUE VARRER: a conta ONZ é UMA da plataforma, com UMA chave Pix, e o
+ * `PUT /webhook/{chave}` aceita UMA URL. Logo todos os tenants recebem pelo
+ * mesmo webhook. Sem essa varredura, só o tenant fixado na URL teria pagamento
+ * confirmado e os outros ficariam eternamente "aguardando" — e seria preciso
+ * mexer no servidor a cada cliente novo. Assim registra-se a URL uma única vez
+ * e qualquer tenja futuro passa a funcionar sozinho.
+ *
+ * O txid é único por pedido (prefixo + aleatório), então não há ambiguidade.
+ */
+async function confirmarPixOnzEmQualquerTenant(txid: string, valorCentavos: number, dbNomeSugerido: string): Promise<void> {
+  if (dbNomeSugerido) {
+    const sugerido = await tenantPorDbNome(dbNomeSugerido);
+    if (sugerido && await comTenant(sugerido.db_nome, () => confirmarPixOnz(txid, valorCentavos))) return;
+  }
+  for (const t of await listarTenants()) {
+    if (t.db_nome === dbNomeSugerido) continue; // já tentado acima
+    try {
+      if (await comTenant(t.db_nome, () => confirmarPixOnz(txid, valorCentavos))) return;
+    } catch (e) {
+      // Um tenant com banco fora do ar não pode impedir os outros de confirmar.
+      console.error(`[onz] falha ao procurar txid ${txid} no tenant ${t.db_nome}:`, e);
+    }
+  }
+  console.warn(`[onz] txid ${txid} não encontrado em nenhum tenant — ignorado.`);
 }
 
 /**
@@ -320,7 +351,10 @@ async function confirmarPixOnz(txid: string, valorCentavos: number): Promise<voi
  * Autenticação: token secreto na URL (?tk=). O padrão Bacen prevê mTLS do PSP,
  * mas atrás de proxy/CDN o certificado do cliente não chega até aqui — o token
  * cumpre o papel de garantir que só a ONZ (que registrou a URL) consegue postar.
- * O `?t=` carrega o tenant dono do pedido (modelo SILO, um banco por tenant).
+ *
+ * `?t=` é só uma DICA do tenant provável (caminho rápido). Se o txid não estiver
+ * lá, os outros tenants são varridos — assim a URL é registrada UMA VEZ e vale
+ * pra todo cliente novo, sem voltar a mexer no servidor.
  */
 router.post('/webhook/onz', async (req, res) => {
   res.status(200).json({ ok: true }); // responde rápido — o PSP não deve re-tentar por nossa lentidão
@@ -328,19 +362,13 @@ router.post('/webhook/onz', async (req, res) => {
     const tk = typeof req.query.tk === 'string' ? req.query.tk : '';
     if (!tokenConfere(tk, process.env.ONZ_WEBHOOK_TOKEN || '')) return;
 
-    const t = typeof req.query.t === 'string' ? req.query.t : '';
-    const tenant = t ? await tenantPorDbNome(t) : undefined;
-
+    const sugerido = typeof req.query.t === 'string' ? req.query.t : '';
     const lista = Array.isArray((req.body as { pix?: unknown[] })?.pix) ? (req.body as { pix: Array<Record<string, unknown>> }).pix : [];
-    const processar = async () => {
-      for (const p of lista) {
-        const txid = String(p.txid || '');
-        const valorCentavos = Math.round(Number(p.valor || 0) * 100);
-        if (txid) await confirmarPixOnz(txid, valorCentavos);
-      }
-    };
-    if (tenant) await comTenant(tenant.db_nome, processar);
-    else await processar();
+    for (const p of lista) {
+      const txid = String(p.txid || '');
+      const valorCentavos = Math.round(Number(p.valor || 0) * 100);
+      if (txid) await confirmarPixOnzEmQualquerTenant(txid, valorCentavos, sugerido);
+    }
   } catch (e) {
     console.error('[onz] webhook falhou:', e);
   }
