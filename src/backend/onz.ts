@@ -22,6 +22,7 @@
 import https from 'https';
 import fs from 'fs';
 import path from 'path';
+import forge from 'node-forge';
 import QRCode from 'qrcode';
 import { lerCertificadoPfx } from './assinatura';
 
@@ -59,17 +60,48 @@ export function cashOutDisponivel(): boolean { return cfgCashOut() !== null; }
 
 /* ───────────────────────── mTLS + HTTP ───────────────────────── */
 
-interface CertTls { key: string; cert: string }
+interface CertTls { key: string; cert: string; ca: string[] }
 const cacheCert = new Map<string, CertTls>();
 
-/** Lê o .pfx (path) em PEM, com cache. Senha vem de ONZ_CERT_SENHA. */
+/**
+ * CAs de dentro do .pfx (todos os certificados que NÃO são a folha do titular).
+ *
+ * Necessário porque os hosts da ONZ são assinados por uma CA PRIVADA deles
+ * (`ONZ-SECURE-AREA-PLANNER` no accounts, `onz.software` no qrcodes) e servem
+ * a cadeia incompleta — só a folha. Sem passar essa CA em `ca:`, o Node recusa
+ * com "unable to verify the first certificate". A CA vem no próprio .pfx que
+ * eles entregaram, então usamos ela (NÃO desligamos a verificação TLS).
+ */
+function extrairCasDoPfx(pfx: Buffer, senha: string, certFolhaPem: string): string[] {
+  try {
+    const p12 = forge.pkcs12.pkcs12FromAsn1(
+      forge.asn1.fromDer(forge.util.createBuffer(pfx.toString('binary'))), false, senha);
+    const bags = p12.getBags({ bagType: forge.pki.oids.certBag })[forge.pki.oids.certBag] || [];
+    const folhaNormalizada = certFolhaPem.replace(/\s+/g, '');
+    return bags
+      .map(b => b.cert)
+      .filter((c): c is forge.pki.Certificate => !!c)
+      .map(c => forge.pki.certificateToPem(c))
+      .filter(pem => pem.replace(/\s+/g, '') !== folhaNormalizada);
+  } catch {
+    return [];
+  }
+}
+
+/** Lê o .pfx (path) em PEM + CAs internas, com cache. Senha vem de ONZ_CERT_SENHA. */
 function carregarCert(certPath: string): CertTls {
   const emCache = cacheCert.get(certPath);
   if (emCache) return emCache;
   const abs = path.resolve(certPath);
   if (!fs.existsSync(abs)) throw new Error(`Certificado ONZ não encontrado: ${certPath}`);
-  const lido = lerCertificadoPfx(fs.readFileSync(abs), process.env.ONZ_CERT_SENHA || '');
-  const tls: CertTls = { key: lido.chavePrivadaPem, cert: lido.certificadoPem };
+  const buf = fs.readFileSync(abs);
+  const senha = process.env.ONZ_CERT_SENHA || '';
+  const lido = lerCertificadoPfx(buf, senha);
+  const tls: CertTls = {
+    key: lido.chavePrivadaPem,
+    cert: lido.certificadoPem,
+    ca: extrairCasDoPfx(buf, senha, lido.certificadoPem),
+  };
   cacheCert.set(certPath, tls);
   return tls;
 }
@@ -93,6 +125,9 @@ function requisicao(
       method: opcoes.metodo,
       key: opcoes.tls.key,
       cert: opcoes.tls.cert,
+      // CA privada da ONZ (vem no .pfx deles) — a verificação TLS do servidor
+      // continua LIGADA; só ensinamos ao Node em quem confiar.
+      ...(opcoes.tls.ca.length ? { ca: opcoes.tls.ca } : {}),
       minVersion: 'TLSv1.2',
       headers: {
         'Accept': 'application/json',
