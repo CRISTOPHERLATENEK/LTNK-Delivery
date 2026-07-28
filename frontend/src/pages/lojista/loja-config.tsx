@@ -696,10 +696,16 @@ export function EntregadoresLoja() {
 /* ───────────────────────── Pagamentos (Mercado Pago) ───────────────────── */
 
 interface EstadoPagamentos {
-  /** Gateway do Pix online: conta própria (Mercado Pago) ou o Pix da plataforma (ONZ). */
+  /** Gateway do Pix online: Mercado Pago ou Pix via ONZ/Planner. */
   gateway: 'mercadopago' | 'onz';
-  /** A plataforma tem o Pix ONZ configurado? Se não, a opção nem aparece. */
+  /** O Pix ONZ está utilizável (conta desta loja ou, na falta, da plataforma)? */
   onz_disponivel: boolean;
+  /** Esta loja tem conta ONZ PRÓPRIA (dinheiro cai direto nela)? */
+  onz_conta_propria: boolean;
+  onz_client_id_mascarado: string | null;
+  onz_pix_key: string;
+  /** Recado do servidor (ex.: salvou mas não registrou a confirmação automática). */
+  aviso?: string;
   modo: 'teste' | 'producao';
   ativo: boolean;
   token_teste_mascarado: string | null;
@@ -711,6 +717,9 @@ export function PagamentosLoja() {
   const [estado, setEstado] = useState<EstadoPagamentos | null>(null);
   const [tokenTeste, setTokenTeste] = useState('');
   const [tokenProducao, setTokenProducao] = useState('');
+  const [onzId, setOnzId] = useState('');
+  const [onzSecret, setOnzSecret] = useState('');
+  const [onzChave, setOnzChave] = useState('');
   const [mostrarTeste, setMostrarTeste] = useState(false);
   const [mostrarProducao, setMostrarProducao] = useState(false);
   const [enviando, setEnviando] = useState(false);
@@ -733,7 +742,12 @@ export function PagamentosLoja() {
       setEstado(r);
       setTokenTeste('');
       setTokenProducao('');
-      mostrar({ tipo: 'sucesso', titulo: mensagemSucesso });
+      setOnzId('');
+      setOnzSecret('');
+      // O servidor pode salvar e ainda assim avisar (ex.: não registrou a
+      // confirmação automática) — nesse caso mostramos o aviso, não "sucesso".
+      if (r.aviso) mostrar({ tipo: 'erro', titulo: r.aviso });
+      else mostrar({ tipo: 'sucesso', titulo: mensagemSucesso });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
@@ -757,7 +771,22 @@ export function PagamentosLoja() {
 
   function trocarGateway(gateway: 'mercadopago' | 'onz') {
     if (!estado || estado.gateway === gateway) return;
-    enviar({ gateway }, gateway === 'onz' ? 'Pix da plataforma ativado.' : 'Sua conta do Mercado Pago ativada.');
+    enviar({ gateway }, gateway === 'onz' ? 'Pix via Planner ativado.' : 'Sua conta do Mercado Pago ativada.');
+  }
+
+  async function salvarOnz(e: React.FormEvent) {
+    e.preventDefault();
+    const corpo: Record<string, string> = {};
+    if (onzId.trim()) corpo.onz_client_id = onzId.trim();
+    if (onzSecret.trim()) corpo.onz_client_secret = onzSecret.trim();
+    if (onzChave.trim()) corpo.onz_pix_key = onzChave.trim();
+    if (Object.keys(corpo).length === 0) return;
+    await enviar(corpo, 'Conta Planner conectada! A confirmação automática de pagamento já está ativa.');
+  }
+
+  function removerOnz() {
+    setOnzChave('');
+    enviar({ onz_client_id: '', onz_client_secret: '', onz_pix_key: '' }, 'Credenciais da conta Planner removidas.');
   }
 
   function removerToken(campo: 'token_teste' | 'token_producao') {
@@ -792,7 +821,7 @@ export function PagamentosLoja() {
           <div>
             <div className="font-bold flex items-center gap-2 flex-wrap">
               {ativo ? 'Pix online ativo' : 'Pix online inativo'}
-              {viaOnz && <Badge variant="success" className="text-[10px]">Pix da plataforma</Badge>}
+              {viaOnz && <Badge variant="success" className="text-[10px]">Planner (Pix)</Badge>}
               {!viaOnz && ativo && modo === 'teste' && (
                 <Badge variant="warning" className="text-[10px]">Modo teste — pagamentos não são reais</Badge>
               )}
@@ -803,8 +832,10 @@ export function PagamentosLoja() {
             <p className="text-xs text-muted-foreground mt-0.5">
               {viaOnz
                 ? (ativo
-                    ? 'Recebendo pelo Pix da plataforma — você não precisa configurar nada.'
-                    : 'O Pix da plataforma não está disponível agora. Fale com o suporte.')
+                    ? (estado.onz_conta_propria
+                        ? 'Recebendo na sua conta Planner — o dinheiro cai direto pra você.'
+                        : 'Recebendo pela conta Planner da plataforma. Conecte a sua conta abaixo pra receber direto.')
+                    : 'Conecte sua conta Planner abaixo para aceitar Pix.')
                 : (ativo
                     ? `Usando o token de ${modo === 'teste' ? 'teste' : 'produção'} configurado abaixo.`
                     : `Configure o token de ${modo === 'teste' ? 'teste' : 'produção'} abaixo para aceitar Pix.`)}
@@ -826,9 +857,9 @@ export function PagamentosLoja() {
                 type="button" disabled={enviando} onClick={() => trocarGateway('onz')}
                 className={`rounded-xl border-2 p-3 text-left transition-colors ${viaOnz ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
               >
-                <div className="text-sm font-bold">Pix da plataforma</div>
+                <div className="text-sm font-bold">Minha conta Planner (Pix)</div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  Sem configurar nada. Recebimento na conta da plataforma e repasse pra você.
+                  O dinheiro cai direto na sua conta Planner. Exige conta aberta e credenciais abaixo.
                 </div>
               </button>
               <button
@@ -841,6 +872,62 @@ export function PagamentosLoja() {
                 </div>
               </button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Credenciais da conta Planner/ONZ da loja — só quando esse gateway está ativo */}
+      {viaOnz && (
+        <Card>
+          <CardContent className="p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <CreditCard className="size-4 text-primary" />
+              <span className="font-bold text-sm">Sua conta Planner</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Abra sua conta na Planner e, no portal Finance, vá em <b>Configurações → API QRCODES → Gerar
+              Credenciais</b>. Cole abaixo o que aparecer. Ao salvar, a confirmação automática de pagamento
+              é configurada sozinha — você não precisa fazer mais nada.
+            </p>
+
+            {estado.onz_conta_propria && (
+              <div className="flex items-center justify-between gap-2 rounded-lg bg-success/10 px-3 py-2">
+                <span className="text-xs font-medium text-success flex items-center gap-1.5">
+                  <CheckCircle2 className="size-3.5" /> Conectada — Client ID {estado.onz_client_id_mascarado}
+                </span>
+                <Button type="button" variant="ghost" size="sm" disabled={enviando} onClick={removerOnz}>
+                  Remover
+                </Button>
+              </div>
+            )}
+
+            <form onSubmit={salvarOnz} className="space-y-3">
+              <div>
+                <Label htmlFor="onz_id">Client ID</Label>
+                <Input id="onz_id" value={onzId} maxLength={120} autoComplete="off"
+                  placeholder={estado.onz_client_id_mascarado || 'Cole o Client ID do portal'}
+                  onChange={e => setOnzId(e.target.value)} className="font-mono text-sm" />
+              </div>
+              <div>
+                <Label htmlFor="onz_secret">Client Secret</Label>
+                <Input id="onz_secret" type="password" value={onzSecret} maxLength={200} autoComplete="off"
+                  placeholder={estado.onz_conta_propria ? '•••••••• (já configurado)' : 'Cole o Client Secret'}
+                  onChange={e => setOnzSecret(e.target.value)} className="font-mono text-sm" />
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Guardado criptografado. O portal mostra o secret uma única vez — copie antes de fechar a janela.
+                </p>
+              </div>
+              <div>
+                <Label htmlFor="onz_chave">Chave Pix da conta</Label>
+                <Input id="onz_chave" value={onzChave || estado.onz_pix_key} maxLength={80} autoComplete="off"
+                  placeholder="A chave que aparece junto das credenciais"
+                  onChange={e => setOnzChave(e.target.value)} className="font-mono text-sm" />
+              </div>
+              <Button type="submit" size="sm" disabled={enviando || (!onzId.trim() && !onzSecret.trim() && !onzChave.trim())}>
+                <Save className="size-3.5" />
+                {enviando ? 'Salvando…' : 'Conectar conta Planner'}
+              </Button>
+            </form>
           </CardContent>
         </Card>
       )}

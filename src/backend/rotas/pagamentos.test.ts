@@ -32,12 +32,25 @@ vi.mock('../onz', () => ({
 
 // O ramo do Mercado Pago chama getTokenMP, que vai ao banco. Aqui só interessa
 // se ELE foi escolhido, então a função inteira é substituída.
+// `linhaLoja` deixa cada teste decidir o que o SELECT da loja devolve (usado
+// pra simular loja com/sem credenciais próprias da ONZ).
+let linhaLoja: Record<string, unknown> | undefined;
 vi.mock('../db-mysql', () => ({
-  default: { prepare: () => ({ get: async () => undefined, all: async () => [], run: async () => ({}) }) },
+  default: { prepare: () => ({ get: async () => linhaLoja, all: async () => [], run: async () => ({}) }) },
   comTenant: (_b: string, fn: () => unknown) => fn(),
   bancoTenantAtual: () => 'tenant_teste_a',
   abrirPool: () => ({}),
   BANCO_PADRAO: 'delivery',
+}));
+
+// Os segredos da loja ficam criptografados no banco; aqui o "decifrar" é só
+// remover o prefixo, o que mantém o teste sem dependência de APP_SECRET.
+vi.mock('../cripto', () => ({
+  criptografar: (v: string) => `cif:${v}`,
+  descriptografar: (v: string) => {
+    if (!String(v).startsWith('cif:')) throw new Error('valor não decifrável');
+    return String(v).slice(4);
+  },
 }));
 
 const { estornarPagamentoPix } = await import('./pagamentos');
@@ -47,15 +60,51 @@ vi.spyOn(pagamentos, 'estornarPagamentoMercadoPago').mockImplementation(
 );
 
 describe('estornarPagamentoPix — despacho por gateway', () => {
-  beforeEach(() => { devolverCobranca.mockReset(); estornoMP.mockReset(); });
+  beforeEach(() => { devolverCobranca.mockReset(); estornoMP.mockReset(); linhaLoja = undefined; });
 
   it('pedido pago via ONZ é devolvido NA ONZ, nunca no Mercado Pago', async () => {
     devolverCobranca.mockResolvedValue({ devolucoes: [], totalCentavos: 0 });
 
     await estornarPagamentoPix(1, 'onz', 'PED42abc');
 
-    expect(devolverCobranca).toHaveBeenCalledWith('PED42abc');
+    expect(devolverCobranca).toHaveBeenCalledWith('PED42abc', null);
     expect(estornoMP).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Cada cliente tem a PRÓPRIA conta na ONZ, então a devolução precisa sair da
+   * conta que recebeu. Se as credenciais da loja não fossem repassadas, o
+   * estorno iria pra conta da plataforma e a ONZ recusaria (txid inexistente
+   * lá) — cliente sem o dinheiro de volta e ninguém saberia por quê.
+   */
+  it('devolve usando as credenciais DA LOJA quando ela tem conta própria', async () => {
+    linhaLoja = {
+      onz_client_id: 'cif:id-da-loja',
+      onz_client_secret: 'cif:secret-da-loja',
+      onz_pix_key: 'chave-pix-da-loja',
+    };
+    devolverCobranca.mockResolvedValue({ devolucoes: [], totalCentavos: 0 });
+
+    await estornarPagamentoPix(7, 'onz', 'PED99xyz');
+
+    expect(devolverCobranca).toHaveBeenCalledWith('PED99xyz', {
+      clientId: 'id-da-loja',
+      clientSecret: 'secret-da-loja',
+      chavePix: 'chave-pix-da-loja',
+    });
+  });
+
+  /**
+   * Credencial ilegível (APP_SECRET trocado, dado corrompido) não pode derrubar
+   * o estorno: cai na conta da plataforma em vez de estourar exceção.
+   */
+  it('credencial ilegível cai no fallback da plataforma, sem quebrar', async () => {
+    linhaLoja = { onz_client_id: 'lixo', onz_client_secret: 'lixo', onz_pix_key: 'k' };
+    devolverCobranca.mockResolvedValue({ devolucoes: [], totalCentavos: 0 });
+
+    await estornarPagamentoPix(7, 'onz', 'PED55aaa');
+
+    expect(devolverCobranca).toHaveBeenCalledWith('PED55aaa', null);
   });
 
   it('pedido sem gateway gravado cai no Mercado Pago (compatibilidade)', async () => {

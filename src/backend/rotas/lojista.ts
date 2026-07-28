@@ -22,7 +22,9 @@ import {
   montarInutilizacao, transmitirInutilizacao,
 } from '../sefaz';
 import { criptografar, descriptografar } from '../cripto';
-import { cashInDisponivel } from '../onz';
+import { cashInDisponivel, registrarWebhookCashIn } from '../onz';
+// Sem ciclo: pagamentos.ts não importa lojista.ts.
+import { credenciaisOnzDaLoja } from './pagamentos';
 import { testarCredenciaisOficial } from '../whatsapp';
 import { wbapiConfigurado, statusSessaoPlataforma } from '../whatsapp-nao-oficial';
 import { geocodificarTexto } from '../geo';
@@ -1434,12 +1436,16 @@ router.get('/pagamentos', async (req, res, next) => {
     const tokenTeste = descriptografarOuNulo(row?.mercadopago_token_teste ?? null);
     const tokenProducao = descriptografarOuNulo(row?.mercadopago_token_producao ?? null);
     const gateway = row?.pagamento_gateway === 'onz' ? 'onz' : 'mercadopago';
-    const onzDisponivel = cashInDisponivel();
+    const credOnz = await credenciaisOnzDaLoja(loja.id);
+    const onzDisponivel = cashInDisponivel(credOnz);
     res.json({
       gateway,
-      // A ONZ é da PLATAFORMA (credencial no ambiente), não da loja — se não
-      // estiver configurada, o front não deve oferecer a opção.
+      // Pix ONZ está utilizável? (conta da loja ou, na falta, a da plataforma)
       onz_disponivel: onzDisponivel,
+      // A loja tem conta ONZ PRÓPRIA configurada (o dinheiro cai direto nela)?
+      onz_conta_propria: !!credOnz,
+      onz_client_id_mascarado: mascarar(credOnz?.clientId ?? null),
+      onz_pix_key: credOnz?.chavePix ?? '',
       modo,
       ativo: gateway === 'onz' ? onzDisponivel : (modo === 'teste' ? !!tokenTeste : !!tokenProducao),
       token_teste_mascarado: mascarar(tokenTeste),
@@ -1455,12 +1461,33 @@ router.put('/pagamentos', async (req, res, next) => {
     const sets: string[] = [];
     const vals: unknown[] = [];
 
+    // ── Credenciais da conta ONZ DA LOJA (cada cliente tem a própria) ──
+    // Vêm antes da troca de gateway pra que salvar credencial + ativar ONZ numa
+    // só requisição funcione (a validação do gateway abaixo já vê o novo valor).
+    let onzMudou = false;
+    if (typeof req.body.onz_client_id === 'string') {
+      const v = req.body.onz_client_id.trim();
+      sets.push('onz_client_id = ?');
+      vals.push(v ? criptografar(v) : null);
+      onzMudou = true;
+    }
+    if (typeof req.body.onz_client_secret === 'string') {
+      const v = req.body.onz_client_secret.trim();
+      sets.push('onz_client_secret = ?');
+      vals.push(v ? criptografar(v) : null);
+      onzMudou = true;
+    }
+    if (typeof req.body.onz_pix_key === 'string') {
+      const v = req.body.onz_pix_key.trim();
+      // A chave Pix não é segredo (vai no QR Code), então fica em claro.
+      sets.push('onz_pix_key = ?');
+      vals.push(v || null);
+      onzMudou = true;
+    }
+
     if (req.body.gateway !== undefined) {
       if (req.body.gateway !== 'mercadopago' && req.body.gateway !== 'onz') {
         throw erroHttp(400, 'Gateway inválido (use "mercadopago" ou "onz").');
-      }
-      if (req.body.gateway === 'onz' && !cashInDisponivel()) {
-        throw erroHttp(400, 'O Pix da plataforma (ONZ) não está configurado. Fale com o suporte.');
       }
       sets.push('pagamento_gateway = ?');
       vals.push(req.body.gateway);
@@ -1488,6 +1515,41 @@ router.put('/pagamentos', async (req, res, next) => {
       await db.prepare(`UPDATE lojas SET ${sets.join(', ')} WHERE id = ?`).run(...vals, loja.id);
     }
 
+    // Gateway 'onz' exige credencial (da loja ou da plataforma) — checado DEPOIS
+    // do UPDATE, pra ver o estado final (ex.: salvar credencial e ativar de uma vez).
+    if (req.body.gateway === 'onz') {
+      const cred = await credenciaisOnzDaLoja(loja.id);
+      if (!cashInDisponivel(cred)) {
+        // Desfaz a ativação pra loja não ficar com Pix "ligado" sem funcionar.
+        await db.prepare("UPDATE lojas SET pagamento_gateway = 'mercadopago' WHERE id = ?").run(loja.id);
+        throw erroHttp(400, 'Preencha as credenciais da sua conta ONZ (Client ID, Client Secret e chave Pix) antes de ativar.');
+      }
+    }
+
+    // Registra o webhook automaticamente ao salvar credenciais: é por chave Pix,
+    // então cada loja precisa do seu. Fazer aqui é o que evita ter que rodar
+    // script no servidor a cada cliente novo. Best-effort: se falhar, o Pix
+    // ainda funciona (só a confirmação automática fica pendente), e o motivo vai
+    // no log e na resposta.
+    let avisoWebhook: string | null = null;
+    if (onzMudou) {
+      const cred = await credenciaisOnzDaLoja(loja.id);
+      const tk = process.env.ONZ_WEBHOOK_TOKEN || '';
+      if (cred && tk) {
+        const base = `${req.protocol}://${req.get('host')}`;
+        const url = `${base}/api/pagamentos/webhook/onz?tk=${encodeURIComponent(tk)}&t=${encodeURIComponent(bancoTenantAtual())}`;
+        try {
+          await registrarWebhookCashIn(url, cred);
+        } catch (e) {
+          avisoWebhook = 'Credenciais salvas, mas não consegui registrar a confirmação automática de pagamento na ONZ. Fale com o suporte.';
+          console.error(`[onz] falha ao registrar webhook da loja ${loja.id}:`, e);
+        }
+      } else if (cred && !tk) {
+        avisoWebhook = 'Credenciais salvas, mas o servidor não tem ONZ_WEBHOOK_TOKEN configurado — a confirmação automática não vai funcionar.';
+        console.error('[onz] ONZ_WEBHOOK_TOKEN ausente: webhook da loja não registrado.');
+      }
+    }
+
     const row = await db.prepare(
       'SELECT mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo, pagamento_gateway FROM lojas WHERE id = ?'
     ).get(loja.id) as
@@ -1500,11 +1562,16 @@ router.put('/pagamentos', async (req, res, next) => {
     const tokenTeste = descriptografarOuNulo(row.mercadopago_token_teste);
     const tokenProducao = descriptografarOuNulo(row.mercadopago_token_producao);
     const gateway = row.pagamento_gateway === 'onz' ? 'onz' : 'mercadopago';
-    const onzDisponivel = cashInDisponivel();
+    const credOnz = await credenciaisOnzDaLoja(loja.id);
+    const onzDisponivel = cashInDisponivel(credOnz);
     res.json({
       ok: true,
       gateway,
       onz_disponivel: onzDisponivel,
+      onz_conta_propria: !!credOnz,
+      onz_client_id_mascarado: mascarar(credOnz?.clientId ?? null),
+      onz_pix_key: credOnz?.chavePix ?? '',
+      ...(avisoWebhook ? { aviso: avisoWebhook } : {}),
       modo,
       ativo: gateway === 'onz' ? onzDisponivel : (modo === 'teste' ? !!tokenTeste : !!tokenProducao),
       token_teste_mascarado: mascarar(tokenTeste),

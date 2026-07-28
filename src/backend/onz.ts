@@ -42,9 +42,28 @@ interface ConfigApi {
   estiloAuth: 'camel' | 'snake';
 }
 
-function cfgCashIn(): ConfigApi | null {
-  const clientId = process.env.ONZ_QRCODES_CLIENT_ID || '';
-  const clientSecret = process.env.ONZ_QRCODES_CLIENT_SECRET || '';
+/**
+ * Credenciais de UMA loja (conta ONZ própria dela). Cada cliente abre a própria
+ * conta na Planner (um CNPJ, uma conta, uma chave Pix), então quem recebe o
+ * dinheiro é o lojista — a plataforma não intermedeia.
+ *
+ * O CERTIFICADO é único da integração (confirmado com a Planner), por isso não
+ * entra aqui: continua vindo do ambiente e valendo pra todas as contas.
+ */
+export interface CredenciaisLoja {
+  clientId: string;
+  clientSecret: string;
+  chavePix: string;
+}
+
+/**
+ * Config de cash-in. Com `cred`, usa a conta DA LOJA; sem, cai na conta da
+ * plataforma (`.env`) — que é o que mantém funcionando quem já estava rodando
+ * antes das credenciais por loja existirem.
+ */
+function cfgCashIn(cred?: CredenciaisLoja | null): ConfigApi | null {
+  const clientId = cred?.clientId || process.env.ONZ_QRCODES_CLIENT_ID || '';
+  const clientSecret = cred?.clientSecret || process.env.ONZ_QRCODES_CLIENT_SECRET || '';
   const baseUrl = process.env.ONZ_QRCODES_URL || '';
   const certPath = process.env.ONZ_QRCODES_CERT || 'dados/certificados/onz/qrcodes.pfx';
   if (!clientId || !clientSecret || !baseUrl) return null;
@@ -60,8 +79,8 @@ function cfgCashOut(): ConfigApi | null {
   return { baseUrl, clientId, clientSecret, certPath, estiloAuth: 'camel' };
 }
 
-/** Cash-in está configurado (credenciais presentes)? */
-export function cashInDisponivel(): boolean { return cfgCashIn() !== null; }
+/** Cash-in está configurado? Com `cred`, checa a conta da loja; sem, a da plataforma. */
+export function cashInDisponivel(cred?: CredenciaisLoja | null): boolean { return cfgCashIn(cred) !== null; }
 /** Cash-out está configurado? */
 export function cashOutDisponivel(): boolean { return cfgCashOut() !== null; }
 
@@ -223,11 +242,13 @@ export async function criarCobranca(opcoes: {
   expiracaoSeg?: number;
   devedor?: { nome?: string; cpf?: string; cnpj?: string };
   descricao?: string;
+  /** Credenciais da conta ONZ da loja. Ausente = conta da plataforma (.env). */
+  cred?: CredenciaisLoja | null;
 }): Promise<CobrancaGerada> {
-  const cfg = cfgCashIn();
+  const cfg = cfgCashIn(opcoes.cred);
   if (!cfg) throw new Error('ONZ cash-in não configurada.');
-  const chavePix = process.env.ONZ_PIX_KEY || '';
-  if (!chavePix) throw new Error('ONZ_PIX_KEY (chave recebedora) não configurada.');
+  const chavePix = opcoes.cred?.chavePix || process.env.ONZ_PIX_KEY || '';
+  if (!chavePix) throw new Error('Chave Pix recebedora não configurada (nem na loja, nem na plataforma).');
 
   const tls = carregarCert(cfg.certPath);
   const token = await obterToken(cfg, 'cob.write cob.read pix.read');
@@ -262,10 +283,10 @@ export async function criarCobranca(opcoes: {
 }
 
 /** Consulta uma cobrança pelo txid (para conferir se foi paga). */
-export async function consultarCobranca(txid: string): Promise<{
+export async function consultarCobranca(txid: string, cred?: CredenciaisLoja | null): Promise<{
   status: string; pago: boolean; valorPagoCentavos: number; e2eIds: string[]; bruto: unknown;
 }> {
-  const cfg = cfgCashIn();
+  const cfg = cfgCashIn(cred);
   if (!cfg) throw new Error('ONZ cash-in não configurada.');
   const tls = carregarCert(cfg.certPath);
   const token = await obterToken(cfg, 'cob.read pix.read');
@@ -306,14 +327,15 @@ export async function consultarCobranca(txid: string): Promise<{
  * no botão de estornar não devolve em dobro. Formato exigido pelo Bacen:
  * `[a-zA-Z0-9]{1,35}`.
  */
-export async function devolverCobranca(txid: string): Promise<{
+export async function devolverCobranca(txid: string, cred?: CredenciaisLoja | null): Promise<{
   devolucoes: Array<{ e2eId: string; idDevolucao: string; status: string }>;
   totalCentavos: number;
 }> {
-  const cfg = cfgCashIn();
+  const cfg = cfgCashIn(cred);
   if (!cfg) throw new Error('ONZ cash-in não configurada.');
 
-  const cobranca = await consultarCobranca(txid);
+  // A devolução tem que sair da MESMA conta que recebeu — mesma cred.
+  const cobranca = await consultarCobranca(txid, cred);
   if (!cobranca.pago || cobranca.e2eIds.length === 0) {
     throw new Error('Cobrança ONZ sem Pix liquidado — não há o que devolver.');
   }
@@ -361,11 +383,11 @@ export async function devolverCobranca(txid: string): Promise<{
  * ⚠️ Só Pix ASSOCIADOS A UM TXID são notificados (regra do Bacen) — Pix soltos
  * na chave, sem cobrança, não geram webhook.
  */
-export async function registrarWebhookCashIn(url: string): Promise<unknown> {
-  const cfg = cfgCashIn();
+export async function registrarWebhookCashIn(url: string, cred?: CredenciaisLoja | null): Promise<unknown> {
+  const cfg = cfgCashIn(cred);
   if (!cfg) throw new Error('ONZ cash-in não configurada.');
-  const chave = process.env.ONZ_PIX_KEY || '';
-  if (!chave) throw new Error('ONZ_PIX_KEY não configurada (é a chave recebedora).');
+  const chave = cred?.chavePix || process.env.ONZ_PIX_KEY || '';
+  if (!chave) throw new Error('Chave Pix recebedora não configurada (nem na loja, nem na plataforma).');
   const tls = carregarCert(cfg.certPath);
   const token = await obterToken(cfg, 'webhook.write');
   const resp = await requisicao(cfg.baseUrl, `webhook/${encodeURIComponent(chave)}`, {
@@ -380,11 +402,11 @@ export async function registrarWebhookCashIn(url: string): Promise<unknown> {
 }
 
 /** Consulta o webhook de cash-in registrado (pra conferir o que está valendo). */
-export async function consultarWebhookCashIn(): Promise<{ registrado: boolean; bruto: unknown }> {
-  const cfg = cfgCashIn();
+export async function consultarWebhookCashIn(cred?: CredenciaisLoja | null): Promise<{ registrado: boolean; bruto: unknown }> {
+  const cfg = cfgCashIn(cred);
   if (!cfg) throw new Error('ONZ cash-in não configurada.');
-  const chave = process.env.ONZ_PIX_KEY || '';
-  if (!chave) throw new Error('ONZ_PIX_KEY não configurada.');
+  const chave = cred?.chavePix || process.env.ONZ_PIX_KEY || '';
+  if (!chave) throw new Error('Chave Pix recebedora não configurada (nem na loja, nem na plataforma).');
   const tls = carregarCert(cfg.certPath);
   const token = await obterToken(cfg, 'webhook.read');
   const resp = await requisicao(cfg.baseUrl, `webhook/${encodeURIComponent(chave)}`, {

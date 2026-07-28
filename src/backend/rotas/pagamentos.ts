@@ -76,13 +76,37 @@ export async function gatewayDaLoja(lojaId: number): Promise<GatewayPix> {
 }
 
 /**
+ * Credenciais da conta ONZ DA LOJA (cada cliente tem a própria conta na
+ * Planner). Retorna null se a loja não configurou — aí o chamador cai na conta
+ * da plataforma (.env), o que preserva quem já estava rodando assim.
+ */
+export async function credenciaisOnzDaLoja(lojaId: number): Promise<onz.CredenciaisLoja | null> {
+  const row = await db.prepare(
+    'SELECT onz_client_id, onz_client_secret, onz_pix_key FROM lojas WHERE id = ?'
+  ).get(lojaId) as { onz_client_id: string | null; onz_client_secret: string | null; onz_pix_key: string | null } | undefined;
+  if (!row?.onz_client_id || !row.onz_client_secret || !row.onz_pix_key) return null;
+  try {
+    return {
+      clientId: descriptografar(row.onz_client_id),
+      clientSecret: descriptografar(row.onz_client_secret),
+      chavePix: row.onz_pix_key,
+    };
+  } catch {
+    // APP_SECRET trocado ou dado corrompido: melhor tratar como "não
+    // configurado" (e cair no fallback) do que quebrar o checkout.
+    console.error(`[onz] credenciais da loja ${lojaId} ilegíveis — usando a conta da plataforma.`);
+    return null;
+  }
+}
+
+/**
  * Pix online disponível pra essa loja? Depende do gateway escolhido:
  *  - mercadopago: precisa de token (da loja ou o da plataforma/env);
- *  - onz: precisa das credenciais ONZ de cash-in no ambiente.
+ *  - onz: precisa de credencial da loja OU da plataforma.
  */
 export async function pagamentoOnlineAtivo(lojaId: number): Promise<boolean> {
   const gateway = await gatewayDaLoja(lojaId);
-  if (gateway === 'onz') return onz.cashInDisponivel();
+  if (gateway === 'onz') return onz.cashInDisponivel(await credenciaisOnzDaLoja(lojaId));
   return !!(await getTokenMP(lojaId));
 }
 
@@ -101,6 +125,8 @@ export async function criarCobrancaPix(
       pedidoId: pedido.id,
       valorCentavos: pedido.total_centavos,
       descricao: `Pedido #${pedido.id}`,
+      // Cobra na conta DA LOJA (o dinheiro vai direto pra ela).
+      cred: await credenciaisOnzDaLoja(lojaId),
     });
     return {
       gateway: 'onz',
@@ -187,7 +213,10 @@ export async function estornarPagamentoPix(
   lojaId: number, gateway: string | null | undefined, pagamentoGatewayId: string,
 ): Promise<void> {
   if (gateway === 'onz') {
-    await onz.devolverCobranca(pagamentoGatewayId);
+    // A devolução tem que sair da MESMA conta que recebeu — a da loja (cada
+    // cliente tem a própria conta ONZ). Sem isso, tentaríamos devolver da conta
+    // da plataforma e a API recusaria (txid inexistente lá).
+    await onz.devolverCobranca(pagamentoGatewayId, await credenciaisOnzDaLoja(lojaId));
     return;
   }
   // Sem gateway gravado = pedido anterior ao campo, quando só existia o MP.

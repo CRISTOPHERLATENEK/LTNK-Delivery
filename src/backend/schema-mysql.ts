@@ -94,9 +94,16 @@ const TABELAS: string[] = [
   mercadopago_token_producao TEXT,
   mercadopago_modo      VARCHAR(10) NOT NULL DEFAULT 'producao',
   -- Gateway do Pix online desta loja. 'mercadopago' = token da própria loja
-  -- (ou o global do .env); 'onz' = credenciais ONZ/Planner da plataforma.
+  -- (ou o global do .env); 'onz' = conta ONZ/Planner (da loja, ou a global).
   pagamento_gateway     VARCHAR(20) NOT NULL DEFAULT 'mercadopago'
                         CHECK (pagamento_gateway IN ('mercadopago','onz')),
+  -- Conta ONZ/Planner DA LOJA: cada cliente abre a própria conta (um CNPJ, uma
+  -- conta, uma chave Pix) e recebe direto — a plataforma não intermedeia o
+  -- dinheiro. Secret criptografado em repouso (AES-256-GCM, ver cripto.ts).
+  -- O CERTIFICADO mTLS é único da integração (fica no ambiente), não por loja.
+  onz_client_id         TEXT,
+  onz_client_secret     TEXT,
+  onz_pix_key           VARCHAR(80),
   slug                  VARCHAR(60),
   dominio_personalizado VARCHAR(200),
   impressora_largura    VARCHAR(4) NOT NULL DEFAULT '80',
@@ -628,5 +635,20 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     await pool.query(
       "ALTER TABLE lojas ADD COLUMN pagamento_gateway VARCHAR(20) NOT NULL DEFAULT 'mercadopago'"
     );
+  }
+
+  // Credenciais da conta ONZ por loja (mesmo caso: colunas novas que o
+  // CREATE TABLE IF NOT EXISTS não alcança em bancos já criados).
+  for (const [coluna, ddl] of [
+    ['onz_client_id', 'onz_client_id TEXT'],
+    ['onz_client_secret', 'onz_client_secret TEXT'],
+    ['onz_pix_key', 'onz_pix_key VARCHAR(80)'],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'lojas' AND COLUMN_NAME = ?
+        LIMIT 1`, [coluna],
+    ) as any;
+    if (existe.length === 0) await pool.query(`ALTER TABLE lojas ADD COLUMN ${ddl}`);
   }
 }
