@@ -58,6 +58,20 @@ async function principal(): Promise<void> {
     console.error('❌ A URL precisa ser HTTPS pública (a ONZ não aceita http:// nem localhost).');
     process.exit(1);
   }
+  if (base) {
+    // A ONZ ACEITA registrar um domínio que não existe (não resolve DNS na
+    // hora), então um placeholder colado sem querer passa silenciosamente e o
+    // pagamento nunca confirma — já aconteceu. Barramos aqui.
+    const host = (() => { try { return new URL(base).hostname; } catch { return ''; } })();
+    const suspeito = /^$|seu[_-]?dominio|seudominio|dominio|example\.|localhost|^\d+\.\d+\.\d+\.\d+$/i.test(host)
+      || !host.includes('.');
+    if (suspeito) {
+      console.error(`❌ "${host || base}" não parece um domínio real.`);
+      console.error('   Troque pelo domínio público de verdade do app, ex.:');
+      console.error('   node dist/backend/registrar-webhook-onz.js https://pedidos.suaempresa.com.br');
+      process.exit(1);
+    }
+  }
 
   console.log(`cash-in configurado: ${cashInDisponivel() ? 'sim' : 'NÃO'} | cash-out: ${cashOutDisponivel() ? 'sim' : 'NÃO'}`);
 
@@ -65,8 +79,10 @@ async function principal(): Promise<void> {
   if (cashInDisponivel()) {
     try {
       const atual = await consultarWebhookCashIn();
+      // mascarar() também aqui: a URL registrada CONTÉM o token (tk=), e este
+      // output vai pro terminal/log.
       console.log(atual.registrado
-        ? `\n→ Webhook de cash-in JÁ registrado: ${JSON.stringify(atual.bruto)}`
+        ? `\n→ Webhook de cash-in JÁ registrado: ${mascarar(JSON.stringify(atual.bruto))}`
         : '\n→ Nenhum webhook de cash-in registrado ainda.');
     } catch (e) {
       console.log(`\n→ Não foi possível consultar o webhook atual: ${(e as Error).message}`);
@@ -95,7 +111,12 @@ async function principal(): Promise<void> {
     const url = montarUrl(base, '/api/pagamentos/webhook/onz-cashout');
     console.log(`\n▶ Registrando cash-out em: ${mascarar(url)}`);
     try {
-      await registrarWebhookCashOut(url, process.env.SMTP_FROM || undefined);
+      // A API Accounts valida o e-mail estritamente. SMTP_FROM costuma vir como
+      // `"Minha Loja" <nao-responda@dominio>` — extraímos só o endereço, e se
+      // não houver um válido, omitimos (o campo é opcional).
+      const bruto = process.env.SMTP_FROM || process.env.SUPORTE_EMAIL || '';
+      const achado = /[\w.+-]+@[\w-]+\.[\w.-]+/.exec(bruto)?.[0];
+      await registrarWebhookCashOut(url, achado);
       console.log('  ✅ registrado.');
     } catch (e) {
       // Não aborta: o cash-in (que é o que está em uso) já foi registrado.
