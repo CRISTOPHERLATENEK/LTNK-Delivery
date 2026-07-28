@@ -267,6 +267,23 @@ export async function consultarCobranca(txid: string): Promise<{ status: string;
 
 /* ───────────────────────── Cash-out (enviar Pix) ───────────────────────── */
 
+/** Saldo da conta (read-only) — útil pra checar antes de repassar e pra smoke test. */
+export async function consultarSaldo(): Promise<{ disponivel: number; bruto: unknown }> {
+  const cfg = cfgCashOut();
+  if (!cfg) throw new Error('ONZ cash-out não configurada.');
+  const tls = carregarCert(cfg.certPath);
+  const token = await obterToken(cfg, 'account.read');
+  const resp = await requisicao(cfg.baseUrl, 'accounts/balances/', {
+    metodo: 'GET', tls, headers: { 'Authorization': `Bearer ${token}` },
+  });
+  if (resp.status < 200 || resp.status >= 300) {
+    throw new Error(`ONZ saldo falhou (HTTP ${resp.status}): ${JSON.stringify(resp.body)}`);
+  }
+  const b = resp.body as { data?: Array<{ balanceAmount?: { available?: number } }> };
+  const disponivel = b.data?.[0]?.balanceAmount?.available ?? 0;
+  return { disponivel, bruto: resp.body };
+}
+
 export interface ResultadoCashOut {
   id: string;
   endToEndId: string;
@@ -289,7 +306,7 @@ export async function pixCashoutViaChave(opcoes: {
   const tls = carregarCert(cfg.certPath);
   const token = await obterToken(cfg, 'pix.write pix.read');
 
-  const resp = await requisicao(cfg.baseUrl, 'pix/dict', {
+  const resp = await requisicao(cfg.baseUrl, 'pix/payments/dict', {
     metodo: 'POST', tls,
     headers: {
       'Authorization': `Bearer ${token}`,
