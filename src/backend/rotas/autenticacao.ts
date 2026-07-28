@@ -8,7 +8,7 @@ import rateLimit from 'express-rate-limit';
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
 import db, { comTenant } from '../db-mysql';
-import { listarTenants, Tenant } from '../tenants-mysql';
+import { listarTenants, urlDoTenant, Tenant } from '../tenants-mysql';
 import { gerarToken, gerarTokenPreAuth, autenticar, autenticarPreAuth } from '../auth';
 import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, telefoneDigitos, erroHttp } from '../util';
 import { enviarEmail, emailRedefinirSenha, emailHabilitado } from '../email';
@@ -123,18 +123,6 @@ router.post('/registrar', limiteRegistro, async (req, res, next) => {
     res.status(201).json({ token: gerarToken(usuario), usuario });
   } catch (e) { next(e); }
 });
-
-/**
- * Endereço público de um tenant, na mesma ordem que `resolverPorHost` usa pra
- * fazer o caminho inverso: domínio próprio, senão `<slug>.<DOMINIO_BASE>`.
- * Devolve null quando não dá pra montar URL nenhuma (sem domínio e sem
- * DOMINIO_BASE configurado) — aí não há pra onde redirecionar.
- */
-function urlDoTenant(tenant: Tenant): string | null {
-  if (tenant.dominio) return `https://${tenant.dominio}`;
-  const base = (process.env.DOMINIO_BASE || '').toLowerCase().replace(/^www\./, '');
-  return base ? `https://${tenant.slug}.${base}` : null;
-}
 
 /**
  * Procura em TODOS os tenants a conta de lojista/admin cujo e-mail E senha

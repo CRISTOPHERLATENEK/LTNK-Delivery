@@ -17,7 +17,7 @@ import multer from 'multer';
 import { spawn } from 'child_process';
 import path from 'path';
 import os from 'os';
-import { listarTenants, criarTenant, atualizarTenant, tenantPorId, ehMaster } from '../tenants-mysql';
+import { listarTenants, criarTenant, atualizarTenant, tenantPorId, ehMaster, urlDoTenant } from '../tenants-mysql';
 import { geocodificarTexto } from '../geo';
 
 /**
@@ -1694,7 +1694,10 @@ router.post('/tenants/:id/impersonar', exigirSuperAdmin, async (req, res, next) 
 
     const token = gerarTokenImpersonado(lojista, tenant.db_nome);
     await registrarAuditoria(req, 'tenant.impersonar', { alvoTipo: 'tenant', alvoId: id, alvoDesc: tenant.nome });
-    res.json({ token });
+    // O front decide com isso se abre a aba aqui mesmo ou troca de domínio
+    // primeiro: null quando o tenant não tem domínio próprio nem DOMINIO_BASE
+    // configurado, e aí o token no localStorage (mesmo domínio) é o único jeito.
+    res.json({ token, redirecionar: urlDoTenant(tenant) });
   } catch (e) { next(e); }
 });
 

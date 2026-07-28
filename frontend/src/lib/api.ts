@@ -100,6 +100,39 @@ export async function abrirSessaoLojistaImpersonada(token: string): Promise<void
   salvarSessao(token, usuario, 'lojista');
 }
 
+/**
+ * Quando a loja TEM domínio próprio, "Entrar como lojista" precisa abrir a
+ * aba LÁ, não no domínio do admin — senão a URL na barra de endereço mostra a
+ * plataforma em vez da marca do cliente (os dados carregam certos mesmo assim,
+ * porque o JWT leva o tenant; só a URL fica errada). Só que localStorage é
+ * por origem, então gravar a sessão aqui não ajudaria uma aba aberta noutro
+ * domínio — por isso o token viaja no FRAGMENTO da URL de destino em vez de ir
+ * pro localStorage local. Mesma razão do repasse do 2FA (ver lib/repasse-2fa.ts):
+ * fragmento não é enviado ao servidor, não aparece em log de acesso nem em
+ * Referer, e a página de chegada consome e apaga da URL.
+ *
+ * `redirecionar` null (sem domínio próprio nem DOMINIO_BASE) ou apontando pro
+ * domínio que já está aberto: devolve null, e quem chamou segue com
+ * `abrirSessaoLojistaImpersonada` normal (mesma origem).
+ */
+export function destinoImpersonacao(redirecionar: string | null | undefined, token: string): string | null {
+  if (!redirecionar) return null;
+  let origem: string;
+  try { origem = new URL(redirecionar).origin; } catch { return null; }
+  if (origem === window.location.origin) return null;
+  return `${redirecionar.replace(/\/+$/, '')}/lojista#sessao=${encodeURIComponent(token)}`;
+}
+
+/** Lê (e consome) o token de sessão impersonada vindo no fragmento da URL — ver destinoImpersonacao. */
+export function lerRepasseImpersonacao(): string | null {
+  if (!window.location.hash.startsWith('#')) return null;
+  const p = new URLSearchParams(window.location.hash.slice(1));
+  const token = p.get('sessao');
+  if (!token) return null;
+  window.history.replaceState(null, '', window.location.pathname + window.location.search);
+  return token;
+}
+
 /** Checa se o usuário logado NA ÁREA ADMIN é o super admin (dono da plataforma). */
 export function ehSuperAdmin(): boolean {
   const u = sessaoUsuario('admin');

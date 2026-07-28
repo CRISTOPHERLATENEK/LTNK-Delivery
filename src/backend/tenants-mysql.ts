@@ -110,6 +110,18 @@ export async function resolverPorHost(host: string | undefined): Promise<Tenant 
   return null;
 }
 
+/**
+ * Endereço público de um tenant — o caminho inverso de `resolverPorHost`:
+ * domínio próprio, senão `<slug>.<DOMINIO_BASE>`. Devolve null quando não dá
+ * pra montar URL nenhuma (sem domínio e sem DOMINIO_BASE configurado) — aí não
+ * há pra onde redirecionar.
+ */
+export function urlDoTenant(tenant: Tenant): string | null {
+  if (tenant.dominio) return `https://${tenant.dominio}`;
+  const base = (process.env.DOMINIO_BASE || '').toLowerCase().replace(/^www\./, '');
+  return base ? `https://${tenant.slug}.${base}` : null;
+}
+
 /** Tenant padrão (fallback para localhost / domínios não cadastrados). */
 export async function tenantPadrao(): Promise<Tenant> {
   const pool = poolCentral();

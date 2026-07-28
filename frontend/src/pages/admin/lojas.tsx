@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
-import { api, ApiError, ehSuperAdmin, tokenSessao, abrirSessaoLojistaImpersonada } from '@/lib/api';
+import { api, ApiError, ehSuperAdmin, tokenSessao, abrirSessaoLojistaImpersonada, destinoImpersonacao } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
 import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
 import { cn } from '@/lib/utils';
@@ -117,8 +117,11 @@ export function TelaLojas() {
       });
       const corpo = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(corpo.erro || `Falha ao entrar (HTTP ${resp.status}).`);
-      // Sessão de lojista via storage (compartilhado entre abas same-origin),
+      // Loja com domínio próprio: abre já lá (ver destinoImpersonacao). Sem
+      // domínio: sessão via storage (compartilhado entre abas same-origin),
       // sem jogar o token na URL (vazaria em histórico/logs/Referer).
+      const destino = destinoImpersonacao(corpo.redirecionar, corpo.token);
+      if (destino) { window.open(destino, '_blank'); return; }
       await abrirSessaoLojistaImpersonada(corpo.token);
       window.open('/lojista', '_blank');
     } catch (e) {

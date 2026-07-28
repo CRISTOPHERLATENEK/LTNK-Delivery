@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
-import { api, ApiError, sessaoUsuario, salvarSessao } from '@/lib/api';
+import { api, ApiError, sessaoUsuario, salvarSessao, abrirSessaoLojistaImpersonada, lerRepasseImpersonacao } from '@/lib/api';
 import { Portal2FA } from '@/components/duplo-fator';
 import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
@@ -46,8 +46,23 @@ import type { Pedido, ItemPedido } from '@/types';
 type PedidoComItens = Pedido & { itens: ItemPedido[] };
 
 export function PainelLojista() {
-  // A sessão de "Entrar como lojista" (Admin) chega pronta no storage (ver
-  // abrirSessaoLojistaImpersonada em lib/api.ts) — não há mais token na URL.
+  // "Entrar como lojista" (Admin) chega de duas formas: sessão já pronta no
+  // storage (loja sem domínio próprio — abrirSessaoLojistaImpersonada rodou
+  // no domínio do admin, que é o mesmo desta aba), OU um token no FRAGMENTO da
+  // URL (loja com domínio próprio — precisou trocar de domínio, e localStorage
+  // não atravessa origem; ver destinoImpersonacao em lib/api.ts). Este segundo
+  // caso precisa ser consumido — validado e gravado no storage LOCAL (agora
+  // sim a origem certa) — antes de decidir se mostra o painel ou o login.
+  const [tokenImpersonado] = useState(() => lerRepasseImpersonacao());
+  const [validandoRepasse, setValidandoRepasse] = useState(!!tokenImpersonado);
+
+  useEffect(() => {
+    if (!tokenImpersonado) return;
+    abrirSessaoLojistaImpersonada(tokenImpersonado)
+      .then(() => window.location.reload())
+      .catch(() => setValidandoRepasse(false)); // token inválido/expirado: cai pro login normal
+  }, [tokenImpersonado]);
+
   const u = sessaoUsuario();
   const ehLojista = !!u && u.perfil === 'lojista';
 
@@ -125,6 +140,16 @@ export function PainelLojista() {
     { rota: '/lojista/produtos', icone: Box, rotulo: 'Produtos' },
     { rota: '/lojista/mais', icone: LayoutGrid, rotulo: 'Mais' },
   ];
+
+  // Enquanto valida o repasse, não mostra o formulário de login por baixo —
+  // ele piscaria na tela por uma fração de segundo antes do reload.
+  if (validandoRepasse) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-background">
+        <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   if (!ehLojista) {
     return <LoginLojista />;
