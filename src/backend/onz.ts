@@ -352,6 +352,68 @@ export async function devolverCobranca(txid: string): Promise<{
   return { devolucoes, totalCentavos };
 }
 
+/* ───────────────── Webhooks (registro — roda uma vez por ambiente) ───────────────── */
+
+/**
+ * Registra a URL que a ONZ vai chamar quando um Pix com txid for recebido
+ * (cash-in). É `PUT /webhook/{chave}`, onde {chave} é a chave Pix recebedora.
+ *
+ * ⚠️ Só Pix ASSOCIADOS A UM TXID são notificados (regra do Bacen) — Pix soltos
+ * na chave, sem cobrança, não geram webhook.
+ */
+export async function registrarWebhookCashIn(url: string): Promise<unknown> {
+  const cfg = cfgCashIn();
+  if (!cfg) throw new Error('ONZ cash-in não configurada.');
+  const chave = process.env.ONZ_PIX_KEY || '';
+  if (!chave) throw new Error('ONZ_PIX_KEY não configurada (é a chave recebedora).');
+  const tls = carregarCert(cfg.certPath);
+  const token = await obterToken(cfg, 'webhook.write');
+  const resp = await requisicao(cfg.baseUrl, `webhook/${encodeURIComponent(chave)}`, {
+    metodo: 'PUT', tls,
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    corpo: { webhookUrl: url },
+  });
+  if (resp.status < 200 || resp.status >= 300) {
+    throw new Error(`ONZ registro de webhook falhou (HTTP ${resp.status}): ${JSON.stringify(resp.body)}`);
+  }
+  return resp.body;
+}
+
+/** Consulta o webhook de cash-in registrado (pra conferir o que está valendo). */
+export async function consultarWebhookCashIn(): Promise<{ registrado: boolean; bruto: unknown }> {
+  const cfg = cfgCashIn();
+  if (!cfg) throw new Error('ONZ cash-in não configurada.');
+  const chave = process.env.ONZ_PIX_KEY || '';
+  if (!chave) throw new Error('ONZ_PIX_KEY não configurada.');
+  const tls = carregarCert(cfg.certPath);
+  const token = await obterToken(cfg, 'webhook.read');
+  const resp = await requisicao(cfg.baseUrl, `webhook/${encodeURIComponent(chave)}`, {
+    metodo: 'GET', tls, headers: { 'Authorization': `Bearer ${token}` },
+  });
+  // 404 = nenhum webhook registrado ainda (não é erro).
+  return { registrado: resp.status >= 200 && resp.status < 300, bruto: resp.body };
+}
+
+/**
+ * Registra o webhook de cash-out (API Accounts, formato proprietário).
+ * Avisa quando um Pix ENVIADO por nós muda de status (liquidado/devolvido).
+ */
+export async function registrarWebhookCashOut(url: string, email?: string): Promise<unknown> {
+  const cfg = cfgCashOut();
+  if (!cfg) throw new Error('ONZ cash-out não configurada.');
+  const tls = carregarCert(cfg.certPath);
+  const token = await obterToken(cfg, 'webhook.write');
+  const resp = await requisicao(cfg.baseUrl, 'webhooks/cashout', {
+    metodo: 'POST', tls,
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    corpo: { uri: url, method: 'POST', enabled: true, pauseOnFail: true, ...(email ? { email } : {}) },
+  });
+  if (resp.status < 200 || resp.status >= 300) {
+    throw new Error(`ONZ registro de webhook cash-out falhou (HTTP ${resp.status}): ${JSON.stringify(resp.body)}`);
+  }
+  return resp.body;
+}
+
 /* ───────────────────────── Cash-out (enviar Pix) ───────────────────────── */
 
 /** Saldo da conta (read-only) — útil pra checar antes de repassar e pra smoke test. */
