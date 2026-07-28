@@ -33,6 +33,13 @@ interface ConfigApi {
   clientId: string;
   clientSecret: string;
   certPath: string;
+  /**
+   * Formato do corpo do /oauth/token — as duas APIs divergem (VALIDADO no sandbox):
+   *  - 'camel' (API Contas/Accounts): { clientId, clientSecret, grantType }
+   *  - 'snake' (API QRCodes, padrão Bacen): { client_id, client_secret, grant_type }
+   * Mandar o formato errado devolve 401 "Credenciais inválidas APC-001".
+   */
+  estiloAuth: 'camel' | 'snake';
 }
 
 function cfgCashIn(): ConfigApi | null {
@@ -41,7 +48,7 @@ function cfgCashIn(): ConfigApi | null {
   const baseUrl = process.env.ONZ_QRCODES_URL || '';
   const certPath = process.env.ONZ_QRCODES_CERT || 'dados/certificados/onz/qrcodes.pfx';
   if (!clientId || !clientSecret || !baseUrl) return null;
-  return { baseUrl, clientId, clientSecret, certPath };
+  return { baseUrl, clientId, clientSecret, certPath, estiloAuth: 'snake' };
 }
 
 function cfgCashOut(): ConfigApi | null {
@@ -50,7 +57,7 @@ function cfgCashOut(): ConfigApi | null {
   const baseUrl = process.env.ONZ_ACCOUNTS_URL || '';
   const certPath = process.env.ONZ_ACCOUNTS_CERT || 'dados/certificados/onz/accounts.pfx';
   if (!clientId || !clientSecret || !baseUrl) return null;
-  return { baseUrl, clientId, clientSecret, certPath };
+  return { baseUrl, clientId, clientSecret, certPath, estiloAuth: 'camel' };
 }
 
 /** Cash-in está configurado (credenciais presentes)? */
@@ -164,16 +171,18 @@ async function obterToken(cfg: ConfigApi, escopo: string): Promise<string> {
   if (cache && cache.expiraEm > agora + 30_000) return cache.token;
 
   const tls = carregarCert(cfg.certPath);
-  // TODO(sandbox): confirmar formato exato do /oauth/token de cada API. A API
-  // Accounts documenta JSON {clientId, clientSecret, grantType}; a de QR Codes
-  // (Bacen) costuma usar Basic auth + x-www-form-urlencoded. Enviamos JSON com
-  // Basic auth junto, que a maioria dos PSPs aceita; ajustar se o sandbox exigir.
+  // Formato do corpo varia por API (ver ConfigApi.estiloAuth) — confirmado no
+  // sandbox: mandar o estilo errado devolve 401 APC-001. O escopo só vai no
+  // estilo camel (Accounts); a API QRCodes deriva os escopos da credencial.
+  const corpo = cfg.estiloAuth === 'snake'
+    ? { client_id: cfg.clientId, client_secret: cfg.clientSecret, grant_type: 'client_credentials' }
+    : { clientId: cfg.clientId, clientSecret: cfg.clientSecret, grantType: 'client_credentials', scope: escopo };
   const basic = Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString('base64');
   const resp = await requisicao(cfg.baseUrl, 'oauth/token', {
     metodo: 'POST',
     tls,
     headers: { 'Authorization': `Basic ${basic}`, 'Content-Type': 'application/json' },
-    corpo: { clientId: cfg.clientId, clientSecret: cfg.clientSecret, grantType: 'client_credentials', scope: escopo },
+    corpo,
   });
   if (resp.status < 200 || resp.status >= 300) {
     throw new Error(`ONZ auth falhou (HTTP ${resp.status}): ${JSON.stringify(resp.body)}`);
@@ -253,16 +262,32 @@ export async function criarCobranca(opcoes: {
 }
 
 /** Consulta uma cobrança pelo txid (para conferir se foi paga). */
-export async function consultarCobranca(txid: string): Promise<{ status: string; bruto: unknown }> {
+export async function consultarCobranca(txid: string): Promise<{
+  status: string; pago: boolean; valorPagoCentavos: number; e2eIds: string[]; bruto: unknown;
+}> {
   const cfg = cfgCashIn();
   if (!cfg) throw new Error('ONZ cash-in não configurada.');
   const tls = carregarCert(cfg.certPath);
   const token = await obterToken(cfg, 'cob.read pix.read');
-  const resp = await requisicao(cfg.baseUrl, `cob/${txid}`, {
+  const resp = await requisicao(cfg.baseUrl, `cob/${encodeURIComponent(txid)}`, {
     metodo: 'GET', tls, headers: { 'Authorization': `Bearer ${token}` },
   });
-  const b = resp.body as { status?: string };
-  return { status: b?.status || 'DESCONHECIDO', bruto: resp.body };
+  if (resp.status < 200 || resp.status >= 300) {
+    throw new Error(`ONZ consulta de cobrança falhou (HTTP ${resp.status}): ${JSON.stringify(resp.body)}`);
+  }
+  const b = (resp.body ?? {}) as { status?: string; pix?: Array<{ valor?: string; endToEndId?: string }> };
+  const recebidos = Array.isArray(b.pix) ? b.pix : [];
+  // Fonte da verdade do pagamento é o array `pix` (Pix efetivamente liquidados).
+  // O status CONCLUIDA também indica pago, mas o array é o que dá o valor real
+  // (importante: pode haver pagamento parcial/múltiplo).
+  const valorPagoCentavos = recebidos.reduce((s, p) => s + Math.round(Number(p.valor || 0) * 100), 0);
+  return {
+    status: b.status || 'DESCONHECIDO',
+    pago: b.status === 'CONCLUIDA' || recebidos.length > 0,
+    valorPagoCentavos,
+    e2eIds: recebidos.map(p => p.endToEndId || '').filter(Boolean),
+    bruto: resp.body,
+  };
 }
 
 /* ───────────────────────── Cash-out (enviar Pix) ───────────────────────── */
