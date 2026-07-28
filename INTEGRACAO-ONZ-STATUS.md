@@ -197,21 +197,18 @@ npx tsc -p tsconfig.backend.json && node _teste-onz.js && rm _teste-onz.js
 
 ## 6. O QUE FALTA (em ordem de prioridade)
 
-### 6.1 🔴 Consertar o build (BLOQUEIA O DEPLOY)
-`frontend/src/pages/lojista/visual/index.tsx` está com um **refactor seu pela
-metade** (não commitado, não toquei nele):
+### 6.1 ✅ Consertar o build — RESOLVIDO (commit `881363e`)
+Era um refactor pela metade em `frontend/src/pages/lojista/visual/index.tsx`:
+`GRUPOS_VISUAL` já existia, mas a barra ainda iterava o antigo `ABAS_VISUAL`,
+e o `tsc -b` falhava com `Cannot find name 'ABAS_VISUAL'`.
 
-- Você renomeou `ABAS_VISUAL` → `GRUPOS_VISUAL` (agrupando as abas em 4 famílias:
-  "Comece por aqui", "Identidade", etc.) nas linhas 36–56;
-- Mas a **linha 102** ainda faz `{ABAS_VISUAL.map(...)}`.
+Fechado: a barra agora itera os grupos com um divisor entre eles. `npm run
+build` na raiz (backend `tsc` + frontend `tsc -b` + `vite build`) passa com
+exit 0.
 
-Resultado: `tsc` falha com `Cannot find name 'ABAS_VISUAL'` → **`npm run build`
-quebra no VPS** (o script é `tsc -b && vite build`). O `vite build` isolado passa
-porque não faz typecheck — não se engane com isso.
-
-Precisa reescrever o render da barra de abas para iterar os grupos
-(`GRUPOS_VISUAL.map(g => ...)` com um separador visual por grupo, e as abas
-dentro de `g.abas`).
+O alerta do relatório continua válido como regra geral: **`vite build` isolado
+não faz typecheck**. Quem valida é o `tsc -b` que roda antes dele em
+`frontend/package.json`; rodar o vite direto esconde erro de tipo.
 
 ### 6.2 🟠 Registrar a URL do webhook na ONZ (sem isso a confirmação nunca chega)
 É feito **uma vez por ambiente**, via `PUT /webhook/{chave}` na API QRCodes,
@@ -254,6 +251,18 @@ estão nos YAMLs de homologação — pedir à Planner.
 `public/mascote/entregador.mp4` (7 MB) está **untracked**. É o vídeo do CTA da
 landing; a versão versionada está em `frontend/public/mascote/`. O de `public/`
 é saída de build — pode apagar.
+
+**RESOLVIDO — e o diagnóstico acima estava certo, era eu que tinha errado.**
+O CTA da landing trocou o vídeo com chroma-key por foto estática (`d973598`),
+mas naquele commit eu apaguei só a CÓPIA (`public/mascote/entregador.mp4`) e
+deixei a ORIGEM (`frontend/public/mascote/entregador.mp4`) no repositório. Como
+o `publicDir` do Vite é `frontend/public/` e ele copia tudo para `outDir:
+'../public'`, o build seguinte regenerou o arquivo — daí ele "reaparecer"
+untracked sozinho. Os 7 MB nunca tinham saído do git.
+
+Agora a origem foi removida de verdade. Regra pra não repetir: asset da landing
+mora em `frontend/public/`; o que está em `public/` é cópia gerada e volta a
+cada build.
 
 ---
 
