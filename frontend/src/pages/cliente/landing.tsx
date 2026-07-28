@@ -16,7 +16,7 @@
  * qualquer elemento ainda invisível E dentro da viewport a aparecer. Respeita
  * prefers-reduced-motion.
  */
-import { useEffect, useLayoutEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ElementType, type ReactElement } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { gsap } from 'gsap';
@@ -26,7 +26,8 @@ import {
   Store, Smartphone, Bike, ChefHat, Palette, Receipt, ArrowRight, Check, Star,
   Shield, ShieldCheck, Users, Mail, Phone, Printer, QrCode, KeyRound, Cloud,
   BarChart3, Sun, Moon, Menu, X, ChevronDown, Lock, MapPin, ClipboardList,
-  Share2, Rocket, Ticket, Bell, Zap, type LucideIcon,
+  Share2, Rocket, Ticket, Bell, Zap, ShoppingBag, ShoppingCart, CreditCard,
+  type LucideIcon,
 } from 'lucide-react';
 import { useTema, reaplicarPaletaTema } from '@/lib/tema';
 import { api } from '@/lib/api';
@@ -132,6 +133,20 @@ const CUPOM_ITENS_PADRAO: LandingCupomItem[] = [
 const CUPOM_TOTAL_PADRAO = '56,00';
 
 const WHATSAPP_VERDE = '#25d366'; // única cor de marca fixa: convenção universal do WhatsApp.
+
+/**
+ * O que a pessoa encontra na loja de demonstração — fatos do produto, não
+ * números de venda, então não são editáveis no admin (ao contrário de título e
+ * subtítulo do CTA). Se virar argumento comercial variável, promover a campo
+ * do `marca`.
+ */
+const CTA_DEMO_RECURSOS: { Icone: ElementType<{ className?: string }>; titulo: string; desc: string }[] = [
+  { Icone: ShoppingBag, titulo: 'Cardápio', desc: 'completo' },
+  { Icone: ShoppingCart, titulo: 'Carrinho', desc: 'funcional' },
+  { Icone: CreditCard, titulo: 'Checkout', desc: 'seguro' },
+  { Icone: IconeWhatsapp, titulo: 'WhatsApp', desc: 'integrado' },
+  { Icone: Smartphone, titulo: '100%', desc: 'responsivo' },
+];
 
 /* ───────────────────────── helpers de UI ───────────────────────── */
 
@@ -459,8 +474,8 @@ export function PaginaLanding() {
   const planosTitulo = marca.landing_planos_titulo || 'Planos sem *pegadinha*';
   const planosSubtitulo = marca.landing_planos_subtitulo || 'Sem taxa por pedido, sem fidelidade. Você paga a mensalidade e pronto.';
   const duvidasTitulo = marca.landing_duvidas_titulo || 'Dúvidas *frequentes*';
-  const ctaTitulo = marca.landing_cta_titulo || 'Quer ver funcionando na prática?';
-  const ctaSubtitulo = marca.landing_cta_subtitulo || 'Explore uma loja de demonstração completa — cardápio, carrinho e checkout de verdade.';
+  const ctaTitulo = marca.landing_cta_titulo || 'Veja sua loja *funcionando* na prática!';
+  const ctaSubtitulo = marca.landing_cta_subtitulo || 'Explore uma loja de demonstração completa — cardápio, carrinho e checkout de verdade. Faça um pedido teste e veja como é fácil!';
   const ctaBotaoDemoTexto = marca.landing_cta_botao_demo_texto || 'Abrir loja demo';
   const zapMsgHero = marca.landing_whatsapp_msg_hero || 'Olá! Quero saber mais sobre o sistema de delivery.';
   const zapMsgCta = marca.landing_whatsapp_msg_cta || 'Olá! Quero falar sobre o sistema de delivery.';
@@ -1172,22 +1187,58 @@ export function PaginaLanding() {
         </div>
       </section>
 
-      {/* ───── CTA final (estilo "blobs" + vídeo em card) ───── */}
+      {/* ───── CTA final ───── */}
       <section data-reveal className="relative overflow-hidden bg-background">
-        <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-16 sm:px-6 sm:py-24 lg:grid-cols-2">
+        {/* Colunas assimétricas: a régua de 5 recursos precisa caber numa linha
+            só, e com 1fr/1fr ela quebrava 4+1. */}
+        <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-5 py-16 sm:px-6 sm:py-24 lg:grid-cols-[1.15fr_0.85fr]">
           <div className="text-center lg:text-left">
-            <h2 className="text-3xl font-black tracking-tight text-foreground sm:text-4xl">{ctaTitulo}</h2>
-            <p className="mt-3 max-w-lg text-muted-foreground">{ctaSubtitulo}</p>
-            <div className="mt-7 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center lg:justify-start">
-              <BotaoDemo size="lg" texto={ctaBotaoDemoTexto} className="js-magnetico" />
+            <span className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-primary">
+              <span className="size-1.5 rounded-full bg-primary" aria-hidden="true" />
+              Loja demonstração
+            </span>
+
+            {/* Sem o Rabisco de TituloSecao aqui: a palavra em destaque já é o
+                único elemento colorido do bloco de texto, e o sublinhado
+                competiria com o selo logo acima. */}
+            <h2 className="mt-5 text-4xl font-black leading-[1.05] tracking-tight text-foreground sm:text-5xl">
+              {segmentosTitulo(ctaTitulo).map((s, i) => (
+                <span key={i} className={s.d ? 'text-primary' : undefined}>{s.t}</span>
+              ))}
+            </h2>
+
+            <p className="mx-auto mt-4 max-w-lg text-muted-foreground lg:mx-0">{ctaSubtitulo}</p>
+
+            <ul className="mt-7 flex flex-wrap justify-center gap-x-6 gap-y-4 lg:justify-start">
+              {CTA_DEMO_RECURSOS.map(({ Icone, titulo, desc }) => (
+                <li key={titulo} className="flex items-center gap-2.5">
+                  <Icone className="size-5 shrink-0 text-marca-2" />
+                  <span className="text-left text-sm leading-tight">
+                    <span className="block font-bold text-foreground">{titulo}</span>
+                    <span className="block text-muted-foreground">{desc}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center lg:justify-start">
+              <BotaoDemo size="xl" texto={ctaBotaoDemoTexto} className="js-magnetico" />
+              {/* Verde do WhatsApp via constante (única cor de marca fixa
+                  permitida neste arquivo — ver comentário do topo). */}
               <a
                 href={linkZap(zapMsgCta) || '/lojista'}
                 {...(linkZap() ? { target: '_blank', rel: 'noreferrer' } : {})}
-                className="inline-flex h-12 items-center justify-center gap-2 rounded-2xl border border-input bg-background px-7 text-base font-semibold text-foreground transition-colors hover:bg-accent"
+                className="inline-flex h-14 items-center justify-center gap-2 rounded-2xl border-2 bg-background px-8 text-base font-semibold transition-colors hover:bg-accent"
+                style={{ borderColor: `${WHATSAPP_VERDE}59`, color: WHATSAPP_VERDE }}
               >
                 <IconeWhatsapp className="size-5" /> Falar no WhatsApp
               </a>
             </div>
+
+            <p className="mt-4 flex items-center justify-center gap-1.5 text-xs text-muted-foreground lg:justify-start">
+              <Lock className="size-3.5 shrink-0" aria-hidden="true" />
+              Acesso rápido e seguro, sem necessidade de cadastro.
+            </p>
           </div>
 
           {/* Mascote: foto estática, já traz o blob de fundo embutido (mesmo
@@ -1196,11 +1247,11 @@ export function PaginaLanding() {
               texto só no mobile (empilhada); no grid de 2 colunas do desktop
               a ordem natural do DOM (texto, depois imagem) já entrega ela do
               lado direito. */}
-          <div className="js-mascote order-first mx-auto w-full max-w-[220px] sm:max-w-xs lg:order-none lg:max-w-md">
+          <div className="js-mascote order-first mx-auto w-full max-w-[240px] sm:max-w-sm lg:order-none lg:max-w-lg">
             <img
               src="/mascote/mascote.png"
               alt=""
-              className="h-auto w-full select-none drop-shadow-xl"
+              className="h-auto w-full select-none drop-shadow-2xl"
               loading="lazy"
             />
           </div>
