@@ -5,7 +5,7 @@
 > Leia inteiro antes de mexer: tem três armadilhas da API que já custaram
 > tempo e estão resolvidas — se você refizer sem saber, vai cair nelas de novo.
 >
-> Branch: **`migracao-mysql`** · último commit desta frente: **`60ec79f`**
+> Branch: **`migracao-mysql`** · último commit desta frente: **`8e754e2`**
 
 ---
 
@@ -72,6 +72,7 @@ Corrigido no commit `3651f79`.
 | Criar cobrança Pix | `criarCobranca()` | ✅ `status: ATIVA`, EMV copia-e-cola + QR PNG |
 | Consultar cobrança | `consultarCobranca()` | ✅ status/pago/valorPago/e2eIds |
 | Enviar Pix (cash-out) | `pixCashoutViaChave()` | ⚠️ **path corrigido, mas NUNCA executado** (ver §6) |
+| Consultar webhook | `consultarWebhookCashIn()` | ✅ responde (nenhum registrado ainda) |
 
 O EMV gerado traz o titular real da conta de homologação
 (`UNIMAXX_SOLUCOES_EM_TECNO`), então é cobrança legítima — dá para pagar num app
@@ -210,21 +211,33 @@ O alerta do relatório continua válido como regra geral: **`vite build` isolado
 não faz typecheck**. Quem valida é o `tsc -b` que roda antes dele em
 `frontend/package.json`; rodar o vite direto esconde erro de tipo.
 
-### 6.2 🟠 Registrar a URL do webhook na ONZ (sem isso a confirmação nunca chega)
-É feito **uma vez por ambiente**, via `PUT /webhook/{chave}` na API QRCodes,
-onde `{chave}` é a chave Pix (`ONZ_PIX_KEY`). Corpo: `{"webhookUrl": "..."}`.
-A URL a registrar:
+### 6.2 🟠 Registrar a URL do webhook na ONZ — **script pronto, falta rodar**
+Sem isso a confirmação nunca chega (cobrança criada → cliente paga → pedido fica
+eternamente "aguardando"). O script já existe (`registrar-webhook-onz.ts`,
+commit `8e754e2`) — só precisa rodar **uma vez por ambiente**, com o domínio
+público real:
 
+```bash
+npm run build
+node dist/backend/registrar-webhook-onz.js --conferir          # inspeciona, não altera
+node dist/backend/registrar-webhook-onz.js https://SEU_DOMINIO # registra
 ```
-https://SEU_DOMINIO/api/pagamentos/webhook/onz?tk=<ONZ_WEBHOOK_TOKEN>&t=<BANCO_DO_TENANT>
-```
 
-Sugestão: criar `src/backend/registrar-webhook-onz.ts` (script de linha de
-comando, no padrão dos `testar-*.ts` que já existem) para não fazer isso na mão.
-Endpoints relacionados: `GET /webhook/{chave}` (conferir) e `DELETE` (remover).
+Ele monta a URL com o token e o banco do tenant, mascara o token no output,
+recusa URL não-HTTPS (a ONZ não aceita `http://`/localhost e o erro dela não é
+óbvio) e registra os **dois** webhooks (cash-in e cash-out).
 
-Para o **cash-out** o webhook é outro: `POST /webhooks/cashout` na API Accounts
-(formato proprietário, corpo `{uri, email, method, enabled, ...}`).
+Estado conferido nesta sessão: **nenhum webhook registrado ainda**.
+
+⚠️ O webhook de **cash-out** é registrado apontando para
+`/api/pagamentos/webhook/onz-cashout`, mas **essa rota ainda não existe** no app
+(o cash-out não está ligado a nenhum fluxo). Criar junto com o §6.4.
+
+⚠️ Limitação multi-tenant (documentada no topo do script): o
+`PUT /webhook/{chave}` é **por chave Pix**, então o desenho suportado hoje é uma
+conta ONZ (a da plataforma) recebendo por todos os tenants — o webhook acha o
+pedido pelo `txid`. Se um dia cada tenant tiver conta/chave própria, rode o
+script uma vez por tenant, com o `MYSQL_DATABASE` daquele tenant.
 
 ### 6.3 🟡 Testar o cash-out de verdade
 `pixCashoutViaChave()` tem o path certo mas **nunca foi executado** — não quis
