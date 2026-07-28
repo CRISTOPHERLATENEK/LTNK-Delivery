@@ -13,7 +13,7 @@ import { notificarLojistaNovoPedido } from '../notificacoes';
 import { notificarPedidoWhatsApp } from '../whatsapp';
 import { comissaoPercentualDaLoja } from '../comissao';
 import { geocodificar } from '../geo';
-import { criarPagamentoMercadoPago, pagamentoOnlineAtivo } from './pagamentos';
+import { criarCobrancaPix, pagamentoOnlineAtivo } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 
 const router = Router();
@@ -411,10 +411,11 @@ router.post('/pedidos', async (req, res, next) => {
         // que o MP chamar (modelo SILO — um banco por tenant).
         const base = `${req.protocol}://${req.get('host')}`;
         const notifUrl = `${base}/api/pagamentos/webhook/mercadopago?t=${encodeURIComponent(bancoTenantAtual())}`;
-        const pix = await criarPagamentoMercadoPago(lojaId, pedido, { email: req.usuario!.email }, notifUrl);
+        // Despacha pro gateway da loja (Mercado Pago ou ONZ) — ver pagamentos.ts.
+        const pix = await criarCobrancaPix(lojaId, pedido, { email: req.usuario!.email }, notifUrl);
         await db.prepare(
-          "UPDATE pedidos SET pagamento_gateway = 'mercadopago', pagamento_gateway_id = ? WHERE id = ?"
-        ).run(pix.pagamento_id, pedidoId);
+          'UPDATE pedidos SET pagamento_gateway = ?, pagamento_gateway_id = ? WHERE id = ?'
+        ).run(pix.gateway, pix.pagamento_id, pedidoId);
         notificarPedidoWhatsApp(pedidoId, `${req.protocol}://${req.get('host')}`).catch(() => { /* best-effort */ });
         return res.status(201).json({ pedido_id: pedidoId, total_centavos: total, pix });
       } catch (e) {

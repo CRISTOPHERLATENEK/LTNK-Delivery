@@ -93,6 +93,10 @@ const TABELAS: string[] = [
   mercadopago_token_teste    TEXT,
   mercadopago_token_producao TEXT,
   mercadopago_modo      VARCHAR(10) NOT NULL DEFAULT 'producao',
+  -- Gateway do Pix online desta loja. 'mercadopago' = token da própria loja
+  -- (ou o global do .env); 'onz' = credenciais ONZ/Planner da plataforma.
+  pagamento_gateway     VARCHAR(20) NOT NULL DEFAULT 'mercadopago'
+                        CHECK (pagamento_gateway IN ('mercadopago','onz')),
   slug                  VARCHAR(60),
   dominio_personalizado VARCHAR(200),
   impressora_largura    VARCHAR(4) NOT NULL DEFAULT '80',
@@ -610,5 +614,19 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
   ) as any;
   if (jaTemColuna.length === 0) {
     await pool.query("ALTER TABLE pedidos ADD COLUMN estornado_em VARCHAR(32) NOT NULL DEFAULT ''");
+  }
+
+  // lojas.pagamento_gateway: idem — escolha do gateway de Pix online por loja
+  // (mercadopago | onz). Default 'mercadopago' preserva o comportamento de
+  // quem já estava rodando antes desta coluna existir.
+  const [jaTemGateway] = await pool.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'lojas' AND COLUMN_NAME = 'pagamento_gateway'
+      LIMIT 1`,
+  ) as any;
+  if (jaTemGateway.length === 0) {
+    await pool.query(
+      "ALTER TABLE lojas ADD COLUMN pagamento_gateway VARCHAR(20) NOT NULL DEFAULT 'mercadopago'"
+    );
   }
 }

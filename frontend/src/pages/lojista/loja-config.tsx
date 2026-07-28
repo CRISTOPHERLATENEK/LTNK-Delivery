@@ -696,6 +696,10 @@ export function EntregadoresLoja() {
 /* ───────────────────────── Pagamentos (Mercado Pago) ───────────────────── */
 
 interface EstadoPagamentos {
+  /** Gateway do Pix online: conta própria (Mercado Pago) ou o Pix da plataforma (ONZ). */
+  gateway: 'mercadopago' | 'onz';
+  /** A plataforma tem o Pix ONZ configurado? Se não, a opção nem aparece. */
+  onz_disponivel: boolean;
   modo: 'teste' | 'producao';
   ativo: boolean;
   token_teste_mascarado: string | null;
@@ -751,6 +755,11 @@ export function PagamentosLoja() {
     enviar({ modo }, modo === 'teste' ? 'Modo teste ativado.' : 'Modo produção ativado.');
   }
 
+  function trocarGateway(gateway: 'mercadopago' | 'onz') {
+    if (!estado || estado.gateway === gateway) return;
+    enviar({ gateway }, gateway === 'onz' ? 'Pix da plataforma ativado.' : 'Sua conta do Mercado Pago ativada.');
+  }
+
   function removerToken(campo: 'token_teste' | 'token_producao') {
     enviar({ [campo]: '' }, 'Token removido.');
   }
@@ -766,7 +775,8 @@ export function PagamentosLoja() {
   }
 
   if (!estado) return <Skeleton className="h-64" />;
-  const { modo, ativo } = estado;
+  const { modo, ativo, gateway, onz_disponivel } = estado;
+  const viaOnz = gateway === 'onz';
 
   return (
     <div className="space-y-4">
@@ -782,23 +792,61 @@ export function PagamentosLoja() {
           <div>
             <div className="font-bold flex items-center gap-2 flex-wrap">
               {ativo ? 'Pix online ativo' : 'Pix online inativo'}
-              {ativo && modo === 'teste' && (
+              {viaOnz && <Badge variant="success" className="text-[10px]">Pix da plataforma</Badge>}
+              {!viaOnz && ativo && modo === 'teste' && (
                 <Badge variant="warning" className="text-[10px]">Modo teste — pagamentos não são reais</Badge>
               )}
-              {ativo && modo === 'producao' && (
+              {!viaOnz && ativo && modo === 'producao' && (
                 <Badge variant="success" className="text-[10px]">Produção</Badge>
               )}
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {ativo
-                ? `Usando o token de ${modo === 'teste' ? 'teste' : 'produção'} configurado abaixo.`
-                : `Configure o token de ${modo === 'teste' ? 'teste' : 'produção'} abaixo para aceitar Pix.`}
+              {viaOnz
+                ? (ativo
+                    ? 'Recebendo pelo Pix da plataforma — você não precisa configurar nada.'
+                    : 'O Pix da plataforma não está disponível agora. Fale com o suporte.')
+                : (ativo
+                    ? `Usando o token de ${modo === 'teste' ? 'teste' : 'produção'} configurado abaixo.`
+                    : `Configure o token de ${modo === 'teste' ? 'teste' : 'produção'} abaixo para aceitar Pix.`)}
             </p>
           </div>
         </CardContent>
       </Card>
 
-      {/* Modo ativo */}
+      {/* Escolha do gateway — só aparece se a plataforma oferecer o Pix próprio */}
+      {onz_disponivel && (
+        <Card>
+          <CardContent className="p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <CreditCard className="size-4 text-primary" />
+              <span className="font-bold text-sm">Como você quer receber o Pix?</span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button" disabled={enviando} onClick={() => trocarGateway('onz')}
+                className={`rounded-xl border-2 p-3 text-left transition-colors ${viaOnz ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
+              >
+                <div className="text-sm font-bold">Pix da plataforma</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  Sem configurar nada. Recebimento na conta da plataforma e repasse pra você.
+                </div>
+              </button>
+              <button
+                type="button" disabled={enviando} onClick={() => trocarGateway('mercadopago')}
+                className={`rounded-xl border-2 p-3 text-left transition-colors ${!viaOnz ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
+              >
+                <div className="text-sm font-bold">Minha conta do Mercado Pago</div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  O dinheiro cai direto na sua conta. Exige colar seu token abaixo.
+                </div>
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Configuração do Mercado Pago — só relevante quando é a conta da loja */}
+      {!viaOnz && (<>
       <Card>
         <CardContent className="p-5 space-y-3">
           <div className="flex items-center gap-2">
@@ -899,9 +947,10 @@ export function PagamentosLoja() {
           </form>
         </CardContent>
       </Card>
+      </>)}
 
       {/* Info webhook — opcional, o sistema já manda a URL certa em cada pagamento */}
-      {ativo && (
+      {ativo && !viaOnz && (
         <Card className="border-dashed">
           <CardContent className="p-4 text-xs text-muted-foreground space-y-2">
             <p className="font-semibold text-foreground text-sm">Confirmação automática do Pix</p>

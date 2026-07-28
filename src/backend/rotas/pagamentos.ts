@@ -8,6 +8,7 @@ import { agoraUTC } from '../util';
 import { notificarLojistaNovoPedido } from '../notificacoes';
 import { descriptografar } from '../cripto';
 import { tenantPorDbNome } from '../tenants-mysql';
+import * as onz from '../onz';
 import { Pedido } from '../../tipos/modelos';
 
 const router = Router();
@@ -65,8 +66,53 @@ export async function getTokenMP(lojaId: number): Promise<string | null> {
 }
 
 /** Pix online está disponível para essa loja? */
+export type GatewayPix = 'mercadopago' | 'onz';
+
+/** Gateway de Pix online escolhido pela loja (coluna lojas.pagamento_gateway). */
+export async function gatewayDaLoja(lojaId: number): Promise<GatewayPix> {
+  const row = await db.prepare('SELECT pagamento_gateway FROM lojas WHERE id = ?').get(lojaId) as
+    { pagamento_gateway: string | null } | undefined;
+  return row?.pagamento_gateway === 'onz' ? 'onz' : 'mercadopago';
+}
+
+/**
+ * Pix online disponível pra essa loja? Depende do gateway escolhido:
+ *  - mercadopago: precisa de token (da loja ou o da plataforma/env);
+ *  - onz: precisa das credenciais ONZ de cash-in no ambiente.
+ */
 export async function pagamentoOnlineAtivo(lojaId: number): Promise<boolean> {
+  const gateway = await gatewayDaLoja(lojaId);
+  if (gateway === 'onz') return onz.cashInDisponivel();
   return !!(await getTokenMP(lojaId));
+}
+
+/**
+ * Cria a cobrança Pix no gateway da loja e devolve o QR pronto pra exibir —
+ * ponto único de despacho (o checkout não precisa saber qual gateway é).
+ * `notificationUrl` é usada só pelo Mercado Pago (a ONZ recebe o webhook por
+ * uma URL registrada previamente na conta, no padrão Bacen).
+ */
+export async function criarCobrancaPix(
+  lojaId: number, pedido: Pedido, dadosPagador: DadosPagador, notificationUrl?: string,
+): Promise<PixGerado & { gateway: GatewayPix }> {
+  const gateway = await gatewayDaLoja(lojaId);
+  if (gateway === 'onz') {
+    const cob = await onz.criarCobranca({
+      pedidoId: pedido.id,
+      valorCentavos: pedido.total_centavos,
+      descricao: `Pedido #${pedido.id}`,
+    });
+    return {
+      gateway: 'onz',
+      // txid é o identificador que o webhook/consulta da ONZ usa.
+      pagamento_id: cob.txid,
+      status: cob.status,
+      qr_code: cob.copiaECola,
+      qr_code_base64: (cob.qrPngDataUrl || '').replace(/^data:image\/png;base64,/, ''),
+    };
+  }
+  const pix = await criarPagamentoMercadoPago(lojaId, pedido, dadosPagador, notificationUrl);
+  return { ...pix, gateway: 'mercadopago' };
 }
 
 export interface DadosPagador {
@@ -209,6 +255,71 @@ function assinaturaMpValida(req: import('express').Request, dataId: string): boo
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   } catch { return false; }
 }
+
+/** Comparação de token resistente a timing (mesmo padrão do webhook do WhatsApp). */
+function tokenConfere(recebido: string, esperado: string): boolean {
+  if (!esperado) return false;
+  const a = Buffer.from(recebido), b = Buffer.from(esperado);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * Confirma um Pix recebido da ONZ (cash-in) e avisa o lojista.
+ * Idempotente: o UPDATE condicional só "vence" a primeira confirmação, então
+ * reenvios do webhook (a ONZ re-tenta) não notificam o lojista duas vezes.
+ */
+async function confirmarPixOnz(txid: string, valorCentavos: number): Promise<void> {
+  const pedido = await db.prepare(
+    "SELECT id, total_centavos FROM pedidos WHERE pagamento_gateway = 'onz' AND pagamento_gateway_id = ?"
+  ).get(txid) as { id: number; total_centavos: number } | undefined;
+  if (!pedido) return; // txid desconhecido (outro sistema/ambiente) — ignora
+
+  // Confere o valor: pagamento a menos NÃO aprova o pedido (evita liberar
+  // pedido pago parcialmente). Fica em 'aguardando' pro lojista resolver.
+  if (valorCentavos > 0 && valorCentavos < pedido.total_centavos) {
+    console.warn(`[onz] Pix de ${valorCentavos} < total ${pedido.total_centavos} do pedido ${pedido.id} — não aprovado.`);
+    return;
+  }
+
+  const r = await db.prepare(
+    `UPDATE pedidos SET pagamento_status = 'aprovado', atualizado_em = ?
+      WHERE id = ? AND pagamento_status <> 'aprovado'`
+  ).run(agoraUTC(), pedido.id);
+  if (r.changes > 0) await notificarLojistaNovoPedido(pedido.id);
+}
+
+/**
+ * Webhook de Pix recebido da ONZ (cash-in), no padrão Bacen: o corpo traz
+ * `{ pix: [{ txid, valor, endToEndId, ... }] }`.
+ *
+ * Autenticação: token secreto na URL (?tk=). O padrão Bacen prevê mTLS do PSP,
+ * mas atrás de proxy/CDN o certificado do cliente não chega até aqui — o token
+ * cumpre o papel de garantir que só a ONZ (que registrou a URL) consegue postar.
+ * O `?t=` carrega o tenant dono do pedido (modelo SILO, um banco por tenant).
+ */
+router.post('/webhook/onz', async (req, res) => {
+  res.status(200).json({ ok: true }); // responde rápido — o PSP não deve re-tentar por nossa lentidão
+  try {
+    const tk = typeof req.query.tk === 'string' ? req.query.tk : '';
+    if (!tokenConfere(tk, process.env.ONZ_WEBHOOK_TOKEN || '')) return;
+
+    const t = typeof req.query.t === 'string' ? req.query.t : '';
+    const tenant = t ? await tenantPorDbNome(t) : undefined;
+
+    const lista = Array.isArray((req.body as { pix?: unknown[] })?.pix) ? (req.body as { pix: Array<Record<string, unknown>> }).pix : [];
+    const processar = async () => {
+      for (const p of lista) {
+        const txid = String(p.txid || '');
+        const valorCentavos = Math.round(Number(p.valor || 0) * 100);
+        if (txid) await confirmarPixOnz(txid, valorCentavos);
+      }
+    };
+    if (tenant) await comTenant(tenant.db_nome, processar);
+    else await processar();
+  } catch (e) {
+    console.error('[onz] webhook falhou:', e);
+  }
+});
 
 router.post('/webhook/mercadopago', async (req, res) => {
   try {

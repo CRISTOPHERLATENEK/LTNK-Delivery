@@ -22,6 +22,7 @@ import {
   montarInutilizacao, transmitirInutilizacao,
 } from '../sefaz';
 import { criptografar, descriptografar } from '../cripto';
+import { cashInDisponivel } from '../onz';
 import { testarCredenciaisOficial } from '../whatsapp';
 import { wbapiConfigurado, statusSessaoPlataforma } from '../whatsapp-nao-oficial';
 import { geocodificarTexto } from '../geo';
@@ -1419,9 +1420,9 @@ router.get('/pagamentos', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const row = await db.prepare(
-      'SELECT mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo FROM lojas WHERE id = ?'
+      'SELECT mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo, pagamento_gateway FROM lojas WHERE id = ?'
     ).get(loja.id) as
-      { mercadopago_token_teste: string | null; mercadopago_token_producao: string | null; mercadopago_modo: string } | undefined;
+      { mercadopago_token_teste: string | null; mercadopago_token_producao: string | null; mercadopago_modo: string; pagamento_gateway: string | null } | undefined;
     const modo: 'teste' | 'producao' = row?.mercadopago_modo === 'teste' ? 'teste' : 'producao';
     const descriptografarOuNulo = (c: string | null) => {
       if (!c) return null;
@@ -1429,9 +1430,15 @@ router.get('/pagamentos', async (req, res, next) => {
     };
     const tokenTeste = descriptografarOuNulo(row?.mercadopago_token_teste ?? null);
     const tokenProducao = descriptografarOuNulo(row?.mercadopago_token_producao ?? null);
+    const gateway = row?.pagamento_gateway === 'onz' ? 'onz' : 'mercadopago';
+    const onzDisponivel = cashInDisponivel();
     res.json({
+      gateway,
+      // A ONZ é da PLATAFORMA (credencial no ambiente), não da loja — se não
+      // estiver configurada, o front não deve oferecer a opção.
+      onz_disponivel: onzDisponivel,
       modo,
-      ativo: modo === 'teste' ? !!tokenTeste : !!tokenProducao,
+      ativo: gateway === 'onz' ? onzDisponivel : (modo === 'teste' ? !!tokenTeste : !!tokenProducao),
       token_teste_mascarado: mascarar(tokenTeste),
       token_producao_mascarado: mascarar(tokenProducao),
     });
@@ -1445,6 +1452,16 @@ router.put('/pagamentos', async (req, res, next) => {
     const sets: string[] = [];
     const vals: unknown[] = [];
 
+    if (req.body.gateway !== undefined) {
+      if (req.body.gateway !== 'mercadopago' && req.body.gateway !== 'onz') {
+        throw erroHttp(400, 'Gateway inválido (use "mercadopago" ou "onz").');
+      }
+      if (req.body.gateway === 'onz' && !cashInDisponivel()) {
+        throw erroHttp(400, 'O Pix da plataforma (ONZ) não está configurado. Fale com o suporte.');
+      }
+      sets.push('pagamento_gateway = ?');
+      vals.push(req.body.gateway);
+    }
     if (req.body.modo !== undefined) {
       if (req.body.modo !== 'teste' && req.body.modo !== 'producao') {
         throw erroHttp(400, 'Modo inválido (use "teste" ou "producao").');
@@ -1469,9 +1486,9 @@ router.put('/pagamentos', async (req, res, next) => {
     }
 
     const row = await db.prepare(
-      'SELECT mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo FROM lojas WHERE id = ?'
+      'SELECT mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo, pagamento_gateway FROM lojas WHERE id = ?'
     ).get(loja.id) as
-      { mercadopago_token_teste: string | null; mercadopago_token_producao: string | null; mercadopago_modo: string };
+      { mercadopago_token_teste: string | null; mercadopago_token_producao: string | null; mercadopago_modo: string; pagamento_gateway: string | null };
     const modo: 'teste' | 'producao' = row.mercadopago_modo === 'teste' ? 'teste' : 'producao';
     const descriptografarOuNulo = (c: string | null) => {
       if (!c) return null;
@@ -1479,10 +1496,14 @@ router.put('/pagamentos', async (req, res, next) => {
     };
     const tokenTeste = descriptografarOuNulo(row.mercadopago_token_teste);
     const tokenProducao = descriptografarOuNulo(row.mercadopago_token_producao);
+    const gateway = row.pagamento_gateway === 'onz' ? 'onz' : 'mercadopago';
+    const onzDisponivel = cashInDisponivel();
     res.json({
       ok: true,
+      gateway,
+      onz_disponivel: onzDisponivel,
       modo,
-      ativo: modo === 'teste' ? !!tokenTeste : !!tokenProducao,
+      ativo: gateway === 'onz' ? onzDisponivel : (modo === 'teste' ? !!tokenTeste : !!tokenProducao),
       token_teste_mascarado: mascarar(tokenTeste),
       token_producao_mascarado: mascarar(tokenProducao),
     });
