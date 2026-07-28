@@ -24,7 +24,8 @@ import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
 import { ErroHttp, lojaAbertaPorAgenda, agoraUTC } from './util';
-import db, { comTenant, BANCO_PADRAO } from './db-mysql';
+import db, { comTenant, abrirPool, BANCO_PADRAO } from './db-mysql';
+import { inicializarSchema } from './schema-mysql';
 import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants } from './tenants-mysql';
 import { tenantDoToken } from './auth';
 import { capturarErro } from './monitoramento';
@@ -309,10 +310,39 @@ async function sincronizarHorarios(): Promise<void> {
   }
 }
 
+/**
+ * Aplica o schema (e as migrações idempotentes dentro dele) em TODOS os tenants
+ * ativos, no boot.
+ *
+ * POR QUE ISTO EXISTE: `inicializarSchema` só era chamada por `criarTenant()`,
+ * ou seja, apenas quando um tenant NASCIA. Mas é justamente ali que ficam os
+ * blocos "coluna nova que CREATE TABLE IF NOT EXISTS não alcança em bancos já
+ * criados" — as migrações estavam escritas, corretas e idempotentes, e nada as
+ * executava nos bancos existentes. Toda coluna adicionada depois da criação de
+ * um tenant ficava faltando pra sempre, e só aparecia como 500 em produção
+ * quando alguém abria a tela que a lia (`Unknown column ... in 'field list'`).
+ *
+ * Falha isolada por tenant, como em `sincronizarHorarios`: um banco com
+ * problema não pode impedir o servidor de subir e atender os outros.
+ */
+async function migrarTenants(): Promise<void> {
+  for (const tenant of await listarTenants()) {
+    if (!tenant.ativo) continue;
+    try {
+      await inicializarSchema(abrirPool(tenant.db_nome));
+    } catch (e) {
+      console.error(`[MIGRACAO] falha no tenant ${tenant.slug} (${tenant.db_nome}):`, e);
+    }
+  }
+}
+
 const PORT = Number(process.env.PORT) || 3000;
 
 (async () => {
   await inicializarCentral();
+  // Antes de aceitar tráfego: sem isso uma coluna nova só falha na cara do
+  // usuário, no primeiro request que a consultar.
+  await migrarTenants();
   if (process.env.SEED_ON_START === '1') {
     console.log('🌱 SEED_ON_START=1 — rodando seed inicial (idempotente)...');
     const { seed } = await import('./seed');
