@@ -290,6 +290,68 @@ export async function consultarCobranca(txid: string): Promise<{
   };
 }
 
+/**
+ * Devolve (estorna) uma cobrança já paga, a partir do txid.
+ *
+ * No Pix a devolução é por PIX RECEBIDO, não por cobrança: o endpoint é
+ * `PUT /pix/{e2eid}/devolucao/{id}`. Por isso a função primeiro consulta a
+ * cobrança pra descobrir os endToEndIds liquidados — e devolve TODOS, porque
+ * uma mesma cobrança pode ter sido paga em partes (o `consultarCobranca` já
+ * trata isso ao somar `valorPagoCentavos`). Estornar só o primeiro deixaria o
+ * cliente sem parte do dinheiro.
+ *
+ * O `id` da devolução é escolhido por nós e é o que torna a operação
+ * IDEMPOTENTE: repetir a chamada com o mesmo id não gera uma segunda
+ * devolução. Ele é derivado do e2eid (determinístico), então um clique duplo
+ * no botão de estornar não devolve em dobro. Formato exigido pelo Bacen:
+ * `[a-zA-Z0-9]{1,35}`.
+ */
+export async function devolverCobranca(txid: string): Promise<{
+  devolucoes: Array<{ e2eId: string; idDevolucao: string; status: string }>;
+  totalCentavos: number;
+}> {
+  const cfg = cfgCashIn();
+  if (!cfg) throw new Error('ONZ cash-in não configurada.');
+
+  const cobranca = await consultarCobranca(txid);
+  if (!cobranca.pago || cobranca.e2eIds.length === 0) {
+    throw new Error('Cobrança ONZ sem Pix liquidado — não há o que devolver.');
+  }
+
+  const tls = carregarCert(cfg.certPath);
+  const token = await obterToken(cfg, 'pix.write pix.read');
+  const bruto = (cobranca.bruto ?? {}) as { pix?: Array<{ valor?: string; endToEndId?: string }> };
+  const recebidos = Array.isArray(bruto.pix) ? bruto.pix : [];
+
+  const devolucoes: Array<{ e2eId: string; idDevolucao: string; status: string }> = [];
+  let totalCentavos = 0;
+
+  for (const p of recebidos) {
+    const e2eId = p.endToEndId || '';
+    if (!e2eId) continue;
+    // Devolve exatamente o valor daquele Pix (a soma das devoluções não pode
+    // ultrapassar o valor recebido — regra do Bacen).
+    const valor = Number(p.valor || 0);
+    if (valor <= 0) continue;
+
+    const idDevolucao = `d${e2eId.replace(/[^A-Za-z0-9]/g, '')}`.slice(0, 35);
+    const resp = await requisicao(cfg.baseUrl, `pix/${encodeURIComponent(e2eId)}/devolucao/${idDevolucao}`, {
+      metodo: 'PUT', tls,
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      corpo: { valor: valor.toFixed(2) },
+    });
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error(`ONZ devolução falhou para ${e2eId} (HTTP ${resp.status}): ${JSON.stringify(resp.body)}`);
+    }
+    const b = (resp.body ?? {}) as { status?: string };
+    devolucoes.push({ e2eId, idDevolucao, status: b.status || 'EM_PROCESSAMENTO' });
+    totalCentavos += Math.round(valor * 100);
+  }
+
+  if (devolucoes.length === 0) throw new Error('Nenhum Pix elegível para devolução nesta cobrança.');
+  return { devolucoes, totalCentavos };
+}
+
 /* ───────────────────────── Cash-out (enviar Pix) ───────────────────────── */
 
 /** Saldo da conta (read-only) — útil pra checar antes de repassar e pra smoke test. */

@@ -1130,13 +1130,16 @@ router.post('/pedidos/:id/estornar', async (req, res, next) => {
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
     if (pedido.pagamento_status !== 'aprovado') throw erroHttp(409, 'Este pedido não tem um pagamento Pix aprovado pra estornar.');
     if (pedido.estornado_em) throw erroHttp(409, 'Este pedido já foi estornado.');
-    if (!pedido.pagamento_gateway_id) throw erroHttp(409, 'Pedido sem referência de pagamento — estorne direto no painel do Mercado Pago.');
+    if (!pedido.pagamento_gateway_id) throw erroHttp(409, 'Pedido sem referência de pagamento — estorne direto no painel do gateway.');
     if (['entregue', 'em_entrega'].includes(pedido.status)) {
       throw erroHttp(409, 'Pedido já saiu ou foi entregue — não dá pra estornar por aqui.');
     }
 
-    const { estornarPagamentoMercadoPago } = await import('./pagamentos');
-    await estornarPagamentoMercadoPago(loja.id, pedido.pagamento_gateway_id);
+    // Despacha pro gateway que PROCESSOU este pedido (ver pagamentos.ts) — não
+    // pro que a loja usa hoje: se o lojista trocou de gateway depois, o estorno
+    // ainda precisa acontecer onde o dinheiro entrou.
+    const { estornarPagamentoPix } = await import('./pagamentos');
+    await estornarPagamentoPix(loja.id, pedido.pagamento_gateway, pedido.pagamento_gateway_id);
 
     const agora = agoraUTC();
     await db.prepare('UPDATE pedidos SET estornado_em = ? WHERE id = ?').run(agora, pedido.id);

@@ -170,6 +170,31 @@ export async function criarPagamentoMercadoPago(lojaId: number, pedido: Pedido, 
 }
 
 /**
+ * Estorna um pagamento Pix aprovado NO GATEWAY QUE O PROCESSOU — ponto único
+ * de despacho, espelhando `criarCobrancaPix`.
+ *
+ * POR QUE ISTO EXISTE: o cash-in ganhou dois gateways (Mercado Pago e ONZ),
+ * mas o estorno continuou chamando o Mercado Pago direto, sem olhar quem tinha
+ * processado. Um pedido pago via ONZ mandava o txid da ONZ pra API do MP: não
+ * estornava, e o cliente ficava sem o dinheiro de volta.
+ *
+ * O gateway vem do PRÓPRIO PEDIDO (`pedidos.pagamento_gateway`, gravado no
+ * checkout), e não da configuração atual da loja — se o lojista trocar de
+ * gateway depois, os pedidos antigos ainda precisam ser estornados onde foram
+ * pagos.
+ */
+export async function estornarPagamentoPix(
+  lojaId: number, gateway: string | null | undefined, pagamentoGatewayId: string,
+): Promise<void> {
+  if (gateway === 'onz') {
+    await onz.devolverCobranca(pagamentoGatewayId);
+    return;
+  }
+  // Sem gateway gravado = pedido anterior ao campo, quando só existia o MP.
+  await estornarPagamentoMercadoPago(lojaId, pagamentoGatewayId);
+}
+
+/**
  * Estorna (reembolso total) um pagamento Pix aprovado direto na API do
  * Mercado Pago. Lança com a mensagem de erro do MP se recusar (ex.: prazo de
  * estorno do Pix expirado, ou o pagamento já foi estornado antes).
