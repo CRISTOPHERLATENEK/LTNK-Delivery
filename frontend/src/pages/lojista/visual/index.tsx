@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import {
   Settings, Palette, Image as ImageIcon, Image, UtensilsCrossed, MousePointerClick,
   Type, GalleryHorizontal, Sparkles, Code, Save, Eye,
@@ -20,20 +20,41 @@ import { BannersTab } from './abas/BannersTab';
 import { TemasTab } from './abas/TemasTab';
 import { AvancadoTab } from './abas/AvancadoTab';
 
-const ABAS_VISUAL = [
-  { id: 'geral', label: 'Geral', icone: Settings },
-  { id: 'cores', label: 'Cores', icone: Palette },
-  { id: 'logo', label: 'Logo', icone: ImageIcon },
-  { id: 'capa', label: 'Capa', icone: Image },
-  { id: 'cardapio', label: 'Cardápio', icone: UtensilsCrossed },
-  { id: 'botoes', label: 'Botões', icone: MousePointerClick },
-  { id: 'tipografia', label: 'Tipografia', icone: Type },
-  { id: 'banners', label: 'Banners', icone: GalleryHorizontal },
-  { id: 'temas', label: 'Temas', icone: Sparkles },
-  { id: 'avancado', label: 'Avançado', icone: Code },
+/**
+ * As abas em 4 famílias, separadas visualmente na barra.
+ *
+ * A ORDEM mudou de propósito: "Temas" era a 9ª, então a pessoa percorria oito
+ * abas de ajuste fino antes de descobrir que dava pra partir de um preset
+ * pronto. Agora ele abre a fila. Continua NÃO sendo a aba inicial — abrir
+ * direto nos presets convidaria a um clique acidental que sobrescreve o visual
+ * inteiro de quem só veio mexer numa cor.
+ *
+ * "Avançado" virou "SEO e rastreamento": o conteúdo (meta descrição, Open
+ * Graph, pixels de Analytics/GTM/Facebook/TikTok) não tem nada de avançado nem
+ * de visual — o nome antigo escondia o que havia ali dentro.
+ */
+const GRUPOS_VISUAL = [
+  { grupo: 'Comece por aqui', abas: [
+    { id: 'temas', label: 'Temas', icone: Sparkles },
+  ] },
+  { grupo: 'Identidade', abas: [
+    { id: 'geral', label: 'Geral', icone: Settings },
+    { id: 'logo', label: 'Logo', icone: ImageIcon },
+    { id: 'capa', label: 'Capa', icone: Image },
+  ] },
+  { grupo: 'Estilo', abas: [
+    { id: 'cores', label: 'Cores', icone: Palette },
+    { id: 'tipografia', label: 'Tipografia', icone: Type },
+    { id: 'botoes', label: 'Botões', icone: MousePointerClick },
+    { id: 'cardapio', label: 'Cardápio', icone: UtensilsCrossed },
+    { id: 'banners', label: 'Banners', icone: GalleryHorizontal },
+  ] },
+  { grupo: 'Marketing', abas: [
+    { id: 'avancado', label: 'SEO e rastreamento', icone: Code },
+  ] },
 ] as const;
 
-type AbaId = typeof ABAS_VISUAL[number]['id'];
+type AbaId = typeof GRUPOS_VISUAL[number]['abas'][number]['id'];
 
 export function VisualLoja() {
   const form = useVisualForm();
@@ -76,26 +97,37 @@ export function VisualLoja() {
         </div>
       </div>
 
-      {/* Seletor de aba estilo pill — rola na horizontal no mobile */}
-      <div className="flex gap-1 rounded-xl bg-muted p-1 overflow-x-auto scrollbar-hide">
-        {ABAS_VISUAL.map(a => {
-          const Icone = a.icone;
-          return (
-            <button
-              key={a.id}
-              onClick={() => setAba(a.id)}
-              className={cn(
-                'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap',
-                aba === a.id
-                  ? 'bg-background shadow-sm text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Icone className="size-3.5 shrink-0" />
-              {a.label}
-            </button>
-          );
-        })}
+      {/* Seletor de aba estilo pill — rola na horizontal no mobile.
+          Sem `flex-1` nas pills: com os rótulos de tamanhos bem diferentes
+          ("Logo" x "SEO e rastreamento"), dividir a largura igualmente
+          espremia os longos e sobrava espaço nos curtos. Agora cada uma ocupa
+          o que precisa e a barra rola quando não cabe. */}
+      <div className="flex items-center gap-1 rounded-xl bg-muted p-1 overflow-x-auto scrollbar-hide">
+        {GRUPOS_VISUAL.map((g, gi) => (
+          <Fragment key={g.grupo}>
+            {gi > 0 && <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden="true" />}
+            {g.abas.map(a => {
+              const Icone = a.icone;
+              return (
+                <button
+                  key={a.id}
+                  onClick={() => setAba(a.id)}
+                  aria-current={aba === a.id ? 'page' : undefined}
+                  title={g.grupo}
+                  className={cn(
+                    'flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap',
+                    aba === a.id
+                      ? 'bg-background shadow-sm text-foreground'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <Icone className="size-3.5 shrink-0" />
+                  {a.label}
+                </button>
+              );
+            })}
+          </Fragment>
+        ))}
       </div>
 
       <div className={cn(
