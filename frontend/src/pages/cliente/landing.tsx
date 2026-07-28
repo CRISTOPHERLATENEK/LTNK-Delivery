@@ -354,110 +354,6 @@ function NotebookHero({ src, nome }: { src?: string; nome: string }) {
   );
 }
 
-/**
- * Vídeo com o fundo removido em tempo real (chroma key via canvas). Detecta a
- * cor do fundo pela média dos 4 cantos do 1º quadro e torna transparente tudo
- * que estiver perto dela (com uma borda suave). Gera transparência real, então
- * o personagem "flutua" sobre o que estiver atrás. Grátis, sem processar o
- * arquivo. Requer o vídeo same-origin (senão o canvas fica "tainted").
- * `tolerancia` (0–441): quanto maior, mais agressivo o recorte.
- */
-function VideoRecortado({ src, className, tolerancia = 96 }: { src: string; className?: string; tolerancia?: number }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const video = videoRef.current, canvas = canvasRef.current;
-    if (!video || !canvas) return;
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
-
-    let raf = 0;
-    let kr = 0, kg = 0, kb = 0, temChave = false;
-    const SUAVE = 40;
-    const t0 = tolerancia * tolerancia;
-    const t1 = (tolerancia + SUAVE) * (tolerancia + SUAVE);
-
-    const render = () => {
-      raf = requestAnimationFrame(render);
-      if (video.readyState < 2 || video.videoWidth === 0) return;
-      const w = canvas.width, h = canvas.height;
-      ctx.drawImage(video, 0, 0, w, h);
-      let frame: ImageData;
-      try { frame = ctx.getImageData(0, 0, w, h); } catch { cancelAnimationFrame(raf); return; }
-      const d = frame.data;
-      if (!temChave) {
-        const cantos = [0, (w - 1) * 4, (h - 1) * w * 4, ((h - 1) * w + (w - 1)) * 4];
-        kr = kg = kb = 0;
-        for (const i of cantos) { kr += d[i]; kg += d[i + 1]; kb += d[i + 2]; }
-        kr /= 4; kg /= 4; kb /= 4; temChave = true;
-      }
-      for (let i = 0; i < d.length; i += 4) {
-        const dr = d[i] - kr, dg = d[i + 1] - kg, db = d[i + 2] - kb;
-        const dd = dr * dr + dg * dg + db * db;
-        if (dd < t0) d[i + 3] = 0;
-        else if (dd < t1) d[i + 3] = Math.round(d[i + 3] * (dd - t0) / (t1 - t0));
-      }
-      ctx.putImageData(frame, 0, 0);
-    };
-
-    let visivel = false;
-
-    const aoCarregar = () => {
-      const escala = Math.min(1, 460 / (video.videoWidth || 460)); // limita custo
-      canvas.width = Math.round((video.videoWidth || 460) * escala);
-      canvas.height = Math.round((video.videoHeight || 460) * escala);
-      if (!visivel) return; // saiu da tela antes de carregar: não começa a girar
-      video.play().catch(() => { /* autoplay bloqueado: ignora */ });
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(render);
-    };
-    video.addEventListener('loadeddata', aoCarregar);
-
-    /**
-     * O vídeo só é BAIXADO quando o elemento se aproxima da viewport, e o loop
-     * de chroma-key só roda enquanto ele está visível. Isso importa: o arquivo
-     * tem ~7 MB e vive no CTA final da página, muito abaixo da dobra — com
-     * `preload="auto"` todo desktop pagava os 7 MB no carregamento inicial,
-     * concorrendo com o conteúdo que a pessoa realmente está vendo. E o render
-     * faz `getImageData` + varredura por pixel a cada frame, então deixá-lo
-     * girando fora da tela é ventoinha ligada à toa.
-     */
-    const observador = new IntersectionObserver(
-      ([entrada]) => {
-        visivel = entrada.isIntersecting;
-        if (visivel) {
-          if (!video.src) video.src = src;
-          // Com `preload="none"` o navegador NÃO busca o arquivo só por causa do
-          // `src` — quem dispara o download é o play(). Sem esta linha o vídeo
-          // nunca carrega, `loadeddata` nunca chega e o mascote fica em branco.
-          video.play().catch(() => { /* autoplay bloqueado: ignora */ });
-          if (video.readyState >= 2) aoCarregar();
-        } else {
-          video.pause();
-          cancelAnimationFrame(raf);
-        }
-      },
-      { rootMargin: '300px' }, // começa a baixar um pouco antes de aparecer
-    );
-    observador.observe(canvas);
-
-    return () => {
-      observador.disconnect();
-      cancelAnimationFrame(raf);
-      video.removeEventListener('loadeddata', aoCarregar);
-    };
-  }, [src, tolerancia]);
-
-  return (
-    <>
-      {/* sem `src`: quem define é o IntersectionObserver acima */}
-      <video ref={videoRef} muted loop playsInline preload="none" className="hidden" aria-hidden="true" />
-      <canvas ref={canvasRef} className={className} aria-hidden="true" />
-    </>
-  );
-}
-
 /* ───────────────────────── tema (claro/escuro) da landing ───────────────────────── */
 
 const CHAVE_TEMA_LANDING = 'tema:landing';
@@ -525,16 +421,6 @@ export function PaginaLanding() {
   const raiz = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const [menuAberto, setMenuAberto] = useState(false);
-
-  // Só monta o vídeo do CTA no desktop (evita baixar/processar os 7 MB no celular).
-  const [ehDesktop, setEhDesktop] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia('(min-width: 1024px)');
-    const aplicar = () => setEhDesktop(mq.matches);
-    aplicar();
-    mq.addEventListener('change', aplicar);
-    return () => mq.removeEventListener('change', aplicar);
-  }, []);
 
   const recursos = marca.landing_recursos?.length ? marca.landing_recursos : RECURSOS_PADRAO;
   const beneficios = marca.landing_beneficios?.length ? marca.landing_beneficios : BENEFICIOS_PADRAO;
@@ -1304,21 +1190,20 @@ export function PaginaLanding() {
             </div>
           </div>
 
-          {/* Composição: formas orgânicas na cor da marca + o personagem (vídeo com
-              fundo removido em tempo real) flutuando por cima. Só no desktop. */}
-          {ehDesktop && (
-            <div className="js-mascote relative mx-auto aspect-square w-full max-w-md">
-              {/* forma orgânica: a linha (contorno) E o recorte do conteúdo são a
-                  MESMA forma — overflow-hidden faz o personagem não vazar da linha. */}
-              <div className="absolute inset-2 overflow-hidden border-2 border-marca-2/50 [border-radius:58%_42%_37%_63%/38%_55%_45%_62%]">
-                <VideoRecortado
-                  src="/mascote/entregador.mp4"
-                  tolerancia={70}
-                  className="h-full w-full scale-105 object-cover"
-                />
-              </div>
-            </div>
-          )}
+          {/* Mascote: foto estática, já traz o blob de fundo embutido (mesmo
+              asset do painel do lojista) — sem chroma-key, sem vídeo, sem
+              recorte extra por cima. `order-first` bota a imagem antes do
+              texto só no mobile (empilhada); no grid de 2 colunas do desktop
+              a ordem natural do DOM (texto, depois imagem) já entrega ela do
+              lado direito. */}
+          <div className="js-mascote order-first mx-auto w-full max-w-[220px] sm:max-w-xs lg:order-none lg:max-w-md">
+            <img
+              src="/mascote/mascote.png"
+              alt=""
+              className="h-auto w-full select-none drop-shadow-xl"
+              loading="lazy"
+            />
+          </div>
         </div>
       </section>
 
