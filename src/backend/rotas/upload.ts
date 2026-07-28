@@ -14,7 +14,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { autenticar, exigirPerfil } from '../auth';
 import { erroHttp } from '../util';
 
@@ -31,7 +31,14 @@ const limiteUpload = rateLimit({
   limit: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => String(req.usuario?.id ?? req.ip),
+  /**
+   * Conta autenticada é a chave preferida. No fallback por IP, `req.ip` cru
+   * NÃO serve: em IPv6 cada usuário recebe um /128, então trocar de endereço
+   * dentro do próprio prefixo zeraria o contador e o limite viraria enfeite.
+   * `ipKeyGenerator` agrupa o IPv6 por sub-rede (e devolve o IPv4 inalterado).
+   * O prefixo `u:` evita que um id numérico colida com um IP.
+   */
+  keyGenerator: (req) => (req.usuario?.id ? `u:${req.usuario.id}` : ipKeyGenerator(req.ip ?? '')),
   message: { erro: 'Muitos envios de imagem seguidos. Aguarde alguns minutos e tente de novo.' },
 });
 
