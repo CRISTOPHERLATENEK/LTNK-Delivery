@@ -13,7 +13,7 @@ import { notificarLojistaNovoPedido } from '../notificacoes';
 import { notificarPedidoWhatsApp } from '../whatsapp';
 import { comissaoPercentualDaLoja } from '../comissao';
 import { geocodificar } from '../geo';
-import { criarCobrancaPix, pagamentoOnlineAtivo } from './pagamentos';
+import { criarCobrancaPix, pagamentoOnlineAtivo, conferirPixAgora } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 
 const router = Router();
@@ -454,6 +454,29 @@ router.get('/pedidos', async (req, res, next) => {
         ORDER BY p.id DESC LIMIT 100`
     ).all(req.usuario!.id);
     res.json({ pedidos });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Confere na hora se o Pix caiu — chamado pela tela do QR enquanto o cliente
+ * espera. É o que faz a confirmação ser em SEGUNDOS mesmo se o webhook falhar
+ * (sem isso, o resgate era a reconciliação de 5 min, com o cliente parado
+ * olhando "aguardando pagamento").
+ *
+ * Só o dono do pedido consulta. O freio anti-abuso está em conferirPixAgora().
+ */
+router.post('/pedidos/:id/conferir-pix', async (req, res, next) => {
+  try {
+    const meu = await db.prepare('SELECT id FROM pedidos WHERE id = ? AND cliente_id = ?')
+      .get(req.params.id, req.usuario!.id) as { id: number } | undefined;
+    if (!meu) throw erroHttp(404, 'Pedido não encontrado.');
+    // Falha ao falar com o PSP não é erro do cliente: responde "ainda não" e
+    // deixa o polling seguir (o webhook/reconciliação continuam de pé).
+    let pago = false;
+    try { pago = await conferirPixAgora(meu.id); } catch (e) {
+      console.error(`[onz] conferência do pedido ${meu.id} falhou:`, (e as Error).message);
+    }
+    res.json({ pago });
   } catch (err) { next(err); }
 });
 

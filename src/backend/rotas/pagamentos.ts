@@ -486,6 +486,52 @@ export async function reconciliarPagamentosOnz(horasParaTras = 48): Promise<{ co
 const avisado404 = new Set<string>();
 
 /**
+ * Última consulta por pedido, pra não deixar o cliente (ou uma aba esquecida)
+ * metralhar a API do PSP. 2,5s casa com o polling de ~3s da tela do QR.
+ */
+const ultimaConferencia = new Map<number, number>();
+const INTERVALO_MIN_CONFERENCIA = 2500;
+
+/**
+ * Confere NA HORA, direto na API da ONZ, se o Pix de um pedido já caiu — e
+ * confirma se sim.
+ *
+ * POR QUE EXISTE: o webhook é instantâneo mas não é garantido (§ armadilha do
+ * webhook por chave), e a reconciliação só roda a cada 5 min — uma eternidade
+ * com o cliente parado na tela do QR. Enquanto essa tela está aberta, sabemos
+ * que o pagamento está acontecendo AGORA, então vale perguntar ativamente.
+ *
+ * Devolve `true` se o pedido está pago (já estava ou acabou de ser confirmado).
+ */
+export async function conferirPixAgora(pedidoId: number): Promise<boolean> {
+  const pedido = await db.prepare(
+    'SELECT id, loja_id, status, pagamento_status, pagamento_gateway, pagamento_gateway_id FROM pedidos WHERE id = ?'
+  ).get(pedidoId) as {
+    id: number; loja_id: number; status: string;
+    pagamento_status: string; pagamento_gateway: string | null; pagamento_gateway_id: string | null;
+  } | undefined;
+  if (!pedido) return false;
+  if (pedido.pagamento_status === 'aprovado') return true;
+  // Só faz sentido pra Pix ONZ ainda aguardando (o Mercado Pago tem o webhook
+  // dele, e pedido cancelado/entregue não tem o que conferir).
+  if (pedido.pagamento_gateway !== 'onz' || pedido.pagamento_status !== 'aguardando') return false;
+  if (!pedido.pagamento_gateway_id) return false;
+
+  const agora = Date.now();
+  const ultima = ultimaConferencia.get(pedidoId) ?? 0;
+  if (agora - ultima < INTERVALO_MIN_CONFERENCIA) return false; // freio anti-abuso
+  ultimaConferencia.set(pedidoId, agora);
+
+  const cob = await onz.consultarCobranca(pedido.pagamento_gateway_id, await credenciaisOnzDaLoja(pedido.loja_id));
+  if (!cob.pago) return false;
+  // Mesmo caminho do webhook: idempotente e notifica o lojista uma vez só.
+  await confirmarPixOnz(pedido.pagamento_gateway_id, cob.valorPagoCentavos);
+  const depois = await db.prepare('SELECT pagamento_status FROM pedidos WHERE id = ?')
+    .get(pedidoId) as { pagamento_status: string } | undefined;
+  return depois?.pagamento_status === 'aprovado';
+}
+
+/**
  * Webhook de Pix recebido da ONZ (cash-in), no padrão Bacen: o corpo traz
  * `{ pix: [{ txid, valor, endToEndId, ... }] }`.
  *

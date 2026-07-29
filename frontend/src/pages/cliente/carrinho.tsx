@@ -313,9 +313,17 @@ function PixPagamento({
   // ficava girando "aguardando…" pra sempre, sem o cliente entender por quê.
   const statusQ = useQuery({
     queryKey: ['pix-status', dados.pedidoId],
-    queryFn: () => api<{ pedido: { pagamento_status: string; status: string; motivo_recusa?: string } }>(
-      'GET', `/api/cliente/pedidos/${dados.pedidoId}`),
-    refetchInterval: 4000,
+    queryFn: async () => {
+      // ANTES de ler o status: pergunta ativamente ao banco se o Pix caiu.
+      // O webhook é instantâneo mas não é garantido; sem esta conferência, uma
+      // falha dele deixava o cliente esperando os 5 min da reconciliação
+      // olhando "aguardando pagamento". Falha aqui é ignorada de propósito —
+      // o status abaixo é lido de qualquer forma.
+      try { await api('POST', `/api/cliente/pedidos/${dados.pedidoId}/conferir-pix`); } catch { /* segue */ }
+      return api<{ pedido: { pagamento_status: string; status: string; motivo_recusa?: string } }>(
+        'GET', `/api/cliente/pedidos/${dados.pedidoId}`);
+    },
+    refetchInterval: 3000,
   });
   const pedido = statusQ.data?.pedido;
   const aprovado = pedido?.pagamento_status === 'aprovado';
