@@ -5,7 +5,7 @@
 > Leia inteiro antes de mexer: tem três armadilhas da API que já custaram
 > tempo e estão resolvidas — se você refizer sem saber, vai cair nelas de novo.
 >
-> Branch: **`migracao-mysql`** · último commit desta frente: **`8e754e2`**
+> Branch: **`migracao-mysql`** · último commit desta frente: **`3d6053f`**
 
 ---
 
@@ -17,13 +17,35 @@ contratadas **duas APIs distintas**, com **certificados e credenciais separados*
 | Lado | O que faz | API | URL (sandbox/HMG) |
 |---|---|---|---|
 | **Cash-in** | *Receber* Pix (gera QR Code / cobrança) | QRCodes — padrão Bacen | `https://api.pix-h.plannerscd.com.br` |
-| **Cash-out** | *Pagar* Pix (repasse a lojista, reembolso) | Accounts (proprietária ONZ) | `https://accounts-h.plannerscd.com.br/api/v2` |
+| **Cash-out** | *Pagar* Pix (estorno, pagamentos) | Accounts (proprietária ONZ) | `https://accounts-h.plannerscd.com.br/api/v2` |
 
 Documentação oficial: <https://developers.onz.software/docs/intro> ·
 Portal Finance (HMG): <https://finance.hmg.plannerscd.com.br/>
 
-**Decisão de produto tomada:** a ONZ **conviva** com o Mercado Pago, escolhível
-**por loja**. Nada do fluxo atual muda para quem não trocar de gateway.
+### 1.1 ⭐ Modelo de negócio: UMA CONTA POR CLIENTE
+
+Decisão tomada (e já implementada — commit `3d6053f`): **cada restaurante abre a
+própria conta na Planner** (um CNPJ, uma conta, uma chave Pix) e **recebe
+direto**. A plataforma **não intermedeia o dinheiro** — o que evita a
+obrigação de repasse e a exposição regulatória de virar intermediário de
+pagamento.
+
+Consequências desse desenho, todas já refletidas no código:
+
+| O que | Onde fica |
+|---|---|
+| `client_id` / `client_secret` / chave Pix | **Por loja**, em `lojas.onz_*` (secret criptografado, AES-256-GCM) |
+| **Certificado mTLS** | **ÚNICO da integração** (confirmado com a Planner) — segue no ambiente, `dados/certificados/onz/` |
+| Registro do webhook | **Por chave Pix**, logo por loja — feito **automaticamente** ao salvar as credenciais no painel |
+| Repasse (cash-out) | **Deixou de fazer sentido**: cada lojista já recebe o seu. Cash-out sobra para estorno e pagamentos próprios |
+
+Se a loja **não** tiver conta própria, tudo cai na conta da plataforma (`.env`) —
+fallback que mantém funcionando quem já estava rodando antes disso existir.
+
+**Decisão de produto:** a ONZ **convive** com o Mercado Pago, escolhível por
+loja. Isso não é só flexibilidade: abrir conta na Planner leva **dias** (KYC),
+enquanto o Mercado Pago é imediato. Então o MP é a porta de entrada (o lojista
+vende no primeiro dia) e a ONZ é a opção para quem quiser migrar depois.
 
 ---
 
@@ -84,27 +106,52 @@ de banco em homologação e ver virar `CONCLUIDA`.
 Checkout (rotas/cliente.ts)
    └─ criarCobrancaPix()            ← rotas/pagamentos.ts: PONTO ÚNICO de despacho
         ├─ gateway 'mercadopago' → criarPagamentoMercadoPago()   (fluxo antigo, intacto)
-        └─ gateway 'onz'         → onz.criarCobranca()           (backend/onz.ts)
+        └─ gateway 'onz'         → onz.criarCobranca({ cred })   ← cred = conta DA LOJA
+                                     (sem cred → conta da plataforma, fallback)
+
+Estorno (lojista.ts → estornarPagamentoPix)
+        ├─ 'mercadopago' → estornarPagamentoMercadoPago()
+        └─ 'onz'         → onz.devolverCobranca(txid, cred)  ← MESMA conta que recebeu
 
 Confirmação:
    POST /api/pagamentos/webhook/mercadopago?t=<banco>            (já existia)
    POST /api/pagamentos/webhook/onz?tk=<token>&t=<banco>         (NOVO)
+        ?t= é só uma DICA: se o txid não estiver nesse tenant, varre os demais
 ```
 
 **Arquivos-chave:**
-- `src/backend/onz.ts` — cliente das duas APIs (auth, mTLS, cash-in, cash-out)
-- `src/backend/rotas/pagamentos.ts` — despacho por gateway + webhook ONZ
-- `src/backend/schema-mysql.ts` — coluna `lojas.pagamento_gateway`
-- `frontend/src/pages/lojista/loja-config.tsx` — UI de escolha do gateway
+- `src/backend/onz.ts` — cliente das duas APIs (auth, mTLS, cash-in, cash-out).
+  Toda operação de cash-in aceita `CredenciaisLoja` opcional.
+- `src/backend/rotas/pagamentos.ts` — despacho por gateway, `credenciaisOnzDaLoja()`,
+  webhook ONZ com resolução automática de tenant
+- `src/backend/schema-mysql.ts` — `lojas.pagamento_gateway` + `lojas.onz_*`
+- `src/backend/rotas/lojista.ts` — GET/PUT `/pagamentos` (credenciais + registro
+  automático do webhook)
+- `src/backend/registrar-webhook-onz.ts` — CLI (só para a conta da plataforma;
+  as contas das lojas se registram sozinhas pelo painel)
+- `frontend/src/pages/lojista/loja-config.tsx` — UI: escolha do gateway e
+  formulário "Sua conta Planner"
+- `src/backend/rotas/pagamentos.test.ts` — testes de roteamento de estorno
 
 ### Cuidados que já estão no código (não remova)
 - **Idempotência:** o webhook usa `UPDATE ... WHERE pagamento_status <> 'aprovado'`.
   A ONZ re-tenta o webhook; sem isso o lojista seria notificado várias vezes.
 - **Pagamento parcial não aprova:** se o Pix vier menor que o total, o pedido
   fica `aguardando` e loga — não libera pedido pago pela metade.
-- **Tenant no webhook:** `?t=<banco>` resolve o tenant (modelo SILO, um banco por
-  tenant). Sem isso a confirmação cairia no banco errado.
-- **Token do webhook** comparado com `crypto.timingSafeEqual`.
+- **Tenant resolvido sozinho:** `?t=` é só uma dica; se o txid não estiver lá, os
+  outros tenants são varridos. É isso que permite registrar a URL **uma vez** e
+  atender todo cliente novo sem mexer no servidor. Um tenant com banco fora do ar
+  não impede os outros de confirmar.
+- **Estorno na conta certa:** a devolução usa as credenciais **da loja** que
+  recebeu. Sem isso, tentaria devolver da conta da plataforma (onde o txid não
+  existe) e o cliente ficaria sem o dinheiro — bug real, já corrigido e coberto
+  por teste. **Não** troque `devolverCobranca(txid, cred)` por `devolverCobranca(txid)`.
+- **Credencial ilegível não derruba o checkout:** se o `APP_SECRET` for trocado,
+  `credenciaisOnzDaLoja()` devolve null (cai no fallback) em vez de estourar.
+- **Ativar 'onz' sem credencial é revertido** para `mercadopago`, para a loja não
+  ficar com Pix "ligado" e quebrado.
+- **Token do webhook** comparado com `crypto.timingSafeEqual`, e mascarado em
+  todo output (a URL registrada *contém* o token).
 
 ---
 
@@ -134,7 +181,14 @@ revendedora). Vai em `ONZ_CERT_SENHA`.
 ### 4.2 Variáveis de ambiente
 Copie o bloco `ONZ_*` do `.env.example` para o seu `.env` e preencha. As
 credenciais **estão no `.env` da máquina original** — copie de lá por um canal
-seguro, ou gere novas (§4.3). Campos:
+seguro, ou gere novas (§4.3).
+
+> ℹ️ Estas são as credenciais da **conta da plataforma** — o *fallback*. No
+> modelo atual (§1.1) cada loja cadastra a própria conta pelo painel, e essas
+> credenciais ficam no banco (`lojas.onz_*`), não aqui. O `ONZ_CERT_SENHA` e os
+> `ONZ_*_CERT` valem para **todas** as contas (certificado único da integração).
+
+Campos:
 
 ```
 ONZ_CERT_SENHA=            # senha dos .pfx
@@ -156,9 +210,16 @@ No portal Finance → **Configurações**:
   Webhooks-Leitura, Webhooks-Escrita. Deixe **desligado**: Pix-Criação (é o
   fluxo `APPROVAL_REQUIRED`, não usamos), Boletos, Infrações, TED, Transf. internas.
 - **Aba "API QRCODES"** (cash-in) → bloco **"Credenciais API Pix"** → botão
-  **"Gerar Credenciais"** (ícone de cadeado). Não tem tela de permissões.
+  **"Gerar Credenciais"** (ícone de cadeado). Não tem tela de permissões. Devolve
+  `CLIENT ID` (23 dígitos), `CLIENT SECRET` (32 caracteres) e a `CHAVE PIX`.
   ⚠️ **NÃO** clique em "Gerar QR Code de login" (segundo bloco) — aquilo é login
   do app QR Pago e devolve só um `{"code": ...}` inútil para a API.
+  ⚠️ O secret aparece **uma única vez**: copie pelo botão de copiar (o campo é um
+  `<input>` e o texto transborda — selecionar com o mouse pega valor incompleto).
+
+> **É esse o caminho que cada CLIENTE vai seguir** para conectar a conta dele:
+> ele gera na aba QRCODES do portal *dele* e cola no nosso painel
+> (Pix → "Sua conta Planner"). O registro do webhook acontece sozinho no save.
 
 ⚠️ **Restrição de IP:** a credencial de cash-out foi criada travada em IPs.
 Estão liberados o VPS (`179.197.76.76`) e — temporariamente, para os testes —
@@ -211,51 +272,76 @@ O alerta do relatório continua válido como regra geral: **`vite build` isolado
 não faz typecheck**. Quem valida é o `tsc -b` que roda antes dele em
 `frontend/package.json`; rodar o vite direto esconde erro de tipo.
 
-### 6.2 🟠 Registrar a URL do webhook na ONZ — **script pronto, falta rodar**
-Sem isso a confirmação nunca chega (cobrança criada → cliente paga → pedido fica
-eternamente "aguardando"). O script já existe (`registrar-webhook-onz.ts`,
-commit `8e754e2`) — só precisa rodar **uma vez por ambiente**, com o domínio
-público real:
+### 6.2 ✅ Webhook — automatizado por loja; a conta da plataforma usa o CLI
+
+**Por loja (o caso normal):** nada a fazer. Quando o lojista conecta a conta dele
+no painel (Pix → "Sua conta Planner"), o sistema **registra o webhook dele
+automaticamente** com as credenciais dele (`rotas/lojista.ts`, PUT `/pagamentos`).
+Foi assim justamente para não precisar rodar script no servidor a cada cliente.
+
+**Para a conta da plataforma (fallback)**, o CLI existe:
 
 ```bash
 npm run build
-node dist/backend/registrar-webhook-onz.js --conferir          # inspeciona, não altera
-node dist/backend/registrar-webhook-onz.js https://SEU_DOMINIO # registra
+node dist/backend/registrar-webhook-onz.js --conferir              # inspeciona, não altera
+node dist/backend/registrar-webhook-onz.js https://maxxtalk.com.br # registra
 ```
 
-Ele monta a URL com o token e o banco do tenant, mascara o token no output,
-recusa URL não-HTTPS (a ONZ não aceita `http://`/localhost e o erro dela não é
-óbvio) e registra os **dois** webhooks (cash-in e cash-out).
+O CLI mascara o token no output, recusa URL não-HTTPS e **recusa domínio
+placeholder** (aprendido na prática: a ONZ aceita registrar um domínio que não
+existe, então colar `https://SEU_DOMINIO` "funcionava" e o pagamento nunca
+confirmava — falha silenciosa).
 
-Estado conferido nesta sessão: **nenhum webhook registrado ainda**.
+Estado no ambiente de homologação: o webhook da plataforma chegou a ser
+registrado com o placeholder; **conferir e re-registrar** com o domínio real
+(`https://maxxtalk.com.br`, validado: HTTPS ok e o endpoint responde 200).
 
 ⚠️ O webhook de **cash-out** é registrado apontando para
 `/api/pagamentos/webhook/onz-cashout`, mas **essa rota ainda não existe** no app
 (o cash-out não está ligado a nenhum fluxo). Criar junto com o §6.4.
 
-⚠️ Limitação multi-tenant (documentada no topo do script): o
-`PUT /webhook/{chave}` é **por chave Pix**, então o desenho suportado hoje é uma
-conta ONZ (a da plataforma) recebendo por todos os tenants — o webhook acha o
-pedido pelo `txid`. Se um dia cada tenant tiver conta/chave própria, rode o
-script uma vez por tenant, com o `MYSQL_DATABASE` daquele tenant.
+### 6.3 🟠 Perguntas em aberto com a Planner (podem exigir ajuste)
 
-### 6.3 🟡 Testar o cash-out de verdade
+Duas respostas ainda não chegaram e afetam o desenho:
+
+**a) Limite de URLs por chave Pix.** O `PUT /webhook/{chave}` **sobrescreve** o
+registro anterior. Se um cliente já usa a ONZ com outro sistema, nosso registro
+automático **apagaria a integração dele** sem avisar. Perguntar se uma chave
+aceita mais de uma URL. Se aceitar só uma, considerar avisar o lojista na tela
+antes de conectar.
+
+**b) Onboarding.** Pelas duas specs recebidas, **não existe API de abertura de
+conta** (só `GET` de saldo/extrato) e a doc diz *"Request a account create on
+Finance platform"* — ou seja, é manual, com KYC. Confirmar se existe uma API de
+onboarding fora desses arquivos. Se não existir, o cadastro do cliente na ONZ
+**nunca será self-service** — e é por isso que o Mercado Pago continua sendo a
+porta de entrada.
+
+### 6.4 🟡 Testar o cash-out de verdade
 `pixCashoutViaChave()` tem o path certo mas **nunca foi executado** — não quis
 disparar transferência sem autorização explícita, mesmo em sandbox. Teste com
 **R$ 0,01** para a chave Pix de teste. Confira depois em
 `GET /pix/payments/{endToEndId}`. Há R$ 5.000 fictícios na conta.
 
-### 6.4 🟡 Fluxo de repasse ao lojista
-O cash-out está pronto como *função*, mas **não há tela nem regra de negócio**
-que decida *quando* e *quanto* repassar. Hoje existe a tela Admin → Repasses,
-que só **calcula** (faturamento − comissão). Falta ligar: botão "pagar repasse"
-→ `pixCashoutViaChave()` → registrar a transação. Isso mexe com dinheiro real:
-faça com trava de idempotência e confirmação dupla.
+⚠️ O webhook de cash-out aponta para `/api/pagamentos/webhook/onz-cashout`, mas
+**essa rota ainda não existe**. Criar junto com o primeiro uso real do cash-out.
 
-### 6.5 ⚪ Ir para produção
-Trocar as URLs `-h`/`hmg` pelas de produção, gerar credenciais e certificados de
-produção (outros `.pfx`), e revisar a restrição de IP. As URLs de produção não
-estão nos YAMLs de homologação — pedir à Planner.
+### 6.5 ⚪ Repasse ao lojista — FORA DE ESCOPO no modelo atual
+Com **conta por cliente**, cada lojista recebe direto: **não há repasse a fazer**,
+e a plataforma não intermedeia o dinheiro. A tela Admin → Repasses continua
+servindo como *relatório* (faturamento − comissão), para você cobrar a
+mensalidade/comissão por fora.
+
+O cash-out sobra para: **estorno** (já implementado via `devolverCobranca`) e
+pagamentos seus a partir da conta da plataforma.
+
+Isto só volta a ser necessário se o modelo mudar para conta única da plataforma.
+
+### 6.6 ⚪ Ir para produção
+Trocar as URLs `-h`/`hmg` pelas de produção, gerar credenciais e certificado de
+produção (outro `.pfx` — **um só**, é da integração), e revisar a restrição de IP
+(remover o IP residencial `187.87.101.41`, deixar só o do VPS). As URLs de
+produção não estão nos YAMLs de homologação — pedir à Planner.
 
 ---
 
