@@ -294,7 +294,13 @@ export async function consultarCobranca(txid: string, cred?: CredenciaisLoja | n
     metodo: 'GET', tls, headers: { 'Authorization': `Bearer ${token}` },
   });
   if (resp.status < 200 || resp.status >= 300) {
-    throw new Error(`ONZ consulta de cobrança falhou (HTTP ${resp.status}): ${JSON.stringify(resp.body)}`);
+    // `status` anexado ao erro pra o chamador distinguir falha PERMANENTE (404 =
+    // txid não existe nesta conta, nunca vai existir) de falha temporária
+    // (rede/5xx, vale re-tentar). A reconciliação depende disso pra não ficar
+    // re-consultando eternamente uma cobrança de outra conta.
+    const erro = new Error(`ONZ consulta de cobrança falhou (HTTP ${resp.status}): ${JSON.stringify(resp.body)}`) as Error & { status?: number };
+    erro.status = resp.status;
+    throw erro;
   }
   const b = (resp.body ?? {}) as { status?: string; pix?: Array<{ valor?: string; endToEndId?: string }> };
   const recebidos = Array.isArray(b.pix) ? b.pix : [];

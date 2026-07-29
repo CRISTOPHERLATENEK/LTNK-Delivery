@@ -407,7 +407,21 @@ export async function reconciliarPagamentosOnz(horasParaTras = 48): Promise<{ co
   for (const p of pendentes) {
     try {
       if (!credPorLoja.has(p.loja_id)) credPorLoja.set(p.loja_id, await credenciaisOnzDaLoja(p.loja_id));
-      const cob = await onz.consultarCobranca(p.pagamento_gateway_id, credPorLoja.get(p.loja_id));
+      const credLoja = credPorLoja.get(p.loja_id) ?? null;
+
+      let cob;
+      try {
+        cob = await onz.consultarCobranca(p.pagamento_gateway_id, credLoja);
+      } catch (e) {
+        // 404 na conta da loja + a loja TEM conta própria = a cobrança pode ter
+        // nascido antes disso, na conta da plataforma (fallback). Acontece de
+        // verdade: pedido cobrado hoje na plataforma, credencial própria
+        // cadastrada amanhã. Tenta lá antes de desistir.
+        const status = (e as { status?: number }).status;
+        if (status !== 404 || !credLoja) throw e;
+        cob = await onz.consultarCobranca(p.pagamento_gateway_id, null);
+      }
+
       if (!cob.pago) continue;
       // Mesmo caminho do webhook: valida valor, é idempotente e notifica o lojista.
       if (await confirmarPixOnz(p.pagamento_gateway_id, cob.valorPagoCentavos)) {
@@ -415,13 +429,33 @@ export async function reconciliarPagamentosOnz(horasParaTras = 48): Promise<{ co
         console.log(`[onz] reconciliação: pedido ${p.id} confirmado (Pix já havia caído).`);
       }
     } catch (e) {
-      // Um pedido problemático (cobrança apagada, credencial inválida) não pode
-      // impedir a conferência dos outros.
-      console.error(`[onz] reconciliação: falha no pedido ${p.id}:`, (e as Error).message);
+      // Um pedido problemático não pode impedir a conferência dos outros.
+      //
+      // 404 é PERMANENTE (o txid não existe em nenhuma das contas — ex.: cobrança
+      // de um ambiente antigo) e a reconciliação roda a cada 5 min: logar sempre
+      // enche o log de ruído eterno e esconde problema real. Registra uma vez por
+      // pedido, por processo.
+      const status = (e as { status?: number }).status;
+      const msg = (e as Error).message;
+      if (status === 404) {
+        if (!avisado404.has(p.pagamento_gateway_id)) {
+          avisado404.add(p.pagamento_gateway_id);
+          console.warn(`[onz] reconciliação: cobrança do pedido ${p.id} não existe em nenhuma conta (não vou avisar de novo).`);
+        }
+        continue;
+      }
+      console.error(`[onz] reconciliação: falha no pedido ${p.id}:`, msg);
     }
   }
   return { conferidos: pendentes.length, confirmados };
 }
+
+/**
+ * txids já reportados como inexistentes (404), pra não repetir o aviso a cada
+ * ciclo. Em memória de propósito: reiniciar o processo reavisa uma vez, o que é
+ * aceitável e evita coluna nova só pra controle de log.
+ */
+const avisado404 = new Set<string>();
 
 /**
  * Webhook de Pix recebido da ONZ (cash-in), no padrão Bacen: o corpo traz
