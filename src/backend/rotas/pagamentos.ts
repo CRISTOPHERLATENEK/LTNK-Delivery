@@ -124,6 +124,10 @@ export async function criarCobrancaPix(
 ): Promise<PixGerado & { gateway: GatewayPix }> {
   const gateway = await gatewayDaLoja(lojaId);
   if (gateway === 'onz') {
+    // Instrumentação: o cliente espera esta chamada com a tela em branco. Medido
+    // localmente dá ~60ms com token em cache e ~1s na primeira (a autenticação).
+    // Se em produção passar disso, o log aponta o culpado sem chutar.
+    const t0 = Date.now();
     const cob = await onz.criarCobranca({
       pedidoId: pedido.id,
       valorCentavos: pedido.total_centavos,
@@ -131,6 +135,8 @@ export async function criarCobrancaPix(
       // Cobra na conta DA LOJA (o dinheiro vai direto pra ela).
       cred: await credenciaisOnzDaLoja(lojaId),
     });
+    const ms = Date.now() - t0;
+    if (ms > 1500) console.warn(`[onz] cobrança do pedido ${pedido.id} levou ${ms}ms (lento).`);
     return {
       gateway: 'onz',
       // txid é o identificador que o webhook/consulta da ONZ usa.

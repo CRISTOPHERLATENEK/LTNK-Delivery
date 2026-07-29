@@ -20,6 +20,7 @@ import entregadorRoutes from './rotas/entregador';
 import cozinhaRoutes from './rotas/cozinha';
 import adminRoutes from './rotas/admin';
 import pagamentosRoutes, { reconciliarPagamentosOnz } from './rotas/pagamentos';
+import { aquecerTokens } from './onz';
 import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
@@ -385,6 +386,10 @@ const PORT = Number(process.env.PORT) || 3000;
   // ONZ pendente, a função sai na primeira consulta (custo desprezível).
   reconciliarPixOnz().catch(e => console.error('[onz] reconciliação falhou:', e));
   setInterval(() => { reconciliarPixOnz().catch(e => console.error('[onz] reconciliação falhou:', e)); }, 5 * 60_000);
+
+  // Mantém quente o token da ONZ (vale só 5 min): sem isso, quase todo pedido
+  // pagava ~1s de autenticação antes de mostrar o QR, com o cliente esperando.
+  setInterval(() => { aquecerTokens().catch(() => { /* melhor esforço */ }); }, 60_000);
 
   app.listen(PORT, () => {
     // Esta mensagem é só informativa (endereço LOCAL do processo). Em produção,

@@ -2,7 +2,7 @@
  * Carrinho com checkout completo: endereço salvo (ou novo), pagamento,
  * troco condicional e observações. Preço é re-confirmado pelo servidor.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Minus, Plus, ShoppingBag, MapPin, CreditCard, Ticket, X, AlertTriangle, QrCode, Banknote, Copy, Check, Loader2, UtensilsCrossed, XCircle } from 'lucide-react';
@@ -320,7 +320,24 @@ function PixPagamento({
   const pedido = statusQ.data?.pedido;
   const aprovado = pedido?.pagamento_status === 'aprovado';
   const encerrado = pedido?.status === 'cancelado' || pedido?.status === 'recusado';
-  useEffect(() => { if (aprovado) onPago(); }, [aprovado, onPago]);
+
+  /**
+   * Dispara `onPago` UMA ÚNICA VEZ.
+   *
+   * Sem a trava, isto virava loop: `onPago` é recriado a cada render do
+   * carrinho, e estava nas dependências do efeito — então, assim que o
+   * pagamento aprovava, cada render re-disparava o efeito, empilhando dezenas
+   * de toasts "Pedido realizado!" e travando a tela. A ref não depende da
+   * identidade da função, então o guard sobrevive a qualquer re-render.
+   */
+  const jaAvisou = useRef(false);
+  const onPagoRef = useRef(onPago);
+  onPagoRef.current = onPago;
+  useEffect(() => {
+    if (!aprovado || jaAvisou.current) return;
+    jaAvisou.current = true;
+    onPagoRef.current();
+  }, [aprovado]);
 
   async function copiar() {
     try {

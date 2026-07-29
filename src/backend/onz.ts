@@ -180,7 +180,11 @@ function requisicao(
 
 /* ───────────────────────── OAuth2 (token com cache) ───────────────────────── */
 
-interface TokenCache { token: string; expiraEm: number }
+/**
+ * `cfg`/`escopo` guardados junto do token para o aquecimento em segundo plano
+ * (ver `aquecerTokens`) poder renovar sozinho o que já está em uso.
+ */
+interface TokenCache { token: string; expiraEm: number; cfg: ConfigApi; escopo: string }
 const tokens = new Map<string, TokenCache>();
 
 async function obterToken(cfg: ConfigApi, escopo: string): Promise<string> {
@@ -210,8 +214,39 @@ async function obterToken(cfg: ConfigApi, escopo: string): Promise<string> {
   const token = b.accessToken || b.access_token || '';
   if (!token) throw new Error('ONZ auth: token ausente na resposta.');
   const ttlSeg = b.expiresAt || b.expires_in || 300;
-  tokens.set(chave, { token, expiraEm: agora + ttlSeg * 1000 });
+  tokens.set(chave, { token, expiraEm: agora + ttlSeg * 1000, cfg, escopo });
   return token;
+}
+
+/**
+ * Renova em segundo plano os tokens que estão perto de expirar.
+ *
+ * POR QUE EXISTE: o token da ONZ vale só **5 minutos**. Como uma loja
+ * normalmente recebe pedidos com intervalo maior que isso, na prática QUASE TODO
+ * pedido pagava ~1s de autenticação antes de gerar a cobrança — com o cliente
+ * olhando uma tela vazia. Medido: 1016ms com token frio, 60ms com token quente.
+ *
+ * Só reaquece o que JÁ ESTÁ no cache, ou seja, credenciais em uso de verdade —
+ * não sai autenticando conta de loja que ninguém está usando.
+ */
+export async function aquecerTokens(): Promise<void> {
+  const agora = Date.now();
+  // Snapshot: `obterToken` escreve no Map, e mutar durante a iteração é pedir bug.
+  for (const [chave, item] of [...tokens]) {
+    // Renova quando falta menos de 2 min: o ciclo roda a cada 1 min, então há
+    // folga de sobra mesmo se uma renovação falhar.
+    if (item.expiraEm - agora > 120_000) continue;
+    try {
+      // Apaga antes de chamar: `obterToken` devolveria o cache atual (ele só
+      // considera vencido faltando <30s), e o aquecimento não faria nada.
+      tokens.delete(chave);
+      await obterToken(item.cfg, item.escopo);
+    } catch (e) {
+      // Falha aqui é inofensiva: na próxima chamada real o token é buscado de
+      // novo (aí sim pagando a latência). Não vale poluir o log por isso.
+      void e;
+    }
+  }
 }
 
 /* ───────────────────────── Cash-in (cobrança Pix) ───────────────────────── */
