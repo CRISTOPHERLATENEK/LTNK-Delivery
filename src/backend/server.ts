@@ -19,7 +19,7 @@ import lojistaRoutes from './rotas/lojista';
 import entregadorRoutes from './rotas/entregador';
 import cozinhaRoutes from './rotas/cozinha';
 import adminRoutes from './rotas/admin';
-import pagamentosRoutes from './rotas/pagamentos';
+import pagamentosRoutes, { reconciliarPagamentosOnz } from './rotas/pagamentos';
 import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
@@ -311,6 +311,28 @@ async function sincronizarHorarios(): Promise<void> {
 }
 
 /**
+ * Reconciliação do Pix da ONZ em TODOS os tenants: confirma pedido pago cujo
+ * webhook não chegou. Ver `reconciliarPagamentosOnz` (rotas/pagamentos.ts) para
+ * o porquê — webhook perdido deixava pedido pago preso em "aguardando".
+ *
+ * Só roda se a ONZ estiver configurada em algum lugar; num ambiente sem ONZ
+ * isso evita varrer o banco de graça a cada ciclo.
+ */
+async function reconciliarPixOnz(): Promise<void> {
+  for (const tenant of await listarTenants()) {
+    if (!tenant.ativo) continue;
+    try {
+      const r = await comTenant(tenant.db_nome, () => reconciliarPagamentosOnz());
+      if (r.confirmados > 0) {
+        console.log(`[onz] reconciliação (${tenant.slug}): ${r.confirmados} de ${r.conferidos} pendentes confirmados.`);
+      }
+    } catch (e) {
+      console.error(`[onz] reconciliação falhou no tenant ${tenant.slug}:`, e);
+    }
+  }
+}
+
+/**
  * Aplica o schema (e as migrações idempotentes dentro dele) em TODOS os tenants
  * ativos, no boot.
  *
@@ -352,6 +374,17 @@ const PORT = Number(process.env.PORT) || 3000;
   }
   sincronizarHorarios().catch(e => console.error('[HORARIO AUTO] falha:', e));
   setInterval(() => { sincronizarHorarios().catch(e => console.error('[HORARIO AUTO] falha:', e)); }, 60_000);
+
+  // Reconciliação do Pix ONZ: no boot (pega o que ficou preso enquanto o
+  // servidor estava fora) e a cada 5 min. Intervalo folgado de propósito — é
+  // uma REDE DE SEGURANÇA, o caminho normal é o webhook (instantâneo); consultar
+  // de mais só gastaria chamada na API do PSP.
+  //
+  // Sem guarda de "ONZ configurada": a credencial pode estar em UMA LOJA e não
+  // no ambiente, então checar o env daria falso negativo. Quando não há pedido
+  // ONZ pendente, a função sai na primeira consulta (custo desprezível).
+  reconciliarPixOnz().catch(e => console.error('[onz] reconciliação falhou:', e));
+  setInterval(() => { reconciliarPixOnz().catch(e => console.error('[onz] reconciliação falhou:', e)); }, 5 * 60_000);
 
   app.listen(PORT, () => {
     // Esta mensagem é só informativa (endereço LOCAL do processo). Em produção,

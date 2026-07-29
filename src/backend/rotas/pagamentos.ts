@@ -374,6 +374,56 @@ async function confirmarPixOnzEmQualquerTenant(txid: string, valorCentavos: numb
 }
 
 /**
+ * REDE DE SEGURANÇA do cash-in: confere na API da ONZ os pedidos que ficaram
+ * `aguardando` e confirma os que já foram pagos.
+ *
+ * POR QUE EXISTE: o webhook é o caminho normal, mas é frágil por natureza —
+ * basta o servidor estar fora do ar no instante da notificação, a URL não estar
+ * registrada naquela chave Pix, ou a ONZ desativar o webhook após falhas
+ * consecutivas, e o pedido fica "aguardando" PARA SEMPRE mesmo pago. Aconteceu
+ * de verdade: dois pedidos pagos (R$ 217,49 e R$ 166,69) ficaram presos porque a
+ * chave da loja não tinha webhook registrado. Sem reconciliação, o único
+ * remédio era alguém notar na mão.
+ *
+ * Roda no tenant ATUAL (chame dentro de comTenant). Idempotente: reusa o mesmo
+ * UPDATE condicional do webhook, então não notifica o lojista duas vezes nem
+ * conflita com uma notificação que chegue no meio.
+ */
+export async function reconciliarPagamentosOnz(horasParaTras = 48): Promise<{ conferidos: number; confirmados: number }> {
+  const limite = new Date(Date.now() - horasParaTras * 3600_000).toISOString();
+  const pendentes = await db.prepare(
+    `SELECT id, loja_id, pagamento_gateway_id FROM pedidos
+      WHERE pagamento_gateway = 'onz' AND pagamento_status = 'aguardando'
+        AND pagamento_gateway_id <> '' AND criado_em >= ?
+      ORDER BY id DESC LIMIT 200`
+  ).all(limite) as Array<{ id: number; loja_id: number; pagamento_gateway_id: string }>;
+  if (pendentes.length === 0) return { conferidos: 0, confirmados: 0 };
+
+  // Uma credencial por loja, não por pedido (várias pendências da mesma loja são
+  // comuns) — evita reler e decifrar o mesmo segredo em looping.
+  const credPorLoja = new Map<number, onz.CredenciaisLoja | null>();
+  let confirmados = 0;
+
+  for (const p of pendentes) {
+    try {
+      if (!credPorLoja.has(p.loja_id)) credPorLoja.set(p.loja_id, await credenciaisOnzDaLoja(p.loja_id));
+      const cob = await onz.consultarCobranca(p.pagamento_gateway_id, credPorLoja.get(p.loja_id));
+      if (!cob.pago) continue;
+      // Mesmo caminho do webhook: valida valor, é idempotente e notifica o lojista.
+      if (await confirmarPixOnz(p.pagamento_gateway_id, cob.valorPagoCentavos)) {
+        confirmados++;
+        console.log(`[onz] reconciliação: pedido ${p.id} confirmado (Pix já havia caído).`);
+      }
+    } catch (e) {
+      // Um pedido problemático (cobrança apagada, credencial inválida) não pode
+      // impedir a conferência dos outros.
+      console.error(`[onz] reconciliação: falha no pedido ${p.id}:`, (e as Error).message);
+    }
+  }
+  return { conferidos: pendentes.length, confirmados };
+}
+
+/**
  * Webhook de Pix recebido da ONZ (cash-in), no padrão Bacen: o corpo traz
  * `{ pix: [{ txid, valor, endToEndId, ... }] }`.
  *
