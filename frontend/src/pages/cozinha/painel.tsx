@@ -10,7 +10,7 @@ import { Routes, Route } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChefHat, Clock, AlarmClock, Check, Play, Volume2, VolumeX, LogOut, Soup,
-  Bike, UtensilsCrossed, ShoppingBag, Keyboard,
+  Bike, UtensilsCrossed, ShoppingBag, Keyboard, WifiOff,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -122,7 +122,9 @@ function TelaKDS() {
   const { mostrar } = useToast();
   const [som, setSom] = useState(() => localStorage.getItem(CHAVE_SOM) !== '0');
   const [agora, setAgora] = useState(() => Date.now());
-  const ultimaQtd = useRef<number | null>(null);
+  // IDs já vistos: base do alerta sonoro (ver efeito abaixo). `null` no primeiro
+  // render pra não bipar a fila inteira ao abrir a tela.
+  const idsVistos = useRef<Set<string> | null>(null);
 
   const pedidosQ = useQuery({
     queryKey: ['cozinha-pedidos'],
@@ -130,6 +132,13 @@ function TelaKDS() {
     refetchInterval: 4000,
   });
   const pedidos = pedidosQ.data ?? [];
+
+  // Quanto tempo desde a última resposta OK do servidor (o relógio de 1s acima
+  // mantém isto vivo). `dataUpdatedAt` = 0 antes da primeira carga.
+  const segundosDesatualizado = pedidosQ.dataUpdatedAt
+    ? Math.floor((agora - pedidosQ.dataUpdatedAt) / 1000)
+    : 0;
+  const dadoVelho = pedidosQ.dataUpdatedAt > 0 && segundosDesatualizado >= 20;
 
   // Atalhos de teclado: ←/→ (ou ↑/↓) navega entre os tickets, Enter avança o
   // selecionado (iniciar preparo → marcar pronto). Pensado pro pico de
@@ -139,18 +148,56 @@ function TelaKDS() {
     if (selecionado > pedidos.length - 1) setSelecionado(Math.max(0, pedidos.length - 1));
   }, [pedidos.length, selecionado]);
 
-  // Relógio: mantém os tempos de espera frescos mesmo entre as atualizações.
+  // Relógio de 1s: numa cozinha o cronômetro precisa PARECER vivo. Com 15s, um
+  // ticket ficava mostrando "5 min" por um quarto de minuto e a tela parecia
+  // congelada. O custo é um setState por segundo — irrelevante.
   useEffect(() => {
-    const t = setInterval(() => setAgora(Date.now()), 15000);
+    const t = setInterval(() => setAgora(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  // Alerta sonoro quando entra pedido novo (a fila cresceu).
+  /**
+   * Alerta sonoro por PEDIDO NOVO — comparando IDs, não a quantidade.
+   *
+   * BUG QUE ISSO CORRIGE: antes era `qtd > ultimaQtd`. Se entre duas
+   * atualizações um pedido saía (ficou pronto) e outro entrava, a contagem não
+   * mudava e o bip NÃO tocava — justamente no pico de movimento, que é quando a
+   * cozinha depende do som pra não perder pedido.
+   */
   useEffect(() => {
-    const qtd = pedidos.length;
-    if (ultimaQtd.current !== null && qtd > ultimaQtd.current && som) tocarBip();
-    ultimaQtd.current = qtd;
-  }, [pedidos.length, som]);
+    const ids = new Set(pedidos.map(p => `${p.fonte}-${p.id}`));
+    const vistos = idsVistos.current;
+    if (vistos) {
+      const chegou = [...ids].some(id => !vistos.has(id));
+      if (chegou && som) tocarBip();
+    }
+    idsVistos.current = ids;
+  }, [pedidos, som]);
+
+  /**
+   * Mantém a tela acesa (Wake Lock). KDS vive num tablet preso na parede: se a
+   * tela apaga, a cozinha perde pedido e ninguém percebe. Re-solicita ao voltar
+   * de segundo plano, porque o bloqueio é perdido quando a aba fica oculta.
+   * Navegador sem suporte simplesmente ignora.
+   */
+  useEffect(() => {
+    type Lock = { release: () => Promise<void> };
+    const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<Lock> } };
+    if (!nav.wakeLock) return;
+    let lock: Lock | null = null;
+    let vivo = true;
+    const pedir = async () => {
+      try { lock = await nav.wakeLock!.request('screen'); } catch { /* negado/sem suporte */ }
+    };
+    pedir();
+    const aoMudarVisibilidade = () => { if (vivo && document.visibilityState === 'visible') pedir(); };
+    document.addEventListener('visibilitychange', aoMudarVisibilidade);
+    return () => {
+      vivo = false;
+      document.removeEventListener('visibilitychange', aoMudarVisibilidade);
+      lock?.release().catch(() => { /* já liberado */ });
+    };
+  }, []);
 
   function alternarSom() {
     setSom(s => {
@@ -238,6 +285,21 @@ function TelaKDS() {
         </div>
       </header>
 
+      {/*
+        AVISO DE DADO VELHO — sem isto, perder a rede fazia o KDS seguir
+        mostrando a fila antiga em silêncio: a cozinha acha que está tudo em dia
+        enquanto pedido novo entra e ninguém vê. Aparece quando a última
+        atualização bem-sucedida passou de 20s (o polling é de 4s, então 20s já
+        significa 5 tentativas falhando).
+      */}
+      {dadoVelho && (
+        <div className="flex items-center justify-center gap-2 bg-red-500/15 px-4 py-2 text-sm font-bold text-red-700 dark:text-red-300">
+          <WifiOff className="size-4 shrink-0" />
+          Sem conexão com o servidor — a fila pode estar desatualizada
+          <span className="tabular-nums font-normal opacity-80">({segundosDesatualizado}s)</span>
+        </div>
+      )}
+
       {/* Fila */}
       <main className="flex-1 p-4">
         {pedidosQ.isLoading && (
@@ -273,21 +335,32 @@ function TelaKDS() {
   );
 }
 
-/* Classes de cor por tempo de espera. */
+/**
+ * Cor e rótulo por tempo de espera.
+ *
+ * O rótulo é `m:ss` (cronômetro), não "5 min": com granularidade de minuto o
+ * número ficava parado por 60s e a tela parecia travada — numa cozinha, ver o
+ * tempo correndo é o que cria senso de urgência.
+ *
+ * As cores aqui são fixas (verde/âmbar/vermelho) de propósito: é semáforo,
+ * convenção universal de urgência, não identidade visual da marca.
+ */
 function urgencia(criadoEm: string, agora: number) {
-  const min = Math.max(0, Math.floor((agora - new Date(criadoEm).getTime()) / 60000));
+  const seg = Math.max(0, Math.floor((agora - new Date(criadoEm).getTime()) / 1000));
+  const min = Math.floor(seg / 60);
+  const rotulo = `${min}:${String(seg % 60).padStart(2, '0')}`;
   if (min >= 10) return {
-    min, rotulo: min + ' min', atrasado: true,
+    min, rotulo, atrasado: true,
     faixa: 'bg-red-500/15 text-red-700 dark:text-red-300',
     borda: 'border-red-500/50',
   };
   if (min >= 5) return {
-    min, rotulo: min + ' min', atrasado: false,
+    min, rotulo, atrasado: false,
     faixa: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
     borda: 'border-amber-500/40',
   };
   return {
-    min, rotulo: min < 1 ? 'agora' : min + ' min', atrasado: false,
+    min, rotulo, atrasado: false,
     faixa: 'bg-green-500/15 text-green-700 dark:text-green-300',
     borda: 'border-green-500/40',
   };
@@ -312,17 +385,26 @@ function TicketCozinha({
   const Fonte = FONTE_INFO[pedido.fonte] ?? FONTE_INFO.delivery;
   const IconeFonte = Fonte.icone;
 
+  // `animate-pulse` era aplicado no CARD INTEIRO quando atrasado — piscava o
+  // texto dos itens, ou seja, atrapalhava a leitura exatamente do pedido mais
+  // urgente. Agora só o relógio pisca: chama atenção sem prejudicar quem está
+  // lendo o que precisa preparar.
   return (
     <Card className={cn(
       'overflow-hidden border-2 transition-shadow',
-      u.borda, u.atrasado && 'animate-pulse',
+      u.borda,
+      u.atrasado && 'shadow-lg shadow-red-500/20',
       selecionado && 'ring-4 ring-primary/50 shadow-lg',
     )}>
       <div className={cn('flex items-center justify-between px-3 py-2 font-bold', u.faixa)}>
-        <span className="flex items-center gap-1.5 text-sm">
+        <span className="flex items-center gap-1.5 text-base">
           <IconeFonte className="size-4" /> {pedido.referencia}
         </span>
-        <span className="flex items-center gap-1.5 text-sm">
+        <span className={cn(
+          'flex items-center gap-1.5 tabular-nums',
+          // Fonte maior no tempo: é o dado que se lê a 2 m de distância.
+          u.atrasado ? 'text-lg animate-pulse' : 'text-base',
+        )}>
           {u.atrasado ? <AlarmClock className="size-4" /> : <Clock className="size-4" />} {u.rotulo}
         </span>
       </div>
