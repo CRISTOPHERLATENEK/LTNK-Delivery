@@ -6,7 +6,7 @@ import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Bike, MapPin, MessageSquare, CreditCard, Check, Clock, Star, Package, ChefHat, CheckCircle2, Truck, Bell, BellRing, Phone, MessagesSquare, ChevronDown, ChevronUp, FileText, XCircle, HelpCircle, LifeBuoy } from 'lucide-react';
+import { ArrowLeft, Bike, MapPin, MessageSquare, CreditCard, Check, Clock, Star, Package, ChefHat, CheckCircle2, Truck, Bell, BellRing, Phone, MessagesSquare, ChevronDown, ChevronUp, XCircle, LifeBuoy } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
 import { Card, CardContent } from '@/components/ui/card';
@@ -271,11 +271,23 @@ export function PaginaPedido() {
                       {/* Connector column */}
                       <div className="flex flex-col items-center">
                         <div className={cn(
-                          'flex size-9 items-center justify-center rounded-full border-2 shrink-0 transition-all z-10',
+                          'relative flex size-9 items-center justify-center rounded-full border-2 shrink-0 transition-all z-10',
                           estado === 'feito' && 'border-primary bg-primary text-primary-foreground',
                           estado === 'atual' && 'border-primary bg-background text-primary',
                           estado === 'futuro' && 'border-border bg-muted text-muted-foreground/50',
                         )}>
+                          {/* Halo do passo ativo: sinal de "acontecendo agora"
+                              visível de longe — o ponto interno pulsando sozinho
+                              é discreto demais numa tela que a pessoa encara
+                              esperando. Some quando o pedido não está mais ativo
+                              (entregue/cancelado), pra não pulsar pra sempre. */}
+                          {estado === 'atual' && ehAtivo && (
+                            <motion.span
+                              className="absolute inset-0 rounded-full border-2 border-primary"
+                              animate={{ scale: [1, 1.8], opacity: [0.55, 0] }}
+                              transition={{ repeat: Infinity, duration: 1.8, ease: 'easeOut' }}
+                            />
+                          )}
                           {estado === 'feito' && <Check className="size-4" strokeWidth={3} />}
                           {estado === 'atual' && (
                             <motion.div
@@ -287,10 +299,16 @@ export function PaginaPedido() {
                           {estado === 'futuro' && <Icone className="size-4" />}
                         </div>
                         {!isLast && (
-                          <div className={cn(
-                            'w-0.5 flex-1 my-1 min-h-5 rounded-full',
-                            i < indiceAtual ? 'bg-primary/60' : 'bg-border',
-                          )} />
+                          // A linha do trecho concluído CRESCE de cima pra baixo
+                          // em vez de aparecer pronta: mostra o pedido avançando.
+                          <div className="w-0.5 flex-1 my-1 min-h-5 rounded-full bg-border overflow-hidden">
+                            <motion.div
+                              className="h-full w-full rounded-full bg-primary/60 origin-top"
+                              initial={false}
+                              animate={{ scaleY: i < indiceAtual ? 1 : 0 }}
+                              transition={{ duration: 0.5, ease: 'easeOut' }}
+                            />
+                          </div>
                         )}
                       </div>
 
@@ -419,31 +437,25 @@ export function PaginaPedido() {
         />
       )}
 
-      {/* Barra de ações */}
-      <div className="grid grid-cols-3 gap-2">
+      {/*
+        Barra de ações — só o que é AÇÃO de verdade e não existe em outro lugar.
+        Saíram dois botões daqui:
+         - "Detalhes do pedido": controlava o MESMO `detalhesAbertos` do chevron
+           em "Resumo do pedido". Dois controles pra um estado, na mesma tela,
+           e o conteúdo abre longe do botão clicado.
+         - "Ajuda": era só um atalho pro card "Precisa de ajuda?" logo abaixo,
+           que já tem CTA próprio.
+        Sem eles, "Cancelar pedido" deixa de competir por atenção — e quando não
+        há nada a fazer, a barra simplesmente não aparece.
+      */}
+      {pedido.status === 'pendente' && (
         <button
-          onClick={() => setDetalhesAbertos(v => !v)}
-          className="flex flex-col items-center gap-1.5 rounded-2xl border border-border bg-card px-2 py-3 text-xs font-semibold hover:bg-accent transition-colors"
+          onClick={cancelar}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-border bg-card px-4 py-3 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/5"
         >
-          <FileText className="size-4 text-primary" /> Detalhes do pedido
+          <XCircle className="size-4" /> Cancelar pedido
         </button>
-        {pedido.status === 'pendente' ? (
-          <button
-            onClick={cancelar}
-            className="flex flex-col items-center gap-1.5 rounded-2xl border border-border bg-card px-2 py-3 text-xs font-semibold text-destructive hover:bg-destructive/5 transition-colors"
-          >
-            <XCircle className="size-4" /> Cancelar pedido
-          </button>
-        ) : (
-          <div />
-        )}
-        <a
-          href="#ajuda-pedido"
-          className="flex flex-col items-center gap-1.5 rounded-2xl border border-border bg-card px-2 py-3 text-xs font-semibold hover:bg-accent transition-colors"
-        >
-          <HelpCircle className="size-4 text-primary" /> Ajuda
-        </a>
-      </div>
+      )}
 
       {/* Banner de suporte */}
       <Card id="ajuda-pedido" className="border-primary/20 bg-primary/5">
@@ -551,13 +563,32 @@ function PrevisaoEntrega({ pedido }: { pedido: Pedido }) {
 
   const texto = restante > 1 ? `faltam ~${restante} min` : 'deve chegar a qualquer momento';
 
+  // Fração do tempo estimado já decorrida. "faltam 29 min" não diz se está no
+  // começo ou quase no fim — a barra dá essa noção de uma olhada. Cresce sozinha
+  // porque o `tick` acima já re-renderiza a cada 30s.
+  const decorridoMs = Date.now() - new Date(pedido.criado_em).getTime();
+  const progresso = Math.min(100, Math.max(3, (decorridoMs / (minutos * 60_000)) * 100));
+  const atrasado = restante <= 0;
+
   return (
-    <div className="mt-3 inline-flex flex-col items-center rounded-2xl bg-background/70 px-6 py-2.5 shadow-sm">
+    <div className="mt-3 inline-flex w-full max-w-[15rem] flex-col items-center rounded-2xl bg-background/70 px-6 py-2.5 shadow-sm">
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         <Clock className="size-3.5 text-primary" /> Previsão de entrega
       </div>
       <div className="text-2xl font-extrabold tabular-nums leading-tight mt-0.5">~{hora}</div>
       <div className="text-xs font-semibold text-primary">{texto}</div>
+
+      <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-border">
+        <motion.div
+          // `marca-2` (2ª cor da marca) no atraso: existe no tema e segue
+          // configurável no admin. `warning` NÃO está no tailwind.config —
+          // classe inexistente não pinta nada (há dois usos assim no projeto).
+          className={cn('h-full rounded-full', atrasado ? 'bg-marca-2' : 'bg-primary')}
+          initial={{ width: 0 }}
+          animate={{ width: `${progresso}%` }}
+          transition={{ duration: 0.8, ease: 'easeOut' }}
+        />
+      </div>
     </div>
   );
 }
