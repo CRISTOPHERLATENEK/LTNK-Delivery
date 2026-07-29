@@ -18,6 +18,7 @@ import { Input, Textarea } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
+import { PagamentoConfirmado } from './pagamento-confirmado';
 import type { Endereco, FormaPagamento } from '@/types';
 
 export function PaginaCarrinho() {
@@ -32,6 +33,9 @@ export function PaginaCarrinho() {
   // Pix fica AQUI (não dentro do Checkout) pra sobreviver ao carrinho ser
   // esvaziado assim que o pedido é criado — senão a tela do QR desmontaria.
   const [pix, setPix] = useState<(PixData & { pedidoId: number }) | null>(null);
+  // Pix aprovado: mostra a comemoração antes de ir pro acompanhamento. Guarda o
+  // total porque o carrinho é esvaziado ao criar o pedido.
+  const [confirmado, setConfirmado] = useState<{ pedidoId: number; total: number } | null>(null);
 
   function concluirPedido(pedidoId: number) {
     limparCarrinho();
@@ -62,12 +66,24 @@ export function PaginaCarrinho() {
 
   // Pedido Pix criado: o carrinho já foi esvaziado; mostra o QR pra pagar.
   // Se cancelar/fechar, vai pro acompanhamento do pedido (que fica aguardando).
+  // Comemoração do Pix aprovado — vem ANTES do `if (pix)` porque o QR já não
+  // interessa depois de pago.
+  if (confirmado) {
+    return (
+      <PagamentoConfirmado
+        pedidoId={confirmado.pedidoId}
+        totalCentavos={confirmado.total}
+        onContinuar={() => concluirPedido(confirmado.pedidoId)}
+      />
+    );
+  }
+
   if (pix) {
     return (
       <div className="space-y-4 pb-4">
         <PixPagamento
           dados={pix}
-          onPago={() => concluirPedido(pix.pedidoId)}
+          onPago={() => setConfirmado({ pedidoId: pix.pedidoId, total: total })}
           onCancelar={() => navigate(`/pedido/${pix.pedidoId}`)}
         />
       </div>
