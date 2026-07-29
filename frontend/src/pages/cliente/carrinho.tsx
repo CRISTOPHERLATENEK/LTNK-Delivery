@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Minus, Plus, ShoppingBag, MapPin, CreditCard, Ticket, X, AlertTriangle, QrCode, Banknote, Copy, Check, Loader2, UtensilsCrossed } from 'lucide-react';
+import { Minus, Plus, ShoppingBag, MapPin, CreditCard, Ticket, X, AlertTriangle, QrCode, Banknote, Copy, Check, Loader2, UtensilsCrossed, XCircle } from 'lucide-react';
 import { useCarrinho, mudarQuantidade, limparCarrinho } from '@/lib/carrinho';
 import { rotaInicioCliente } from '@/lib/loja-atual';
 import { useTema } from '@/lib/tema';
@@ -308,12 +308,18 @@ function PixPagamento({
   const [copiado, setCopiado] = useState(false);
 
   // Confere o pagamento a cada 4s; quando aprovar, segue pro acompanhamento.
+  // Também observa o STATUS do pedido: a cobrança Pix expira (a reconciliação no
+  // servidor cancela o pedido quando isso acontece) e, sem olhar isso, esta tela
+  // ficava girando "aguardando…" pra sempre, sem o cliente entender por quê.
   const statusQ = useQuery({
     queryKey: ['pix-status', dados.pedidoId],
-    queryFn: () => api<{ pedido: { pagamento_status: string } }>('GET', `/api/cliente/pedidos/${dados.pedidoId}`),
+    queryFn: () => api<{ pedido: { pagamento_status: string; status: string; motivo_recusa?: string } }>(
+      'GET', `/api/cliente/pedidos/${dados.pedidoId}`),
     refetchInterval: 4000,
   });
-  const aprovado = statusQ.data?.pedido?.pagamento_status === 'aprovado';
+  const pedido = statusQ.data?.pedido;
+  const aprovado = pedido?.pagamento_status === 'aprovado';
+  const encerrado = pedido?.status === 'cancelado' || pedido?.status === 'recusado';
   useEffect(() => { if (aprovado) onPago(); }, [aprovado, onPago]);
 
   async function copiar() {
@@ -325,6 +331,29 @@ function PixPagamento({
     } catch {
       mostrar({ tipo: 'erro', titulo: 'Não consegui copiar — selecione manualmente.' });
     }
+  }
+
+  // Cobrança expirada / pedido cancelado: não mostra QR que não funciona mais.
+  if (encerrado) {
+    return (
+      <Card>
+        <CardContent className="p-6 space-y-4 text-center">
+          <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-destructive/10">
+            <XCircle className="size-6 text-destructive" />
+          </div>
+          <div>
+            <h2 className="text-lg font-extrabold">Este Pix expirou</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {pedido?.motivo_recusa || 'O prazo para pagamento deste pedido terminou e ele foi cancelado.'}
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Seus itens continuam no carrinho — basta finalizar de novo.
+          </p>
+          <Button className="w-full" onClick={onCancelar}>Fazer novo pedido</Button>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (

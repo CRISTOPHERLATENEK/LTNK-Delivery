@@ -323,8 +323,8 @@ async function reconciliarPixOnz(): Promise<void> {
     if (!tenant.ativo) continue;
     try {
       const r = await comTenant(tenant.db_nome, () => reconciliarPagamentosOnz());
-      if (r.confirmados > 0) {
-        console.log(`[onz] reconciliação (${tenant.slug}): ${r.confirmados} de ${r.conferidos} pendentes confirmados.`);
+      if (r.confirmados > 0 || r.expirados > 0) {
+        console.log(`[onz] reconciliação (${tenant.slug}): ${r.conferidos} pendentes → ${r.confirmados} confirmados, ${r.expirados} cancelados por expiração.`);
       }
     } catch (e) {
       console.error(`[onz] reconciliação falhou no tenant ${tenant.slug}:`, e);

@@ -9,6 +9,9 @@ import { notificarLojistaNovoPedido } from '../notificacoes';
 import { descriptografar } from '../cripto';
 import { tenantPorDbNome, listarTenants } from '../tenants-mysql';
 import * as onz from '../onz';
+// Cancelamento de pedido expirado passa pela máquina de estados (valida a
+// transição, registra na linha do tempo e notifica) — nunca por UPDATE na mão.
+import { transicionarStatus } from '../fluxoPedido';
 import { Pedido } from '../../tipos/modelos';
 
 const router = Router();
@@ -389,20 +392,20 @@ async function confirmarPixOnzEmQualquerTenant(txid: string, valorCentavos: numb
  * UPDATE condicional do webhook, então não notifica o lojista duas vezes nem
  * conflita com uma notificação que chegue no meio.
  */
-export async function reconciliarPagamentosOnz(horasParaTras = 48): Promise<{ conferidos: number; confirmados: number }> {
+export async function reconciliarPagamentosOnz(horasParaTras = 48): Promise<{ conferidos: number; confirmados: number; expirados: number }> {
   const limite = new Date(Date.now() - horasParaTras * 3600_000).toISOString();
   const pendentes = await db.prepare(
-    `SELECT id, loja_id, pagamento_gateway_id FROM pedidos
+    `SELECT id, loja_id, status, pagamento_gateway_id FROM pedidos
       WHERE pagamento_gateway = 'onz' AND pagamento_status = 'aguardando'
         AND pagamento_gateway_id <> '' AND criado_em >= ?
       ORDER BY id DESC LIMIT 200`
-  ).all(limite) as Array<{ id: number; loja_id: number; pagamento_gateway_id: string }>;
-  if (pendentes.length === 0) return { conferidos: 0, confirmados: 0 };
+  ).all(limite) as Array<{ id: number; loja_id: number; status: string; pagamento_gateway_id: string }>;
+  if (pendentes.length === 0) return { conferidos: 0, confirmados: 0, expirados: 0 };
 
   // Uma credencial por loja, não por pedido (várias pendências da mesma loja são
   // comuns) — evita reler e decifrar o mesmo segredo em looping.
   const credPorLoja = new Map<number, onz.CredenciaisLoja | null>();
-  let confirmados = 0;
+  let confirmados = 0, expirados = 0;
 
   for (const p of pendentes) {
     try {
@@ -422,7 +425,26 @@ export async function reconciliarPagamentosOnz(horasParaTras = 48): Promise<{ co
         cob = await onz.consultarCobranca(p.pagamento_gateway_id, null);
       }
 
-      if (!cob.pago) continue;
+      if (!cob.pago) {
+        // Cobrança REMOVIDA sem nenhum Pix = expirou (ou o recebedor removeu).
+        // É estado TERMINAL na ONZ: não existe pagar depois. Então o pedido não
+        // pode ficar "aguardando" pra sempre — some da fila com motivo explícito.
+        //
+        // Só mexe em pedido ainda `pendente`: se o lojista já aceitou, ele pode
+        // ter combinado outro meio de pagamento, e a decisão humana vence.
+        if (String(cob.status).startsWith('REMOVIDA') && p.status === 'pendente') {
+          try {
+            await transicionarStatus(p.id, 'cancelado', {
+              camposExtras: { motivo_recusa: 'Pagamento Pix não confirmado — o prazo da cobrança expirou.' },
+            });
+            expirados++;
+            console.log(`[onz] reconciliação: pedido ${p.id} cancelado (cobrança ${cob.status}, sem pagamento).`);
+          } catch (e) {
+            console.error(`[onz] reconciliação: não consegui cancelar o pedido ${p.id}:`, (e as Error).message);
+          }
+        }
+        continue;
+      }
       // Mesmo caminho do webhook: valida valor, é idempotente e notifica o lojista.
       if (await confirmarPixOnz(p.pagamento_gateway_id, cob.valorPagoCentavos)) {
         confirmados++;
@@ -447,7 +469,7 @@ export async function reconciliarPagamentosOnz(horasParaTras = 48): Promise<{ co
       console.error(`[onz] reconciliação: falha no pedido ${p.id}:`, msg);
     }
   }
-  return { conferidos: pendentes.length, confirmados };
+  return { conferidos: pendentes.length, confirmados, expirados };
 }
 
 /**
