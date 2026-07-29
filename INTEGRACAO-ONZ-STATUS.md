@@ -2,10 +2,11 @@
 
 > Documento de passagem de bastão. Escrito ao fim de uma sessão em que a
 > integração foi construída e **validada contra o sandbox real** da ONZ.
-> Leia inteiro antes de mexer: tem três armadilhas da API que já custaram
-> tempo e estão resolvidas — se você refizer sem saber, vai cair nelas de novo.
+> Leia inteiro antes de mexer: tem **quatro armadilhas** da API que já custaram
+> tempo (e uma delas, dinheiro parado) e estão resolvidas — se você refizer sem
+> saber, vai cair nelas de novo. A §2.4 é a mais importante.
 >
-> Branch: **`migracao-mysql`** · último commit desta frente: **`3d6053f`**
+> Branch: **`migracao-mysql`** · último commit desta frente: **`af6d0c5`**
 
 ---
 
@@ -49,9 +50,9 @@ vende no primeiro dia) e a ONZ é a opção para quem quiser migrar depois.
 
 ---
 
-## 2. ⚠️ As três armadilhas da API (já resolvidas — não regrida)
+## 2. ⚠️ As armadilhas da API (já resolvidas — não regrida)
 
-Nenhuma das três está na documentação. Cada uma gerou um commit próprio.
+Nenhuma está na documentação. Cada uma gerou um commit próprio.
 
 ### 2.1 Os servidores usam CA privada e servem cadeia incompleta
 Os hosts da ONZ apresentam **só o certificado folha**, assinado por uma **CA
@@ -84,6 +85,34 @@ que parece credencial errada mas é só o formato:
 `/pix/payments/manu`, `/pix/payments/{endToEndId}`, `/webhooks/cashout`.
 Corrigido no commit `3651f79`.
 
+### 2.4 💰 O webhook é POR CHAVE PIX — e sem ele o dinheiro fica invisível
+
+**Custou dinheiro parado pra descobrir.** Dois pedidos pagos (R$ 217,49 e
+R$ 166,69) ficaram presos em `aguardando` indefinidamente: as cobranças estavam
+`CONCLUIDA` na API, mas o webhook nunca chegou. Motivo: o `PUT /webhook/{chave}`
+registra a URL **por chave Pix**, e a chave DA LOJA não tinha registro — as
+credenciais dela foram cadastradas antes do registro automático existir.
+
+Três lições que valem manter em mente:
+
+1. **Cada conta/chave precisa do seu próprio registro.** Registrar na chave da
+   plataforma não cobre as chaves das lojas. Hoje isso é automático ao salvar as
+   credenciais no painel (`3d6053f`), mas quem cadastrou ANTES disso precisa
+   re-salvar para disparar o registro.
+2. **Diagnostique com a credencial CERTA.** Consultei `/cob` com a credencial da
+   plataforma e concluí que "a cobrança não existe" — ela existia, na conta da
+   loja. Para investigar um pedido, use `credenciaisOnzDaLoja(lojaId)` dentro de
+   `comTenant(<banco do tenant>)`. A loja pode estar num banco de tenant, não no
+   master.
+3. **Webhook não é garantia de entrega.** A doc da ONZ prevê **desativar o
+   webhook** após falhas consecutivas (>15). Somado a servidor fora do ar ou
+   chave sem registro, isso significa: sempre que o webhook é a única fonte de
+   verdade, dinheiro recebido pode ficar invisível. Daí a reconciliação (§3).
+
+⚠️ **Não confunda "Pix enviado!" com pago.** No fluxo web de homologação, o envio
+fica pendente de **aprovação no app QR Pago**. Confirme sempre pelo status da
+cobrança (`CONCLUIDA`) ou pelo array `pix` — nunca pela tela do pagador.
+
 ---
 
 ## 3. O que JÁ FUNCIONA (validado contra o sandbox, não é teoria)
@@ -93,12 +122,14 @@ Corrigido no commit `3651f79`.
 | Consultar saldo | `consultarSaldo()` | ✅ R$ 5.000,00 na conta HMG |
 | Criar cobrança Pix | `criarCobranca()` | ✅ `status: ATIVA`, EMV copia-e-cola + QR PNG |
 | Consultar cobrança | `consultarCobranca()` | ✅ status/pago/valorPago/e2eIds |
+| **Pagamento de verdade** | fluxo completo | ✅ Pix pago e cobrança `CONCLUIDA` (R$ 217,49 e R$ 166,69) |
+| Registrar/consultar webhook | `registrarWebhookCashIn()` / `consultarWebhookCashIn()` | ✅ chave da plataforma registrada |
+| Reconciliação | `reconciliarPagamentosOnz()` | ✅ implementada (§2.4 explica por quê) |
 | Enviar Pix (cash-out) | `pixCashoutViaChave()` | ⚠️ **path corrigido, mas NUNCA executado** (ver §6) |
-| Consultar webhook | `consultarWebhookCashIn()` | ✅ responde (nenhum registrado ainda) |
 
 O EMV gerado traz o titular real da conta de homologação
-(`UNIMAXX_SOLUCOES_EM_TECNO`), então é cobrança legítima — dá para pagar num app
-de banco em homologação e ver virar `CONCLUIDA`.
+(`UNIMAXX_SOLUCOES_EM_TECNO`), então é cobrança legítima — e já foi pago de
+verdade no sandbox, virando `CONCLUIDA`.
 
 ### Arquitetura implementada
 
@@ -113,17 +144,20 @@ Estorno (lojista.ts → estornarPagamentoPix)
         ├─ 'mercadopago' → estornarPagamentoMercadoPago()
         └─ 'onz'         → onz.devolverCobranca(txid, cred)  ← MESMA conta que recebeu
 
-Confirmação:
-   POST /api/pagamentos/webhook/mercadopago?t=<banco>            (já existia)
-   POST /api/pagamentos/webhook/onz?tk=<token>&t=<banco>         (NOVO)
+Confirmação — DOIS caminhos (o segundo é a rede de segurança):
+   1) POST /api/pagamentos/webhook/onz?tk=<token>&t=<banco>   ← instantâneo
         ?t= é só uma DICA: se o txid não estiver nesse tenant, varre os demais
+   2) reconciliarPagamentosOnz()                              ← a cada 5 min
+        varre pedidos 'aguardando' e confirma os já pagos na API
+   (o do Mercado Pago, /webhook/mercadopago?t=<banco>, já existia)
 ```
 
 **Arquivos-chave:**
 - `src/backend/onz.ts` — cliente das duas APIs (auth, mTLS, cash-in, cash-out).
   Toda operação de cash-in aceita `CredenciaisLoja` opcional.
 - `src/backend/rotas/pagamentos.ts` — despacho por gateway, `credenciaisOnzDaLoja()`,
-  webhook ONZ com resolução automática de tenant
+  webhook ONZ com resolução automática de tenant, `reconciliarPagamentosOnz()`
+- `src/backend/server.ts` — agenda a reconciliação (boot + a cada 5 min, todos os tenants)
 - `src/backend/schema-mysql.ts` — `lojas.pagamento_gateway` + `lojas.onz_*`
 - `src/backend/rotas/lojista.ts` — GET/PUT `/pagamentos` (credenciais + registro
   automático do webhook)
@@ -152,6 +186,11 @@ Confirmação:
   ficar com Pix "ligado" e quebrado.
 - **Token do webhook** comparado com `crypto.timingSafeEqual`, e mascarado em
   todo output (a URL registrada *contém* o token).
+- **Reconciliação é a rede de segurança do dinheiro** (`reconciliarPagamentosOnz`,
+  agendada em `server.ts`): confirma pedido pago cujo webhook não chegou. **Não
+  remova** por parecer redundante — foi criada por causa de dinheiro real que
+  ficou preso (§2.4). Roda **sem** checar se a ONZ está no `.env`, de propósito:
+  a credencial pode estar só numa loja, e checar o ambiente daria falso negativo.
 
 ---
 
@@ -292,9 +331,17 @@ placeholder** (aprendido na prática: a ONZ aceita registrar um domínio que nã
 existe, então colar `https://SEU_DOMINIO` "funcionava" e o pagamento nunca
 confirmava — falha silenciosa).
 
-Estado no ambiente de homologação: o webhook da plataforma chegou a ser
-registrado com o placeholder; **conferir e re-registrar** com o domínio real
-(`https://maxxtalk.com.br`, validado: HTTPS ok e o endpoint responde 200).
+Estado no ambiente de homologação: a chave da **plataforma** está registrada
+corretamente em `https://maxxtalk.com.br`. ⚠️ A chave da **loja**
+(`tenant_unimaxx`, loja 1) precisa ser verificada/registrada — foi a ausência
+disso que travou os pedidos pagos (§2.4). Para conferir/registrar a chave de uma
+loja específica, use `consultarWebhookCashIn(cred)` /
+`registrarWebhookCashIn(url, cred)` dentro de `comTenant(<banco>)`, com
+`cred = await credenciaisOnzDaLoja(<lojaId>)` — ou simplesmente **re-salve as
+credenciais no painel da loja**, que dispara o registro automático.
+
+> A reconciliação (§3) cobre o buraco enquanto isso, mas ela confirma em até
+> 5 min; o webhook é instantâneo. Ela é rede de segurança, não substituto.
 
 ⚠️ O webhook de **cash-out** é registrado apontando para
 `/api/pagamentos/webhook/onz-cashout`, mas **essa rota ainda não existe** no app
