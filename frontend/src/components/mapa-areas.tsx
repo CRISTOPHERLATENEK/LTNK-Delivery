@@ -11,10 +11,11 @@
 import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Undo2, Check, X, MapPin, Search } from 'lucide-react';
+import { Undo2, Check, X, MapPin, Search, Maximize2, Minimize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
+import { cn } from '@/lib/utils';
 
 export type PontoMapa = [number, number];
 
@@ -29,6 +30,50 @@ export interface AreaMapa {
 function corDoTema(nome: string, alfa = 1): string {
   const v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
   return v ? `hsl(${v} / ${alfa})` : `rgba(120,120,120,${alfa})`;
+}
+
+/**
+ * Estilos de mapa disponíveis.
+ *
+ * SATÉLITE existe por um motivo prático: desenhando área de entrega, a foto
+ * mostra quadra, rio, mata e loteamento novo que o mapa vetorial ainda não tem —
+ * é o que decide se a rua do outro lado do córrego entra ou não.
+ * CLARO deixa o polígono colorido saltar, porque tira a cor do fundo.
+ *
+ * Todos sem chave de API e sem custo. `img-src https:` já está liberado na CSP,
+ * então azulejo de terceiro carrega sem mexer em nada — mas a atribuição é
+ * obrigação de licença dos três, não é enfeite.
+ */
+const ESTILOS = {
+  padrao: {
+    rotulo: 'Padrão',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    atribuicao: '&copy; OpenStreetMap',
+    maxZoom: 19,
+  },
+  claro: {
+    rotulo: 'Claro',
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    atribuicao: '&copy; OpenStreetMap &copy; CARTO',
+    maxZoom: 20,
+  },
+  satelite: {
+    rotulo: 'Satélite',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    atribuicao: 'Imagens &copy; Esri',
+    maxZoom: 19,
+  },
+} as const;
+
+type ChaveEstilo = keyof typeof ESTILOS;
+const CHAVE_ESTILO_LS = 'mapa_areas_estilo';
+
+function estiloSalvo(): ChaveEstilo {
+  try {
+    const v = localStorage.getItem(CHAVE_ESTILO_LS);
+    if (v && v in ESTILOS) return v as ChaveEstilo;
+  } catch { /* localStorage bloqueado */ }
+  return 'padrao';
 }
 
 export interface LocalBusca {
@@ -57,9 +102,58 @@ export function MapaAreas({
 }) {
   const divRef = useRef<HTMLDivElement>(null);
   const mapaRef = useRef<L.Map | null>(null);
+  const camadaBase = useRef<L.TileLayer | null>(null);
   const camadaAreas = useRef<L.LayerGroup | null>(null);
   const camadaDesenho = useRef<L.LayerGroup | null>(null);
   const [pontos, setPontos] = useState<PontoMapa[]>([]);
+  const [estilo, setEstilo] = useState<ChaveEstilo>(estiloSalvo);
+  const [telaCheia, setTelaCheia] = useState(false);
+  /** Envolve mapa + controles: é ele que vai pra tela cheia, pros botões irem junto. */
+  const molduraRef = useRef<HTMLDivElement>(null);
+
+  /** Troca o azulejo sem recriar o mapa (mantém zoom, centro e o desenho em curso). */
+  function trocarEstilo(chave: ChaveEstilo) {
+    setEstilo(chave);
+    try { localStorage.setItem(CHAVE_ESTILO_LS, chave); } catch { /* ignore */ }
+    const mapa = mapaRef.current;
+    if (!mapa) return;
+    if (camadaBase.current) mapa.removeLayer(camadaBase.current);
+    const e = ESTILOS[chave];
+    // Os estilos não têm o mesmo zoom máximo (Carto vai a 20, Esri a 19): sem
+    // recuar, quem estava no zoom 20 e trocasse pro satélite ficava com a tela
+    // cinza, sem azulejo nenhum pra mostrar.
+    if (mapa.getZoom() > e.maxZoom) mapa.setZoom(e.maxZoom);
+    camadaBase.current = L.tileLayer(e.url, { attribution: e.atribuicao, maxZoom: e.maxZoom }).addTo(mapa);
+    // Azulejo por baixo de tudo: sem isto ele entra por cima das áreas já desenhadas.
+    camadaBase.current.bringToBack();
+  }
+
+  /**
+   * Tela cheia de verdade (Fullscreen API), não um `position:fixed` fingindo.
+   * Desenhar área num quadro de 380px é ruim: ou você vê a região inteira sem
+   * detalhe, ou o detalhe e perde a noção do conjunto.
+   */
+  async function alternarTelaCheia() {
+    const el = molduraRef.current;
+    if (!el) return;
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await el.requestFullscreen();
+    } catch { /* navegador/permissão negou — o botão simplesmente não faz nada */ }
+  }
+
+  // Segue o estado real do navegador, não o clique: Esc e o F11 do sistema saem
+  // da tela cheia sem passar pelo nosso botão. O invalidateSize é obrigatório —
+  // o Leaflet mede o container na montagem e não sabe que ele mudou de tamanho.
+  useEffect(() => {
+    const aoMudar = () => {
+      const cheio = !!document.fullscreenElement;
+      setTelaCheia(cheio);
+      setTimeout(() => mapaRef.current?.invalidateSize(), 80);
+    };
+    document.addEventListener('fullscreenchange', aoMudar);
+    return () => document.removeEventListener('fullscreenchange', aoMudar);
+  }, []);
 
   // Busca por nome de lugar (bairro/cidade/rua) — evita arrastar o mapa
   // procurando a região a demarcar.
@@ -69,11 +163,13 @@ export function MapaAreas({
   const camadaPrevia = useRef<L.LayerGroup | null>(null);
   const [previa, setPrevia] = useState<LocalBusca | null>(null);
 
-  // `desenhando`/`pontos` são lidos dentro do handler de clique do Leaflet, que é
-  // registrado uma única vez — sem ref, o handler capturaria o valor do primeiro
-  // render e o desenho nunca funcionaria.
+  // `desenhando` é lido dentro do handler de clique do Leaflet, que é registrado
+  // uma única vez — sem ref, o handler capturaria o valor do primeiro render e o
+  // desenho nunca funcionaria. A escrita vai num efeito, não no corpo do render:
+  // mexer em ref durante o render é impuro (e o lint do React reclama). Efeito
+  // basta, porque roda no commit, antes de qualquer clique acontecer.
   const desenhandoRef = useRef(desenhando);
-  desenhandoRef.current = desenhando;
+  useEffect(() => { desenhandoRef.current = desenhando; }, [desenhando]);
 
   // Monta o mapa uma vez.
   useEffect(() => {
@@ -82,10 +178,8 @@ export function MapaAreas({
     // (foi o que dava a impressão de "estou no meio do mato"). Zoom 4 mostra o
     // país inteiro, deixando claro que é uma visão inicial e que é pra buscar.
     const mapa = L.map(divRef.current, { zoomControl: true }).setView(centro, centroEhReal ? 14 : 4);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap',
-      maxZoom: 19,
-    }).addTo(mapa);
+    const e = ESTILOS[estiloSalvo()];
+    camadaBase.current = L.tileLayer(e.url, { attribution: e.atribuicao, maxZoom: e.maxZoom }).addTo(mapa);
 
     /**
      * Marca a loja: é a referência de "onde eu estou" pra desenhar em volta.
@@ -288,8 +382,69 @@ export function MapaAreas({
         </div>
       )}
 
-      <div className="relative">
-      <div ref={divRef} className="h-[380px] w-full rounded-2xl border border-border" />
+      <div
+        ref={molduraRef}
+        className={cn('relative', telaCheia && 'bg-background p-2')}
+      >
+      <div
+        ref={divRef}
+        className={cn(
+          'w-full rounded-2xl border border-border',
+          // Em tela cheia o mapa ocupa a altura toda menos a margem da moldura.
+          telaCheia ? 'h-[calc(100vh-1rem)]' : 'h-[380px]',
+        )}
+      />
+
+      {/*
+        Busca DENTRO da tela cheia. A barra de busca normal fica fora da moldura,
+        então em tela cheia ela desaparecia — e aí a tela cheia virava uma
+        armadilha: você entra pra desenhar com espaço e perde justamente o jeito
+        de chegar no bairro. Mesmo estado e mesma função da busca de cima.
+      */}
+      {telaCheia && (
+        <div className="absolute left-3 top-3 z-[600] flex w-[min(420px,60vw)] gap-1.5">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={consulta}
+              onChange={e => setConsulta(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); buscar(); } }}
+              placeholder="Buscar bairro ou cidade"
+              className="h-9 bg-card/95 pl-9 shadow-lg backdrop-blur"
+            />
+          </div>
+          <Button type="button" size="sm" className="h-9 shadow-lg" disabled={buscando} onClick={buscar}>
+            {buscando ? '…' : 'Buscar'}
+          </Button>
+        </div>
+      )}
+
+      {/* Estilo do mapa + tela cheia. z alto: tem que ficar acima dos painéis do Leaflet. */}
+      <div className="absolute right-3 top-3 z-[600] flex items-center gap-1.5">
+        <div className="flex overflow-hidden rounded-xl border border-border bg-card/95 shadow-lg backdrop-blur">
+          {(Object.keys(ESTILOS) as ChaveEstilo[]).map(k => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => trocarEstilo(k)}
+              className={cn(
+                'px-2.5 py-1.5 text-[11px] font-bold transition-colors',
+                estilo === k ? 'bg-primary text-primary-foreground' : 'hover:bg-accent',
+              )}
+            >
+              {ESTILOS[k].rotulo}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={alternarTelaCheia}
+          title={telaCheia ? 'Sair da tela cheia (Esc)' : 'Tela cheia'}
+          className="flex size-8 items-center justify-center rounded-xl border border-border bg-card/95 shadow-lg backdrop-blur hover:bg-accent"
+        >
+          {telaCheia ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+        </button>
+      </div>
 
       {desenhando && (
         <div className="absolute inset-x-3 bottom-3 z-[500] flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/95 p-2.5 shadow-lg backdrop-blur">
