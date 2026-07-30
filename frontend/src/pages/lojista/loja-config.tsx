@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck } from 'lucide-react';
+import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck, Search } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
 import { statusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/toast';
 import { api, ApiError, encerrarSessao } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { brl } from '@/lib/format';
+import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import { AreasEntrega } from './areas-entrega';
 import type { DiaHorario, Loja } from '@/types';
 
@@ -25,6 +26,40 @@ export function LojaConfiguracao() {
   });
   const [enviando, setEnviando] = useState(false);
   const [alternando, setAlternando] = useState(false);
+  // CEP não é salvo na loja: serve só pra montar o endereço (é o endereço que o
+  // backend geocodifica). Guardar o CEP sem uso só criaria dois campos pra manter
+  // em sincronia.
+  const [cep, setCep] = useState('');
+  const [buscandoCep, setBuscandoCep] = useState(false);
+
+  /**
+   * Monta o endereço a partir do CEP. Preserva o NÚMERO que o lojista já tenha
+   * digitado — o ViaCEP não devolve número, e sobrescrever cegamente apagaria o
+   * dado mais importante pra geocodificação achar o ponto certo.
+   */
+  async function puxarCep() {
+    const d = cepDigitos(cep);
+    if (d.length !== 8) { mostrar({ tipo: 'erro', titulo: 'CEP incompleto.' }); return; }
+    setBuscandoCep(true);
+    try {
+      const e = await buscarCep(d);
+      if (!e) { mostrar({ tipo: 'erro', titulo: 'CEP não encontrado.' }); return; }
+      const numero = (form.endereco.match(/\b\d{1,6}\b/) || [])[0] || '';
+      const partes = [
+        [e.rua, numero].filter(Boolean).join(', '),
+        e.bairro,
+        [e.cidade, e.uf].filter(Boolean).join(' - '),
+      ].filter(Boolean);
+      setForm(f => ({ ...f, endereco: partes.join(', ') }));
+      mostrar({
+        tipo: 'sucesso',
+        titulo: 'Endereço preenchido!',
+        descricao: numero ? undefined : 'Complete o número e salve.',
+      });
+    } finally {
+      setBuscandoCep(false);
+    }
+  }
 
   useEffect(() => {
     api<{ loja: Loja }>('GET', '/api/lojista/loja').then(r => {
@@ -155,9 +190,45 @@ export function LojaConfiguracao() {
               <Input value={form.categoria} onChange={campo('categoria')} placeholder="Ex.: Pizzaria, Hamburguer, Sushi" />
             </div>
 
+            {/*
+              CEP primeiro, endereço depois: é a ordem em que se digita, e o CEP
+              resolve rua/bairro/cidade/UF sozinho. Importa mais do que parece —
+              o endereço é o que localiza a loja no mapa (geocodificação), e é
+              dele que saem o marcador em Áreas de entrega e o cálculo por km.
+              Endereço abreviado ou sem cidade não é encontrado, e a loja fica
+              sem coordenada.
+            */}
+            <div>
+              <Label>CEP</Label>
+              <div className="flex gap-2 mt-1">
+                <Input
+                  value={cep}
+                  onChange={e => setCep(formatarCep(e.target.value))}
+                  onBlur={() => { if (cepDigitos(cep).length === 8) puxarCep(); }}
+                  placeholder="00000-000"
+                  inputMode="numeric"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={puxarCep}
+                  disabled={buscandoCep || cepDigitos(cep).length !== 8}
+                >
+                  {buscandoCep ? '…' : <><Search className="size-4" /> Buscar</>}
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Preenche o endereço automaticamente. Depois só complete o número.
+              </p>
+            </div>
+
             <div>
               <Label>Endereço</Label>
-              <Input value={form.endereco} onChange={campo('endereco')} placeholder="Rua, número, bairro" />
+              <Input value={form.endereco} onChange={campo('endereco')} placeholder="Rua, número, bairro, cidade - UF" />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Com número e cidade — é assim que a loja é localizada no mapa das áreas de entrega.
+              </p>
             </div>
 
             <div className="sm:col-span-2">
