@@ -2,7 +2,7 @@
  * Painel do entregador — corridas disponíveis, entrega ativa e ganhos.
  * Gerencia seu próprio login (sem Guard externo), padrão igual ao lojista.
  */
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { Routes, Route, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -24,8 +24,9 @@ import { api, ApiError, sessaoUsuario, salvarSessao } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
 import { suportaPush, ativarPush } from '@/lib/push';
 import { cn } from '@/lib/utils';
+import { lazySeguro } from '@/lib/lazy-seguro';
 
-const MapaRota = lazy(() => import('@/components/mapa-rota').then(m => ({ default: m.MapaRota })));
+const MapaRota = lazySeguro(() => import('@/components/mapa-rota').then(m => ({ default: m.MapaRota })));
 
 const ITENS_NAV = [
   { rota: '/entregador', icone: Home, rotulo: 'Corridas' },

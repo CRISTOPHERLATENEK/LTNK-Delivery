@@ -2,7 +2,7 @@
  * Acompanhamento do pedido em tempo real (polling 4s) com linha do tempo
  * animada. Cancelar disponível apenas enquanto pendente.
  */
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
@@ -21,9 +21,10 @@ import { useTema } from '@/lib/tema';
 import { registrarCorLoja } from '@/lib/loja-atual';
 import { ChatPedido } from '@/components/chat-pedido';
 import { cn } from '@/lib/utils';
+import { lazySeguro } from '@/lib/lazy-seguro';
 
 // Mapa (Leaflet ~140KB) só baixa quando há entrega ativa para acompanhar.
-const MapaRastreamento = lazy(() =>
+const MapaRastreamento = lazySeguro(() =>
   import('@/components/mapa-rastreamento').then(m => ({ default: m.MapaRastreamento })),
 );
 import type { EventoStatus, ItemPedido, Pedido, StatusPedido } from '@/types';

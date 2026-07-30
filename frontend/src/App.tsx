@@ -2,7 +2,7 @@
  * Roteamento principal — cliente como app principal; outros perfis em rotas
  * dedicadas (lojista, entregador, admin).
  */
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, Suspense } from 'react';
 import { Routes, Route, Link, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { Home, ShoppingBag, Receipt, User, ChevronRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
@@ -22,6 +22,7 @@ import { PaginaPedido } from '@/pages/cliente/pedido';
 import { PaginaConta } from '@/pages/cliente/conta';
 import { EsqueciSenha, RedefinirSenha } from '@/pages/esqueci-senha';
 import { Guard } from '@/components/guards';
+import { lazySeguro } from '@/lib/lazy-seguro';
 
 /**
  * Painéis internos (lojista, entregador, cozinha, admin) entram por lazy: são
@@ -29,21 +30,21 @@ import { Guard } from '@/components/guards';
  * visitante do cardápio. Com import() o chunk só desce quando alguém abre a
  * rota — o cliente final passa a baixar apenas o app dele.
  */
-const PainelLojista = lazy(() => import('@/pages/lojista/painel').then(m => ({ default: m.PainelLojista })));
-const TelaEntregador = lazy(() => import('@/pages/entregador').then(m => ({ default: m.TelaEntregador })));
-const PainelCozinha = lazy(() => import('@/pages/cozinha/painel').then(m => ({ default: m.PainelCozinha })));
-const TelaAdmin = lazy(() => import('@/pages/admin').then(m => ({ default: m.TelaAdmin })));
-const TelaMarca = lazy(() => import('@/pages/admin/marca').then(m => ({ default: m.TelaMarca })));
-const TelaAdmins = lazy(() => import('@/pages/admin/admins').then(m => ({ default: m.TelaAdmins })));
-const TelaLojistas = lazy(() => import('@/pages/admin/lojistas').then(m => ({ default: m.TelaLojistas })));
-const TelaLojas = lazy(() => import('@/pages/admin/lojas').then(m => ({ default: m.TelaLojas })));
-const TelaPedidosAdmin = lazy(() => import('@/pages/admin/pedidos-admin').then(m => ({ default: m.TelaPedidosAdmin })));
-const TelaBanners = lazy(() => import('@/pages/admin/banners').then(m => ({ default: m.TelaBanners })));
-const TelaRepasses = lazy(() => import('@/pages/admin/repasses').then(m => ({ default: m.TelaRepasses })));
-const TelaMonitor = lazy(() => import('@/pages/admin/monitor').then(m => ({ default: m.TelaMonitor })));
-const TelaEntregadores = lazy(() => import('@/pages/admin/entregadores').then(m => ({ default: m.TelaEntregadores })));
-const TelaTenants = lazy(() => import('@/pages/admin/tenants').then(m => ({ default: m.TelaTenants })));
-const TelaAuditoria = lazy(() => import('@/pages/admin/auditoria').then(m => ({ default: m.TelaAuditoria })));
+const PainelLojista = lazySeguro(() => import('@/pages/lojista/painel').then(m => ({ default: m.PainelLojista })));
+const TelaEntregador = lazySeguro(() => import('@/pages/entregador').then(m => ({ default: m.TelaEntregador })));
+const PainelCozinha = lazySeguro(() => import('@/pages/cozinha/painel').then(m => ({ default: m.PainelCozinha })));
+const TelaAdmin = lazySeguro(() => import('@/pages/admin').then(m => ({ default: m.TelaAdmin })));
+const TelaMarca = lazySeguro(() => import('@/pages/admin/marca').then(m => ({ default: m.TelaMarca })));
+const TelaAdmins = lazySeguro(() => import('@/pages/admin/admins').then(m => ({ default: m.TelaAdmins })));
+const TelaLojistas = lazySeguro(() => import('@/pages/admin/lojistas').then(m => ({ default: m.TelaLojistas })));
+const TelaLojas = lazySeguro(() => import('@/pages/admin/lojas').then(m => ({ default: m.TelaLojas })));
+const TelaPedidosAdmin = lazySeguro(() => import('@/pages/admin/pedidos-admin').then(m => ({ default: m.TelaPedidosAdmin })));
+const TelaBanners = lazySeguro(() => import('@/pages/admin/banners').then(m => ({ default: m.TelaBanners })));
+const TelaRepasses = lazySeguro(() => import('@/pages/admin/repasses').then(m => ({ default: m.TelaRepasses })));
+const TelaMonitor = lazySeguro(() => import('@/pages/admin/monitor').then(m => ({ default: m.TelaMonitor })));
+const TelaEntregadores = lazySeguro(() => import('@/pages/admin/entregadores').then(m => ({ default: m.TelaEntregadores })));
+const TelaTenants = lazySeguro(() => import('@/pages/admin/tenants').then(m => ({ default: m.TelaTenants })));
+const TelaAuditoria = lazySeguro(() => import('@/pages/admin/auditoria').then(m => ({ default: m.TelaAuditoria })));
 
 /** Fallback enquanto o chunk do painel baixa. */
 function CarregandoPainel() {

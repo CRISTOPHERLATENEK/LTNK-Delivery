@@ -4,8 +4,17 @@
  * - Navegação network-first com fallback ao cache (abre offline).
  * - Nunca cacheia /api (dados sempre frescos).
  */
-const CACHE = 'delivery-app-v4';
+const CACHE = 'delivery-app-v5';
 const ESSENCIAIS = ['/'];
+
+/**
+ * Assets com hash no nome (vite: assetsDir 'app-assets') são IMUTÁVEIS: se o
+ * conteúdo muda, o nome muda. Revalidar esses é desperdício — e pior, virava
+ * 404 permanente: a cada build o arquivo antigo é apagado do servidor, mas a
+ * entrada velha continuava no cache pedindo ele em toda visita (o `r.ok` abaixo
+ * nunca limpava o que dava 404). Cache-first sem rede resolve os dois.
+ */
+const ehImutavel = (url) => url.pathname.startsWith('/app-assets/');
 
 self.addEventListener('install', (e) => {
   self.skipWaiting();
@@ -64,6 +73,25 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
+  // Asset imutável já em cache: devolve e pronto, sem tocar na rede.
+  if (ehImutavel(url)) {
+    e.respondWith(
+      caches.match(req).then((cached) => {
+        if (cached) return cached;
+        return fetch(req)
+          .then((r) => {
+            if (r && r.ok) {
+              const copia = r.clone();
+              caches.open(CACHE).then((c) => c.put(req, copia)).catch(() => {});
+            }
+            return r;
+          })
+          .catch(() => new Response('', { status: 504, statusText: 'Sem rede e sem cache' }));
+      })
+    );
+    return;
+  }
+
   // Demais assets: responde do cache e atualiza em segundo plano. Mesma
   // garantia de sempre devolver um Response de verdade (nunca undefined).
   e.respondWith(
@@ -73,6 +101,12 @@ self.addEventListener('fetch', (e) => {
           if (r && r.ok) {
             const copia = r.clone();
             caches.open(CACHE).then((c) => c.put(req, copia)).catch(() => {});
+            return r;
+          }
+          // Sumiu do servidor (404/410): descarta a cópia velha em vez de
+          // continuar servindo — e pedindo — um arquivo que não existe mais.
+          if (r && (r.status === 404 || r.status === 410)) {
+            caches.open(CACHE).then((c) => c.delete(req)).catch(() => {});
           }
           return r;
         })
