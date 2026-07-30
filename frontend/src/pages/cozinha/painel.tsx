@@ -140,13 +140,35 @@ function TelaKDS() {
     : 0;
   const dadoVelho = pedidosQ.dataUpdatedAt > 0 && segundosDesatualizado >= 20;
 
-  // Atalhos de teclado: ←/→ (ou ↑/↓) navega entre os tickets, Enter avança o
-  // selecionado (iniciar preparo → marcar pronto). Pensado pro pico de
-  // movimento no balcão, quando ninguém quer ficar mirando o mouse.
-  const [selecionado, setSelecionado] = useState(0);
+  /**
+   * DUAS RAIAS: "Novos" (ainda não começados) e "Em preparo".
+   *
+   * Antes tudo caía num grid só, com o estágio escrito em letra miúda no card.
+   * Em cozinha movimentada isso obriga a LER cada ticket pra saber o que ainda
+   * não foi começado. Separado em colunas, a resposta é a posição na tela.
+   *
+   * Cada raia preserva a ordem que vem do servidor (mais antigo primeiro), que é
+   * a ordem em que se deve produzir.
+   */
+  const novos = pedidos.filter(p => p.etapa !== 'preparando');
+  const emPreparo = pedidos.filter(p => p.etapa === 'preparando');
+  const raias = [
+    { chave: 'novos' as const, titulo: 'Novos', itens: novos, icone: ShoppingBag },
+    { chave: 'preparo' as const, titulo: 'Em preparo', itens: emPreparo, icone: Soup },
+  ];
+
+  // Atalhos de teclado: ↑/↓ anda na coluna, ←/→ troca de coluna, Enter avança o
+  // ticket selecionado. Pensado pro pico de movimento, quando ninguém quer ficar
+  // mirando o mouse.
+  const [sel, setSel] = useState<{ col: number; idx: number }>({ col: 0, idx: 0 });
+  const selecionadoAtual = raias[sel.col]?.itens[sel.idx];
+
+  // A fila muda embaixo do usuário (pedido novo entra, outro fica pronto): manter
+  // o índice dentro do limite evita seleção "fantasma" apontando pro vazio.
   useEffect(() => {
-    if (selecionado > pedidos.length - 1) setSelecionado(Math.max(0, pedidos.length - 1));
-  }, [pedidos.length, selecionado]);
+    const max = Math.max(0, (raias[sel.col]?.itens.length ?? 0) - 1);
+    if (sel.idx > max) setSel(s => ({ ...s, idx: max }));
+  }, [novos.length, emPreparo.length, sel.col, sel.idx]);
 
   // Relógio de 1s: numa cozinha o cronômetro precisa PARECER vivo. Com 15s, um
   // ticket ficava mostrando "5 min" por um quarto de minuto e a tela parecia
@@ -235,21 +257,29 @@ function TelaKDS() {
       const alvo = e.target as HTMLElement;
       if (alvo.tagName === 'INPUT' || alvo.tagName === 'TEXTAREA') return;
       if (pedidos.length === 0) return;
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+
+      if (e.key === 'ArrowDown') {
         e.preventDefault();
-        setSelecionado(i => Math.min(pedidos.length - 1, i + 1));
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        setSel(s => ({ ...s, idx: Math.min((raias[s.col]?.itens.length ?? 1) - 1, s.idx + 1) }));
+      } else if (e.key === 'ArrowUp') {
         e.preventDefault();
-        setSelecionado(i => Math.max(0, i - 1));
+        setSel(s => ({ ...s, idx: Math.max(0, s.idx - 1) }));
+      } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        // Troca de coluna mantendo a posição, limitada ao tamanho da coluna alvo.
+        setSel(s => {
+          const col = e.key === 'ArrowRight' ? Math.min(raias.length - 1, s.col + 1) : Math.max(0, s.col - 1);
+          return { col, idx: Math.min(s.idx, Math.max(0, (raias[col]?.itens.length ?? 1) - 1)) };
+        });
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        const p = pedidos[selecionado];
+        const p = raias[sel.col]?.itens[sel.idx];
         if (p) acao(p, p.etapa === 'preparando' ? 'pronto' : 'preparar');
       }
     }
     window.addEventListener('keydown', aoTeclar);
     return () => window.removeEventListener('keydown', aoTeclar);
-  }, [pedidos, selecionado]);
+  }, [pedidos, sel, novos.length, emPreparo.length]);
 
   return (
     <div className="min-h-dvh bg-background text-foreground flex flex-col">
@@ -269,8 +299,8 @@ function TelaKDS() {
             <span className="hidden sm:flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
               <Soup className="size-4" /> {pedidos.length} na fila
             </span>
-            <span className="hidden lg:flex items-center gap-1.5 text-xs text-muted-foreground" title="Setas navegam, Enter avança o ticket selecionado">
-              <Keyboard className="size-3.5" /> ←/→ navega · Enter avança
+            <span className="hidden lg:flex items-center gap-1.5 text-xs text-muted-foreground" title="↑/↓ anda na coluna · ←/→ troca de coluna · Enter avança o ticket selecionado">
+              <Keyboard className="size-3.5" /> ↑↓ fila · ←→ coluna · Enter avança
             </span>
             <button onClick={alternarSom} title={som ? 'Som ligado' : 'Som desligado'}
               className="flex size-9 items-center justify-center rounded-xl hover:bg-accent text-muted-foreground">
@@ -316,11 +346,45 @@ function TelaKDS() {
           </div>
         )}
 
-        <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {pedidos.map((p, i) => (
-            <TicketCozinha key={`${p.fonte}-${p.id}`} pedido={p} agora={agora} onAcao={acao} selecionado={i === selecionado} />
-          ))}
-        </div>
+        {pedidos.length > 0 && (
+          // Cada raia rola por conta própria: fila longa de "Novos" não empurra
+          // "Em preparo" pra fora da tela (num tablet fixo, rolar é o que se
+          //  quer evitar).
+          <div className="grid gap-4 md:grid-cols-2">
+            {raias.map(raia => {
+              const IconeRaia = raia.icone;
+              return (
+                <section key={raia.chave} className="flex min-h-0 flex-col">
+                  <div className="mb-2 flex items-center gap-2 border-b border-border/60 pb-2">
+                    <IconeRaia className="size-4 text-muted-foreground" />
+                    <h2 className="text-sm font-extrabold uppercase tracking-wide">{raia.titulo}</h2>
+                    <span className="ml-auto rounded-full bg-accent px-2 py-0.5 text-xs font-bold tabular-nums">
+                      {raia.itens.length}
+                    </span>
+                  </div>
+
+                  {raia.itens.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-muted-foreground">
+                      {raia.chave === 'novos' ? 'Nada novo na fila.' : 'Nada em preparo.'}
+                    </p>
+                  ) : (
+                    <div className="grid gap-3 xl:grid-cols-2">
+                      {raia.itens.map(p => (
+                        <TicketCozinha
+                          key={`${p.fonte}-${p.id}`}
+                          pedido={p}
+                          agora={agora}
+                          onAcao={acao}
+                          selecionado={selecionadoAtual === p}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        )}
       </main>
 
       {/* Legenda */}
@@ -409,8 +473,10 @@ function TicketCozinha({
         </span>
       </div>
       <CardContent className="p-3">
+        {/* O estágio (novo / em preparo) não é repetido aqui: a COLUNA já diz.
+            Sobra só a origem (Delivery / Salão / Balcão), que a coluna não diz. */}
         <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
-          {Fonte.rotulo} · {emPreparo ? 'em preparo' : 'novo'}
+          {Fonte.rotulo}
         </div>
         <div className="space-y-1.5">
           {pedido.itens.map((it, idx) => (
