@@ -77,13 +77,61 @@ export function despacharImpressao(html: string, larguraMm: number, blocos?: Blo
   abrirEImprimir(html);
 }
 
-/** Fallback: abre uma janela com o HTML e chama o diálogo de impressão. */
-function abrirEImprimir(html: string): void {
-  const w = window.open('', '_blank', 'width=360,height=680,toolbar=0');
-  if (!w) return;
-  w.document.write(html);
-  w.document.close();
-  setTimeout(() => { w.focus(); w.print(); }, 300);
+/**
+ * Fallback (sem agente): imprime pelo diálogo do navegador, a partir de um
+ * IFRAME OCULTO na própria página.
+ *
+ * ANTES ERA UM POPUP (`window.open` + `w.print()`) e isso TRAVAVA O APP: popup
+ * same-origin com opener compartilha o event loop da aba que o abriu, então o
+ * `print()` — que é modal e síncrono — congelava o painel do lojista inteiro até
+ * alguém fechar o diálogo. Pior: o `focus()` podia jogar o diálogo atrás da
+ * janela principal (ou em outro monitor), e o operador via só uma tela morta,
+ * sem nada na frente explicando. Some com isso o acúmulo de abas e o bloqueador
+ * de popup, que fazia a impressão simplesmente não sair sem avisar.
+ *
+ * O diálogo de impressão continua sendo modal — isso é do navegador e não tem
+ * como evitar imprimindo por ele. A diferença é que agora ele pertence à aba
+ * atual, aparece na frente e, ao fechar, a tela volta a responder.
+ */
+export function abrirEImprimir(html: string): void {
+  const quadro = document.createElement('iframe');
+  quadro.setAttribute('aria-hidden', 'true');
+  quadro.title = 'Impressão';
+  // Fora da vista, mas NÃO `display:none` nem `visibility:hidden`: alguns
+  // navegadores não renderizam (e não imprimem) iframe realmente invisível.
+  quadro.style.cssText = 'position:fixed;left:-10000px;top:0;width:380px;height:800px;border:0;';
+
+  let jaLimpou = false;
+  const limpar = () => {
+    if (jaLimpou) return;
+    jaLimpou = true;
+    quadro.remove();
+  };
+
+  quadro.onload = () => {
+    const w = quadro.contentWindow;
+    if (!w) { limpar(); return; }
+    try {
+      // `afterprint` cobre imprimir e cancelar. Onde não dispara, o timeout
+      // abaixo garante que o iframe não fique pra sempre no DOM.
+      w.addEventListener('afterprint', limpar, { once: true });
+      w.focus();
+      w.print();
+      setTimeout(limpar, 60_000);
+    } catch {
+      // Navegador que não deixa imprimir de iframe: cai no popup de antes, que
+      // é ruim mas é melhor que não imprimir o cupom do cliente.
+      limpar();
+      const p = window.open('', '_blank', 'width=360,height=680,toolbar=0');
+      if (!p) return;
+      p.document.write(html);
+      p.document.close();
+      setTimeout(() => { p.focus(); p.print(); }, 300);
+    }
+  };
+
+  document.body.appendChild(quadro);
+  quadro.srcdoc = html;
 }
 
 /** Monta o HTML do cupom (PDV/comanda). */

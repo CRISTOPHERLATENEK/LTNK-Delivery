@@ -23,6 +23,7 @@ import { api, ApiError } from '@/lib/api';
 import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { abrirEImprimir } from '@/lib/impressao';
 import type { Pedido, ItemPedido } from '@/types';
 
 type PedidoComItens = Pedido & { itens: ItemPedido[] };
@@ -44,14 +45,15 @@ const STATUS_ATIVOS = ['pendente', 'aceito', 'preparando', 'pronto', 'em_entrega
 
 /* ─── utilitário de impressão ─── */
 function imprimirPedido(p: PedidoComItens) {
-  const w = window.open('', '_blank', 'width=360,height=620,toolbar=0');
-  if (!w) return;
   const fmt = (c: number) => `R$ ${(c / 100).toFixed(2).replace('.', ',')}`;
   const pagto =
     p.forma_pagamento === 'pix' ? 'Pix'
     : p.forma_pagamento === 'dinheiro' ? `Dinheiro${p.troco_para_centavos ? ` / troco ${fmt(p.troco_para_centavos)}` : ''}`
     : 'Cartão na entrega';
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8">
+  // Via `abrirEImprimir` (iframe oculto) e não `window.open`: popup same-origin
+  // compartilha o event loop desta aba, então o print() dele travava o painel
+  // inteiro até alguém fechar o diálogo — que ainda podia abrir atrás da janela.
+  abrirEImprimir(`<!DOCTYPE html><html><head><meta charset="utf-8">
 <title>Pedido #${p.id}</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -77,8 +79,6 @@ ${(p.itens || []).map(i => `
 ${p.endereco_entrega ? `<div class="sep"></div><div>📍 ${p.endereco_entrega}</div>` : ''}
 ${p.observacoes ? `<div class="obs">📝 ${p.observacoes}</div>` : ''}
 </body></html>`);
-  w.document.close();
-  setTimeout(() => w.print(), 300);
 }
 
 /* ─── componente principal ─── */

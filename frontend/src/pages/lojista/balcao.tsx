@@ -17,7 +17,7 @@ import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
-import { imprimirCupom, imprimirDanfe, montarHtmlDanfe, configImpressao, type LinhaCupom, type DadosDanfe } from '@/lib/impressao';
+import { imprimirCupom, imprimirDanfe, montarHtmlDanfe, abrirEImprimir, configImpressao, type LinhaCupom, type DadosDanfe } from '@/lib/impressao';
 import { agenteAtivo, buscarConfigFiscal } from '@/lib/agente';
 import type { Produto, Loja } from '@/types';
 
@@ -577,14 +577,12 @@ function NfceModal({ nfce, onFechar }: { nfce: NfceResultado; onFechar: () => vo
   }
 
   async function baixarPdf() {
-    // Abre a aba já no clique (senão o bloqueador de pop-up barra o async depois).
-    const w = window.open('', '_blank');
-    if (!w) return;
     // Mesma personalização (cabeçalho/rodapé/fonte) que sai na impressão automática.
     const config = await buscarConfigFiscal();
-    w.document.write(montarHtmlDanfe(nfce, '80', config));
-    w.document.close();
-    w.onload = () => w.print();
+    // Iframe oculto, não popup: além de dispensar o bloqueador de pop-up (que
+    // barrava isto silenciosamente, por vir depois de um await), o print() de um
+    // popup same-origin travava o painel do lojista até fechar o diálogo.
+    abrirEImprimir(montarHtmlDanfe(nfce, '80', config));
   }
 
   const autorizada = !!nfce.autorizada;
