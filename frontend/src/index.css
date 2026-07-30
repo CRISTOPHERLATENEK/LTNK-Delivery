@@ -205,3 +205,22 @@
 /* Garante que os tiles e controles do Leaflet fiquem abaixo do header/nav fixos */
 .leaflet-container { font-family: inherit; background: hsl(var(--muted)); }
 .leaflet-control-attribution { font-size: 9px; }
+
+/* ====================================================================
+   Cursor em elemento clicável.
+
+   O Preflight do Tailwind v3 NÃO define cursor em <button> — o padrão do
+   navegador é `default`, a mesma seta de texto/fundo. Numa tela cheia de
+   botão-ícone (KDS, PDV, admin) isso apaga a pista mais básica de "isto
+   clica". Regra global em vez de `cursor-pointer` espalhado: 230 botões no
+   projeto, e classe repetida é classe esquecida no próximo.
+
+   `:disabled` fica de fora de propósito — mão apontando em botão desabilitado
+   promete uma ação que não vai acontecer.
+   ==================================================================== */
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']),
+summary,
+label[for] {
+  cursor: pointer;
+}

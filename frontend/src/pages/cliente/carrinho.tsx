@@ -137,10 +137,18 @@ export function PaginaCarrinho() {
                   </div>
                   <div className="flex flex-col items-end gap-2 shrink-0">
                     <div className="font-bold tabular-nums">{brl(item.preco_centavos * item.quantidade)}</div>
-                    <div className="flex items-center gap-0.5 rounded-full bg-accent p-0.5">
+                    {/*
+                      44x44 (size-11) e gap-2: o minimo da diretriz de toque em
+                      celular. Antes eram 24px colados por gap-0.5 -- o dedo
+                      acertava o botao vizinho e o cliente somava item sem querer
+                      no ultimo passo antes de pagar. O circulo cresce junto com a
+                      area de toque de proposito: alvo invisivel maior que o
+                      desenho faz a pessoa errar achando que acertou.
+                    */}
+                    <div className="flex items-center gap-2 rounded-full bg-accent px-1 py-0.5">
                       <button
                         onClick={() => mudarQuantidade(item.chave, -1)}
-                        className="flex size-9 items-center justify-center rounded-full transition-all touch-manipulation hover:bg-background active:scale-90"
+                        className="flex size-11 items-center justify-center rounded-full transition-all touch-manipulation hover:bg-background active:scale-90"
                         aria-label="Diminuir"
                       >
                         <Minus className="size-4" />
@@ -148,7 +156,7 @@ export function PaginaCarrinho() {
                       <span key={item.quantidade} className="min-w-5 text-center text-sm font-bold anim-pop">{item.quantidade}</span>
                       <button
                         onClick={() => mudarQuantidade(item.chave, +1)}
-                        className="flex size-9 items-center justify-center rounded-full transition-all touch-manipulation hover:bg-background active:scale-90"
+                        className="flex size-11 items-center justify-center rounded-full transition-all touch-manipulation hover:bg-background active:scale-90"
                         aria-label="Aumentar"
                       >
                         <Plus className="size-4" />

@@ -195,7 +195,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
               <button
                 type="button"
                 aria-label="Diminuir quantidade"
-                className="flex size-10 items-center justify-center transition-colors active:bg-muted disabled:opacity-40 touch-manipulation"
+                className="flex size-11 items-center justify-center transition-colors active:bg-muted disabled:opacity-40 touch-manipulation"
                 onClick={() => setQtd(q => Math.max(1, q - 1))}
                 disabled={qtd <= 1}
               >
@@ -205,7 +205,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
               <button
                 type="button"
                 aria-label="Aumentar quantidade"
-                className="flex size-10 items-center justify-center transition-colors active:bg-muted disabled:opacity-40 touch-manipulation"
+                className="flex size-11 items-center justify-center transition-colors active:bg-muted disabled:opacity-40 touch-manipulation"
                 onClick={() => setQtd(q => (q < estoqueDisp ? q + 1 : q))}
                 disabled={noLimite}
               >

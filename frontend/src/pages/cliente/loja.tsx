@@ -656,12 +656,12 @@ function CarrinhoLateral({ loja }: { loja: Loja }) {
                   )}
                   <div className="text-sm font-bold text-primary mt-0.5">{brl(item.preco_centavos * item.quantidade)}</div>
                 </div>
-                <div className="flex items-center gap-1 rounded-full border border-border bg-background shrink-0">
-                  <button aria-label={item.quantidade === 1 ? `Remover ${item.nome}` : `Diminuir quantidade de ${item.nome}`} onClick={() => mudarQuantidade(item.chave, -1)} className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-transform touch-manipulation hover:text-foreground active:scale-90">
+                <div className="flex shrink-0 items-center gap-2 rounded-full border border-border bg-background px-1">
+                  <button aria-label={item.quantidade === 1 ? `Remover ${item.nome}` : `Diminuir quantidade de ${item.nome}`} onClick={() => mudarQuantidade(item.chave, -1)} className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition-transform touch-manipulation hover:text-foreground active:scale-90">
                     {item.quantidade === 1 ? <Trash2 className="size-4" /> : <Minus className="size-4" />}
                   </button>
                   <span key={item.quantidade} className="min-w-5 text-center text-sm font-bold tabular-nums anim-pop">{item.quantidade}</span>
-                  <button aria-label={`Aumentar quantidade de ${item.nome}`} onClick={() => mudarQuantidade(item.chave, 1)} className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-transform touch-manipulation hover:text-primary active:scale-90">
+                  <button aria-label={`Aumentar quantidade de ${item.nome}`} onClick={() => mudarQuantidade(item.chave, 1)} className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition-transform touch-manipulation hover:text-primary active:scale-90">
                     <Plus className="size-4" />
                   </button>
                 </div>

@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { MotionConfig } from 'framer-motion';
 import { BrowserRouter } from 'react-router-dom';
 import { QueryClient, QueryClientProvider, QueryCache } from '@tanstack/react-query';
 import './index.css';
@@ -67,6 +68,17 @@ const queryClient = new QueryClient({
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
+    {/*
+      MotionConfig reducedMotion="user": faz TODA animação do framer-motion
+      obedecer a preferência do sistema, num lugar só.
+
+      As animações em CSS já respeitavam (três blocos @media em index.css), mas
+      as de JS não: 9 arquivos usam framer-motion e apenas um chamava
+      useReducedMotion. Quem liga "reduzir movimento" costuma fazer isso por
+      enxaqueca, vertigem ou sensibilidade vestibular — não é preferência
+      estética, e ignorar em 8 de 9 telas anula o esforço do outro 1.
+    */}
+    <MotionConfig reducedMotion="user">
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
@@ -80,5 +92,6 @@ createRoot(document.getElementById('root')!).render(
         </BrowserRouter>
       </QueryClientProvider>
     </ErrorBoundary>
+    </MotionConfig>
   </StrictMode>,
 );
