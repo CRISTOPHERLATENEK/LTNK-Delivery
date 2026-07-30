@@ -9,6 +9,16 @@ import path from 'path';
  */
 export default defineConfig({
   plugins: [react()],
+  /**
+   * O .env do projeto é UM só, na raiz — mas o Vite roda de dentro de frontend/ e
+   * por padrão procuraria o .env aqui. Sem isto, `VITE_SENTRY_DSN` colado na raiz
+   * (como o .env.example manda) simplesmente não existia no build, e o Sentry do
+   * frontend ficava desligado sem nenhum aviso.
+   *
+   * Só variáveis com prefixo VITE_ entram no bundle; segredos do backend que
+   * moram no mesmo arquivo (ONZ, banco, APP_SECRET) continuam de fora.
+   */
+  envDir: path.resolve(__dirname, '..'),
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') },
   },
