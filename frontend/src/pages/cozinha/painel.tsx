@@ -141,6 +141,24 @@ function TelaKDS() {
   const dadoVelho = pedidosQ.dataUpdatedAt > 0 && segundosDesatualizado >= 20;
 
   /**
+   * POR QUE a fila parou de atualizar. Antes dizia sempre "Sem conexão com o
+   * servidor", inclusive quando o servidor respondia perfeitamente com 401 —
+   * a cozinha ficava olhando uma fila velha, sem ação possível, achando que o
+   * problema era a internet. Sessão expirada tem conserto (entrar de novo), e
+   * a tela precisa dizer isso.
+   */
+  const erroFila = pedidosQ.error;
+  const statusErro = erroFila instanceof ApiError ? erroFila.status : 0;
+  const sessaoCaiu = statusErro === 401 || statusErro === 403;
+  const motivoParada = !navigator.onLine
+    ? 'Este aparelho está sem internet — a fila pode estar desatualizada'
+    : sessaoCaiu
+    ? 'Sua sessão expirou — entre de novo para voltar a receber pedidos'
+    : statusErro >= 500
+    ? `O servidor respondeu com erro (${statusErro}) — a fila pode estar desatualizada`
+    : 'Sem conexão com o servidor — a fila pode estar desatualizada';
+
+  /**
    * DUAS RAIAS: "Novos" (ainda não começados) e "Em preparo".
    *
    * Antes tudo caía num grid só, com o estágio escrito em letra miúda no card.
@@ -323,10 +341,25 @@ function TelaKDS() {
         significa 5 tentativas falhando).
       */}
       {dadoVelho && (
-        <div className="flex items-center justify-center gap-2 bg-red-500/15 px-4 py-2 text-sm font-bold text-red-700 dark:text-red-300">
+        <div className="flex flex-wrap items-center justify-center gap-2 bg-red-500/15 px-4 py-2 text-sm font-bold text-red-700 dark:text-red-300">
           <WifiOff className="size-4 shrink-0" />
-          Sem conexão com o servidor — a fila pode estar desatualizada
+          {motivoParada}
           <span className="tabular-nums font-normal opacity-80">({segundosDesatualizado}s)</span>
+          {sessaoCaiu ? (
+            <button
+              onClick={() => { encerrarSessao('cozinha'); window.location.href = '/cozinha'; }}
+              className="rounded-lg bg-red-600 px-3 py-1 text-xs font-bold text-white hover:bg-red-700"
+            >
+              Entrar de novo
+            </button>
+          ) : (
+            <button
+              onClick={() => { pedidosQ.refetch(); }}
+              className="rounded-lg border border-current px-3 py-1 text-xs font-bold hover:bg-red-500/10"
+            >
+              Tentar agora
+            </button>
+          )}
         </div>
       )}
 
