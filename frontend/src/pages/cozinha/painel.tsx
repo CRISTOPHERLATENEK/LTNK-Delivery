@@ -350,7 +350,11 @@ function TelaKDS() {
           // Cada raia rola por conta própria: fila longa de "Novos" não empurra
           // "Em preparo" pra fora da tela (num tablet fixo, rolar é o que se
           //  quer evitar).
-          <div className="grid gap-4 md:grid-cols-2">
+          /* Orientação, não só largura: tablet de 800px em PÉ tem largura de "md"
+             mas duas raias lado a lado ali ficam com ~380px cada e o ticket fica
+             ilegível de longe. Em retrato as raias empilham (sobra altura), em
+             paisagem ficam lado a lado. */
+          <div className="grid gap-4 md:landscape:grid-cols-2 xl:grid-cols-2">
             {raias.map(raia => {
               const IconeRaia = raia.icone;
               return (
@@ -368,7 +372,9 @@ function TelaKDS() {
                       {raia.chave === 'novos' ? 'Nada novo na fila.' : 'Nada em preparo.'}
                     </p>
                   ) : (
-                    <div className="grid gap-3 xl:grid-cols-2">
+                    /* Em retrato a raia ocupa a largura toda, então cabem dois
+                       tickets por linha bem antes do xl. */
+                    <div className="grid gap-3 md:portrait:grid-cols-2 xl:grid-cols-2">
                       {raia.itens.map(p => (
                         <TicketCozinha
                           key={`${p.fonte}-${p.id}`}

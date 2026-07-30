@@ -1061,10 +1061,44 @@ const PAGAMENTO_BALCAO: Record<string, 'pix' | 'dinheiro' | 'cartao_entrega'> = 
  * `origem='balcao'` já `entregue` — assim entra no faturamento/relatórios.
  */
 router.post('/balcao', async (req, res, next) => {
+  // Fora do try porque o tratamento de chave duplicada (no catch) precisa saber de
+  // qual loja é a venda — buscar de novo lá seria outra consulta que pode falhar.
+  let lojaId: number | null = null;
   try {
     const loja = await minhaLoja(req);
+    lojaId = loja.id;
     const itensReq = Array.isArray(req.body.itens) ? req.body.itens : [];
     if (itensReq.length === 0) throw erroHttp(400, 'Adicione ao menos um item à venda.');
+
+    /**
+     * IDEMPOTÊNCIA — impede venda duplicada no balcão.
+     *
+     * Sem isto: o operador finaliza, o servidor grava, a resposta se perde (rede
+     * oscilou), ele vê erro e refaz — dois pedidos, estoque baixado duas vezes,
+     * dois cupons. Em caixa isso é dinheiro.
+     *
+     * Se a mesma chave chegar de novo, devolve a venda que já existe em vez de
+     * criar outra. É a mesma ideia do X-Idempotency-Key que já usamos no Mercado
+     * Pago, agora no PDV.
+     */
+    const idem = textoLimpo(req.body.idempotencia, 64) || null;
+    if (idem) {
+      const jaFeita = await db.prepare(
+        `SELECT id, subtotal_centavos, desconto_centavos, total_centavos
+           FROM pedidos WHERE idempotencia = ? AND loja_id = ?`
+      ).get(idem, loja.id) as { id: number; subtotal_centavos: number; desconto_centavos: number; total_centavos: number } | undefined;
+      if (jaFeita) {
+        // 200 (e não 201): nada foi criado agora. O PDV trata igual, mas fica
+        // honesto no log/rede sobre o que aconteceu.
+        return res.json({
+          pedido_id: jaFeita.id,
+          subtotal_centavos: jaFeita.subtotal_centavos,
+          desconto_centavos: jaFeita.desconto_centavos,
+          total_centavos: jaFeita.total_centavos,
+          repetida: true,
+        });
+      }
+    }
 
     const formaPagamento = PAGAMENTO_BALCAO[String(req.body.forma_pagamento)];
     if (!formaPagamento) throw erroHttp(400, 'Forma de pagamento inválida.');
@@ -1107,14 +1141,18 @@ router.post('/balcao', async (req, res, next) => {
     const agora = agoraUTC();
 
     const pedidoId = await comTransacao(async (tx) => {
+      // `desconto_centavos` não era gravado: o desconto era aplicado no total e
+      // depois perdido. Além de sumir dos relatórios, quebrava a NFC-e — a nota
+      // saía com vDesc=0 e valor cheio, ou seja, MAIOR do que o cliente pagou
+      // (vendaDoPedido lê esta coluna pra montar o desconto da nota).
       const info = await tx.prepare(
         `INSERT INTO pedidos (cliente_id, loja_id, status, endereco_entrega, forma_pagamento,
-                              observacoes, subtotal_centavos, taxa_entrega_centavos, total_centavos,
-                              comissao_percentual, comissao_centavos, pagamento_status, origem,
-                              criado_em, atualizado_em)
-         VALUES (?, ?, 'entregue', 'Venda no balcão', ?, ?, ?, 0, ?, ?, ?, 'aprovado', 'balcao', ?, ?)`
+                              observacoes, subtotal_centavos, taxa_entrega_centavos, desconto_centavos,
+                              total_centavos, comissao_percentual, comissao_centavos, pagamento_status,
+                              origem, idempotencia, criado_em, atualizado_em)
+         VALUES (?, ?, 'entregue', 'Venda no balcão', ?, ?, ?, 0, ?, ?, ?, ?, 'aprovado', 'balcao', ?, ?, ?)`
       ).run(consumidor, loja.id, formaPagamento, textoLimpo(req.body.observacoes || '', 200),
-            subtotal, total, comissaoPct, comissao, agora, agora);
+            subtotal, desconto, total, comissaoPct, comissao, idem, agora, agora);
       const novoPedidoId = Number(info.lastInsertRowid);
       for (const { produto, quantidade, precoUnit, detalhe } of itensValidados) {
         await tx.prepare(
@@ -1128,7 +1166,36 @@ router.post('/balcao', async (req, res, next) => {
     });
 
     res.status(201).json({ pedido_id: pedidoId, subtotal_centavos: subtotal, desconto_centavos: desconto, total_centavos: total });
-  } catch (e) { next(e); }
+  } catch (e) {
+    /**
+     * Corrida perdida na chave única: duas requisições com a MESMA chave chegaram
+     * juntas (duplo-clique com rede lenta), a outra inseriu primeiro e esta bateu
+     * no índice. Não é erro — é a proteção funcionando: devolve a venda que
+     * venceu, em vez de mostrar falha ao operador com a venda já registrada.
+     */
+    const erro = e as { code?: string };
+    const idemReq = textoLimpo(req.body?.idempotencia, 64);
+    if (erro?.code === 'ER_DUP_ENTRY' && idemReq && lojaId) {
+      try {
+        // Filtra por loja: a chave é única no tenant, então sem isso uma colisão
+        // (por improvável que seja) devolveria a venda de OUTRA loja.
+        const existente = await db.prepare(
+          `SELECT id, subtotal_centavos, desconto_centavos, total_centavos
+             FROM pedidos WHERE idempotencia = ? AND loja_id = ?`
+        ).get(idemReq, lojaId) as { id: number; subtotal_centavos: number; desconto_centavos: number; total_centavos: number } | undefined;
+        if (existente) {
+          return res.json({
+            pedido_id: existente.id,
+            subtotal_centavos: existente.subtotal_centavos,
+            desconto_centavos: existente.desconto_centavos,
+            total_centavos: existente.total_centavos,
+            repetida: true,
+          });
+        }
+      } catch { /* cai no next(e) abaixo */ }
+    }
+    next(e);
+  }
 });
 
 /** Vendas de balcão de hoje (lista curta + total) para o histórico do PDV. */

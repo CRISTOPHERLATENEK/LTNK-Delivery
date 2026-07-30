@@ -3,11 +3,11 @@
  * cobra (com troco no dinheiro) e finaliza. Registra como pedido origem='balcao'
  * (entra no faturamento). Imprime cupom ao concluir.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ShoppingCart, Search, Plus, Minus, Trash2, Banknote, QrCode, CreditCard,
-  Check, Printer, Receipt, ChefHat, Barcode, Scale, X, UtensilsCrossed,
+  Check, Printer, Receipt, ChefHat, Barcode, Scale, X, UtensilsCrossed, WifiOff,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -49,6 +49,17 @@ type NfceResultado = DadosDanfe & { xml: string };
 const ehPeso = (p: Produto) => p.vendido_por === 'kg';
 
 /**
+ * Chave única da venda, pro servidor reconhecer retentativa da MESMA venda.
+ * `randomUUID` só existe em contexto seguro (https/localhost) — o fallback cobre
+ * caixa acessando por http em rede local, onde ele é `undefined`.
+ */
+function criarChaveVenda(): string {
+  const c = globalThis.crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  return `pdv-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+/**
  * Interpreta um código bipado. Reconhece:
  *  - EAN/PLU exato cadastrado no produto (produto por unidade ou peso fixo)
  *  - Etiqueta de balança EAN-13 prefixo 2: dígitos 2–7 = PLU, 8–12 = peso em gramas
@@ -77,6 +88,26 @@ export function BalcaoLoja() {
   const [descontoStr, setDescontoStr] = useState('');
   const [recebidoStr, setRecebidoStr] = useState('');
   const [enviando, setEnviando] = useState(false);
+  // Chave da venda em curso (ver `finalizar`). Ref, não state: mudar não deve
+  // re-renderizar, e ela precisa sobreviver a re-render entre a falha e a retentativa.
+  const idempotencia = useRef<string | null>(null);
+  const campoDesconto = useRef<HTMLInputElement>(null);
+
+  /**
+   * PDV OFFLINE — o caixa precisa saber ANTES de tentar vender.
+   *
+   * Sem isso, o operador montava a venda inteira, apertava finalizar e só então
+   * levava um erro genérico de rede, com o cliente esperando na frente. Agora a
+   * tela avisa e o botão explica o motivo.
+   */
+  const [online, setOnline] = useState(() => navigator.onLine);
+  useEffect(() => {
+    const ligou = () => setOnline(true);
+    const caiu = () => setOnline(false);
+    window.addEventListener('online', ligou);
+    window.addEventListener('offline', caiu);
+    return () => { window.removeEventListener('online', ligou); window.removeEventListener('offline', caiu); };
+  }, []);
   const [codigo, setCodigo] = useState('');
   const [pesando, setPesando] = useState<Produto | null>(null);
   const [nfce, setNfce] = useState<NfceResultado | null>(null);
@@ -206,14 +237,33 @@ export function BalcaoLoja() {
     if (carrinho.length === 0) return;
     setEnviando(true);
     try {
-      const r = await api<{ pedido_id: number }>('POST', '/api/lojista/balcao', {
+      /**
+       * Chave de idempotência da venda — gerada UMA vez e mantida enquanto esta
+       * venda não conclui. Se a resposta se perder (rede oscilou) e o operador
+       * refizer, o servidor reconhece a chave e devolve a venda já registrada em
+       * vez de criar outra. Sem isso, a venda entrava em dobro: estoque baixado
+       * duas vezes e dois cupons.
+       */
+      if (!idempotencia.current) idempotencia.current = criarChaveVenda();
+      const r = await api<{ pedido_id: number; repetida?: boolean }>('POST', '/api/lojista/balcao', {
         itens: carrinho.map(i => i.pesoG
           ? { produto_id: i.produto.id, peso_g: i.pesoG }
           : { produto_id: i.produto.id, quantidade: i.quantidade }),
         forma_pagamento: pagamento,
         desconto_centavos: descontoCent,
+        idempotencia: idempotencia.current,
       });
-      mostrar({ tipo: 'sucesso', titulo: `Venda registrada! ${brl(total)}`, descricao: troco > 0 ? `Troco: ${brl(troco)}` : undefined });
+      // Venda concluída: a próxima começa com chave nova.
+      idempotencia.current = null;
+      mostrar({
+        tipo: 'sucesso',
+        // `repetida`: o servidor reconheceu a chave e devolveu a MESMA venda em vez
+        // de criar outra. Vale dizer, senão o operador estranha o número do cupom.
+        titulo: r.repetida ? `Venda #${r.pedido_id} já registrada` : `Venda registrada! ${brl(total)}`,
+        descricao: r.repetida
+          ? 'A primeira tentativa deu certo no servidor; nada foi duplicado.'
+          : troco > 0 ? `Troco: ${brl(troco)}` : undefined,
+      });
       const nfceAtivo = !!(lojaQ.data as any)?.nfce_ativo;
       const largura = lojaQ.data?.impressora_largura === '58' ? '58' : '80';
       if (nfceAtivo) {
@@ -241,8 +291,52 @@ export function BalcaoLoja() {
     }
   }
 
+  /**
+   * ATALHOS DE TECLADO — F2 finaliza, F4 vai pro desconto.
+   *
+   * Caixa com fila trabalha de teclado; tirar a mão pro mouse a cada venda custa
+   * segundos que aparecem no fim do dia. Teclas de função foram escolhidas de
+   * propósito: o leitor de código de barras "digita" números e Enter, então nunca
+   * dispara esses atalhos por acidente.
+   *
+   * `preventDefault` porque F2/F4 são atalhos do navegador em alguns SOs.
+   */
+  useEffect(() => {
+    function aoTeclar(e: KeyboardEvent) {
+      if (e.key !== 'F2' && e.key !== 'F4') return;
+      if (e.key === 'F2') {
+        // Só finaliza se o botão também estaria clicável — mesma condição, um lugar só.
+        if (carrinho.length === 0 || enviando || !online || pesando || nfce) return;
+        e.preventDefault();
+        finalizar();
+        return;
+      }
+      if (carrinho.length === 0 || pesando || nfce) return;
+      e.preventDefault();
+      campoDesconto.current?.focus();
+      campoDesconto.current?.select();
+    }
+    window.addEventListener('keydown', aoTeclar);
+    return () => window.removeEventListener('keydown', aoTeclar);
+    // `finalizar` é recriada a cada render e depende do carrinho/pagamento atuais;
+    // religar o listener a cada mudança é o que garante que F2 cobre a venda de agora.
+  });
+
   return (
     <div className="space-y-4">
+      {!online && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <WifiOff className="size-4 mt-0.5 shrink-0 text-amber-600" />
+          <div>
+            <div className="font-semibold text-amber-700 dark:text-amber-400">Sem conexão com a internet</div>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Você pode continuar montando a venda, mas não dá para finalizar até a conexão voltar.
+              A venda não se perde — assim que voltar, aperte Finalizar de novo.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Header com total do dia */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
@@ -394,8 +488,8 @@ export function BalcaoLoja() {
                 <>
                   {/* Desconto */}
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground flex-1">Desconto (R$)</span>
-                    <Input value={descontoStr} onChange={e => setDescontoStr(e.target.value)} inputMode="decimal" placeholder="0,00" className="w-24 h-8 text-right" />
+                    <span className="text-sm text-muted-foreground flex-1">Desconto (R$) <span className="opacity-50">F4</span></span>
+                    <Input ref={campoDesconto} value={descontoStr} onChange={e => setDescontoStr(e.target.value)} inputMode="decimal" placeholder="0,00" className="w-24 h-8 text-right" />
                   </div>
 
                   {/* Totais */}
@@ -434,15 +528,16 @@ export function BalcaoLoja() {
                     </div>
                   )}
 
-                  <Button size="lg" variant="outline" className="w-full" disabled={enviando} onClick={enviarCozinha}>
+                  <Button size="lg" variant="outline" className="w-full" disabled={enviando || !online} onClick={enviarCozinha}>
                     <ChefHat className="size-4" /> Enviar para a cozinha
                   </Button>
-                  <Button size="lg" className="w-full" onClick={finalizar} disabled={enviando}>
-                    {enviando ? 'Registrando…' : <><Check className="size-4" /> Finalizar · {brl(total)}</>}
+                  <Button size="lg" className="w-full" onClick={finalizar} disabled={enviando || !online}>
+                    {!online
+                      ? <><WifiOff className="size-4" /> Sem internet</>
+                      : enviando ? 'Registrando…' : <><Check className="size-4" /> Finalizar · {brl(total)} <span className="opacity-60 text-xs">(F2)</span></>}
                   </Button>
                   <p className="text-[10px] text-center text-muted-foreground flex items-center justify-center gap-1">
-                    <Printer className="size-3" /> imprime o cupom ao finalizar
-                  </p>
+                    <Printer className="size-3" /> imprime o cupom ao finalizar</p>
                 </>
               )}
             </CardContent>

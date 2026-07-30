@@ -69,6 +69,47 @@ export async function registrarEvento(pedidoId: number, evento: string): Promise
   }
 }
 
+/**
+ * Avisa TODOS os entregadores da loja que há corrida nova disponível.
+ *
+ * POR QUE EXISTE: quando um pedido ficava `pronto` e sem entregador, ninguém era
+ * avisado — o motoboy tinha que manter a tela do app aberta e olhando pra não
+ * perder corrida. O push só existia quando o LOJISTA atribuía a entrega a alguém
+ * específico; o pool aberto não notificava nada.
+ *
+ * Alcança os entregadores exclusivos da loja e os auto-cadastrados
+ * (`loja_id IS NULL`, compartilhados no tenant) — o mesmo critério que o lojista
+ * vê ao atribuir uma entrega manualmente.
+ */
+export async function notificarEntregadoresCorridaDisponivel(pedidoId: number): Promise<void> {
+  const pedido = await db.prepare(
+    `SELECT p.id, p.loja_id, p.taxa_entrega_centavos, l.nome AS loja_nome
+       FROM pedidos p JOIN lojas l ON l.id = p.loja_id
+      WHERE p.id = ?`
+  ).get(pedidoId) as { id: number; loja_id: number; taxa_entrega_centavos: number; loja_nome: string } | undefined;
+  if (!pedido) return;
+
+  const entregadores = await db.prepare(
+    `SELECT id FROM usuarios
+      WHERE perfil = 'entregador' AND bloqueado = 0 AND (loja_id IS NULL OR loja_id = ?)`
+  ).all(pedido.loja_id) as Array<{ id: number }>;
+  if (entregadores.length === 0) return;
+
+  const taxa = (pedido.taxa_entrega_centavos / 100).toFixed(2).replace('.', ',');
+  for (const e of entregadores) {
+    // Best-effort e em paralelo: um entregador com inscrição de push morta não
+    // pode impedir que os outros sejam avisados.
+    enviarPush(e.id, {
+      titulo: '🛵 Corrida disponível!',
+      corpo: `${pedido.loja_nome} · R$ ${taxa} — toque para aceitar.`,
+      url: '/entregador',
+      // `tag` fixa por pedido: se o push for reenviado, o celular substitui a
+      // notificação em vez de empilhar a mesma corrida várias vezes.
+      tag: `corrida-${pedido.id}`,
+    }).catch(() => { /* best-effort */ });
+  }
+}
+
 /** Avisa o lojista que entrou um pedido novo (push best-effort). */
 export async function notificarLojistaNovoPedido(pedidoId: number): Promise<void> {
   const info = await db.prepare(

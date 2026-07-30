@@ -22,6 +22,18 @@ export function horaLocal(iso: string | null | undefined): string {
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
+/**
+ * Posição de GPS velha demais para representar onde o entregador está agora.
+ *
+ * O app do entregador reenvia a posição a cada 25s mesmo parado (heartbeat), então
+ * mais de 2 min de silêncio significa app em segundo plano, sem sinal ou GPS
+ * desligado — e não "o entregador ficou parado".
+ */
+export function posicaoAtrasada(iso: string | null | undefined): boolean {
+  if (!iso) return false;
+  return Date.now() - new Date(iso).getTime() > 120_000;
+}
+
 /** "há 5 minutos", "agora mesmo" etc. */
 export function tempoRelativo(iso: string | null | undefined): string {
   if (!iso) return '';

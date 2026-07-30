@@ -629,6 +629,26 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     await pool.query("ALTER TABLE pedidos ADD COLUMN estornado_em VARCHAR(32) NOT NULL DEFAULT ''");
   }
 
+  /**
+   * pedidos.idempotencia — chave enviada pelo PDV pra impedir VENDA DUPLICADA.
+   *
+   * O caso real: o operador finaliza, o servidor grava, mas a resposta se perde
+   * (rede oscilou). Ele vê erro, refaz — e a venda entra duas vezes, com estoque
+   * baixado em dobro e dois cupons. O índice ÚNICO é o que garante isso no banco,
+   * não só na aplicação: mesmo com duas requisições simultâneas, só uma insere.
+   */
+  const [jaTemIdem] = await pool.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pedidos' AND COLUMN_NAME = 'idempotencia'
+      LIMIT 1`,
+  ) as any;
+  if (jaTemIdem.length === 0) {
+    await pool.query('ALTER TABLE pedidos ADD COLUMN idempotencia VARCHAR(64) NULL');
+    // UNIQUE aceita vários NULL no MySQL — pedido que não vem do PDV fica de fora
+    // da restrição naturalmente, sem precisar de valor sentinela.
+    await pool.query('ALTER TABLE pedidos ADD UNIQUE KEY idx_pedidos_idempotencia (idempotencia)');
+  }
+
   // lojas.pagamento_gateway: idem — escolha do gateway de Pix online por loja
   // (mercadopago | onz). Default 'mercadopago' preserva o comportamento de
   // quem já estava rodando antes desta coluna existir.

@@ -8,7 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Bike, MapPin, Phone, Store, CheckCircle2, ExternalLink,
   Activity, DollarSign, Home, TrendingUp, Clock, ArrowRight, Navigation, Bell, MessagesSquare,
-  Check, AlertTriangle, Wallet, Route as RouteIcon, ChevronDown, ChevronUp,
+  Check, AlertTriangle, Wallet, Route as RouteIcon, ChevronDown, ChevronUp, BatteryLow,
 } from 'lucide-react';
 import { AppLayout } from '@/components/app-layout';
 import { ChatPedido } from '@/components/chat-pedido';
@@ -22,6 +22,7 @@ import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, sessaoUsuario, salvarSessao } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
+import { suportaPush, ativarPush } from '@/lib/push';
 import { cn } from '@/lib/utils';
 
 const MapaRota = lazy(() => import('@/components/mapa-rota').then(m => ({ default: m.MapaRota })));
@@ -82,9 +83,52 @@ interface Entrega {
   loja_nome: string;
 }
 
+/**
+ * Bip curto via Web Audio (sem arquivo de áudio), mesmo recurso do KDS.
+ *
+ * Fica aqui e não num módulo compartilhado de propósito: o timbre do entregador
+ * é mais agudo e curto que o da cozinha — quem ouve está na rua, com casco e
+ * ruído de trânsito, não num balcão.
+ */
+function tocarBipEntregador() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const osc = ctx.createOscillator();
+    const ganho = ctx.createGain();
+    osc.connect(ganho); ganho.connect(ctx.destination);
+    osc.type = 'square';
+    osc.frequency.value = 1180;
+    ganho.gain.setValueAtTime(0.16, ctx.currentTime);
+    ganho.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.5);
+    setTimeout(() => ctx.close().catch(() => { /* já fechado */ }), 800);
+  } catch { /* navegador sem Web Audio — ignora */ }
+}
+
 export function TelaEntregador() {
   const u = sessaoUsuario();
-  if (!u || u.perfil !== 'entregador') return <LoginEntregador />;
+  const ehEntregador = !!u && u.perfil === 'entregador';
+
+  /**
+   * Inscreve o entregador no Web Push.
+   *
+   * BUG QUE ISSO CORRIGE: o backend JÁ enviava push ao entregador quando o
+   * lojista atribuía uma entrega (rotas/lojista.ts), mas esta tela nunca se
+   * inscrevia — a notificação era enviada e não chegava a ninguém. Cliente e
+   * lojista já faziam isso; o entregador tinha ficado de fora.
+   */
+  useEffect(() => {
+    if (!ehEntregador) return;
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => { /* usuário decide */ });
+    }
+    if (suportaPush()) ativarPush().catch(() => { /* best-effort */ });
+  }, [ehEntregador]);
+
+  if (!ehEntregador) return <LoginEntregador />;
 
   return (
     <AppLayout itens={ITENS_NAV} titulo="Entregador" subtitulo={u.nome}>
@@ -107,6 +151,39 @@ function CorridasDisponiveis() {
       api<{ corridas: Corrida[] }>('GET', '/api/entregador/corridas').then(r => r.corridas),
     refetchInterval: 5000,
   });
+
+  /**
+   * Alerta de CORRIDA NOVA — som + notificação.
+   *
+   * Antes não havia aviso nenhum: o entregador precisava manter a tela aberta e
+   * olhando pra não perder corrida (o KDS tinha bip; ele, nada). Compara IDs, não
+   * a quantidade: se uma corrida é aceita por outro e outra entra no mesmo
+   * intervalo, a contagem não muda e o alerta seria perdido — exatamente o bug
+   * que o KDS tinha.
+   */
+  const idsVistos = useRef<Set<number> | null>(null);
+  useEffect(() => {
+    const corridas = consulta.data;
+    if (!corridas) return;
+    const ids = new Set(corridas.map(c => c.id));
+    const vistos = idsVistos.current;
+    if (vistos) {
+      const novas = corridas.filter(c => !vistos.has(c.id));
+      if (novas.length > 0) {
+        tocarBipEntregador();
+        // Notificação do sistema: o celular costuma estar no bolso/suporte.
+        try {
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification(novas.length === 1 ? 'Nova corrida disponível!' : `${novas.length} corridas disponíveis!`, {
+              body: novas[0].loja_nome ? `Retirar em ${novas[0].loja_nome}` : 'Toque para ver os detalhes.',
+              tag: 'corrida-nova',
+            });
+          }
+        } catch { /* navegador sem suporte */ }
+      }
+    }
+    idsVistos.current = ids;
+  }, [consulta.data]);
 
   const ativaQ = useQuery({
     queryKey: ['entrega-ativa'],
@@ -237,28 +314,55 @@ function CorridasDisponiveis() {
  */
 type EstadoGPS = 'inativo' | 'aguardando' | 'ativo' | 'negado' | 'indisponivel';
 
-function useCompartilharLocalizacao(pedidoId: number | undefined): { estado: EstadoGPS; posicao: { lat: number; lng: number } | null } {
+function useCompartilharLocalizacao(pedidoId: number | undefined): {
+  estado: EstadoGPS;
+  posicao: { lat: number; lng: number } | null;
+  /** Momento (ms) do último envio aceito pelo servidor — null se nenhum ainda. */
+  confirmadoEm: number | null;
+} {
   const [estado, setEstado] = useState<EstadoGPS>('inativo');
   const [posicao, setPosicao] = useState<{ lat: number; lng: number } | null>(null);
+  const [confirmadoEm, setConfirmadoEm] = useState<number | null>(null);
   const ultimoEnvio = useRef(0);
+  /** Última coordenada lida do GPS, mesmo que ainda não enviada. */
+  const ultimaPos = useRef<{ lat: number; lng: number } | null>(null);
 
   useEffect(() => {
-    if (!pedidoId) { setEstado('inativo'); return; }
+    if (!pedidoId) { setEstado('inativo'); setConfirmadoEm(null); return; }
     if (!('geolocation' in navigator)) { setEstado('indisponivel'); return; }
 
     setEstado('aguardando');
+
+    /**
+     * Envia a última posição conhecida.
+     *
+     * `forcado` ignora o throttle — é o que o heartbeat usa. Em falha de rede o
+     * throttle é ZERADO em vez de contar como envio: assim a próxima chance
+     * (movimento ou heartbeat) tenta de novo na hora, e a posição não é perdida
+     * por um buraco de sinal. Sem isso, o cliente via o motoboy congelado no
+     * mapa por minutos mesmo com ele andando.
+     */
+    async function enviar(forcado: boolean) {
+      const p = ultimaPos.current;
+      if (!p) return;
+      const agora = Date.now();
+      if (!forcado && agora - ultimoEnvio.current < 8000) return;
+      ultimoEnvio.current = agora;
+      try {
+        await api('POST', `/api/entregador/corridas/${pedidoId}/localizacao`, { lat: p.lat, lng: p.lng });
+        setConfirmadoEm(Date.now());
+      } catch {
+        ultimoEnvio.current = 0;
+      }
+    }
+
     const watchId = navigator.geolocation.watchPosition(
       pos => {
         setEstado('ativo');
-        setPosicao({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        const agora = Date.now();
-        // Throttle: no máximo 1 envio a cada 8 segundos.
-        if (agora - ultimoEnvio.current < 8000) return;
-        ultimoEnvio.current = agora;
-        api('POST', `/api/entregador/corridas/${pedidoId}/localizacao`, {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-        }).catch(() => { /* silencioso: tenta de novo no próximo tick */ });
+        const p = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        ultimaPos.current = p;
+        setPosicao(p);
+        enviar(false);
       },
       err => {
         setEstado(err.code === err.PERMISSION_DENIED ? 'negado' : 'indisponivel');
@@ -266,10 +370,129 @@ function useCompartilharLocalizacao(pedidoId: number | undefined): { estado: Est
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
     );
 
-    return () => navigator.geolocation.clearWatch(watchId);
+    /**
+     * HEARTBEAT — `watchPosition` só dispara quando o aparelho SE MOVE. Parado no
+     * semáforo, na portaria ou na fila do restaurante, o entregador não emitia
+     * nada e o cliente não tinha como distinguir "parado ali" de "app fechou".
+     * Reenviar a mesma coordenada a cada 25s resolve isso e também serve de
+     * retentativa de qualquer envio que falhou.
+     */
+    const bater = setInterval(() => { enviar(true); }, 25_000);
+    // Voltar do segundo plano é o momento mais provável de haver posição atrasada.
+    const aoVoltar = () => { if (document.visibilityState === 'visible') enviar(true); };
+    document.addEventListener('visibilitychange', aoVoltar);
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+      clearInterval(bater);
+      document.removeEventListener('visibilitychange', aoVoltar);
+    };
   }, [pedidoId]);
 
-  return { estado, posicao };
+  return { estado, posicao, confirmadoEm };
+}
+
+/**
+ * Mantém a tela do celular acesa enquanto há entrega ativa.
+ *
+ * Entregador com o celular no suporte da moto: tela apagando a cada 30s significa
+ * GPS suspenso pelo sistema, rastreio congelado e o motoboy destravando o aparelho
+ * de luva a cada quadra. Só pede o bloqueio quando `ligado` — não faz sentido
+ * segurar a tela acesa na lista de corridas.
+ */
+function useTelaAcesa(ligado: boolean): void {
+  useEffect(() => {
+    if (!ligado) return;
+    type Lock = { release: () => Promise<void> };
+    const nav = navigator as Navigator & { wakeLock?: { request: (t: 'screen') => Promise<Lock> } };
+    if (!nav.wakeLock) return;
+    let lock: Lock | null = null;
+    let vivo = true;
+    const pedir = async () => {
+      try { lock = await nav.wakeLock!.request('screen'); } catch { /* negado/sem suporte */ }
+    };
+    pedir();
+    // O bloqueio é perdido quando a aba fica oculta; ao voltar, pede de novo.
+    const aoMudarVisibilidade = () => { if (vivo && document.visibilityState === 'visible') pedir(); };
+    document.addEventListener('visibilitychange', aoMudarVisibilidade);
+    return () => {
+      vivo = false;
+      document.removeEventListener('visibilitychange', aoMudarVisibilidade);
+      lock?.release().catch(() => { /* já liberado */ });
+    };
+  }, [ligado]);
+}
+
+/**
+ * Selo do rastreamento: mostra quando a posição foi de fato ACEITA pelo servidor,
+ * não só lida do GPS. A diferença importa — com sinal ruim o GPS continua lendo e
+ * o antigo "GPS ativo" ficava verde enquanto o cliente não recebia nada. Passando
+ * de 70s sem confirmação (o heartbeat é de 25s), vira aviso amarelo.
+ */
+function SeloEnvio({ confirmadoEm }: { confirmadoEm: number | null }) {
+  const [, tique] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => tique(n => n + 1), 10_000);
+    return () => clearInterval(t);
+  }, []);
+
+  if (!confirmadoEm) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-bold shrink-0">
+        <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" /> enviando…
+      </span>
+    );
+  }
+  const seg = Math.floor((Date.now() - confirmadoEm) / 1000);
+  const atrasado = seg > 70;
+  const rotulo = seg < 45 ? 'agora' : seg < 120 ? '1 min' : `${Math.floor(seg / 60)} min`;
+  return (
+    <span className={cn(
+      'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold shrink-0',
+      atrasado ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-emerald-500/15',
+    )}>
+      <span className={cn('size-1.5 rounded-full', atrasado ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse')} />
+      {atrasado ? `sem enviar há ${rotulo}` : `enviado ${rotulo}`}
+    </span>
+  );
+}
+
+/**
+ * Percentual da bateria quando está BAIXA e fora do carregador; null nos outros
+ * casos (inclusive navegador sem a API, como iOS).
+ *
+ * Vale o aviso porque `enableHighAccuracy` mantém o GPS ligado sem parar: celular
+ * a 15% no começo da corrida costuma morrer antes da entrega, e aí o cliente
+ * simplesmente perde o rastreio sem explicação.
+ */
+function useBateriaFraca(ligado: boolean): number | null {
+  const [pct, setPct] = useState<number | null>(null);
+  useEffect(() => {
+    if (!ligado) { setPct(null); return; }
+    type Bateria = { level: number; charging: boolean; addEventListener: (t: string, f: () => void) => void; removeEventListener: (t: string, f: () => void) => void };
+    const nav = navigator as Navigator & { getBattery?: () => Promise<Bateria> };
+    if (!nav.getBattery) return;
+    let bat: Bateria | null = null;
+    let vivo = true;
+    const avaliar = () => {
+      if (!bat || !vivo) return;
+      const nivel = Math.round(bat.level * 100);
+      setPct(!bat.charging && nivel <= 20 ? nivel : null);
+    };
+    nav.getBattery().then(b => {
+      if (!vivo) return;
+      bat = b;
+      avaliar();
+      b.addEventListener('levelchange', avaliar);
+      b.addEventListener('chargingchange', avaliar);
+    }).catch(() => { /* API bloqueada por permissão: sem aviso, sem quebrar */ });
+    return () => {
+      vivo = false;
+      bat?.removeEventListener('levelchange', avaliar);
+      bat?.removeEventListener('chargingchange', avaliar);
+    };
+  }, [ligado]);
+  return pct;
 }
 
 function EntregaAtiva() {
@@ -283,7 +506,9 @@ function EntregaAtiva() {
     refetchInterval: 5000,
   });
 
-  const { estado: estadoGPS, posicao } = useCompartilharLocalizacao(consulta.data?.id);
+  const { estado: estadoGPS, posicao, confirmadoEm } = useCompartilharLocalizacao(consulta.data?.id);
+  useTelaAcesa(!!consulta.data?.id);
+  const bateriaFraca = useBateriaFraca(estadoGPS === 'ativo');
   const [avisando, setAvisando] = useState(false);
   const [avisou, setAvisou] = useState(false);
   const [chatAberto, setChatAberto] = useState(false);
@@ -437,12 +662,18 @@ function EntregaAtiva() {
           {estadoGPS === 'indisponivel' && 'GPS indisponível neste dispositivo'}
           {estadoGPS === 'inativo' && 'Rastreamento inativo'}</span>
         </span>
-        {estadoGPS === 'ativo' && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-bold shrink-0">
-            <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" /> GPS ativo
-          </span>
-        )}
+        {estadoGPS === 'ativo' && <SeloEnvio confirmadoEm={confirmadoEm} />}
       </div>
+
+      {bateriaFraca && (
+        <div className="flex items-center gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-300">
+          <BatteryLow className="size-4 shrink-0" />
+          <span>
+            <span className="font-bold">Bateria em {bateriaFraca}%</span>
+            <span className="text-muted-foreground"> · o GPS de alta precisão gasta rápido. Ligue no carregador para não perder o rastreio no meio da entrega.</span>
+          </span>
+        </div>
+      )}
 
       {/* Pontos + mapa lado a lado */}
       <div className="lg:grid lg:grid-cols-[320px_1fr] lg:gap-4 lg:items-start space-y-4 lg:space-y-0">

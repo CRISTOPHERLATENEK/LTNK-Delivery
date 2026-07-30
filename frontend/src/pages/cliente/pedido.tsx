@@ -8,7 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Bike, MapPin, MessageSquare, CreditCard, Check, Clock, Star, Package, ChefHat, CheckCircle2, Truck, Bell, BellRing, Phone, MessagesSquare, ChevronDown, ChevronUp, XCircle, LifeBuoy } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import { brl, dataLocal, tempoRelativo } from '@/lib/format';
+import { brl, dataLocal, tempoRelativo, posicaoAtrasada } from '@/lib/format';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -212,7 +212,14 @@ export function PaginaPedido() {
               Acompanhe a entrega
             </h2>
             {pedido.entregador_local_em && (
-              <span className="text-xs text-muted-foreground">
+              /* Passando de 2 min sem posição nova, o ponto no mapa não é mais
+                 confiável (app em segundo plano, sinal ruim). Dizer isso evita o
+                 cliente achar que o entregador parou de andar. */
+              <span className={cn(
+                'text-xs',
+                posicaoAtrasada(pedido.entregador_local_em) ? 'text-amber-600 dark:text-amber-400 font-semibold' : 'text-muted-foreground',
+              )}>
+                {posicaoAtrasada(pedido.entregador_local_em) ? 'sinal fraco · ' : ''}
                 atualizado {tempoRelativo(pedido.entregador_local_em)}
               </span>
             )}

@@ -5,7 +5,7 @@
  */
 import db from './db-mysql';
 import { agoraUTC, erroHttp } from './util';
-import { registrarEvento } from './notificacoes';
+import { registrarEvento, notificarEntregadoresCorridaDisponivel } from './notificacoes';
 import { Pedido, StatusPedido } from '../tipos/modelos';
 
 export const TRANSICOES: Record<StatusPedido, StatusPedido[]> = {
@@ -91,6 +91,20 @@ export async function transicionarStatus(
 
   const eventoFila = EVENTOS_NOTIFICAVEIS[novoStatus];
   if (eventoFila) await registrarEvento(pedidoId, eventoFila);
+
+  /**
+   * Pedido PRONTO e sem entregador = corrida entrou no pool aberto: avisa os
+   * entregadores. Feito aqui porque `transicionarStatus` é o ponto único por onde
+   * todo status passa — em qualquer outro lugar, algum caminho ficaria de fora.
+   *
+   * Não avisa quando o lojista já atribuiu alguém (`entregador_id` preenchido):
+   * nesse caso o push direto ao escolhido já é enviado em rotas/lojista.ts, e
+   * chamar os outros só geraria corrida para algo que não está disponível.
+   */
+  if (novoStatus === 'pronto' && !pedido.entregador_id) {
+    notificarEntregadoresCorridaDisponivel(pedidoId).catch(e =>
+      console.error('[entregador] falha ao avisar corrida disponível:', e));
+  }
 
   return { ...pedido, status: novoStatus, atualizado_em: agora, ...extras };
 }
