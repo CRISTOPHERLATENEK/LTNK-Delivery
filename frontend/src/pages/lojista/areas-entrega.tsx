@@ -149,6 +149,12 @@ export function AreasEntrega({ taxaPadrao }: { taxaPadrao: number }) {
         onSelecionar={setSelecionada}
         onCancelarDesenho={() => { setDesenhando(false); setNovo(null); }}
         onDesenhoConcluido={poligono => { setNovo({ poligono, nome: '', taxa: '' }); setDesenhando(false); }}
+        // Contorno pronto do bairro buscado: entra como rascunho já nomeado, e o
+        // lojista só define a taxa (pode redesenhar se quiser ajustar).
+        onUsarContorno={(poligono, nome) => {
+          setDesenhando(false);
+          setNovo({ poligono, nome, taxa: '' });
+        }}
       />
 
       {!desenhando && !novo && (

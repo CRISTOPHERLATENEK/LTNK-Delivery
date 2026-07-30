@@ -28,7 +28,7 @@ import { cashInDisponivel, registrarWebhookCashIn } from '../onz';
 import { credenciaisOnzDaLoja } from './pagamentos';
 import { testarCredenciaisOficial } from '../whatsapp';
 import { wbapiConfigurado, statusSessaoPlataforma } from '../whatsapp-nao-oficial';
-import { geocodificarTexto } from '../geo';
+import { geocodificarTexto, buscarLocais } from '../geo';
 import { GrupoOpcao, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
 
 /**
@@ -522,6 +522,22 @@ router.delete('/zonas/:id', async (req, res, next) => {
 // passa a ser recusado no checkout (ver frete.ts). É assim que o lojista diz
 // "atendo só aqui" — e é opt-in, então loja sem área desenhada não muda de
 // comportamento.
+
+/**
+ * Busca de lugar por nome (Brasil), pro editor de áreas: o lojista digita
+ * "Centro, Blumenau" e o mapa vai pra lá — em vez de arrastar procurando.
+ *
+ * Quando o OpenStreetMap tem o contorno do bairro, ele volta junto e o editor
+ * oferece usá-lo como área pronta (o desenho manual continua disponível).
+ */
+router.get('/buscar-local', async (req, res, next) => {
+  try {
+    await minhaLoja(req); // só lojista autenticado — evita virar proxy aberto de geocodificação
+    const q = textoLimpo(req.query.q, 120);
+    if (q.length < 3) return res.json({ locais: [] });
+    res.json({ locais: await buscarLocais(q) });
+  } catch (e) { next(e); }
+});
 
 router.get('/areas', async (req, res, next) => {
   try {
