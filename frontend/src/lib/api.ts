@@ -21,6 +21,20 @@ export class ApiError extends Error {
     super(mensagem);
     this.status = status;
   }
+
+  /**
+   * A requisição não chegou ao servidor: sem internet, servidor fora, DNS, TLS.
+   *
+   * POR QUE ISSO EXISTE: `fetch` rejeita com `TypeError: Failed to fetch` nesse
+   * caso, e não com ApiError — então nenhuma tela conseguia diferenciar "não
+   * existe" de "não deu pra falar com o servidor". O resultado aparecia na cara
+   * do cliente: a vitrine dizia "Loja não encontrada" quando o servidor estava
+   * fora do ar. Agora essa falha também vira ApiError, com status 0 (a mesma
+   * convenção do XHR pra "sem resposta").
+   */
+  get semRede(): boolean {
+    return this.status === 0;
+  }
 }
 
 export type Area = 'cliente' | 'lojista' | 'entregador' | 'cozinha' | 'admin';
@@ -214,11 +228,21 @@ export async function api<T = unknown>(
   const tenantDemo = tenantDemoAtivo();
   if (tenantDemo) cabecalhos['X-Demo-Tenant'] = tenantDemo;
 
-  const resposta = await fetch(caminho, {
-    method: metodo,
-    headers: cabecalhos,
-    body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
-  });
+  let resposta: Response;
+  try {
+    resposta = await fetch(caminho, {
+      method: metodo,
+      headers: cabecalhos,
+      body: corpo !== undefined ? JSON.stringify(corpo) : undefined,
+    });
+  } catch {
+    // Falha de transporte (ver ApiError.semRede). A mensagem já sai pronta pra
+    // mostrar: distingue "o aparelho está sem internet" de "a internet está aí,
+    // o servidor é que não respondeu" — são ações diferentes pra quem lê.
+    throw new ApiError(0, navigator.onLine
+      ? 'Não conseguimos falar com o servidor. Tente de novo em alguns instantes.'
+      : 'Você está sem internet. Verifique a conexão e tente de novo.');
+  }
 
   let dados: any = {};
   try { dados = await resposta.json(); } catch { /* sem corpo */ }

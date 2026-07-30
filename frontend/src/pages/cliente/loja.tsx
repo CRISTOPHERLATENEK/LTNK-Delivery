@@ -4,7 +4,8 @@ import { useTema, injetarFonteLink, foregroundContraste } from '@/lib/tema';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2, Check, ArrowRight, ShoppingCart, UtensilsCrossed } from 'lucide-react';
-import { api, definirTenantDemo } from '@/lib/api';
+import { api, ApiError, definirTenantDemo } from '@/lib/api';
+import { Falha } from '@/components/ui/estado';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
@@ -150,6 +151,23 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
   }, [JSON.stringify(visual.avancado), !!consulta.data, modoPreview]);
 
   if (consulta.isLoading) return <Skeleton_Loja />;
+
+  /**
+   * FALHA DE REDE não é "loja não encontrada".
+   *
+   * Este ramo dizia "Loja não encontrada" pra QUALQUER motivo de `data` vazio —
+   * inclusive servidor fora do ar. O cliente com fome, prestes a pedir, era
+   * informado de que a loja não existe; muitos nunca voltam depois disso.
+   * Falha de transporte e 5xx agora mostram o que é, com botão de tentar de novo.
+   */
+  if (consulta.isError) {
+    const e = consulta.error;
+    const ehAusente = e instanceof ApiError && !e.semRede && e.status === 404;
+    if (!ehAusente) {
+      return <Falha erro={e} aoTentar={() => consulta.refetch()} />;
+    }
+  }
+
   // Sem `data` a página não tem o que renderizar. Antes devolvia null aqui, o
   // que deixava só o cabeçalho e a nav do layout na tela (parecia um bug de
   // tela preta) — a causa mais comum é a loja não existir NESTE tenant, ex.
@@ -373,7 +391,7 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
             className="w-full h-11 rounded-2xl border border-border bg-muted/50 pl-10 pr-10 text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
           />
           {busca && (
-            <button onClick={() => setBusca('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+            <button aria-label="Limpar busca" onClick={() => setBusca('')} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
               <X className="size-4" />
             </button>
           )}
@@ -549,7 +567,7 @@ function ModalAdicionado({ produto, onFechar }: { produto: Produto | null; onFec
         >
           <div className="relative overflow-hidden rounded-3xl border border-primary/30 bg-card shadow-2xl">
             <div className="absolute left-0 top-0 h-full w-1.5 bg-primary" />
-            <button onClick={onFechar} className="absolute top-3.5 right-3.5 text-muted-foreground hover:text-foreground transition-colors">
+            <button aria-label="Fechar" onClick={onFechar} className="absolute top-3.5 right-3.5 text-muted-foreground hover:text-foreground transition-colors">
               <X className="size-5" />
             </button>
             <div className="flex items-center gap-3.5 p-4 pl-5">
@@ -639,12 +657,12 @@ function CarrinhoLateral({ loja }: { loja: Loja }) {
                   <div className="text-sm font-bold text-primary mt-0.5">{brl(item.preco_centavos * item.quantidade)}</div>
                 </div>
                 <div className="flex items-center gap-1 rounded-full border border-border bg-background shrink-0">
-                  <button onClick={() => mudarQuantidade(item.chave, -1)} className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-foreground active:scale-90 transition-transform">
-                    {item.quantidade === 1 ? <Trash2 className="size-3.5" /> : <Minus className="size-3.5" />}
+                  <button aria-label={item.quantidade === 1 ? `Remover ${item.nome}` : `Diminuir quantidade de ${item.nome}`} onClick={() => mudarQuantidade(item.chave, -1)} className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-transform touch-manipulation hover:text-foreground active:scale-90">
+                    {item.quantidade === 1 ? <Trash2 className="size-4" /> : <Minus className="size-4" />}
                   </button>
                   <span key={item.quantidade} className="min-w-5 text-center text-sm font-bold tabular-nums anim-pop">{item.quantidade}</span>
-                  <button onClick={() => mudarQuantidade(item.chave, 1)} className="flex size-7 items-center justify-center rounded-full text-muted-foreground hover:text-primary active:scale-90 transition-transform">
-                    <Plus className="size-3.5" />
+                  <button aria-label={`Aumentar quantidade de ${item.nome}`} onClick={() => mudarQuantidade(item.chave, 1)} className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-transform touch-manipulation hover:text-primary active:scale-90">
+                    <Plus className="size-4" />
                   </button>
                 </div>
               </div>

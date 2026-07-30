@@ -140,18 +140,18 @@ export function PaginaCarrinho() {
                     <div className="flex items-center gap-0.5 rounded-full bg-accent p-0.5">
                       <button
                         onClick={() => mudarQuantidade(item.chave, -1)}
-                        className="flex size-6 items-center justify-center rounded-full hover:bg-background active:scale-90 transition-all"
+                        className="flex size-9 items-center justify-center rounded-full transition-all touch-manipulation hover:bg-background active:scale-90"
                         aria-label="Diminuir"
                       >
-                        <Minus className="size-3" />
+                        <Minus className="size-4" />
                       </button>
                       <span key={item.quantidade} className="min-w-5 text-center text-sm font-bold anim-pop">{item.quantidade}</span>
                       <button
                         onClick={() => mudarQuantidade(item.chave, +1)}
-                        className="flex size-6 items-center justify-center rounded-full hover:bg-background active:scale-90 transition-all"
+                        className="flex size-9 items-center justify-center rounded-full transition-all touch-manipulation hover:bg-background active:scale-90"
                         aria-label="Aumentar"
                       >
-                        <Plus className="size-3" />
+                        <Plus className="size-4" />
                       </button>
                     </div>
                   </div>

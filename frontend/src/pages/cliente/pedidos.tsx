@@ -10,6 +10,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
+import { Vazio, Falha } from '@/components/ui/estado';
 import { useToast } from '@/components/ui/toast';
 import { adicionarAoCarrinho } from '@/lib/carrinho';
 import type { Pedido, Loja } from '@/types';
@@ -38,6 +39,13 @@ export function PaginaPedidos() {
 
   if (consulta.isLoading) {
     return <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-24" />)}</div>;
+  }
+
+  // Falha ANTES do vazio: sem isto, uma requisição que falhou caía no fluxo de
+  // baixo com `data` indefinido e a tela ficava muda — o cliente não sabia se
+  // não tinha pedido ou se o app não conseguiu buscar.
+  if (consulta.isError) {
+    return <Falha erro={consulta.error} aoTentar={() => consulta.refetch()} />;
   }
 
   if (consulta.data && consulta.data.length === 0) {
@@ -114,15 +122,3 @@ export function PaginaPedidos() {
   );
 }
 
-export function Vazio({
-  icone, titulo, texto, botao,
-}: { icone: React.ReactNode; titulo: string; texto: string; botao?: React.ReactNode }) {
-  return (
-    <div className="flex flex-col items-center justify-center text-center py-20 space-y-4">
-      <div className="size-20 rounded-full bg-accent flex items-center justify-center">{icone}</div>
-      <h2 className="text-xl font-bold">{titulo}</h2>
-      <p className="text-muted-foreground max-w-sm">{texto}</p>
-      {botao}
-    </div>
-  );
-}

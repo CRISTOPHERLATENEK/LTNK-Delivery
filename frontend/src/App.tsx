@@ -23,6 +23,7 @@ import { PaginaConta } from '@/pages/cliente/conta';
 import { EsqueciSenha, RedefinirSenha } from '@/pages/esqueci-senha';
 import { Guard } from '@/components/guards';
 import { lazySeguro } from '@/lib/lazy-seguro';
+import { AvisoOffline } from '@/components/aviso-offline';
 
 /**
  * Painéis internos (lojista, entregador, cozinha, admin) entram por lazy: são
@@ -155,6 +156,10 @@ export default function App() {
     // Suspense cobre as rotas lazy (painéis internos). As rotas do cliente são
     // estáticas e não passam por aqui — renderizam sem fallback nenhum.
     <Suspense fallback={<CarregandoPainel />}>
+    {/* Fora do <Routes>: vale em TODAS as áreas (cliente, lojista, KDS,
+        entregador, admin). Ficar sem rede é igualmente ruim em qualquer uma
+        delas, e duplicar o aviso por área garantiria esquecer alguma. */}
+    <AvisoOffline />
     <Routes>
       {/* Sem ClienteLayout: "/" tanto pode ser a landing do produto (sem nav de
           compras — carrinho/pedidos não fazem sentido numa página de marketing)
