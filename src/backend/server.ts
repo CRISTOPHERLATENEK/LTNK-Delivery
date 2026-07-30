@@ -98,6 +98,23 @@ const CSP_BASE = [
     'https://brasilapi.com.br',           // consulta de CNPJ no painel fiscal
     'https://router.project-osrm.org',    // rota do entregador no mapa
     'https://*.tile.openstreetmap.org',   // tiles do mapa
+    /**
+     * AGENTE DE IMPRESSÃO no PC do caixa (frontend/src/lib/agente.ts).
+     *
+     * BUG QUE ISSO CORRIGE: sem estas origens, TODA chamada ao agente era
+     * bloqueada pela CSP ("Refused to connect... violates connect-src"). O
+     * lojista instalava o agente, ele rodava, e o navegador nem tentava falar
+     * com ele — `agenteAtivo()` sempre dava falso e cada impressão caía no
+     * diálogo do navegador. Era a causa raiz do PDV/mesa travando.
+     *
+     * Risco de segurança é baixo e o alcance é mínimo: loopback só chega no
+     * PRÓPRIO computador de quem está usando o painel, numa porta só. Um XSS
+     * não ganha exfiltração pra fora com isso — e é exatamente o recurso que a
+     * porta 9110 existe pra oferecer. 127.0.0.1 junto porque parte dos Windows
+     * resolve `localhost` só pra ::1 e o agente escuta em IPv4.
+     */
+    'http://localhost:9110',
+    'http://127.0.0.1:9110',
     ...ORIGENS_ANALYTICS,
     'https://*.google-analytics.com',
     'https://*.analytics.google.com',
