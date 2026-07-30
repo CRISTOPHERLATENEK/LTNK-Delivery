@@ -40,10 +40,12 @@ export interface LocalBusca {
 }
 
 export function MapaAreas({
-  centro, areas, areaSelecionada, desenhando, onDesenhoConcluido, onCancelarDesenho, onSelecionar,
-  onUsarContorno,
+  centro, centroEhReal = true, areas, areaSelecionada, desenhando, onDesenhoConcluido,
+  onCancelarDesenho, onSelecionar, onUsarContorno,
 }: {
   centro: PontoMapa;
+  /** false = `centro` é só um chute pra abrir o mapa; não marca "Sua loja" nem recentra. */
+  centroEhReal?: boolean;
   areas: AreaMapa[];
   areaSelecionada?: number | null;
   desenhando: boolean;
@@ -76,20 +78,33 @@ export function MapaAreas({
   // Monta o mapa uma vez.
   useEffect(() => {
     if (!divRef.current || mapaRef.current) return;
-    const mapa = L.map(divRef.current, { zoomControl: true }).setView(centro, 14);
+    // Sem coordenada da loja, abrir em zoom 14 mostra um close de lugar nenhum
+    // (foi o que dava a impressão de "estou no meio do mato"). Zoom 4 mostra o
+    // país inteiro, deixando claro que é uma visão inicial e que é pra buscar.
+    const mapa = L.map(divRef.current, { zoomControl: true }).setView(centro, centroEhReal ? 14 : 4);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap',
       maxZoom: 19,
     }).addTo(mapa);
 
-    // Marca a loja: é a referência de "onde eu estou" pra desenhar em volta.
-    L.marker(centro, {
-      icon: L.divIcon({
-        className: '',
-        html: `<div style="background:${corDoTema('--primary')};width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
-        iconSize: [14, 14], iconAnchor: [7, 7],
-      }),
-    }).addTo(mapa).bindTooltip('Sua loja');
+    /**
+     * Marca a loja: é a referência de "onde eu estou" pra desenhar em volta.
+     *
+     * Só desenha se a loja REALMENTE tem coordenada. Sem `centroEhReal`, o
+     * marcador aparecia sobre o centro geográfico do Brasil (o fallback usado
+     * pra não abrir o mapa no oceano) rotulado "Sua loja" — o lojista via a
+     * própria loja cravada no meio do Mato Grosso e concluía, com razão, que o
+     * mapa estava quebrado.
+     */
+    if (centroEhReal) {
+      L.marker(centro, {
+        icon: L.divIcon({
+          className: '',
+          html: `<div style="background:${corDoTema('--primary')};width:14px;height:14px;border-radius:50%;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)"></div>`,
+          iconSize: [14, 14], iconAnchor: [7, 7],
+        }),
+      }).addTo(mapa).bindTooltip('Sua loja');
+    }
 
     camadaAreas.current = L.layerGroup().addTo(mapa);
     camadaDesenho.current = L.layerGroup().addTo(mapa);
@@ -109,10 +124,13 @@ export function MapaAreas({
   }, []);
 
   // Recentra se a loja ganhar coordenada depois (ex.: acabou de geocodificar).
+  // Sem coordenada real não recentra: arrastaria o lojista de volta pro chute
+  // inicial justamente depois de ele ter buscado a região onde quer desenhar.
   useEffect(() => {
+    if (!centroEhReal) return;
     mapaRef.current?.setView(centro, mapaRef.current.getZoom() || 14);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [centro[0], centro[1]]);
+  }, [centro[0], centro[1], centroEhReal]);
 
   // Redesenha as áreas salvas.
   useEffect(() => {

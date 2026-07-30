@@ -206,15 +206,31 @@ router.put('/loja', async (req, res, next) => {
       visualJson = validarVisualJson(req.body.visual_json, visualJson);
     }
 
-    // Re-geocodifica só quando o endereço realmente muda (evita bater no
-    // Nominatim a cada salvamento de outros campos da loja).
+    /**
+     * Geocodifica quando o endereço muda OU quando a loja ainda não tem
+     * coordenada.
+     *
+     * BECO SEM SAÍDA QUE ISSO CORRIGE: antes só re-geocodificava se o endereço
+     * mudasse. A geocodificação é best-effort — o Nominatim limita requisição e
+     * às vezes não acha o endereço — então uma falha na primeira tentativa
+     * deixava a loja SEM coordenada PARA SEMPRE: salvar de novo com o mesmo
+     * endereço nunca tentava outra vez. Sem coordenada, o mapa de áreas abre no
+     * centro do Brasil e o cálculo por distância não funciona. Agora basta
+     * salvar de novo pra tentar mais uma vez.
+     *
+     * A intenção original continua valendo: não bate no Nominatim a cada
+     * salvamento de campo que não é endereço — só quando falta a coordenada.
+     */
     const enderecoNovo = req.body.endereco !== undefined ? textoLimpo(req.body.endereco, 200) : loja.endereco;
     let lat = lojaQualquer.lat ?? null;
     let lon = lojaQualquer.lon ?? null;
-    if (enderecoNovo && enderecoNovo !== loja.endereco) {
+    const semCoordenada = lat == null || lon == null;
+    if (enderecoNovo && (enderecoNovo !== loja.endereco || semCoordenada)) {
       const coord = await geocodificarTexto(enderecoNovo); // best-effort
-      lat = coord?.lat ?? null;
-      lon = coord?.lon ?? null;
+      // Só sobrescreve com o resultado se ele veio: falhar a busca não deve
+      // APAGAR uma coordenada que já estava certa.
+      if (coord) { lat = coord.lat; lon = coord.lon; }
+      else if (enderecoNovo !== loja.endereco) { lat = null; lon = null; }
     }
 
     await db.prepare(

@@ -120,10 +120,18 @@ export function AreasEntrega({ taxaPadrao }: { taxaPadrao: number }) {
         <Card className="border-amber-500/40 bg-amber-500/5">
           <CardContent className="flex gap-3 p-4">
             <AlertTriangle className="size-5 shrink-0 text-amber-600" />
-            <p className="text-sm">
-              <b>Confirme o endereço da loja primeiro.</b> Ainda não localizamos sua loja no mapa,
-              então ele abre sem referência. Salve o endereço em <b>Dados</b> e volte aqui.
-            </p>
+            <div className="text-sm space-y-1.5">
+              <p>
+                <b>Sua loja ainda não tem localização no mapa.</b> Por isso o mapa abre numa visão
+                geral do Brasil, sem o marcador da loja — não é a sua posição real, é só um ponto de
+                partida. Use a busca acima do mapa para ir até a sua região.
+              </p>
+              <p className="text-muted-foreground">
+                Salve o endereço em <b>Configurações da loja › Dados</b> para o mapa abrir na porta
+                da loja. Enquanto isso, a distância em km também não é calculada — o que decide a
+                taxa é só a área desenhada.
+              </p>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -143,6 +151,7 @@ export function AreasEntrega({ taxaPadrao }: { taxaPadrao: number }) {
 
       <MapaAreas
         centro={centro}
+        centroEhReal={!semCoordenada}
         areas={dados.areas}
         areaSelecionada={selecionada}
         desenhando={desenhando}
