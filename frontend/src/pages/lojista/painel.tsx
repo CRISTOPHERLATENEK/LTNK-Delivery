@@ -66,7 +66,7 @@ export function PainelLojista() {
   const u = sessaoUsuario();
   const ehLojista = !!u && u.perfil === 'lojista';
 
-  const pedidosQ = usePedidosLojaAtivos({ enabled: ehLojista });
+  const pedidosQ = usePedidosLojaAtivos({ enabled: ehLojista, conduzPolling: true });
   const pedidos = pedidosQ.data ?? [];
   const pendentes = pedidos.filter((p: PedidoComItens) => p.status === 'pendente').length;
 
