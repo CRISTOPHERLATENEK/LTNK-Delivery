@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useToast } from '@/components/ui/toast';
@@ -594,7 +595,11 @@ function GerenciarCozinha() {
         <div className="space-y-3">{[1, 2].map(i => <Skeleton key={i} className="h-16" />)}</div>
       )}
 
-      {!contasQ.isLoading && contas.length === 0 && (
+      {contasQ.isError && (
+        <Falha compacto erro={contasQ.error} aoTentar={() => contasQ.refetch()} />
+      )}
+
+      {!contasQ.isLoading && contas.length === 0 && !contasQ.isError && (
         <Card>
           <CardContent className="p-8 text-center text-muted-foreground space-y-2">
             <ChefHat className="size-10 mx-auto opacity-30" />
@@ -770,7 +775,11 @@ function PedidosLoja() {
           {ativos_q.isLoading && (
             <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-32" />)}</div>
           )}
-          {pedidosAtivos.length === 0 && !ativos_q.isLoading && (
+          {ativos_q.isError && (
+            <Falha compacto erro={ativos_q.error} aoTentar={() => ativos_q.refetch()} />
+          )}
+
+          {pedidosAtivos.length === 0 && !ativos_q.isLoading && !ativos_q.isError && (
             <Card>
               <CardContent className="p-10 text-center text-muted-foreground space-y-2">
                 <Bell className="size-10 mx-auto opacity-20" />
@@ -793,7 +802,11 @@ function PedidosLoja() {
           {historico_q.isLoading && (
             <div className="space-y-2">{[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-16" />)}</div>
           )}
-          {(historico_q.data ?? []).length === 0 && !historico_q.isLoading && (
+          {historico_q.isError && (
+            <Falha compacto erro={historico_q.error} aoTentar={() => historico_q.refetch()} />
+          )}
+
+          {(historico_q.data ?? []).length === 0 && !historico_q.isLoading && !historico_q.isError && (
             <Card>
               <CardContent className="p-8 text-center text-muted-foreground">
                 Nenhum pedido no histórico ainda.
@@ -1260,7 +1273,11 @@ function ClientesLoja() {
         <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-20" />)}</div>
       )}
 
-      {clientes.length === 0 && !consulta.isLoading && (
+      {consulta.isError && (
+        <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />
+      )}
+
+      {clientes.length === 0 && !consulta.isLoading && !consulta.isError && (
         <Card className="p-8 text-center text-muted-foreground">
           Nenhum cliente cadastrado ainda. 🌱
         </Card>

@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, ehSuperAdmin, tokenSessao } from '@/lib/api';
@@ -192,7 +193,11 @@ export function TelaRepasses() {
           <div className="space-y-2">{[1,2,3,4].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
         )}
 
-        {!repassesQ.isLoading && repasses.length === 0 && (
+        {repassesQ.isError && (
+          <Falha compacto erro={repassesQ.error} aoTentar={() => repassesQ.refetch()} />
+        )}
+
+        {!repassesQ.isLoading && repasses.length === 0 && !repassesQ.isError && (
           <Card><CardContent className="p-10 text-center text-muted-foreground">
             Nenhum pedido entregue no período selecionado.
           </CardContent></Card>

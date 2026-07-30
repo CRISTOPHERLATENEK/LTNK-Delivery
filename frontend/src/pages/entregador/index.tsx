@@ -24,6 +24,7 @@ import { api, ApiError, sessaoUsuario, salvarSessao } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
 import { suportaPush, ativarPush } from '@/lib/push';
 import { cn } from '@/lib/utils';
+import { Falha } from '@/components/ui/estado';
 import { lazySeguro } from '@/lib/lazy-seguro';
 
 const MapaRota = lazySeguro(() => import('@/components/mapa-rota').then(m => ({ default: m.MapaRota })));
@@ -239,7 +240,13 @@ function CorridasDisponiveis() {
         <div className="space-y-3">{[1, 2].map(i => <Skeleton key={i} className="h-44 rounded-2xl" />)}</div>
       )}
 
-      {consulta.data?.length === 0 && !consulta.isLoading && (
+      {/* Falha ANTES do vazio: "nenhuma corrida" faz o entregador ir embora
+          achando que não tem trabalho, quando o app só não conseguiu buscar. */}
+      {consulta.isError && (
+        <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />
+      )}
+
+      {consulta.data?.length === 0 && !consulta.isLoading && !consulta.isError && (
         <div className="flex flex-col items-center justify-center py-16 text-center space-y-3">
           <div className="text-5xl">🛵</div>
           <p className="font-semibold">Nenhuma corrida no momento</p>
@@ -562,6 +569,12 @@ function EntregaAtiva() {
   }
 
   if (consulta.isLoading) return <Skeleton className="h-96 rounded-2xl" />;
+
+  // Mesma regra: sem isto, rede caida virava "nenhuma entrega ativa" e o
+  // entregador perdia de vista a corrida que estava fazendo.
+  if (consulta.isError) {
+    return <Falha erro={consulta.error} aoTentar={() => consulta.refetch()} />;
+  }
 
   if (!consulta.data) {
     return (

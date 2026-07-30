@@ -7,6 +7,7 @@ import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
@@ -64,7 +65,11 @@ export function TelaEntregadores() {
           <div className="space-y-2">{[1, 2, 3].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}</div>
         )}
 
-        {!consulta.isLoading && entregadores.length === 0 && (
+        {consulta.isError && (
+          <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />
+        )}
+
+        {!consulta.isLoading && entregadores.length === 0 && !consulta.isError && (
           <Card><CardContent className="p-10 text-center text-muted-foreground">
             Nenhum entregador cadastrado ainda.
           </CardContent></Card>

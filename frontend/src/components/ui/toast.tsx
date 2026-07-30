@@ -6,6 +6,7 @@ import * as React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { assinarToast } from '@/lib/toast-bus';
 
 type Tipo = 'sucesso' | 'erro' | 'info';
 interface ToastItem { id: number; titulo: string; descricao?: string; tipo: Tipo }
@@ -41,6 +42,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       setToasts(antigos => antigos.filter(x => x.id !== id));
     }, 4000);
   }, []);
+
+  // Abre o toast para quem está FORA da árvore React — hoje, o cache do React
+  // Query avisando que uma consulta falhou (ver main.tsx). Sem isto, cada uma das
+  // 61 consultas precisaria do próprio tratamento e bastaria esquecer uma.
+  React.useEffect(() => assinarToast(mostrar), [mostrar]);
 
   return (
     <ToastContext.Provider value={{ mostrar }}>

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
@@ -202,7 +203,11 @@ export function TelaLojas() {
           <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-24 rounded-2xl" />)}</div>
         )}
 
-        {!consulta.isLoading && lojas.length === 0 && (
+        {consulta.isError && (
+          <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />
+        )}
+
+        {!consulta.isLoading && lojas.length === 0 && !consulta.isError && (
           <Card><CardContent className="p-10 text-center text-muted-foreground">Nenhuma loja encontrada.</CardContent></Card>
         )}
 

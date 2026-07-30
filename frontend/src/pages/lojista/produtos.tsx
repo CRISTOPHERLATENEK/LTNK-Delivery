@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { useToast } from '@/components/ui/toast';
@@ -690,8 +691,15 @@ export function ProdutosLoja() {
         </div>
       )}
 
+      {/* ── Falha ── vem antes do vazio: sem isto, consulta que falhou mostrava
+           "Nenhum produto ainda", ou seja, dizia que o cardápio está vazio
+           quando na verdade não deu pra buscar. ── */}
+      {consulta.isError && (
+        <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />
+      )}
+
       {/* ── Vazio ── */}
-      {!consulta.isLoading && todos.length === 0 && (
+      {!consulta.isLoading && todos.length === 0 && !consulta.isError && (
         <Card>
           <CardContent className="p-10 text-center space-y-3">
             <UtensilsCrossed className="mx-auto size-12 text-muted-foreground/50" strokeWidth={1.5} />

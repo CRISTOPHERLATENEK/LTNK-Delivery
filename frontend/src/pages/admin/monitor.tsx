@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Radio, Store, Clock, Bike } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
+import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { api } from '@/lib/api';
@@ -55,7 +56,11 @@ export function TelaMonitor() {
           </div>
         )}
 
-        {!monitorQ.isLoading && pedidos.length === 0 && (
+        {monitorQ.isError && (
+          <Falha compacto erro={monitorQ.error} aoTentar={() => monitorQ.refetch()} />
+        )}
+
+        {!monitorQ.isLoading && pedidos.length === 0 && !monitorQ.isError && (
           <Card><CardContent className="p-12 text-center text-muted-foreground space-y-2">
             <Radio className="size-10 mx-auto opacity-20" />
             <p className="font-medium">Nenhum pedido em andamento</p>

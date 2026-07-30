@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
@@ -157,7 +158,11 @@ export function TelaPedidosAdmin() {
           <div className="space-y-2">{[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
         )}
 
-        {!consulta.isLoading && pedidos.length === 0 && (
+        {consulta.isError && (
+          <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />
+        )}
+
+        {!consulta.isLoading && pedidos.length === 0 && !consulta.isError && (
           <Card><CardContent className="p-10 text-center text-muted-foreground">
             Nenhum pedido encontrado com esses filtros.
           </CardContent></Card>

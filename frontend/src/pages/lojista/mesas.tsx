@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
@@ -170,7 +171,11 @@ export function MesasLoja() {
             </div>
           )}
 
-          {!mesasQ.isLoading && mesas.length === 0 && (
+          {mesasQ.isError && (
+            <Falha compacto erro={mesasQ.error} aoTentar={() => mesasQ.refetch()} />
+          )}
+
+          {!mesasQ.isLoading && mesas.length === 0 && !mesasQ.isError && (
             <Card>
               <CardContent className="p-8 text-center text-muted-foreground space-y-2">
                 <UtensilsCrossed className="size-10 mx-auto opacity-30" />
@@ -211,7 +216,11 @@ export function MesasLoja() {
           {historicoQ.isLoading && (
             <div className="space-y-2">{[1,2,3].map(i => <Skeleton key={i} className="h-14" />)}</div>
           )}
-          {(historicoQ.data ?? []).length === 0 && !historicoQ.isLoading && (
+          {historicoQ.isError && (
+            <Falha compacto erro={historicoQ.error} aoTentar={() => historicoQ.refetch()} />
+          )}
+
+          {(historicoQ.data ?? []).length === 0 && !historicoQ.isLoading && !historicoQ.isError && (
             <Card>
               <CardContent className="p-6 text-center text-muted-foreground text-sm">
                 Nenhuma comanda fechada ainda.
@@ -569,7 +578,11 @@ function PainelComanda({
 
         {/* Itens */}
         {comandaQ.isLoading && <Skeleton className="h-20" />}
-        {itens.length === 0 && !comandaQ.isLoading && (
+        {comandaQ.isError && (
+          <Falha compacto erro={comandaQ.error} aoTentar={() => comandaQ.refetch()} />
+        )}
+
+        {itens.length === 0 && !comandaQ.isLoading && !comandaQ.isError && (
           <p className="text-sm text-muted-foreground text-center py-2">
             Nenhum item ainda. Adicione produtos abaixo.
           </p>

@@ -10,6 +10,7 @@ import { History, Search, Calendar } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { dataLocal } from '@/lib/format';
@@ -112,7 +113,11 @@ export function TelaAuditoria() {
 
         {consulta.isLoading && <div className="space-y-2">{[1,2,3,4,5].map(i => <Skeleton key={i} className="h-14 rounded-xl" />)}</div>}
 
-        {!consulta.isLoading && lista.length === 0 && (
+        {consulta.isError && (
+          <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />
+        )}
+
+        {!consulta.isLoading && lista.length === 0 && !consulta.isError && (
           <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Nenhum registro encontrado.</CardContent></Card>
         )}
 
