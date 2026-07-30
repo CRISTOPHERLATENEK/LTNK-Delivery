@@ -108,8 +108,6 @@ export function MapaAreas({
   const [pontos, setPontos] = useState<PontoMapa[]>([]);
   const [estilo, setEstilo] = useState<ChaveEstilo>(estiloSalvo);
   const [telaCheia, setTelaCheia] = useState(false);
-  /** Envolve mapa + controles: é ele que vai pra tela cheia, pros botões irem junto. */
-  const molduraRef = useRef<HTMLDivElement>(null);
 
   /** Troca o azulejo sem recriar o mapa (mantém zoom, centro e o desenho em curso). */
   function trocarEstilo(chave: ChaveEstilo) {
@@ -129,30 +127,56 @@ export function MapaAreas({
   }
 
   /**
-   * Tela cheia de verdade (Fullscreen API), não um `position:fixed` fingindo.
-   * Desenhar área num quadro de 380px é ruim: ou você vê a região inteira sem
-   * detalhe, ou o detalhe e perde a noção do conjunto.
+   * TELA CHEIA — overlay `position: fixed`, e NÃO a Fullscreen API.
+   *
+   * A primeira versão usava `requestFullscreen()` e dava tela branca. Não
+   * consegui reproduzir aqui pra apontar a causa exata (transição do navegador,
+   * empilhamento, permissão — sobram candidatos), então troquei por um mecanismo
+   * que não tem nenhum desses modos de falha: um overlay que cobre a janela.
+   *
+   * O que se perde é só a barra do navegador continuar visível. O que se ganha é
+   * funcionar igual em todo navegador, sem gesto privilegiado, sem depender de
+   * transição, e podendo fechar no Esc ou no botão. Pro objetivo real — espaço
+   * pra desenhar a área — dá no mesmo.
+   *
+   * z-[90]: acima da navegação (z-30), abaixo do toast (z-100) e do confirm
+   * (z-110), senão o aviso de "área salva" ficaria escondido atrás do mapa.
    */
-  async function alternarTelaCheia() {
-    const el = molduraRef.current;
-    if (!el) return;
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else await el.requestFullscreen();
-    } catch { /* navegador/permissão negou — o botão simplesmente não faz nada */ }
-  }
-
-  // Segue o estado real do navegador, não o clique: Esc e o F11 do sistema saem
-  // da tela cheia sem passar pelo nosso botão. O invalidateSize é obrigatório —
-  // o Leaflet mede o container na montagem e não sabe que ele mudou de tamanho.
   useEffect(() => {
-    const aoMudar = () => {
-      const cheio = !!document.fullscreenElement;
-      setTelaCheia(cheio);
-      setTimeout(() => mapaRef.current?.invalidateSize(), 80);
+    if (!telaCheia) return;
+    const aoTeclar = (e: KeyboardEvent) => { if (e.key === 'Escape') setTelaCheia(false); };
+    window.addEventListener('keydown', aoTeclar);
+    // Trava o scroll do fundo: rolar a página atrás do mapa em tela cheia só
+    // desorienta (e no celular a barra de endereço aparece e desaparece).
+    const overflowAntes = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', aoTeclar);
+      document.body.style.overflow = overflowAntes;
     };
-    document.addEventListener('fullscreenchange', aoMudar);
-    return () => document.removeEventListener('fullscreenchange', aoMudar);
+  }, [telaCheia]);
+
+  /**
+   * Avisa o Leaflet SEMPRE que o container muda de tamanho.
+   *
+   * O Leaflet mede o container na montagem e nunca mais — se ele cresce depois,
+   * o mapa continua desenhando na área antiga e o resto fica em branco. Era o
+   * que acontecia ao entrar em tela cheia: a transição do navegador leva uns
+   * 300–500ms, e um `setTimeout` de 80ms media o container ainda pequeno. Isso
+   * não se conserta aumentando o tempo — qualquer número é chute, e em máquina
+   * lenta o chute erra. ResizeObserver não depende de tempo: mede quando muda,
+   * quantas vezes mudar. Também cobre o caso que o setTimeout da montagem
+   * tentava resolver (mapa dentro de aba/acordeão que abre depois).
+   */
+  useEffect(() => {
+    const alvo = divRef.current;
+    if (!alvo || typeof ResizeObserver === 'undefined') return;
+    const observador = new ResizeObserver(() => {
+      // rAF: espera o navegador terminar o layout antes de o Leaflet medir.
+      requestAnimationFrame(() => mapaRef.current?.invalidateSize());
+    });
+    observador.observe(alvo);
+    return () => observador.disconnect();
   }, []);
 
   // Busca por nome de lugar (bairro/cidade/rua) — evita arrastar o mapa
@@ -210,9 +234,10 @@ export function MapaAreas({
     });
 
     mapaRef.current = mapa;
-    // Leaflet mede errado quando o container aparece depois (aba/acordeão):
-    // um invalidateSize no próximo tick evita o mapa "meio cinza".
-    setTimeout(() => mapa.invalidateSize(), 60);
+    // O caso do container que aparece depois (aba/acordeão) e o da tela cheia
+    // são o MESMO problema, e agora quem cuida dos dois é o ResizeObserver
+    // abaixo. Não fica setTimeout de 60ms aqui: com o observador, o mapa se
+    // ajusta a qualquer mudança de tamanho sem depender de adivinhar quando.
     return () => { mapa.remove(); mapaRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -382,16 +407,22 @@ export function MapaAreas({
         </div>
       )}
 
+      {/*
+        Em tela cheia a moldura vira flex-column e o mapa `flex-1`: ocupa o que
+        sobra, sem conta com 100vh (que mente em navegador de celular por causa
+        da barra de endereço) e sem descontar o padding na mão.
+      */}
       <div
-        ref={molduraRef}
-        className={cn('relative', telaCheia && 'bg-background p-2')}
+        className={cn(
+          'relative',
+          telaCheia && 'fixed inset-0 z-[90] flex flex-col bg-background p-2',
+        )}
       >
       <div
         ref={divRef}
         className={cn(
           'w-full rounded-2xl border border-border',
-          // Em tela cheia o mapa ocupa a altura toda menos a margem da moldura.
-          telaCheia ? 'h-[calc(100vh-1rem)]' : 'h-[380px]',
+          telaCheia ? 'min-h-0 flex-1' : 'h-[380px]',
         )}
       />
 
@@ -438,7 +469,7 @@ export function MapaAreas({
         </div>
         <button
           type="button"
-          onClick={alternarTelaCheia}
+          onClick={() => setTelaCheia(v => !v)}
           title={telaCheia ? 'Sair da tela cheia (Esc)' : 'Tela cheia'}
           className="flex size-8 items-center justify-center rounded-xl border border-border bg-card/95 shadow-lg backdrop-blur hover:bg-accent"
         >
