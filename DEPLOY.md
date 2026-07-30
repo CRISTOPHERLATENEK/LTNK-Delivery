@@ -79,7 +79,19 @@ o erro chega automaticamente com stack trace e contexto, sem precisar reproduzir
 3. Crie um projeto **React** — copie o DSN dele em `VITE_SENTRY_DSN`.
 4. Redeploy. Pronto — erros de backend e de tela branca no frontend caem automaticamente lá.
 
-Sem essas variáveis, tudo continua funcionando normalmente, só sem o monitoramento.
+Ambas as variáveis vão no `.env` da **raiz** do projeto (é um arquivo só; o build do
+frontend lê dali por causa do `envDir` no `vite.config.ts`).
+
+⚠️ `VITE_SENTRY_DSN` é **assado dentro do JS no build**, não lido em tempo de execução:
+depois de preencher (ou trocar) o valor é preciso rodar `npm run build` de novo, não só
+reiniciar. O `SENTRY_DSN` do backend basta reiniciar.
+
+Como conferir: o backend loga `[SENTRY] Monitoramento de erros ativado.` no boot (ou
+avisa que o DSN não está definido). O frontend não loga nada — para testar, force um
+erro numa tela e veja se aparece no painel do Sentry.
+
+Sem essas variáveis, tudo continua funcionando normalmente, só sem o monitoramento —
+o código trata DSN ausente como no-op de propósito.
 
 ### Primeiro login (servidor novo = banco vazio)
 
