@@ -13,6 +13,7 @@ import { notificarLojistaNovoPedido } from '../notificacoes';
 import { notificarPedidoWhatsApp } from '../whatsapp';
 import { comissaoPercentualDaLoja } from '../comissao';
 import { geocodificar } from '../geo';
+import { resolverFrete, type EnderecoParaFrete } from '../frete';
 import { criarCobrancaPix, pagamentoOnlineAtivo, conferirPixAgora } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 
@@ -324,16 +325,19 @@ router.post('/pedidos', async (req, res, next) => {
       throw erroHttp(400, `Pedido mínimo desta loja é R$ ${falta} (sem contar a entrega).`);
     }
 
-    // Frete por bairro: usa a zona de entrega cadastrada; senão, a taxa padrão.
-    // Comparação tolerante (normalizarBairro) — o bairro do cliente vem do
-    // ViaCEP e pode variar de grafia em relação ao que o lojista digitou
-    // (ex.: "Jd. Sofia" vs "Jardim Sofia").
-    const zonasLoja = await db.prepare(
-      'SELECT bairro, taxa_centavos FROM zonas_entrega WHERE loja_id = ?'
-    ).all(lojaId) as { bairro: string; taxa_centavos: number }[];
-    const bairroCliente = normalizarBairro(endereco.bairro);
-    const zona = zonasLoja.find(z => normalizarBairro(z.bairro) === bairroCliente);
-    const taxaEntrega = zona ? zona.taxa_centavos : loja.taxa_entrega_centavos;
+    // Frete: área desenhada no mapa > bairro cadastrado > taxa padrão. Decisão
+    // toda em resolverFrete() pra checkout e prévia nunca divergirem (o cliente
+    // veria um valor e pagaria outro).
+    const frete = await resolverFrete(
+      lojaId,
+      { bairro: endereco.bairro, lat: (endereco as any).lat, lon: (endereco as any).lon },
+      loja.taxa_entrega_centavos,
+    );
+    // null = fora de toda área que a loja desenhou.
+    if (!frete) {
+      throw erroHttp(400, 'Esta loja não entrega no endereço escolhido. Escolha outro endereço ou retire no local.');
+    }
+    const taxaEntrega = frete.taxaCentavos;
 
     // Cupom (opcional): valida no servidor e desconta do subtotal.
     const cupom = req.body.cupom_codigo
@@ -454,6 +458,44 @@ router.get('/pedidos', async (req, res, next) => {
         ORDER BY p.id DESC LIMIT 100`
     ).all(req.usuario!.id);
     res.json({ pedidos });
+  } catch (err) { next(err); }
+});
+
+/**
+ * Prévia do frete de um endereço, ANTES de finalizar.
+ *
+ * Sem isto, o cliente só descobria que a loja não atende o endereço dele ao
+ * apertar "finalizar" — depois de montar o carrinho todo. Usa exatamente a mesma
+ * função do checkout, então prévia e cobrança nunca divergem.
+ */
+router.post('/frete', async (req, res, next) => {
+  try {
+    const lojaId = inteiroPositivo(req.body.loja_id);
+    if (!lojaId) throw erroHttp(400, 'Loja inválida.');
+    const loja = await db.prepare('SELECT taxa_entrega_centavos FROM lojas WHERE id = ?')
+      .get(lojaId) as { taxa_entrega_centavos: number } | undefined;
+    if (!loja) throw erroHttp(404, 'Loja não encontrada.');
+
+    // Aceita endereço salvo (id) ou os campos soltos (endereço sendo digitado).
+    let dados: EnderecoParaFrete;
+    const enderecoId = inteiroPositivo(req.body.endereco_id);
+    if (enderecoId) {
+      const e = await db.prepare('SELECT bairro, lat, lon FROM enderecos WHERE id = ? AND usuario_id = ?')
+        .get(enderecoId, req.usuario!.id) as EnderecoParaFrete | undefined;
+      if (!e) throw erroHttp(404, 'Endereço não encontrado.');
+      dados = e;
+    } else {
+      dados = {
+        bairro: textoLimpo(req.body.bairro, 80),
+        lat: Number(req.body.lat) || null,
+        lon: Number(req.body.lon) || null,
+      };
+    }
+
+    const frete = await resolverFrete(lojaId, dados, loja.taxa_entrega_centavos);
+    res.json(frete
+      ? { atende: true, taxa_centavos: frete.taxaCentavos, fonte: frete.fonte, zona: frete.zona }
+      : { atende: false, taxa_centavos: null, motivo: 'Esta loja não entrega nesse endereço.' });
   } catch (err) { next(err); }
 });
 

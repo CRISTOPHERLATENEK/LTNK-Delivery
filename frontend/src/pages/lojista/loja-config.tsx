@@ -12,6 +12,7 @@ import { useToast } from '@/components/ui/toast';
 import { api, ApiError, encerrarSessao } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { brl } from '@/lib/format';
+import { AreasEntrega } from './areas-entrega';
 import type { DiaHorario, Loja } from '@/types';
 
 export function LojaConfiguracao() {
@@ -566,6 +567,12 @@ export function ZonasEntrega() {
           )}
         </CardContent>
       </Card>
+
+      {/* Áreas desenhadas no mapa — precedência sobre a taxa por bairro acima
+          (ver resolverFrete em src/backend/frete.ts). */}
+      <div className="pt-2">
+        <AreasEntrega taxaPadrao={taxaPadrao} />
+      </div>
     </div>
   );
 }

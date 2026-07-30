@@ -242,7 +242,7 @@ router.get('/lojas/:id', async (req, res, next) => {
 
     // Zonas de entrega (taxa por bairro) — o cliente usa para prever o frete.
     const zonas = await db.prepare(
-      'SELECT bairro, taxa_centavos FROM zonas_entrega WHERE loja_id = ? ORDER BY bairro'
+      'SELECT bairro, taxa_centavos FROM zonas_entrega WHERE loja_id = ? AND poligono_json IS NULL ORDER BY bairro'
     ).all(loja.id);
 
     // Banners promocionais criados pelo próprio lojista.

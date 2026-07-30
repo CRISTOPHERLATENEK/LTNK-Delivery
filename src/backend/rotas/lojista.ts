@@ -14,6 +14,7 @@ import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, loj
 import { transicionarStatus } from '../fluxoPedido';
 import { enviarPush } from '../push';
 import { comissaoPercentualDaLoja } from '../comissao';
+import { poligonoValido } from '../geometria';
 import { validarCertificado, lerCertificadoPfx, assinarXmlNfce, assinarPorTag, type CertificadoLido } from '../assinatura';
 import QRCode from 'qrcode';
 import { montarXmlNfce, urlQrCode, CODIGO_UF, type EmitenteNfce, type VendaNfce } from '../nfce';
@@ -451,7 +452,7 @@ router.get('/zonas', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const zonas = await db.prepare(
-      'SELECT id, bairro, taxa_centavos FROM zonas_entrega WHERE loja_id = ? ORDER BY bairro'
+      'SELECT id, bairro, taxa_centavos FROM zonas_entrega WHERE loja_id = ? AND poligono_json IS NULL ORDER BY bairro'
     ).all(loja.id);
     res.json({ zonas });
   } catch (e) { next(e); }
@@ -507,6 +508,88 @@ router.delete('/zonas/:id', async (req, res, next) => {
     const r = await db.prepare('DELETE FROM zonas_entrega WHERE id = ? AND loja_id = ?')
       .run(req.params.id, loja.id);
     if (r.changes === 0) throw erroHttp(404, 'Zona não encontrada.');
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ----- Áreas de entrega (regiões desenhadas no mapa) -----------------------
+//
+// Vivem na MESMA tabela das zonas por bairro (`zonas_entrega`), distinguidas por
+// `poligono_json` estar preenchido. Rotas separadas de propósito: as de bairro já
+// estavam em produção e não valia arriscá-las.
+//
+// ⚠️ Desenhar a primeira área LIGA o bloqueio: endereço fora de todas as áreas
+// passa a ser recusado no checkout (ver frete.ts). É assim que o lojista diz
+// "atendo só aqui" — e é opt-in, então loja sem área desenhada não muda de
+// comportamento.
+
+router.get('/areas', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const linhas = await db.prepare(
+      `SELECT id, nome, taxa_centavos, poligono_json FROM zonas_entrega
+        WHERE loja_id = ? AND poligono_json IS NOT NULL ORDER BY id`
+    ).all(loja.id) as Array<{ id: number; nome: string | null; taxa_centavos: number; poligono_json: string }>;
+    res.json({
+      areas: linhas.map(l => {
+        let poligono: unknown = [];
+        try { poligono = JSON.parse(l.poligono_json); } catch { poligono = []; }
+        return { id: l.id, nome: l.nome || '', taxa_centavos: l.taxa_centavos, poligono };
+      }),
+      // A loja tem coordenada? O editor centra o mapa nela; sem isso, o lojista
+      // abre o mapa no meio do oceano e não entende o que fazer.
+      loja_lat: (loja as any).lat ?? null,
+      loja_lon: (loja as any).lon ?? null,
+    });
+  } catch (e) { next(e); }
+});
+
+router.post('/areas', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const nome = textoLimpo(req.body.nome, 80) || 'Área de entrega';
+    const taxa = reaisParaCentavos(req.body.taxa);
+    if (taxa === null || taxa < 0) throw erroHttp(400, 'Informe uma taxa válida (use 0 para grátis).');
+    const poligono = poligonoValido(req.body.poligono);
+    if (!poligono) throw erroHttp(400, 'Desenhe a área no mapa com pelo menos 3 pontos.');
+    const info = await db.prepare(
+      `INSERT INTO zonas_entrega (loja_id, bairro, taxa_centavos, nome, poligono_json, criado_em)
+       VALUES (?, '', ?, ?, ?, ?)`
+    ).run(loja.id, taxa, nome, JSON.stringify(poligono), agoraUTC());
+    res.status(201).json({ area_id: Number(info.lastInsertRowid) });
+  } catch (e) { next(e); }
+});
+
+router.put('/areas/:id', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const atual = await db.prepare(
+      'SELECT id, nome, taxa_centavos, poligono_json FROM zonas_entrega WHERE id = ? AND loja_id = ? AND poligono_json IS NOT NULL'
+    ).get(req.params.id, loja.id) as { id: number; nome: string | null; taxa_centavos: number; poligono_json: string } | undefined;
+    if (!atual) throw erroHttp(404, 'Área não encontrada.');
+
+    const nome = req.body.nome !== undefined ? (textoLimpo(req.body.nome, 80) || 'Área de entrega') : (atual.nome || '');
+    const taxa = req.body.taxa !== undefined ? reaisParaCentavos(req.body.taxa) : atual.taxa_centavos;
+    if (taxa === null || taxa < 0) throw erroHttp(400, 'Taxa inválida.');
+    let poligonoJson = atual.poligono_json;
+    if (req.body.poligono !== undefined) {
+      const p = poligonoValido(req.body.poligono);
+      if (!p) throw erroHttp(400, 'Área inválida (mínimo 3 pontos).');
+      poligonoJson = JSON.stringify(p);
+    }
+    await db.prepare('UPDATE zonas_entrega SET nome = ?, taxa_centavos = ?, poligono_json = ? WHERE id = ?')
+      .run(nome, taxa, poligonoJson, atual.id);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+router.delete('/areas/:id', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const r = await db.prepare(
+      'DELETE FROM zonas_entrega WHERE id = ? AND loja_id = ? AND poligono_json IS NOT NULL'
+    ).run(req.params.id, loja.id);
+    if (r.changes === 0) throw erroHttp(404, 'Área não encontrada.');
     res.json({ ok: true });
   } catch (e) { next(e); }
 });

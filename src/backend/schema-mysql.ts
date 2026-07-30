@@ -348,8 +348,14 @@ const TABELAS: string[] = [
 `CREATE TABLE IF NOT EXISTS zonas_entrega (
   id            INT PRIMARY KEY AUTO_INCREMENT,
   loja_id       INT NOT NULL,
+  -- Zona por NOME DE BAIRRO (modelo original). Vazio nas zonas de área.
   bairro        VARCHAR(120) NOT NULL,
   taxa_centavos INT NOT NULL DEFAULT 0 CHECK (taxa_centavos >= 0),
+  -- Zona por ÁREA DESENHADA no mapa: rótulo + polígono [[lat,lon],...] em JSON.
+  -- Quando poligono_json está preenchido, a zona é geográfica e o bairro é
+  -- ignorado. Ver resolverFrete() em rotas/lojista.ts e geometria.ts.
+  nome          VARCHAR(80),
+  poligono_json TEXT,
   criado_em     VARCHAR(32) NOT NULL,
   KEY idx_zonas_loja (loja_id),
   FOREIGN KEY (loja_id) REFERENCES lojas(id)
@@ -650,5 +656,18 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         LIMIT 1`, [coluna],
     ) as any;
     if (existe.length === 0) await pool.query(`ALTER TABLE lojas ADD COLUMN ${ddl}`);
+  }
+
+  // Zonas de entrega por ÁREA desenhada no mapa (antes só existia por bairro).
+  for (const [coluna, ddl] of [
+    ['nome', 'nome VARCHAR(80)'],
+    ['poligono_json', 'poligono_json TEXT'],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'zonas_entrega' AND COLUMN_NAME = ?
+        LIMIT 1`, [coluna],
+    ) as any;
+    if (existe.length === 0) await pool.query(`ALTER TABLE zonas_entrega ADD COLUMN ${ddl}`);
   }
 }
