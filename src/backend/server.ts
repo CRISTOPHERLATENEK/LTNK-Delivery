@@ -10,6 +10,8 @@ import './boot-diagnostico';
 
 import 'dotenv/config';
 import path from 'path';
+import fs from 'fs';
+import { metaDaRota, injetarMeta } from './og';
 import express, { ErrorRequestHandler } from 'express';
 
 import autenticacaoRoutes from './rotas/autenticacao';
@@ -270,11 +272,40 @@ app.use(express.static(path.join(__dirname, '..', '..', 'public'), {
 // arquivo estático acima (express.static já resolveu JS/CSS/imagens) e não é
 // `/api`, é sempre o React Router que decide o que fazer com ele (inclusive
 // mostrar 404 dentro do app, se o slug não existir).
+/**
+ * Cache do index.html em memória. Ler o arquivo a cada navegação seria I/O de
+ * disco no caminho mais quente do app; o arquivo só muda em deploy, e o processo
+ * reinicia no deploy.
+ */
+let htmlBase: string | null = null;
+function lerHtmlBase(): string {
+  if (htmlBase === null) {
+    htmlBase = fs.readFileSync(path.join(__dirname, '..', '..', 'public', 'index.html'), 'utf8');
+  }
+  return htmlBase;
+}
+
 app.use((req, res, next) => {
   if (req.method !== 'GET') return next();
   if (req.path.startsWith('/api')) return next();
   if (req.path.includes('.')) return next();
-  return res.sendFile(path.join(__dirname, '..', '..', 'public', 'index.html'));
+
+  /**
+   * Injeta Open Graph por rota (ver og.ts). WhatsApp/Facebook/Telegram não
+   * executam JS, então isto TEM que sair do servidor: antes, o link do pedido
+   * mostrava a marca e o texto de venda da plataforma pro consumidor final, em
+   * vez da marca da loja onde ele comprou.
+   */
+  (async () => {
+    const meta = await metaDaRota(req.path);
+    const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+    const base = `${proto}://${req.headers.host}`;
+    res.type('html').send(injetarMeta(lerHtmlBase(), meta, base, base + req.originalUrl));
+  })().catch(() => {
+    // Falhou montando o preview? Serve o HTML como estava — a página funciona,
+    // só o cartão do link sai genérico.
+    res.sendFile(path.join(__dirname, '..', '..', 'public', 'index.html'));
+  });
 });
 
 app.use('/api', (_req, res) => {
