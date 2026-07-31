@@ -258,6 +258,20 @@ app.use('/uploads', express.static(path.resolve('./dados/uploads')));
 // com hash mais novo; sem isso, o navegador pode prender o usuário numa
 // versão antiga do app indefinidamente (inclusive via PWA instalado).
 app.use(express.static(path.join(__dirname, '..', '..', 'public'), {
+  /**
+   * `index: false` é essencial, não detalhe.
+   *
+   * Por padrão o express.static responde `GET /` com o public/index.html CRU,
+   * antes de chegar no fallback abaixo — que é quem injeta as meta tags de
+   * compartilhamento (og.ts). Resultado observado em produção: /pedido/32 vinha
+   * com a marca da loja e a RAIZ vinha sem meta tag nenhuma. E a raiz é
+   * exatamente onde mora a vitrine de quem tem domínio próprio, ou seja o link
+   * que o lojista mais divulga.
+   *
+   * Desligando o index automático, `/` cai no fallback como qualquer outra rota
+   * do app e recebe o mesmo tratamento.
+   */
+  index: false,
   setHeaders(res, filePath) {
     if (filePath.endsWith('index.html') || filePath.endsWith('sw.js')) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
