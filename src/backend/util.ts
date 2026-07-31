@@ -184,3 +184,37 @@ export function proximaAbertura(horarioJson: string): string {
   }
   return '';
 }
+
+/**
+ * Traduz violação de índice ÚNICO do MySQL na mensagem do campo que colidiu.
+ * Devolve null quando o erro é outra coisa (o chamador segue tratando como 500).
+ *
+ * POR QUE PELO NOME DO ÍNDICE: a mensagem do MySQL para uma coluna GERADA não
+ * cita a coluna original. Telefone e CPF em `usuarios` são índices únicos sobre
+ * `telefone_unico`/`cpf_unico` (NULLIF da coluna real, pra permitir vários
+ * vazios), então a única pista confiável é o nome do índice.
+ *
+ * Sem isto, cadastrar entregador com telefone já usado por OUTRO usuário
+ * devolvia "Erro interno do servidor" — o lojista não tinha como saber que o
+ * problema era o telefone, e nem que o telefone precisa ser único.
+ */
+const MENSAGENS_INDICE: Array<[RegExp, string]> = [
+  [/idx_usuarios_telefone_unico/i, 'Este telefone já está cadastrado em outra conta. Use outro número.'],
+  [/idx_usuarios_cpf/i,            'Este CPF já está cadastrado em outra conta.'],
+  [/usuarios\.email|for key 'email'/i, 'Já existe uma conta com este e-mail.'],
+  [/idx_pedidos_idempotencia/i,    'Esta venda já foi registrada.'],
+  [/dominio_personalizado/i,       'Este domínio já está sendo usado por outra loja.'],
+  [/lojas\.slug|for key 'slug'/i,  'Este endereço (slug) já está em uso por outra loja.'],
+];
+
+export function mensagemDeDuplicidade(erro: unknown): string | null {
+  const e = erro as { code?: string; sqlMessage?: string; message?: string } | null;
+  if (!e || (e.code !== 'ER_DUP_ENTRY' && e.code !== 'ER_DUP_KEY')) return null;
+  const texto = `${e.sqlMessage || ''} ${e.message || ''}`;
+  for (const [padrao, mensagem] of MENSAGENS_INDICE) {
+    if (padrao.test(texto)) return mensagem;
+  }
+  // Índice único que ainda não mapeamos: 409 genérico continua muito melhor que
+  // 500 — diz que é dado repetido, não falha do servidor.
+  return 'Já existe um registro com esses dados.';
+}

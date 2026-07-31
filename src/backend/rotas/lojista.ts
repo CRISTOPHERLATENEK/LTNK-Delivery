@@ -1411,6 +1411,27 @@ router.post('/entregadores/cadastro', async (req, res, next) => {
     const jaExiste = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
     if (jaExiste) throw erroHttp(409, 'Já existe uma conta com este e-mail.');
 
+    /**
+     * Telefone também é ÚNICO entre todas as contas (índice
+     * idx_usuarios_telefone_unico, sobre a coluna gerada `telefone_unico`).
+     *
+     * Checado aqui, antes do INSERT, pelo mesmo motivo do e-mail acima: dá a
+     * mensagem exata do campo. Sem isto, o INSERT estourava e o lojista recebia
+     * "Erro interno do servidor" — foi o que aconteceu de verdade ao cadastrar um
+     * entregador com um número que já estava em outra conta. O tratador central
+     * (server.ts) hoje traduz esse erro, mas checar antes é melhor: evita gastar
+     * o hash de senha e não depende do texto de erro do MySQL.
+     */
+    if (telefone) {
+      const telRepetido = await db.prepare(
+        'SELECT perfil FROM usuarios WHERE telefone = ?'
+      ).get(telefone) as { perfil: string } | undefined;
+      if (telRepetido) {
+        throw erroHttp(409,
+          `Este telefone já está cadastrado em outra conta (${telRepetido.perfil}). Use outro número.`);
+      }
+    }
+
     const senhaHash = bcrypt.hashSync(senha, 10);
     const info = await db.prepare(
       `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, criado_em)

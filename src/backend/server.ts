@@ -26,7 +26,7 @@ import { aquecerTokens } from './onz';
 import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
-import { ErroHttp, lojaAbertaPorAgenda, agoraUTC } from './util';
+import { ErroHttp, lojaAbertaPorAgenda, agoraUTC, mensagemDeDuplicidade } from './util';
 import db, { comTenant, abrirPool, BANCO_PADRAO } from './db-mysql';
 import { inicializarSchema } from './schema-mysql';
 import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants } from './tenants-mysql';
@@ -336,6 +336,22 @@ const tratadorErros: ErrorRequestHandler = (erro, req, res, _next) => {
   if (erro && erro.type === 'entity.parse.failed') {
     return res.status(400).json({ erro: 'Corpo da requisição inválido (JSON malformado).' });
   }
+  /**
+   * Violação de índice ÚNICO não é erro interno: é dado repetido, e quem digitou
+   * precisa saber QUAL campo.
+   *
+   * BUG REAL QUE ISSO CORRIGE: cadastrar entregador com um telefone já usado por
+   * outro usuário devolvia 500 "Erro interno do servidor". A tabela `usuarios`
+   * tem índice único em telefone e CPF (via coluna gerada), e a rota só tratava
+   * e-mail repetido — o lojista clicava três vezes sem entender nada.
+   *
+   * Fica no tratador CENTRAL de propósito: existem várias rotas que inserem
+   * usuário (cliente, lojista, entregador, admin, cozinha) e outras virão.
+   * Tratar rota por rota garante esquecer a próxima.
+   */
+  const dup = mensagemDeDuplicidade(erro);
+  if (dup) return res.status(409).json({ erro: dup });
+
   console.error('[ERRO INTERNO]', erro);
   capturarErro(erro, { metodo: req.method, rota: req.path });
   res.status(500).json({ erro: 'Erro interno do servidor. Tente novamente em instantes.' });
