@@ -37,7 +37,40 @@ const TOGGLES: Array<{ campo: keyof EstadoVisual['cardapio']; label: string }> =
   { campo: 'botao_comprar', label: 'Botão comprar' },
 ];
 
+/**
+ * Escolha entre poucas opções, em botões — não em <select>.
+ * O lojista mexe nisso olhando o preview ao lado; ver as alternativas todas de
+ * uma vez faz ele comparar num toque, em vez de abrir uma lista e adivinhar.
+ */
+function Escolha<T extends string | number>({ label, dica, valor, opcoes, onEscolher }: {
+  label: string;
+  dica?: string;
+  valor: T;
+  opcoes: Array<{ id: T; label: string }>;
+  onEscolher: (v: T) => void;
+}) {
+  return (
+    <div>
+      <Label className="mb-2 block">{label}</Label>
+      <div className={cn('grid gap-2', opcoes.length === 2 ? 'grid-cols-2' : 'grid-cols-3')}>
+        {opcoes.map(o => (
+          <button key={String(o.id)} type="button" onClick={() => onEscolher(o.id)}
+            className={cn('rounded-lg border-2 py-2 text-[11px] font-semibold transition-colors',
+              valor === o.id ? 'border-primary bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:border-primary/40')}>
+            {o.label}
+          </button>
+        ))}
+      </div>
+      {dica && <p className="mt-1.5 text-[11px] text-muted-foreground">{dica}</p>}
+    </div>
+  );
+}
+
 export function CardapioTab({ estado, atualizar, restaurarPadrao }: Props) {
+  const c = estado.cardapio;
+  // Grid e Premium são os layouts com foto grande em colunas; as opções abaixo
+  // só fazem efeito neles, então some pra não oferecer controle que não faz nada.
+  const ehGrade = c.layout === 'grid' || c.layout === 'premium';
   return (
     <Card>
       <CardContent className="p-5 space-y-4">
@@ -70,6 +103,54 @@ export function CardapioTab({ estado, atualizar, restaurarPadrao }: Props) {
             ))}
           </div>
         </div>
+
+        <Escolha
+          label="Botão de adicionar"
+          dica="“Adicionar” escrito costuma render mais com público que não usa app com frequência."
+          valor={c.estilo_botao}
+          opcoes={[{ id: 'icone' as const, label: '+ redondo' }, { id: 'texto' as const, label: '“Adicionar”' }]}
+          onEscolher={v => atualizar('cardapio.estilo_botao', v)}
+        />
+
+        {ehGrade && (
+          <>
+            <Escolha
+              label="Formato da foto"
+              valor={c.formato_foto}
+              opcoes={[
+                { id: 'quadrada' as const, label: 'Quadrada' },
+                { id: 'retrato' as const, label: 'Retrato' },
+                { id: 'paisagem' as const, label: 'Paisagem' },
+              ]}
+              onEscolher={v => atualizar('cardapio.formato_foto', v)}
+            />
+            <Escolha
+              label="Produtos por linha no celular"
+              dica="1 coluna deixa a foto grande — bom pra cardápio curto e foto de qualidade."
+              valor={c.colunas_mobile}
+              opcoes={[{ id: 1 as const, label: '1 por linha' }, { id: 2 as const, label: '2 por linha' }]}
+              onEscolher={v => atualizar('cardapio.colunas_mobile', v)}
+            />
+            <Escolha
+              label="Nome do produto"
+              dica="Em 1 linha todos os cards ficam da mesma altura, e os preços alinham entre si."
+              valor={c.linhas_nome}
+              opcoes={[{ id: 1 as const, label: '1 linha' }, { id: 2 as const, label: 'Até 2 linhas' }]}
+              onEscolher={v => atualizar('cardapio.linhas_nome', v)}
+            />
+          </>
+        )}
+
+        <Escolha
+          label="Sombra do card"
+          valor={c.sombra}
+          opcoes={[
+            { id: 'nenhuma' as const, label: 'Sem sombra' },
+            { id: 'suave' as const, label: 'Suave' },
+            { id: 'forte' as const, label: 'Forte' },
+          ]}
+          onEscolher={v => atualizar('cardapio.sombra', v)}
+        />
 
         <div>
           <Label>Espaçamento entre produtos ({estado.cardapio.espacamento}px)</Label>

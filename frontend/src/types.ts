@@ -119,6 +119,16 @@ export interface VisualJson {
     espacamento: number;
     raio_bordas: number;
     altura_cards: number;
+    /** Proporção da foto do produto. Era fixo em quadrado. */
+    formato_foto: 'quadrada' | 'retrato' | 'paisagem';
+    /** "+" redondo ou botão escrito "Adicionar" (mais claro pra quem não é do app). */
+    estilo_botao: 'icone' | 'texto';
+    /** Colunas do grid no CELULAR. 1 = card grande, foto maior. */
+    colunas_mobile: 1 | 2;
+    /** Sombra do card. */
+    sombra: 'nenhuma' | 'suave' | 'forte';
+    /** Linhas do nome antes de cortar com "…". 1 iguala a altura de todos os cards. */
+    linhas_nome: 1 | 2;
   };
   botoes: {
     hover: boolean;

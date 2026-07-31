@@ -37,6 +37,12 @@ export const DEFAULT_VISUAL: VisualJson = {
     mostrar_avaliacao: false, mostrar_tempo: false,
     preco_destacado: true, badge_promocao: true, botao_comprar: true,
     espacamento: 12, raio_bordas: 16, altura_cards: 180,
+    // Padrões escolhidos pra NÃO mudar a aparência de nenhuma loja que já está
+    // no ar: são exatamente o comportamento que estava fixo no código antes de
+    // virar opção. Quem quiser mudar, muda; quem não abrir o editor não vê
+    // diferença nenhuma amanhã.
+    formato_foto: 'quadrada', estilo_botao: 'icone', colunas_mobile: 2,
+    sombra: 'suave', linhas_nome: 2,
   },
   botoes: {
     hover: true, sombra: true, gradiente: false, icone: false, borda: false,

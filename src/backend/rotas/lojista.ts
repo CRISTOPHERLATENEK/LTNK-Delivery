@@ -389,6 +389,24 @@ function validarVisualJson(bruto: unknown, atualStr: string): string {
       espacamento: num(cardapioNovo.espacamento, cardapioAtual.espacamento ?? 12, 4, 24),
       raio_bordas: num(cardapioNovo.raio_bordas, cardapioAtual.raio_bordas ?? 16, 0, 32),
       altura_cards: num(cardapioNovo.altura_cards, cardapioAtual.altura_cards ?? 180, 140, 320),
+      /**
+       * Campos novos do editor de cardápio. Esta função é uma WHITELIST: campo
+       * que não está aqui é descartado no salvamento, então o lojista mexeria no
+       * editor, veria o preview mudar e ao recarregar estaria tudo como antes —
+       * falha muda, sem erro em lugar nenhum.
+       *
+       * O `?? <padrão>` mantém compatibilidade com as lojas que já têm
+       * visual_json salvo sem estes campos: elas leem o padrão, que é exatamente
+       * o comportamento que estava fixo no código antes de virar opção. Nenhuma
+       * loja no ar muda de aparência por causa deste deploy.
+       */
+      formato_foto: enumerado(cardapioNovo.formato_foto, cardapioAtual.formato_foto ?? 'quadrada', ['quadrada', 'retrato', 'paisagem'] as const),
+      estilo_botao: enumerado(cardapioNovo.estilo_botao, cardapioAtual.estilo_botao ?? 'icone', ['icone', 'texto'] as const),
+      sombra: enumerado(cardapioNovo.sombra, cardapioAtual.sombra ?? 'suave', ['nenhuma', 'suave', 'forte'] as const),
+      // Numéricos de conjunto fechado: num() com faixa 1..2 basta e recusa
+      // qualquer outra coisa (o front só manda 1 ou 2).
+      colunas_mobile: num(cardapioNovo.colunas_mobile, cardapioAtual.colunas_mobile ?? 2, 1, 2),
+      linhas_nome: num(cardapioNovo.linhas_nome, cardapioAtual.linhas_nome ?? 2, 1, 2),
     },
     botoes: {
       hover: bool(botoesNovo.hover, botoesAtual.hover ?? true),

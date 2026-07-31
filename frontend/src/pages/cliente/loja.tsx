@@ -766,13 +766,18 @@ function GridProdutos({ produtos, podeAbrir, onClick, visual, corMarca, animado 
 }) {
   const premium = visual.cardapio.layout === 'premium';
   const grid = visual.cardapio.layout === 'grid' || premium;
+  const uma = visual.cardapio.colunas_mobile === 1;
   return (
     <div
       className={cn(
+        // COLUNAS NO CELULAR: 1 coluna = card grande com foto maior, que vende
+        // melhor cardápio curto e de foto boa; 2 colunas cabem mais item na tela.
+        // Só o breakpoint base muda -- de sm pra cima segue igual, senão desktop
+        // ficaria com uma coluna gigante.
         premium
-          ? 'grid grid-cols-2 lg:grid-cols-3'
+          ? cn(uma ? 'grid grid-cols-1' : 'grid grid-cols-2', 'sm:grid-cols-2 lg:grid-cols-3')
           : grid
-          ? 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4'
+          ? cn(uma ? 'grid grid-cols-1' : 'grid grid-cols-2', 'sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4')
           : visual.cardapio.layout === 'compacto' ? 'grid grid-cols-1 sm:grid-cols-2' : 'flex flex-col',
       )}
       style={{ gap: premium ? Math.max(visual.cardapio.espacamento, 16) : visual.cardapio.espacamento }}
@@ -818,7 +823,17 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
       onClick={abrivel ? onClick : undefined}
       className={cn(
         'group border overflow-hidden transition-all duration-300',
-        premium ? 'border-transparent shadow-md' : 'border-border/60 shadow-sm',
+        premium ? 'border-transparent' : 'border-border/60',
+        c.sombra === 'nenhuma' ? 'shadow-none' : c.sombra === 'forte' ? 'shadow-lg' : premium ? 'shadow-md' : 'shadow-sm',
+        /*
+          ALINHAMENTO DO BOTAO "+": no grid o card e coluna flex de altura cheia.
+          Sem isto, o bloco de preco/+ ficava logo apos o texto, entao nome de
+          duas linhas ("Pizza Quatro Queijos") empurrava o + pra baixo e ele
+          desalinhava dos vizinhos de uma linha. `h-full` faz o card ocupar a
+          altura da linha do grid (que o CSS Grid ja iguala por padrao) e o
+          rodape desce sozinho com `mt-auto` la embaixo.
+        */
+        layoutGrid && 'flex h-full flex-col',
         !layoutGrid && 'flex items-center gap-3 p-2',
         abrivel && (premium ? 'cursor-pointer hover:shadow-xl hover:-translate-y-1' : 'cursor-pointer hover:shadow-md'),
         esgotado && 'opacity-90',
@@ -834,7 +849,9 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
     >
       {/* Imagem */}
       {c.mostrar_foto && (
-        <div className={cn('relative overflow-hidden bg-white', layoutGrid ? 'aspect-square' : 'size-16 shrink-0 rounded-xl')}>
+        <div className={cn('relative overflow-hidden bg-white', layoutGrid
+          ? (c.formato_foto === 'retrato' ? 'aspect-[3/4]' : c.formato_foto === 'paisagem' ? 'aspect-[16/10]' : 'aspect-square')
+          : 'size-16 shrink-0 rounded-xl')}>
           {produto.foto_url
             ? <img src={produto.foto_url} alt={produto.nome}
                 onError={e => {
@@ -914,17 +931,17 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
       )}
 
       {/* Info */}
-      <div className={layoutGrid ? 'p-3' : 'min-w-0 flex-1'}>
+      <div className={layoutGrid ? 'flex flex-1 flex-col p-3' : 'min-w-0 flex-1'}>
         {c.mostrar_categoria && produto.subcategoria && (
           <span className="inline-block rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground mb-1">
             {produto.subcategoria}
           </span>
         )}
-        <h3 className="font-bold text-[13px] sm:text-sm leading-snug line-clamp-2">{produto.nome}</h3>
+        <h3 className={cn('font-bold text-[13px] sm:text-sm leading-snug', c.linhas_nome === 1 ? 'line-clamp-1' : 'line-clamp-2')}>{produto.nome}</h3>
         {c.mostrar_descricao && produto.descricao && (
           <p className="text-[11px] text-muted-foreground line-clamp-1 mt-0.5 leading-relaxed">{produto.descricao}</p>
         )}
-        <div className="flex items-center justify-between mt-2 gap-1">
+        <div className={cn('flex items-end justify-between gap-1', layoutGrid ? 'mt-auto pt-2' : 'mt-2 items-center')}>
           <div>
             {/* Premium com foto já mostra o preço flutuando sobre a imagem —
                 não repete aqui pra não duplicar a informação. */}
@@ -949,11 +966,18 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
           {abrivel && c.botao_comprar && (
             <button
               type="button"
+              aria-label={`Adicionar ${produto.nome}`}
               onClick={e => { e.stopPropagation(); onClick(); }}
-              className={cn('flex size-8 shrink-0 items-center justify-center rounded-full active:opacity-70 transition-opacity touch-manipulation', classNameBotao(visual))}
+              className={cn(
+                'flex shrink-0 items-center justify-center gap-1 rounded-full transition-opacity active:opacity-70 touch-manipulation',
+                // 44px de alvo nos dois formatos (diretriz de toque em celular).
+                c.estilo_botao === 'texto' ? 'h-11 px-3.5 text-xs font-bold' : 'size-11',
+                classNameBotao(visual),
+              )}
               style={{ ...estiloBotaoIcone(visual, corMarca || ''), color: fgBotao }}
             >
               <Plus className="size-4" />
+              {c.estilo_botao === 'texto' && <span>Adicionar</span>}
             </button>
           )}
         </div>
