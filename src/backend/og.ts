@@ -18,6 +18,7 @@
  *   marca     → Painel admin › Marca (nome, descrição, logo)
  */
 import db from './db-mysql';
+import { lojaIdDoHost } from './dominios';
 
 export interface MetaOg {
   titulo: string;
@@ -34,15 +35,24 @@ const ROTAS_RESERVADAS = new Set([
 
 type LinhaLoja = { nome: string; descricao: string | null; logo_url: string | null; capa_url: string | null };
 
+/**
+ * `status_aprovacao = 'aprovada'` e NÃO `aprovada = 1`: essa coluna não existe.
+ * A primeira versão deste arquivo usava o nome errado, então toda consulta de
+ * vitrine estourava erro de SQL, caía no catch e devolvia o cartão genérico — a
+ * feature parecia entregue e não funcionava fora de /pedido/:id.
+ */
+const CAMPOS_LOJA = 'nome, descricao, logo_url, capa_url';
+const SO_APROVADA = "status_aprovacao = 'aprovada'";
+
 async function lojaPorId(id: number | string): Promise<LinhaLoja | undefined> {
   return await db.prepare(
-    'SELECT nome, descricao, logo_url, capa_url FROM lojas WHERE id = ? AND aprovada = 1'
+    `SELECT ${CAMPOS_LOJA} FROM lojas WHERE id = ? AND ${SO_APROVADA}`
   ).get(id) as LinhaLoja | undefined;
 }
 
 async function lojaPorSlug(slug: string): Promise<LinhaLoja | undefined> {
   return await db.prepare(
-    'SELECT nome, descricao, logo_url, capa_url FROM lojas WHERE slug = ? AND aprovada = 1'
+    `SELECT ${CAMPOS_LOJA} FROM lojas WHERE slug = ? AND ${SO_APROVADA}`
   ).get(slug) as LinhaLoja | undefined;
 }
 
@@ -56,7 +66,9 @@ async function metaDaMarca(): Promise<MetaOg> {
   return {
     titulo: (await config('marca_nome')) || 'Delivery',
     descricao: await config('marca_descricao'),
-    imagem: await config('marca_logo_url'),
+    // `marca_og_image` já existia e é editável no admin (Marca) justamente pra
+    // isto — imagem feita no formato do cartão. Logo é só o plano B.
+    imagem: (await config('marca_og_image')) || (await config('marca_logo_url')),
     tipo: 'website',
   };
 }
@@ -78,9 +90,32 @@ function metaDaLoja(loja: LinhaLoja, tipo: MetaOg['tipo'] = 'website'): MetaOg {
  *
  * Nunca lança: um link com preview genérico é ruim, um 500 na página é pior.
  */
-export async function metaDaRota(caminho: string): Promise<MetaOg> {
+export async function metaDaRota(caminho: string, host?: string): Promise<MetaOg> {
   try {
     const partes = caminho.split('/').filter(Boolean);
+
+    /**
+     * DOMÍNIO PRÓPRIO DA LOJA vence tudo — vale pros domínios de hoje e pros que
+     * forem cadastrados amanhã, sem tocar em código: quem decide é a coluna
+     * `dominio_personalizado`.
+     *
+     * Vem ANTES das regras de caminho porque em pizzariadapaula.com.br QUALQUER
+     * rota é daquela loja: a raiz, /carrinho, /conta, /pedidos. Se ficasse
+     * depois, /conta nesse domínio cairia no genérico e o cliente veria a marca
+     * da plataforma no link do próprio site da pizzaria.
+     *
+     * A exceção é /pedido/:id, tratada abaixo: ali a loja é a do PEDIDO. Num
+     * marketplace o cliente pede de várias lojas pelo mesmo domínio, então o
+     * pedido é uma informação mais específica que o host.
+     */
+    const ehRotaDePedido = partes[0] === 'pedido' && !!partes[1];
+    if (!ehRotaDePedido) {
+      const idDoHost = await lojaIdDoHost(host);
+      if (idDoHost > 0) {
+        const l = await lojaPorId(idDoHost);
+        if (l) return metaDaLoja(l);
+      }
+    }
 
     // /pedido/:id — o link que o cliente recebe pra acompanhar. Mostra a marca da
     // LOJA onde ele comprou, que é o que ele reconhece.
@@ -104,15 +139,6 @@ export async function metaDaRota(caminho: string): Promise<MetaOg> {
       const alvo = partes[0];
       const l = /^\d+$/.test(alvo) ? await lojaPorId(alvo) : await lojaPorSlug(alvo);
       if (l) return metaDaLoja(l);
-    }
-
-    // Raiz: em domínio amarrado a uma loja (loja_padrao_id), o cartão é da loja.
-    if (partes.length === 0) {
-      const idPadrao = Number(await config('loja_padrao_id'));
-      if (idPadrao > 0) {
-        const l = await lojaPorId(idPadrao);
-        if (l) return metaDaLoja(l);
-      }
     }
 
     return await metaDaMarca();

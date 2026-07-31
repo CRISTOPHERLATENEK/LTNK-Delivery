@@ -297,7 +297,7 @@ app.use((req, res, next) => {
    * vez da marca da loja onde ele comprou.
    */
   (async () => {
-    const meta = await metaDaRota(req.path);
+    const meta = await metaDaRota(req.path, req.headers.host);
     const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
     const base = `${proto}://${req.headers.host}`;
     res.type('html').send(injetarMeta(lerHtmlBase(), meta, base, base + req.originalUrl));

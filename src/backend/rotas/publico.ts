@@ -7,6 +7,7 @@ import { erroHttp } from '../util';
 import { chavePublicaVapid } from '../push';
 import { ehMaster } from '../tenants-mysql';
 import { montarLandingPublica } from '../landing-campos';
+import { lojaIdDoHost } from '../dominios';
 import { GrupoComOpcoes, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
 
 const router = Router();
@@ -34,14 +35,11 @@ router.get('/tema', async (req, res, next) => {
     // Domínio próprio de uma loja (ex.: pizzariadapaula.com.br) tem prioridade
     // sobre o "loja única" global do admin — cada loja pode ter o domínio dela
     // enquanto o domínio principal continua mostrando o marketplace inteiro.
-    let lojaId = Number(await valor('loja_padrao_id', '0'));
-    const host = (req.headers.host || '').split(':')[0].toLowerCase().replace(/^www\./, '');
-    if (host) {
-      const lojaDominio = await db.prepare(
-        "SELECT id FROM lojas WHERE dominio_personalizado = ? AND status_aprovacao = 'aprovada'"
-      ).get(host) as { id: number } | undefined;
-      if (lojaDominio) lojaId = lojaDominio.id;
-    }
+    //
+    // A regra mora em dominios.ts porque o Open Graph (og.ts) precisa da MESMA
+    // resposta: com a decisão duplicada, o cartão do link no WhatsApp podia
+    // dizer uma coisa e a página abrir com a marca de outra.
+    const lojaId = await lojaIdDoHost(req.headers.host);
 
     // Favicon: se o admin não definiu um favicon próprio da plataforma e o
     // domínio é white-label de uma loja, usa o favicon dessa loja (reforça a

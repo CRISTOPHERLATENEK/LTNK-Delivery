@@ -91,3 +91,38 @@ describe('injetarMeta — nome do app instalado', () => {
     expect(r).not.toContain('content="Delivery Já"');
   });
 });
+
+import { normalizarHost } from './dominios';
+
+/**
+ * `normalizarHost` é o que faz o white-label funcionar em QUALQUER domínio, hoje
+ * e nos futuros: o Host do request tem que virar exatamente o formato em que o
+ * domínio é gravado (sem protocolo, sem www, minúsculo, sem porta). Errar aqui
+ * faz `www.loja.com` não casar com `loja.com` e o cartão sair genérico no site
+ * do lojista — falha silenciosa, sem erro em log nenhum.
+ */
+describe('normalizarHost', () => {
+  it('casa com o formato salvo no banco', () => {
+    expect(normalizarHost('loja.com.br')).toBe('loja.com.br');
+    expect(normalizarHost('www.loja.com.br')).toBe('loja.com.br');
+    expect(normalizarHost('LOJA.com.br')).toBe('loja.com.br');
+    expect(normalizarHost('loja.com.br:443')).toBe('loja.com.br');
+    expect(normalizarHost('www.LOJA.com.br:3000')).toBe('loja.com.br');
+  });
+
+  it('subdomínio NÃO é confundido com o domínio raiz', () => {
+    // pizzaria.plataforma.com e plataforma.com são domínios diferentes: casar um
+    // com o outro faria uma loja aparecer no lugar de outra.
+    expect(normalizarHost('pizzaria.plataforma.com')).toBe('pizzaria.plataforma.com');
+    expect(normalizarHost('www.pizzaria.plataforma.com')).toBe('pizzaria.plataforma.com');
+  });
+
+  it('host ausente ou vazio não quebra', () => {
+    expect(normalizarHost(undefined)).toBe('');
+    expect(normalizarHost('')).toBe('');
+  });
+
+  it('só o www DO INÍCIO sai — "www" no meio é parte do nome', () => {
+    expect(normalizarHost('loja.www.com.br')).toBe('loja.www.com.br');
+  });
+});
