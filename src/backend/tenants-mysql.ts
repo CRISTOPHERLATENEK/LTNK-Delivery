@@ -203,6 +203,32 @@ export async function criarTenant(dados: { nome: string; slug: string; dominio?:
 export async function atualizarTenant(id: number, campos: Partial<Pick<Tenant, 'nome' | 'dominio' | 'ativo'>>): Promise<void> {
   const atual = await tenantPorId(id);
   if (!atual) throw new Error('Tenant não encontrado.');
+
+  /**
+   * REATIVAR TENANT MIGRA O SCHEMA DELE — antes não migrava, e isso deixava um
+   * tenant atendendo requisição com banco desatualizado.
+   *
+   * A sequência que produzia o bug:
+   *   1. tenant criado (schema em dia — criarTenant roda inicializarSchema)
+   *   2. tenant desativado (ativo = 0)
+   *   3. deploy com migração nova → `migrarTenants` no boot PULA inativo
+   *      (`if (!tenant.ativo) continue`, em server.ts)
+   *   4. tenant reativado → volta a atender com o schema do passo 1
+   * Resultado: `Unknown column '<coluna nova>' in 'field list'` na cara do
+   * lojista, na primeira tela que consultasse a coluna. Exatamente o erro que
+   * apareceu no log de produção.
+   *
+   * Migrar aqui, e não deixar de pular inativo no boot, é de propósito: banco de
+   * tenant parado pode ter sido apagado, e tentar migrar isso a cada boot só
+   * enche o log de erro que ninguém vai agir. Na reativação, a migração é
+   * exatamente o que se quer — e se falhar, é melhor a reativação falhar do que
+   * ficar de pé pela metade.
+   */
+  const estaReativando = campos.ativo === 1 && atual.ativo === 0;
+  if (estaReativando) {
+    await inicializarSchema(abrirPool(atual.db_nome));
+  }
+
   await poolCentral().query('UPDATE tenants SET nome = ?, dominio = ?, ativo = ? WHERE id = ?', [
     campos.nome ?? atual.nome,
     campos.dominio !== undefined ? (campos.dominio?.trim().toLowerCase() || null) : atual.dominio,

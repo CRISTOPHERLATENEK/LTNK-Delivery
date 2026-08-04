@@ -58,6 +58,50 @@ const contexto = new AsyncLocalStorage<{ database: string }>();
 
 /** Abre (ou reusa do cache) o pool de um banco. NÃO roda schema — o
  *  provisionamento de tenant é explícito (ver tenants.ts), não preguiçoso. */
+/**
+ * Conexões por tenant. UM POOL POR BANCO, e o cache nunca libera — então o
+ * consumo total é `connectionLimit × tenants alcançados desde o boot`.
+ *
+ * O TETO QUE ISSO EVITA: com os 10 originais e o `max_connections=151` padrão do
+ * MySQL, o 16º tenant esgotava as conexões e a plataforma INTEIRA passava a dar
+ * "Too many connections" — não o tenant novo, todos. Some como queda total, não
+ * como lentidão, e sem nada no log explicando.
+ *
+ * 4 é suficiente: cada requisição usa uma conexão por vez e o app é I/O-bound;
+ * o que precisa de folga é pico simultâneo na MESMA loja, não o número de lojas.
+ * Ajustável por env pra quem tiver `max_connections` maior.
+ */
+const CONEXOES_POR_TENANT = Math.max(1, Number(process.env.MYSQL_CONEXOES_POR_TENANT) || 4);
+
+/** Lido uma vez do servidor (não do env) pra o aviso abaixo não mentir. */
+let maxConexoesServidor: number | null = null;
+let avisouTeto = false;
+
+/**
+ * Avisa ANTES de esgotar. Sem isto, o sintoma do teto é a plataforma toda caindo
+ * sem pista da causa — com isto, existe uma linha de log nomeando o problema e
+ * dizendo o que ajustar. Best-effort: falhar aqui não pode atrapalhar o request.
+ */
+async function conferirTetoDeConexoes(pool: Pool): Promise<void> {
+  if (avisouTeto) return;
+  try {
+    if (maxConexoesServidor === null) {
+      const [linhas] = await pool.query("SHOW VARIABLES LIKE 'max_connections'") as any;
+      maxConexoesServidor = Number(linhas?.[0]?.Value) || 151;
+    }
+    const projetado = pools.size * CONEXOES_POR_TENANT;
+    if (projetado > maxConexoesServidor * 0.8) {
+      avisouTeto = true;
+      console.warn(
+        `⚠️  [BANCO] ${pools.size} tenant(s) × ${CONEXOES_POR_TENANT} conexões = ${projetado}, ` +
+        `perto do limite do MySQL (max_connections=${maxConexoesServidor}). ` +
+        `Ao estourar, TODOS os tenants passam a falhar com "Too many connections". ` +
+        `Aumente max_connections no servidor ou reduza MYSQL_CONEXOES_POR_TENANT no .env.`,
+      );
+    }
+  } catch { /* diagnóstico é best-effort */ }
+}
+
 export function abrirPool(database: string): Pool {
   const existente = pools.get(database);
   if (existente) return existente;
@@ -65,12 +109,13 @@ export function abrirPool(database: string): Pool {
     ...CONFIG_BASE,
     database,
     waitForConnections: true,
-    connectionLimit: 10,
+    connectionLimit: CONEXOES_POR_TENANT,
     // Datas viajam como string (nosso schema guarda ISO-8601 em VARCHAR de
     // qualquer forma, mas isso protege caso alguma coluna vire DATETIME).
     dateStrings: true,
   });
   pools.set(database, pool);
+  conferirTetoDeConexoes(pool).catch(() => { /* nunca atrapalha o request */ });
   return pool;
 }
 
