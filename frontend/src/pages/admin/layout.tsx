@@ -7,6 +7,7 @@ import { NavLink, Link } from 'react-router-dom';
 import {
   LayoutDashboard, Store, Users, ShoppingBag, TrendingUp,
   Image, Palette, Shield, Crown, LogOut, Menu, X, ChevronRight, Radio, Bike, Building2, History,
+  CreditCard,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { encerrarSessao, sessaoUsuario, ehSuperAdmin } from '@/lib/api';
@@ -66,6 +67,7 @@ const GRUPOS: NavGrupo[] = [
   {
     titulo: 'Clientes',
     itens: [
+      { rota: '/painel-admin/assinaturas', icone: CreditCard, label: 'Assinaturas', somenteSuper: true },
       { rota: '/painel-admin/clientes', icone: Building2, label: 'Bancos por loja', somenteSuper: true },
     ],
   },

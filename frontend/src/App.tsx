@@ -45,6 +45,7 @@ const TelaRepasses = lazySeguro(() => import('@/pages/admin/repasses').then(m =>
 const TelaMonitor = lazySeguro(() => import('@/pages/admin/monitor').then(m => ({ default: m.TelaMonitor })));
 const TelaEntregadores = lazySeguro(() => import('@/pages/admin/entregadores').then(m => ({ default: m.TelaEntregadores })));
 const TelaTenants = lazySeguro(() => import('@/pages/admin/tenants').then(m => ({ default: m.TelaTenants })));
+const TelaAssinaturas = lazySeguro(() => import('@/pages/admin/assinaturas').then(m => ({ default: m.TelaAssinaturas })));
 const TelaAuditoria = lazySeguro(() => import('@/pages/admin/auditoria').then(m => ({ default: m.TelaAuditoria })));
 
 /** Fallback enquanto o chunk do painel baixa. */
@@ -191,6 +192,7 @@ export default function App() {
         <Route path="/painel-admin/marca"    element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaMarca /></Guard>} />
         <Route path="/painel-admin/admins"   element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaAdmins /></Guard>} />
         <Route path="/painel-admin/clientes" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaTenants /></Guard>} />
+        <Route path="/painel-admin/assinaturas" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaAssinaturas /></Guard>} />
         <Route path="/painel-admin/lojistas" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaLojistas /></Guard>} />
         <Route path="/painel-admin/lojas"    element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaLojas /></Guard>} />
         <Route path="/painel-admin/monitor"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaMonitor /></Guard>} />

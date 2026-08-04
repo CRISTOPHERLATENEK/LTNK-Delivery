@@ -29,7 +29,8 @@ import webhooksRoutes from './rotas/webhooks';
 import { ErroHttp, lojaAbertaPorAgenda, agoraUTC, mensagemDeDuplicidade } from './util';
 import db, { comTenant, abrirPool, BANCO_PADRAO } from './db-mysql';
 import { inicializarSchema } from './schema-mysql';
-import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants } from './tenants-mysql';
+import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants, poolCentral } from './tenants-mysql';
+import { inicializarAssinaturas, processarVencimentos } from './assinaturas';
 import { tenantDoToken } from './auth';
 import { capturarErro } from './monitoramento';
 
@@ -454,6 +455,9 @@ const PORT = Number(process.env.PORT) || 3000;
 
 (async () => {
   await inicializarCentral();
+  // Tabelas de assinatura vivem no banco CENTRAL, junto de `tenants` — é a
+  // plataforma cobrando o lojista, não a loja cobrando o cliente.
+  await inicializarAssinaturas(poolCentral());
   // Antes de aceitar tráfego: sem isso uma coluna nova só falha na cara do
   // usuário, no primeiro request que a consultar.
   await migrarTenants();
@@ -464,6 +468,23 @@ const PORT = Number(process.env.PORT) || 3000;
     // (bancoTenantAtual() lança sem contexto — ver db-mysql.ts).
     await comTenant(BANCO_PADRAO, seed);
   }
+  /**
+   * VENCIMENTOS: uma vez no boot e a cada 6h.
+   *
+   * 6h e nao 24h de proposito: com um tick diario, o servidor reiniciado logo
+   * depois do horario pularia o dia inteiro -- inadimplente seguiria usando, ou
+   * pior, quem pagou continuaria suspenso ate a madrugada seguinte. O job e
+   * idempotente (so escreve quando o estado MUDA), entao rodar 4x por dia nao
+   * custa nada.
+   */
+  processarVencimentos(poolCentral())
+    .then(r => { if (r.suspensos || r.reativados) console.log(`[ASSINATURA] ${r.suspensos} suspenso(s), ${r.reativados} reativado(s) de ${r.verificadas}.`); })
+    .catch(e => console.error('[ASSINATURA] falha ao processar vencimentos:', e));
+  setInterval(() => {
+    processarVencimentos(poolCentral())
+      .catch(e => console.error('[ASSINATURA] falha ao processar vencimentos:', e));
+  }, 6 * 60 * 60_000);
+
   sincronizarHorarios().catch(e => console.error('[HORARIO AUTO] falha:', e));
   setInterval(() => { sincronizarHorarios().catch(e => console.error('[HORARIO AUTO] falha:', e)); }, 60_000);
 

@@ -17,7 +17,11 @@ import multer from 'multer';
 import { spawn } from 'child_process';
 import path from 'path';
 import os from 'os';
-import { listarTenants, criarTenant, atualizarTenant, tenantPorId, ehMaster, urlDoTenant } from '../tenants-mysql';
+import { listarTenants, criarTenant, atualizarTenant, tenantPorId, ehMaster, urlDoTenant, poolCentral } from '../tenants-mysql';
+import {
+  listarAssinaturas, salvarAssinatura, registrarPagamento, historicoPagamentos,
+  processarVencimentos, statusCalculado, diasDeAtraso,
+} from '../assinaturas';
 import { geocodificarTexto } from '../geo';
 
 /**
@@ -1768,3 +1772,111 @@ router.get('/auditoria', exigirSuperAdmin, async (req, res, next) => {
 });
 
 export default router;
+
+/* ══════════════════ ASSINATURAS (plataforma cobra o lojista) ══════════════════
+ *
+ * Protegidas por `exigirSuperAdmin` + `exigirMaster()`, o mesmo par das rotas de
+ * tenant: são dados da PLATAFORMA, não de uma loja. Admin comum de um tenant não
+ * pode ver nem mexer em quanto os outros clientes pagam.
+ */
+
+/** Lista assinaturas com o status recalculado pra hoje (a tela mostra a verdade de agora). */
+router.get('/assinaturas', exigirSuperAdmin, async (_req, res, next) => {
+  try {
+    exigirMaster();
+    const pool = poolCentral();
+    const assinaturas = (await listarAssinaturas(pool)).map(a => ({
+      ...a,
+      // O status gravado é do último job; este é o de AGORA. Sem isso, uma
+      // assinatura que venceu hoje apareceria "ativa" até a madrugada.
+      status_agora: statusCalculado(a),
+      dias_atraso: diasDeAtraso(a.vence_em),
+    }));
+    // Tenants ainda sem assinatura: são justamente os que precisam de atenção.
+    const todos = await listarTenants();
+    const comAssinatura = new Set(assinaturas.map(a => a.tenant_id));
+    const semAssinatura = todos.filter(t => !comAssinatura.has(t.id))
+      .map(t => ({ tenant_id: t.id, tenant_nome: t.nome, tenant_slug: t.slug, tenant_ativo: t.ativo }));
+    res.json({ assinaturas, sem_assinatura: semAssinatura });
+  } catch (e) { next(e); }
+});
+
+/** Cria ou atualiza a assinatura de um tenant. */
+router.put('/assinaturas/:tenantId', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const tenantId = inteiroPositivo(req.params.tenantId);
+    if (!tenantId) throw erroHttp(400, 'Tenant inválido.');
+    if (!(await tenantPorId(tenantId))) throw erroHttp(404, 'Tenant não encontrado.');
+
+    const STATUS = ['teste', 'ativa', 'inadimplente', 'suspensa', 'cancelada'] as const;
+    const status = STATUS.includes(req.body?.status) ? req.body.status : 'teste';
+    const valor = Math.max(0, inteiroPositivo(req.body?.valor_centavos) || 0);
+    // 1–28: ver `proximoVencimento` — dia 29+ escorrega em fevereiro e atrasa a
+    // cobrança um mês inteiro sem ninguém notar.
+    const dia = Math.min(28, Math.max(1, inteiroPositivo(req.body?.dia_vencimento) || 5));
+    const tolerancia = Math.min(60, Math.max(0, Math.trunc(Number(req.body?.dias_tolerancia)) || 0));
+
+    await salvarAssinatura(poolCentral(), {
+      tenantId,
+      plano: textoLimpo(req.body?.plano, 60) || 'mensal',
+      valorCentavos: valor,
+      diaVencimento: dia,
+      diasTolerancia: tolerancia,
+      status,
+      observacoes: textoLimpo(req.body?.observacoes, 500),
+    });
+    await registrarAuditoria(req, 'assinatura.salvar', {
+      alvoTipo: 'tenant', alvoId: tenantId,
+      alvoDesc: `${status} · R$ ${(valor / 100).toFixed(2)}`,
+    });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/** Registra um pagamento e avança o vencimento (reativa o acesso na hora). */
+router.post('/assinaturas/:id/pagamento', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const id = inteiroPositivo(req.params.id);
+    if (!id) throw erroHttp(400, 'Assinatura inválida.');
+    const valor = Math.max(0, inteiroPositivo(req.body?.valor_centavos) || 0);
+    if (!valor) throw erroHttp(400, 'Informe o valor recebido.');
+    const forma = ['pix', 'manual'].includes(req.body?.forma) ? req.body.forma : 'manual';
+
+    await registrarPagamento(poolCentral(), {
+      assinaturaId: id,
+      valorCentavos: valor,
+      forma,
+      referencia: textoLimpo(req.body?.referencia, 120),
+    });
+    await registrarAuditoria(req, 'assinatura.pagamento', {
+      alvoTipo: 'assinatura', alvoId: id,
+      alvoDesc: `R$ ${(valor / 100).toFixed(2)} · ${forma}`,
+    });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/** Histórico de pagamentos de uma assinatura. */
+router.get('/assinaturas/:id/pagamentos', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const id = inteiroPositivo(req.params.id);
+    if (!id) throw erroHttp(400, 'Assinatura inválida.');
+    res.json({ pagamentos: await historicoPagamentos(poolCentral(), id) });
+  } catch (e) { next(e); }
+});
+
+/** Roda o job de vencimentos agora (o mesmo que corre de madrugada). */
+router.post('/assinaturas/processar', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const r = await processarVencimentos(poolCentral());
+    await registrarAuditoria(req, 'assinatura.processar', {
+      alvoTipo: 'plataforma',
+      alvoDesc: `${r.verificadas} verificada(s), ${r.suspensos} suspenso(s), ${r.reativados} reativado(s)`,
+    });
+    res.json(r);
+  } catch (e) { next(e); }
+});

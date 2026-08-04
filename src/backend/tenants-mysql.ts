@@ -31,7 +31,7 @@ const PREFIXO_AUTO_CRIACAO = process.env.MYSQL_TENANT_PREFIX || 'tenant_';
 const BANCO_CENTRAL = process.env.MYSQL_DATABASE_CENTRAL || process.env.MYSQL_DATABASE || '';
 const BANCO_PADRAO = process.env.MYSQL_DATABASE || '';
 
-function poolCentral(): Pool {
+export function poolCentral(): Pool {
   if (!BANCO_CENTRAL) throw new Error('MYSQL_DATABASE_CENTRAL (ou MYSQL_DATABASE) não configurado.');
   return abrirPool(BANCO_CENTRAL);
 }
