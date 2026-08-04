@@ -11,7 +11,7 @@ import './boot-diagnostico';
 import 'dotenv/config';
 import path from 'path';
 import fs from 'fs';
-import { metaDaRota, injetarMeta, paginaSuspensa } from './og';
+import { metaDaRota, injetarMeta, paginaSuspensa, contatoSuporte } from './og';
 import express, { ErrorRequestHandler } from 'express';
 
 import autenticacaoRoutes from './rotas/autenticacao';
@@ -254,7 +254,7 @@ app.use((req, res, next) => {
         // Robô de busca não desindexa a loja por causa de uma mensalidade atrasada.
         res.status(503)
           .setHeader('Retry-After', '3600');
-        res.type('html').send(paginaSuspensa(suspenso.nome));
+        res.type('html').send(paginaSuspensa(suspenso.nome, await contatoSuporte()));
         return;
       }
     }

@@ -157,3 +157,39 @@ describe('paginaSuspensa', () => {
     expect(paginaSuspensa('')).toContain('Esta loja');
   });
 });
+
+describe('paginaSuspensa — contato do suporte', () => {
+  it('mostra botão de WhatsApp com o telefone configurado', () => {
+    const h = paginaSuspensa('Loja X', { email: '', telefone: '(47) 99417-3970' });
+    expect(h).toContain('https://wa.me/5547994173970');
+    expect(h).toContain('Falar no WhatsApp');
+  });
+
+  it('não duplica o 55 quando o telefone já tem o país', () => {
+    const h = paginaSuspensa('Loja X', { email: '', telefone: '5547994173970' });
+    expect(h).toContain('https://wa.me/5547994173970');
+    expect(h).not.toContain('5555');
+  });
+
+  it('telefone curto/inválido não gera link quebrado', () => {
+    const h = paginaSuspensa('Loja X', { email: '', telefone: '1234' });
+    expect(h).not.toContain('wa.me');
+  });
+
+  it('mostra e-mail quando houver', () => {
+    expect(paginaSuspensa('Loja X', { email: 'ajuda@x.com', telefone: '' }))
+      .toContain('mailto:ajuda@x.com');
+  });
+
+  it('sem contato configurado, cai no texto genérico em vez de botão vazio', () => {
+    const h = paginaSuspensa('Loja X', { email: '', telefone: '' });
+    expect(h).toContain('Entre em contato com o suporte');
+    expect(h).not.toContain('wa.me');
+    expect(h).not.toContain('mailto:');
+  });
+
+  it('escapa o contato também (vem de campo editável)', () => {
+    const h = paginaSuspensa('Loja X', { email: 'a"><script>x</script>@b.com', telefone: '' });
+    expect(h).not.toContain('<script>x</script>');
+  });
+});

@@ -17,7 +17,7 @@
  *   loja      → Painel do lojista › Configurações da loja (nome, descrição, logo)
  *   marca     → Painel admin › Marca (nome, descrição, logo)
  */
-import db from './db-mysql';
+import db, { comTenant, BANCO_PADRAO } from './db-mysql';
 import { lojaIdDoHost } from './dominios';
 
 export interface MetaOg {
@@ -222,9 +222,64 @@ export function injetarMeta(html: string, meta: MetaOg, urlBase: string, urlComp
  *
  * HTML puro, sem depender do bundle React: o app do tenant nem deve carregar aqui.
  */
-export function paginaSuspensa(nomeLoja: string): string {
-  const nome = String(nomeLoja || 'Esta loja')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+/**
+ * Contato de suporte da PLATAFORMA, pra estampar na página de suspensão.
+ *
+ * Lê do banco MASTER explicitamente, com `comTenant`: a página de suspensão é
+ * servida ANTES do contexto de tenant existir (é justamente o caso em que nenhum
+ * tenant ativo casou com o host), então `db` sem contexto lançaria.
+ *
+ * Reusa `suporte_email`/`suporte_telefone`, que já existem e já são editáveis em
+ * Painel admin › Marca — criar campo novo daria duas fontes pro mesmo dado e uma
+ * delas ficaria desatualizada.
+ *
+ * Nunca lança: sem contato configurado, a página sai sem o bloco em vez de dar 500.
+ */
+export async function contatoSuporte(): Promise<{ email: string; telefone: string }> {
+  try {
+    return await comTenant(BANCO_PADRAO, async () => {
+      const ler = async (chave: string) => {
+        const r = await db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
+        return (r?.valor || '').trim();
+      };
+      return { email: await ler('suporte_email'), telefone: await ler('suporte_telefone') };
+    });
+  } catch {
+    return { email: '', telefone: '' };
+  }
+}
+
+/** Só dígitos, pro link do WhatsApp. Assume Brasil quando falta o país. */
+function whatsappUrl(telefone: string): string {
+  const d = telefone.replace(/\D/g, '');
+  if (d.length < 10) return '';
+  return `https://wa.me/${d.length <= 11 ? '55' + d : d}`;
+}
+
+/**
+ * Página servida no domínio de um cliente SUSPENSO.
+ *
+ * Sem marca da plataforma de propósito: o domínio é do lojista, e estampar a
+ * nossa logo (ou pior, a landing de vendas) no endereço dele é constrangedor pra
+ * ele e expõe preço pra concorrente. Diz o necessário e nada mais.
+ *
+ * O CONTATO vem do admin (ver `contatoSuporte`). Sem ele, a página dizia "entre
+ * em contato com o suporte" sem dizer COM QUEM — o lojista ficava sabendo que
+ * está suspenso e sem saber pra quem ligar, o que só atrasa o pagamento.
+ *
+ * HTML puro, sem depender do bundle React: o app do tenant nem deve carregar aqui.
+ */
+export function paginaSuspensa(nomeLoja: string, contato?: { email: string; telefone: string }): string {
+  const nome = esc(nomeLoja || 'Esta loja');
+  const zap = whatsappUrl(contato?.telefone || '');
+  const email = (contato?.email || '').trim();
+
+  const acoes = [
+    zap ? `<a class="botao" href="${esc(zap)}">Falar no WhatsApp</a>` : '',
+    email ? `<a class="link" href="mailto:${esc(email)}">${esc(email)}</a>` : '',
+    !zap && !email ? '<p>Entre em contato com o suporte para reativar.</p>' : '',
+  ].filter(Boolean).join('');
+
   return `<!doctype html>
 <html lang="pt-BR"><head>
 <meta charset="utf-8" />
@@ -240,11 +295,15 @@ export function paginaSuspensa(nomeLoja: string): string {
   h1 { font-size:1.35rem; margin:0 0 .5rem }
   p { margin:.5rem 0; color:#a9a9b2 }
   .marca { font-weight:800; font-size:1.05rem; color:#e8e8ea; margin-bottom:1.25rem }
+  .botao { display:inline-block; margin-top:1rem; padding:.75rem 1.25rem; border-radius:.75rem;
+           background:#e8e8ea; color:#0b0b0c; font-weight:700; text-decoration:none }
+  .link { display:block; margin-top:.75rem; color:#a9a9b2 }
 </style>
 </head><body><div class="caixa">
   <div class="marca">${nome}</div>
   <h1>Loja temporariamente indisponível</h1>
   <p>O acesso a este endereço está suspenso no momento.</p>
-  <p>Se você é o responsável pela loja, entre em contato com o suporte para reativar.</p>
+  <p>Se você é o responsável pela loja, fale com o suporte para reativar.</p>
+  ${acoes}
 </div></body></html>`;
 }
