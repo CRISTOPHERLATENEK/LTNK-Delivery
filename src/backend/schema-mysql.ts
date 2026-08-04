@@ -644,8 +644,27 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
   ) as any;
   if (jaTemIdem.length === 0) {
     await pool.query('ALTER TABLE pedidos ADD COLUMN idempotencia VARCHAR(64) NULL');
-    // UNIQUE aceita vários NULL no MySQL — pedido que não vem do PDV fica de fora
-    // da restrição naturalmente, sem precisar de valor sentinela.
+  }
+  /**
+   * ÍNDICE conferido SEPARADAMENTE da coluna, de propósito.
+   *
+   * Antes os dois ALTERs estavam dentro do mesmo `if (coluna não existe)`. Se o
+   * primeiro passasse e o segundo falhasse — conexão caindo no meio, tenant com
+   * `pedidos` grande, migração interrompida no deploy — a coluna passava a
+   * existir e o índice NUNCA mais era criado, porque a condição olhava só a
+   * coluna. E é o índice que garante a idempotência do PDV: sem ele, duas
+   * requisições simultâneas com a mesma chave inserem as DUAS vendas, e a
+   * proteção que parecia estar lá não existe.
+   *
+   * UNIQUE aceita vários NULL no MySQL — pedido que não vem do PDV fica de fora
+   * da restrição naturalmente, sem precisar de valor sentinela.
+   */
+  const [jaTemIndiceIdem] = await pool.query(
+    `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pedidos'
+        AND INDEX_NAME = 'idx_pedidos_idempotencia' LIMIT 1`,
+  ) as any;
+  if (jaTemIndiceIdem.length === 0) {
     await pool.query('ALTER TABLE pedidos ADD UNIQUE KEY idx_pedidos_idempotencia (idempotencia)');
   }
 

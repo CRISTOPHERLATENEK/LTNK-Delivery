@@ -1193,6 +1193,21 @@ router.post('/balcao', async (req, res, next) => {
           `INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos, quantidade, opcoes_texto, opcoes_ids)
            VALUES (?, ?, ?, ?, ?, ?, '[]')`
         ).run(novoPedidoId, produto.id, produto.nome, precoUnit, quantidade, detalhe);
+        /**
+         * BAIXA DE ESTOQUE — não existia no balcão. Só o checkout do cliente
+         * dava baixa, então loja com controle de estoque vendia 20 no caixa, o
+         * número não descia, e o app seguia vendendo online o que já tinha
+         * acabado na prateleira.
+         *
+         * GREATEST(...,0) e SEM condição de saldo, ao contrário do checkout (que
+         * exige `estoque >= ?` e falha a venda): no caixa o cliente está com o
+         * produto na mão. Se a contagem do sistema está errada, recusar a venda é
+         * pior que a contagem errada — o certo é registrar e deixar o número no
+         * piso, pra o lojista corrigir depois no cadastro.
+         */
+        await tx.prepare(
+          'UPDATE produtos SET estoque = GREATEST(estoque - ?, 0) WHERE id = ? AND controla_estoque = 1'
+        ).run(quantidade, produto.id);
       }
       await tx.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
         .run(novoPedidoId, 'entregue', agora);
@@ -1299,7 +1314,10 @@ router.post('/pedidos/:id/acao', async (req, res, next) => {
     if (!novoStatus) throw erroHttp(400, 'Ação inválida. Use: aceitar, recusar, preparar ou pronto.');
 
     const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND loja_id = ?')
-      .get(req.params.id, loja.id) as { id: number; pagamento_status: string } | undefined;
+      .get(req.params.id, loja.id) as {
+        id: number; pagamento_status: string; estornado_em: string;
+        pagamento_gateway: string; pagamento_gateway_id: string;
+      } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
     // A listagem já esconde pedido Pix não pago (pagamento_status='aguardando'),
     // mas essa rota é o que de fato muda o estado — reforça aqui, não só na UI,
@@ -1311,6 +1329,42 @@ router.post('/pedidos/:id/acao', async (req, res, next) => {
     const extras: Record<string, string | number | null> = {};
     if (acao === 'recusar') {
       extras.motivo_recusa = textoLimpo(req.body.motivo, 200) || 'Recusado pela loja';
+
+      /**
+       * RECUSAR PEDIDO JÁ PAGO ESTORNA O DINHEIRO — antes não estornava.
+       *
+       * O BURACO QUE ISSO FECHA: o cliente pagava o Pix, o pedido ficava
+       * `pendente` esperando a loja, a loja recusava (sem estoque, fechando mais
+       * cedo) e o pedido ia pra `recusado`. Estoque voltava, o cliente recebia
+       * "pedido recusado" — e o dinheiro FICAVA NA LOJA. Nada no sistema
+       * sinalizava, e o lojista muitas vezes nem sabia que aquele pedido já
+       * estava pago. O cancelamento pelo cliente sempre foi bloqueado nesse caso
+       * (rotas/cliente.ts) justamente porque não havia estorno; a recusa pelo
+       * lojista passava batido.
+       *
+       * ORDEM IMPORTA: estorna ANTES de mudar o status. Se o gateway falhar, a
+       * recusa é abortada com erro — melhor o lojista tentar de novo do que o
+       * pedido ficar recusado com o dinheiro preso, que é justamente o estado
+       * que ninguém percebe depois.
+       */
+      const jaPago = pedido.pagamento_status === 'aprovado' && !pedido.estornado_em;
+      if (jaPago) {
+        if (!pedido.pagamento_gateway_id) {
+          throw erroHttp(409,
+            'Este pedido foi pago via Pix mas não tem referência do pagamento. '
+            + 'Estorne direto no painel do gateway antes de recusar.');
+        }
+        const { estornarPagamentoPix } = await import('./pagamentos');
+        try {
+          await estornarPagamentoPix(loja.id, pedido.pagamento_gateway, pedido.pagamento_gateway_id);
+        } catch (e) {
+          throw erroHttp(502,
+            'Não conseguimos estornar o Pix agora, então o pedido NÃO foi recusado '
+            + '(recusar sem devolver o dinheiro deixaria o cliente sem pedido e sem '
+            + 'reembolso). Tente de novo em instantes. Detalhe: ' + (e as Error).message);
+        }
+        await db.prepare('UPDATE pedidos SET estornado_em = ? WHERE id = ?').run(agoraUTC(), pedido.id);
+      }
     }
     const atualizado = await transicionarStatus(pedido.id, novoStatus, { camposExtras: extras });
     res.json({ pedido: atualizado });
@@ -3022,6 +3076,14 @@ router.post('/comandas/:id/fechar', async (req, res, next) => {
           await tx.prepare(
             "INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos, quantidade, opcoes_texto, opcoes_ids) VALUES (?, ?, ?, ?, ?, '', '[]')"
           ).run(novoPedidoId, it.produto_id, it.nome_produto, it.preco_unit_centavos, it.quantidade);
+          // Mesma baixa de estoque do balcão, pelo mesmo motivo (consumo no salão
+          // sai do mesmo estoque que a venda online). `produto_id` pode ser NULL
+          // em item avulso digitado na comanda — aí não há o que baixar.
+          if (it.produto_id) {
+            await tx.prepare(
+              'UPDATE produtos SET estoque = GREATEST(estoque - ?, 0) WHERE id = ? AND controla_estoque = 1'
+            ).run(it.quantidade, it.produto_id);
+          }
         }
         await tx.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
           .run(novoPedidoId, 'entregue', agora);
