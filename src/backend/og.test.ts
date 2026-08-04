@@ -126,3 +126,34 @@ describe('normalizarHost', () => {
     expect(normalizarHost('loja.www.com.br')).toBe('loja.www.com.br');
   });
 });
+
+import { paginaSuspensa } from './og';
+
+/**
+ * O teste de corte de assinatura em produção revelou isto: com o tenant
+ * desativado, `resolverPorHost` não achava nada e o domínio do cliente caía no
+ * tenant padrão — passava a entregar A PLATAFORMA. A landing de vendas, com preço
+ * e "fale com a gente", no endereço do lojista inadimplente.
+ */
+describe('paginaSuspensa', () => {
+  it('mostra o nome da LOJA, nunca a marca da plataforma', () => {
+    const h = paginaSuspensa('Pizzaria do Zé');
+    expect(h).toContain('Pizzaria do Zé');
+    expect(h).not.toMatch(/Delivery Já|Maxx Delivery|fale com a gente/i);
+  });
+
+  it('escapa o nome (vem do cadastro do lojista)', () => {
+    const h = paginaSuspensa('Zé <script>alert(1)</script> & Cia');
+    expect(h).not.toContain('<script>alert(1)</script>');
+    expect(h).toContain('&lt;script&gt;');
+    expect(h).toContain('&amp;');
+  });
+
+  it('noindex: mensalidade atrasada não pode desindexar a loja do Google', () => {
+    expect(paginaSuspensa('X')).toContain('name="robots" content="noindex"');
+  });
+
+  it('nome vazio não deixa a página sem título', () => {
+    expect(paginaSuspensa('')).toContain('Esta loja');
+  });
+});

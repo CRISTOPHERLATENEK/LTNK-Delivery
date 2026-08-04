@@ -236,3 +236,35 @@ export async function atualizarTenant(id: number, campos: Partial<Pick<Tenant, '
     id,
   ]);
 }
+
+/**
+ * Tenant DESATIVADO que é dono deste host.
+ *
+ * `resolverPorHost` filtra `ativo = 1` de propósito (domínio de cliente cortado
+ * não deve servir a loja). Mas o efeito colateral era pior que o problema: sem
+ * achar tenant, o middleware caía no `tenantPadrao()` e o domínio do cliente
+ * passava a entregar A PLATAFORMA — a landing de vendas, com preço e "fale com a
+ * gente", no endereço do lojista inadimplente. Os clientes dele viam outra marca,
+ * e ele via site alheio e ligava no suporte achando que era bug.
+ *
+ * Esta função responde "existe um tenant aqui, só está desativado?" pra o
+ * servidor poder mostrar um aviso honesto em vez de conteúdo de outra pessoa.
+ */
+export async function tenantDesativadoDoHost(host: string | undefined): Promise<Tenant | null> {
+  if (!host) return null;
+  const h = normalizarHost(host);
+  const pool = poolCentral();
+
+  const [porDominio] = await pool.query('SELECT * FROM tenants WHERE dominio = ? AND ativo = 0', [h]);
+  const achado = (porDominio as Tenant[])[0];
+  if (achado) return achado;
+
+  if (DOMINIO_BASE && h.endsWith('.' + DOMINIO_BASE)) {
+    const sub = h.slice(0, -(DOMINIO_BASE.length + 1));
+    if (sub && !sub.includes('.')) {
+      const [porSlug] = await pool.query('SELECT * FROM tenants WHERE slug = ? AND ativo = 0', [sub]);
+      return (porSlug as Tenant[])[0] || null;
+    }
+  }
+  return null;
+}

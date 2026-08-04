@@ -11,7 +11,7 @@ import './boot-diagnostico';
 import 'dotenv/config';
 import path from 'path';
 import fs from 'fs';
-import { metaDaRota, injetarMeta } from './og';
+import { metaDaRota, injetarMeta, paginaSuspensa } from './og';
 import express, { ErrorRequestHandler } from 'express';
 
 import autenticacaoRoutes from './rotas/autenticacao';
@@ -29,7 +29,7 @@ import webhooksRoutes from './rotas/webhooks';
 import { ErroHttp, lojaAbertaPorAgenda, agoraUTC, mensagemDeDuplicidade } from './util';
 import db, { comTenant, abrirPool, BANCO_PADRAO } from './db-mysql';
 import { inicializarSchema } from './schema-mysql';
-import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants, poolCentral } from './tenants-mysql';
+import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants, poolCentral, tenantDesativadoDoHost } from './tenants-mysql';
 import { inicializarAssinaturas, processarVencimentos } from './assinaturas';
 import { tenantDoToken } from './auth';
 import { capturarErro } from './monitoramento';
@@ -210,7 +210,7 @@ function ehHostDaPlataforma(host: string | undefined): boolean {
 // loja, tema…) caíam no tenant errado: o header de demo é ignorado quando há
 // Authorization, e rota pública não roda `autenticar` pra ler o claim — a
 // loja de demonstração "quebrava" no instante em que o cliente logava.
-app.use((req, _res, next) => {
+app.use((req, res, next) => {
   (async () => {
     const dbDoToken = tenantDoToken(req.headers.authorization);
     const tenantDoTokenReq = dbDoToken ? await tenantPorDbNome(dbDoToken) : undefined;
@@ -233,6 +233,31 @@ app.use((req, _res, next) => {
     // sem ninguém entender por quê. DOMINIO_PLATAFORMA (lista separada por
     // vírgula) declara essas portas de forma explícita e vence o palpite.
     req.hostEhDaPlataforma = ehHostDaPlataforma(req.headers.host) || !tenantDoHost;
+
+    /**
+     * DOMÍNIO DE CLIENTE SUSPENSO → aviso honesto, não conteúdo de outra pessoa.
+     *
+     * `resolverPorHost` filtra `ativo = 1`, então tenant cortado não é achado e a
+     * requisição caía no `tenantPadrao()`: o domínio do lojista inadimplente
+     * passava a entregar A PLATAFORMA — landing de vendas, com preço e "fale com
+     * a gente", no endereço dele. Os clientes dele viam outra marca; ele via site
+     * alheio e ligava no suporte achando que era bug.
+     *
+     * Só entra aqui quando NÃO há sessão nem tenant de demo apontando pra outro
+     * lugar: assim o próprio lojista, já logado, continua conseguindo abrir o
+     * painel pelo token (o claim `tenant` vence o host) e ver o que aconteceu.
+     */
+    if (!tenantDoTokenReq && !tenantDemo && !tenantDoHost) {
+      const suspenso = await tenantDesativadoDoHost(req.headers.host);
+      if (suspenso) {
+        // 503 + Retry-After: é indisponibilidade temporária, não "não existe".
+        // Robô de busca não desindexa a loja por causa de uma mensalidade atrasada.
+        res.status(503)
+          .setHeader('Retry-After', '3600');
+        res.type('html').send(paginaSuspensa(suspenso.nome));
+        return;
+      }
+    }
 
     const tenant = tenantDoTokenReq ?? tenantDemo ?? tenantDoHost ?? (await tenantPadrao());
     await comTenant(tenant.db_nome, async () => { next(); });

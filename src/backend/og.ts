@@ -212,3 +212,39 @@ export function injetarMeta(html: string, meta: MetaOg, urlBase: string, urlComp
       `<meta name="apple-mobile-web-app-title" content="${esc(meta.titulo)}" />`,
     );
 }
+
+/**
+ * Página servida no domínio de um cliente SUSPENSO.
+ *
+ * Sem marca da plataforma de propósito: o domínio é do lojista, e estampar a
+ * nossa logo (ou pior, a landing de vendas) no endereço dele é constrangedor pra
+ * ele e expõe preço pra concorrente. Diz o necessário e nada mais.
+ *
+ * HTML puro, sem depender do bundle React: o app do tenant nem deve carregar aqui.
+ */
+export function paginaSuspensa(nomeLoja: string): string {
+  const nome = String(nomeLoja || 'Esta loja')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return `<!doctype html>
+<html lang="pt-BR"><head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>${nome} — temporariamente indisponível</title>
+<style>
+  :root { color-scheme: light dark }
+  body { margin:0; min-height:100dvh; display:grid; place-items:center; padding:24px;
+         font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+         background:#0b0b0c; color:#e8e8ea }
+  .caixa { max-width:30rem; text-align:center }
+  h1 { font-size:1.35rem; margin:0 0 .5rem }
+  p { margin:.5rem 0; color:#a9a9b2 }
+  .marca { font-weight:800; font-size:1.05rem; color:#e8e8ea; margin-bottom:1.25rem }
+</style>
+</head><body><div class="caixa">
+  <div class="marca">${nome}</div>
+  <h1>Loja temporariamente indisponível</h1>
+  <p>O acesso a este endereço está suspenso no momento.</p>
+  <p>Se você é o responsável pela loja, entre em contato com o suporte para reativar.</p>
+</div></body></html>`;
+}
