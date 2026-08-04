@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { lerRepasse2FA, destinoRepasse2FA } from '../../lib/repasse-2fa';
 import { useQuery } from '@tanstack/react-query';
 import { Routes, Route, Link } from 'react-router-dom';
-import { CheckCircle2, ChefHat, XCircle, Package, Bell, Save, Eye, EyeOff, History, Printer, Store, Lock } from 'lucide-react';
+import {
+  CheckCircle2, ChefHat, XCircle, Package, Bell, Save, Eye, EyeOff, History,
+  Printer, Store, Lock, Banknote,
+} from 'lucide-react';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -10,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Falha } from '@/components/ui/estado';
+import { CaixaLoja } from './caixa';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useToast } from '@/components/ui/toast';
@@ -304,10 +308,15 @@ function ConfiguracoesLoja() {
 
 /* ── Vendas: hub que junta PDV (balcão) e Mesas (salão) numa aba só ── */
 function VendasLoja() {
-  const [aba, setAba] = useState<'pdv' | 'mesas' | 'delivery'>('pdv');
+  const [aba, setAba] = useState<'pdv' | 'mesas' | 'delivery' | 'caixa'>('pdv');
+  // Caixa fica JUNTO das vendas de propósito: quem abre e fecha o caixa é a mesma
+  // pessoa que está no PDV. Numa aba separada do menu, viraria tela que ninguém
+  // lembra de abrir — e caixa não conferido é o estado padrão de todo lugar que
+  // não coloca a conferência no caminho de quem opera.
   const ABAS = [
     { id: 'pdv' as const, label: 'PDV Balcão', icone: ShoppingCart },
     { id: 'mesas' as const, label: 'Mesas', icone: UtensilsCrossed },
+    { id: 'caixa' as const, label: 'Caixa', icone: Banknote },
     { id: 'delivery' as const, label: 'Delivery', icone: FileText },
   ];
 
@@ -332,7 +341,7 @@ function VendasLoja() {
         })}
       </div>
 
-      {aba === 'pdv' ? <BalcaoLoja /> : aba === 'mesas' ? <MesasLoja /> : <NfceDeliveryLoja />}
+      {aba === 'pdv' ? <BalcaoLoja /> : aba === 'mesas' ? <MesasLoja /> : aba === 'caixa' ? <CaixaLoja /> : <NfceDeliveryLoja />}
     </div>
   );
 }

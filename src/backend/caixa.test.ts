@@ -1,0 +1,114 @@
+import { describe, it, expect } from 'vitest';
+import {
+  esperadoEmDinheiro, diferencaDeCaixa, classificarDiferenca, somarVendas, montarResumo,
+} from './caixa';
+
+/**
+ * Conferência de caixa é conta de dinheiro que alguém vai contar na mão e comparar.
+ * Errar aqui não dá erro em log nenhum: dá "falta R$ 340 no caixa" e uma discussão
+ * com o funcionário que não fez nada errado.
+ */
+describe('esperadoEmDinheiro', () => {
+  it('abertura + vendas em dinheiro', () => {
+    expect(esperadoEmDinheiro({
+      aberturaCentavos: 10000, vendasDinheiroCentavos: 25000,
+      suprimentosCentavos: 0, sangriasCentavos: 0,
+    })).toBe(35000);
+  });
+
+  it('suprimento entra, sangria sai', () => {
+    expect(esperadoEmDinheiro({
+      aberturaCentavos: 10000, vendasDinheiroCentavos: 25000,
+      suprimentosCentavos: 5000, sangriasCentavos: 20000,
+    })).toBe(20000);
+  });
+
+  it('sangria maior que o saldo dá negativo (não silencia o erro de digitação)', () => {
+    // Retirar mais do que existe é erro de lançamento; devolver 0 esconderia isso.
+    expect(esperadoEmDinheiro({
+      aberturaCentavos: 1000, vendasDinheiroCentavos: 0,
+      suprimentosCentavos: 0, sangriasCentavos: 5000,
+    })).toBe(-4000);
+  });
+
+  it('caixa sem movimento nenhum devolve a abertura', () => {
+    expect(esperadoEmDinheiro({
+      aberturaCentavos: 15000, vendasDinheiroCentavos: 0,
+      suprimentosCentavos: 0, sangriasCentavos: 0,
+    })).toBe(15000);
+  });
+});
+
+describe('diferencaDeCaixa', () => {
+  it('fechou exato', () => expect(diferencaDeCaixa(35000, 35000)).toBe(0));
+  it('falta na gaveta é negativo', () => expect(diferencaDeCaixa(34000, 35000)).toBe(-1000));
+  it('sobra é positivo', () => expect(diferencaDeCaixa(36000, 35000)).toBe(1000));
+});
+
+describe('classificarDiferenca', () => {
+  it('quebra de centavos é "ok" — senão toda conferência viraria alarme e ninguém olharia', () => {
+    expect(classificarDiferenca(0)).toBe('ok');
+    expect(classificarDiferenca(150)).toBe('ok');
+    expect(classificarDiferenca(-200)).toBe('ok');
+  });
+  it('acima da tolerância aponta falta ou sobra', () => {
+    expect(classificarDiferenca(-201)).toBe('falta');
+    expect(classificarDiferenca(5000)).toBe('sobra');
+  });
+  it('tolerância configurável', () => {
+    expect(classificarDiferenca(-500, 1000)).toBe('ok');
+    expect(classificarDiferenca(-1001, 1000)).toBe('falta');
+  });
+});
+
+describe('somarVendas', () => {
+  it('separa por forma; cartao_entrega é como o PDV grava cartão', () => {
+    const r = somarVendas([
+      { forma_pagamento: 'dinheiro', total_centavos: 1000 },
+      { forma_pagamento: 'dinheiro', total_centavos: 2500 },
+      { forma_pagamento: 'pix', total_centavos: 4000 },
+      { forma_pagamento: 'cartao_entrega', total_centavos: 7000 },
+    ]);
+    expect(r.dinheiro_centavos).toBe(3500);
+    expect(r.pix_centavos).toBe(4000);
+    expect(r.cartao_centavos).toBe(7000);
+    expect(r.quantidade).toBe(4);
+  });
+
+  it('forma desconhecida vai pra cartão em vez de sumir da soma', () => {
+    // Perder a venda da soma seria pior: o total do turno ficaria menor que o real.
+    const r = somarVendas([{ forma_pagamento: 'voucher_qualquer', total_centavos: 900 }]);
+    expect(r.cartao_centavos).toBe(900);
+  });
+
+  it('sem vendas, tudo zero', () => {
+    const r = somarVendas([]);
+    expect(r).toEqual({ dinheiro_centavos: 0, cartao_centavos: 0, pix_centavos: 0, quantidade: 0 });
+  });
+});
+
+describe('montarResumo — a regra central', () => {
+  const vendas = somarVendas([
+    { forma_pagamento: 'dinheiro', total_centavos: 30000 },
+    { forma_pagamento: 'pix', total_centavos: 50000 },
+    { forma_pagamento: 'cartao_entrega', total_centavos: 80000 },
+  ]);
+
+  it('CARTÃO E PIX NÃO ENTRAM NO ESPERADO — eles caem no banco, não na gaveta', () => {
+    const r = montarResumo({
+      aberturaCentavos: 10000, vendas, suprimentosCentavos: 0, sangriasCentavos: 0,
+    });
+    // Esperado = 10000 + 30000 (só dinheiro). Se somasse tudo, daria 170000 e a
+    // conferência fecharia errada em R$ 1.300 todo dia.
+    expect(r.esperado_centavos).toBe(40000);
+    expect(r.cartao_centavos).toBe(80000);
+    expect(r.pix_centavos).toBe(50000);
+  });
+
+  it('sangria do meio do turno reduz o esperado', () => {
+    const r = montarResumo({
+      aberturaCentavos: 10000, vendas, suprimentosCentavos: 0, sangriasCentavos: 25000,
+    });
+    expect(r.esperado_centavos).toBe(15000);
+  });
+});

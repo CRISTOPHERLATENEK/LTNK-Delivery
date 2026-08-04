@@ -29,6 +29,7 @@ import { credenciaisOnzDaLoja } from './pagamentos';
 import { testarCredenciaisOficial } from '../whatsapp';
 import { wbapiConfigurado, statusSessaoPlataforma } from '../whatsapp-nao-oficial';
 import { geocodificarTexto, buscarLocais } from '../geo';
+import { somarVendas, montarResumo, diferencaDeCaixa, classificarDiferenca } from '../caixa';
 import { GrupoOpcao, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
 
 /**
@@ -3251,6 +3252,180 @@ router.put('/whatsapp/ativo', async (req, res, next) => {
     await db.prepare('UPDATE lojas SET whatsapp_metodo_ativo = ?, whatsapp_enviar_confirmacao = ? WHERE id = ?')
       .run(metodo, enviarConfirmacao, loja.id);
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+
+/* ══════════════════════ CAIXA POR TURNO ══════════════════════
+ *
+ * Abertura, sangria/suprimento e fechamento com conferência do DINHEIRO.
+ * A conta mora em ../caixa.ts (função pura, coberta por teste) — aqui só entram
+ * banco e validação.
+ *
+ * ESCOPO DELIBERADO: conta o dinheiro que entrou NO CAIXA, ou seja vendas de
+ * `origem = 'balcao'` (que cobre balcão e mesa). Dinheiro de entrega vai pra mão
+ * do ENTREGADOR, não pra gaveta — misturar faria toda conferência fechar errada
+ * até o motoboy voltar e prestar contas, que é outro fluxo e não existe ainda.
+ */
+
+type CaixaLinha = {
+  id: number; loja_id: number; aberto_em: string; valor_abertura_centavos: number;
+  status: string; usuario_abertura_nome: string;
+};
+
+/** Caixa aberto da loja, ou undefined. */
+async function caixaAbertoDaLoja(lojaId: number): Promise<CaixaLinha | undefined> {
+  return await db.prepare(
+    "SELECT * FROM caixas WHERE loja_id = ? AND status = 'aberto' ORDER BY id DESC LIMIT 1"
+  ).get(lojaId) as CaixaLinha | undefined;
+}
+
+/** Movimentos e vendas do caixa, já somados. `fim` congela o corte no fechamento. */
+async function dadosDoCaixa(caixa: CaixaLinha, fim?: string) {
+  const ate = fim || agoraUTC();
+  const movs = await db.prepare(
+    'SELECT tipo, valor_centavos FROM caixa_movimentos WHERE caixa_id = ?'
+  ).all(caixa.id) as Array<{ tipo: string; valor_centavos: number }>;
+  const sangrias = movs
+    .filter(m => m.tipo === 'sangria')
+    .reduce((s, m) => s + m.valor_centavos, 0);
+  const suprimentos = movs
+    .filter(m => m.tipo === 'suprimento')
+    .reduce((s, m) => s + m.valor_centavos, 0);
+
+  /*
+   * `status <> 'cancelado'` e não `= 'entregue'`: venda de balcão nasce já
+   * 'entregue', mas se algum dia nascer em outro status a conferência não pode
+   * deixar de contar dinheiro que ENTROU na gaveta.
+   */
+  const vendasBrutas = await db.prepare(
+    `SELECT forma_pagamento, total_centavos FROM pedidos
+      WHERE loja_id = ? AND origem = 'balcao' AND status <> 'cancelado'
+        AND criado_em >= ? AND criado_em <= ?`
+  ).all(caixa.loja_id, caixa.aberto_em, ate) as Array<{ forma_pagamento: string; total_centavos: number }>;
+
+  const vendas = somarVendas(vendasBrutas);
+  const resumo = montarResumo({
+    aberturaCentavos: caixa.valor_abertura_centavos,
+    vendas,
+    suprimentosCentavos: suprimentos,
+    sangriasCentavos: sangrias,
+  });
+  return { vendas, resumo };
+}
+
+/** Situação atual: caixa aberto com resumo ao vivo, ou histórico dos últimos. */
+router.get('/caixa', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const caixa = await caixaAbertoDaLoja(loja.id);
+    if (!caixa) {
+      const historico = await db.prepare(
+        `SELECT id, aberto_em, fechado_em, usuario_abertura_nome, usuario_fechamento_nome,
+                valor_abertura_centavos, valor_contado_centavos, valor_esperado_centavos,
+                diferenca_centavos, observacoes
+           FROM caixas WHERE loja_id = ? AND status = 'fechado'
+          ORDER BY id DESC LIMIT 10`
+      ).all(loja.id);
+      return res.json({ aberto: null, historico });
+    }
+    const { vendas, resumo } = await dadosDoCaixa(caixa);
+    const movimentos = await db.prepare(
+      'SELECT * FROM caixa_movimentos WHERE caixa_id = ? ORDER BY id DESC'
+    ).all(caixa.id);
+    res.json({ aberto: caixa, vendas, resumo, movimentos });
+  } catch (e) { next(e); }
+});
+
+/** Abre o caixa com o fundo de troco. */
+router.post('/caixa/abrir', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    /*
+     * Um caixa aberto por LOJA, não por usuário: a gaveta é física. Dois caixas
+     * abertos ao mesmo tempo dariam duas respostas pra "quanto deve ter aqui",
+     * cada uma contando as MESMAS vendas.
+     */
+    if (await caixaAbertoDaLoja(loja.id)) {
+      throw erroHttp(409, 'Já existe um caixa aberto nesta loja. Feche o atual antes de abrir outro.');
+    }
+    const abertura = Math.max(0, inteiroPositivo(req.body?.valor_abertura_centavos) || 0);
+    const info = await db.prepare(
+      `INSERT INTO caixas (loja_id, usuario_abertura_id, usuario_abertura_nome, aberto_em,
+                           valor_abertura_centavos, status, observacoes)
+       VALUES (?, ?, ?, ?, ?, 'aberto', ?)`
+    ).run(loja.id, req.usuario!.id, req.usuario!.nome, agoraUTC(), abertura,
+          textoLimpo(req.body?.observacoes, 300));
+    res.status(201).json({ id: Number(info.lastInsertRowid) });
+  } catch (e) { next(e); }
+});
+
+/** Sangria (retirada) ou suprimento (reforço de troco). */
+router.post('/caixa/movimento', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const caixa = await caixaAbertoDaLoja(loja.id);
+    if (!caixa) throw erroHttp(409, 'Nenhum caixa aberto. Abra o caixa antes de lançar movimento.');
+
+    const tipoBruto = String(req.body?.tipo || '');
+    const tipo = tipoBruto === 'suprimento' || tipoBruto === 'sangria' ? tipoBruto : null;
+    if (!tipo) throw erroHttp(400, 'Informe o tipo: sangria ou suprimento.');
+
+    const valor = inteiroPositivo(req.body?.valor_centavos) || 0;
+    if (valor <= 0) throw erroHttp(400, 'Informe um valor maior que zero.');
+
+    // Motivo obrigatório na SANGRIA: retirada sem justificativa é exatamente o
+    // lançamento que ninguém consegue explicar na conferência do fim do dia.
+    const motivo = textoLimpo(req.body?.motivo, 200);
+    if (tipo === 'sangria' && !motivo) throw erroHttp(400, 'Descreva o motivo da sangria.');
+
+    await db.prepare(
+      `INSERT INTO caixa_movimentos (caixa_id, tipo, valor_centavos, motivo, usuario_nome, criado_em)
+       VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(caixa.id, tipo, valor, motivo, req.usuario!.nome, agoraUTC());
+    res.status(201).json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/** Fecha o caixa conferindo o dinheiro contado contra o esperado. */
+router.post('/caixa/fechar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const caixa = await caixaAbertoDaLoja(loja.id);
+    if (!caixa) throw erroHttp(409, 'Nenhum caixa aberto pra fechar.');
+
+    if (req.body?.valor_contado_centavos === undefined) {
+      throw erroHttp(400, 'Informe o valor contado na gaveta.');
+    }
+    const contado = Math.max(0, inteiroPositivo(req.body.valor_contado_centavos) || 0);
+    const fechadoEm = agoraUTC();
+
+    /*
+     * Congela as vendas ATÉ o instante do fechamento: sem o limite, uma venda
+     * registrada entre o cálculo e o UPDATE entraria no esperado de um caixa já
+     * conferido, criando divergência do nada.
+     */
+    const { resumo, vendas } = await dadosDoCaixa(caixa, fechadoEm);
+    const diferenca = diferencaDeCaixa(contado, resumo.esperado_centavos);
+    const obs = textoLimpo(req.body?.observacoes, 300);
+
+    const r = await db.prepare(
+      `UPDATE caixas SET status = 'fechado', fechado_em = ?, usuario_fechamento_nome = ?,
+              valor_contado_centavos = ?, valor_esperado_centavos = ?, diferenca_centavos = ?,
+              observacoes = TRIM(CONCAT(COALESCE(observacoes, ''), ' ', ?))
+        WHERE id = ? AND status = 'aberto'`
+    ).run(fechadoEm, req.usuario!.nome, contado, resumo.esperado_centavos, diferenca, obs, caixa.id);
+
+    // UPDATE condicional: se duas abas fecharem junto, só a primeira vale.
+    if (r.changes === 0) throw erroHttp(409, 'Este caixa já foi fechado por outra pessoa.');
+
+    res.json({
+      resumo,
+      vendas,
+      valor_contado_centavos: contado,
+      diferenca_centavos: diferenca,
+      situacao: classificarDiferenca(diferenca),
+    });
   } catch (e) { next(e); }
 });
 

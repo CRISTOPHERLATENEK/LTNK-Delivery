@@ -453,6 +453,35 @@ const TABELAS: string[] = [
   FOREIGN KEY (loja_id) REFERENCES lojas(id)
 ) ${SUFIXO_TABELA}`,
 
+`CREATE TABLE IF NOT EXISTS caixas (
+  id                        INT PRIMARY KEY AUTO_INCREMENT,
+  loja_id                   INT NOT NULL,
+  usuario_abertura_id       INT NOT NULL,
+  usuario_abertura_nome     VARCHAR(120) NOT NULL DEFAULT '',
+  aberto_em                 VARCHAR(32) NOT NULL,
+  valor_abertura_centavos   INT NOT NULL DEFAULT 0,
+  status                    VARCHAR(10) NOT NULL DEFAULT 'aberto',
+  fechado_em                VARCHAR(32) NOT NULL DEFAULT '',
+  usuario_fechamento_nome   VARCHAR(120) NOT NULL DEFAULT '',
+  valor_contado_centavos    INT NOT NULL DEFAULT 0,
+  valor_esperado_centavos   INT NOT NULL DEFAULT 0,
+  diferenca_centavos        INT NOT NULL DEFAULT 0,
+  observacoes               TEXT,
+  KEY idx_caixas_loja (loja_id, status),
+  KEY idx_caixas_abertura (loja_id, aberto_em)
+) ${SUFIXO_TABELA}`,
+
+`CREATE TABLE IF NOT EXISTS caixa_movimentos (
+  id             INT PRIMARY KEY AUTO_INCREMENT,
+  caixa_id       INT NOT NULL,
+  tipo           VARCHAR(12) NOT NULL,
+  valor_centavos INT NOT NULL,
+  motivo         VARCHAR(200) NOT NULL DEFAULT '',
+  usuario_nome   VARCHAR(120) NOT NULL DEFAULT '',
+  criado_em      VARCHAR(32) NOT NULL,
+  KEY idx_mov_caixa (caixa_id)
+) ${SUFIXO_TABELA}`,
+
 `CREATE TABLE IF NOT EXISTS cozinha_tickets (
   id         INT PRIMARY KEY AUTO_INCREMENT,
   loja_id    INT NOT NULL,
