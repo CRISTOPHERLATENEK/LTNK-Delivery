@@ -7,7 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { brl } from '@/lib/format';
 
-type Periodo = 'dia' | 'semana' | 'mes';
+type Periodo = 'hoje' | 'ontem' | 'semana' | 'mes' | 'mes_passado' | 'personalizado';
 
 interface Resumo {
   pedidos: number;
@@ -21,6 +21,8 @@ interface PorHora { hora: number; qtd: number; }
 
 interface Relatorio {
   periodo: Periodo;
+  /** Intervalo REAL resolvido pelo servidor — é o que rotula a tela e o CSV. */
+  intervalo: { de: string; ate: string; rotulo: string };
   resumo: Resumo;
   mais_vendidos: MaisVendido[];
   por_pagamento: PorPagamento[];
@@ -34,18 +36,41 @@ interface Relatorio {
 }
 
 const LABEL: Record<Periodo, string> = {
-  dia: 'Hoje', semana: '7 dias', mes: '30 dias',
+  hoje: 'Hoje', ontem: 'Ontem', semana: '7 dias',
+  mes: 'Este mês', mes_passado: 'Mês passado', personalizado: 'Escolher',
 };
+/*
+ * "Este mês" e não "30 dias" de propósito: o lojista compara com o extrato do
+ * banco e com a conta do contador, que são fechados por mês de calendário.
+ * "Últimos 30 dias" nunca bate com nenhum dos dois.
+ */
 const NOME_PAGAMENTO: Record<string, string> = {
   pix: 'Pix', dinheiro: 'Dinheiro', cartao_entrega: 'Cartão na entrega',
 };
 
 export function RelatoriosLoja() {
-  const [periodo, setPeriodo] = useState<Periodo>('dia');
+  const [periodo, setPeriodo] = useState<Periodo>('hoje');
+  /*
+   * `useState(fn)` e não cálculo no corpo do render: `Date.now()` durante o render
+   * é impuro (o React reclama, com razão) e o valor mudaria a cada re-render — o
+   * `max` dos campos de data poderia "andar" enquanto a pessoa digita. Aqui é
+   * calculado uma vez, na montagem.
+   *
+   * −3h porque o corte é o dia de BRASÍLIA: perto da meia-noite, o `max` em UTC
+   * ofereceria um dia que ainda não começou pro lojista (ou barraria o dia que
+   * pra ele é hoje).
+   */
+  const [hojeISO] = useState(() => new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10));
+  const [de, setDe] = useState(hojeISO);
+  const [ate, setAte] = useState(hojeISO);
 
   const consulta = useQuery({
-    queryKey: ['lojista-relatorios', periodo],
-    queryFn: () => api<Relatorio>('GET', `/api/lojista/relatorios?periodo=${periodo}`),
+    queryKey: ['lojista-relatorios', periodo, periodo === 'personalizado' ? de : '', periodo === 'personalizado' ? ate : ''],
+    queryFn: () => {
+      const q = new URLSearchParams({ periodo });
+      if (periodo === 'personalizado') { q.set('de', de); q.set('ate', ate); }
+      return api<Relatorio>('GET', `/api/lojista/relatorios?${q}`);
+    },
   });
 
   const d = consulta.data;
@@ -53,7 +78,7 @@ export function RelatoriosLoja() {
   function exportarCSV() {
     if (!d) return;
     const linhas: string[] = [];
-    linhas.push(`Relatório,${LABEL[periodo]}`);
+    linhas.push(`Relatório,${LABEL[periodo]},${d.intervalo?.rotulo || ''}`);
     linhas.push('');
     linhas.push('Resumo,Valor');
     linhas.push(`Pedidos entregues,${d.resumo.pedidos}`);
@@ -77,7 +102,9 @@ export function RelatoriosLoja() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `relatorio-${periodo}-${new Date().toISOString().slice(0, 10)}.csv`;
+    // Nome com o intervalo, não com a data de hoje: relatório de março baixado em
+    // abril ficava com nome de abril e não dava pra arquivar sem renomear.
+    a.download = `relatorio-${d.intervalo?.de || periodo}_a_${d.intervalo?.ate || ''}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -102,12 +129,12 @@ export function RelatoriosLoja() {
       </div>
 
       {/* Seletor de período */}
-      <div className="flex gap-2">
-        {(['dia', 'semana', 'mes'] as Periodo[]).map(p => (
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
+        {(['hoje', 'ontem', 'semana', 'mes', 'mes_passado', 'personalizado'] as Periodo[]).map(p => (
           <button
             key={p}
             onClick={() => setPeriodo(p)}
-            className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-colors ${
+            className={`py-2 rounded-xl text-xs font-semibold transition-colors ${
               periodo === p ? 'bg-primary text-primary-foreground' : 'bg-accent text-muted-foreground hover:text-foreground'
             }`}
           >
@@ -115,6 +142,33 @@ export function RelatoriosLoja() {
           </button>
         ))}
       </div>
+
+      {/* Intervalo livre — aparece só no "Escolher", pra não poluir o caminho comum. */}
+      {periodo === 'personalizado' && (
+        <div className="flex flex-wrap items-end gap-2 rounded-xl border border-border p-3">
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold text-muted-foreground">De</label>
+            <input type="date" value={de} max={ate} onChange={e => setDe(e.target.value)}
+              className="h-10 rounded-xl border border-input bg-background px-3 text-sm" />
+          </div>
+          <div>
+            <label className="mb-1 block text-[11px] font-semibold text-muted-foreground">Até</label>
+            <input type="date" value={ate} min={de} max={hojeISO} onChange={e => setAte(e.target.value)}
+              className="h-10 rounded-xl border border-input bg-background px-3 text-sm" />
+          </div>
+          {/* `max`/`min` cruzados nos dois campos: o servidor troca datas invertidas,
+              mas impedir no campo evita a consulta ida-e-volta com resultado estranho. */}
+        </div>
+      )}
+
+      {/* O intervalo REAL, dito pelo servidor. "Este mês" sem dizer qual mês é
+          relatório que ninguém consegue arquivar nem conferir depois. */}
+      {d?.intervalo?.rotulo && (
+        <p className="text-xs text-muted-foreground">
+          Período: <b className="text-foreground">{d.intervalo.rotulo}</b>
+          <span className="ml-1">· horário de Brasília</span>
+        </p>
+      )}
 
       {consulta.isLoading && (
         <div className="grid grid-cols-2 gap-3">
@@ -203,7 +257,10 @@ export function RelatoriosLoja() {
             {d.mais_vendidos.length === 0 ? (
               <Card>
                 <CardContent className="p-6 text-center text-muted-foreground text-sm">
-                  Nenhum pedido entregue {periodo === 'dia' ? 'hoje' : `nos últimos ${periodo === 'semana' ? '7' : '30'} dias`}.
+                  {/* Usa o intervalo do servidor em vez de recriar o texto por
+                      período: era aí que ficava escrito "últimos 30 dias" mesmo
+                      quando o período passou a ser o mês de calendário. */}
+                  Nenhum pedido entregue em {d.intervalo?.rotulo || LABEL[periodo].toLowerCase()}.
                 </CardContent>
               </Card>
             ) : (

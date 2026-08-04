@@ -30,6 +30,7 @@ import { testarCredenciaisOficial } from '../whatsapp';
 import { wbapiConfigurado, statusSessaoPlataforma } from '../whatsapp-nao-oficial';
 import { geocodificarTexto, buscarLocais } from '../geo';
 import { somarVendas, montarResumo, diferencaDeCaixa, classificarDiferenca } from '../caixa';
+import { resolverPeriodo, rotuloPeriodo, type NomePeriodo } from '../periodo';
 import { GrupoOpcao, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
 
 /**
@@ -2590,10 +2591,26 @@ router.put('/categorias', async (req, res, next) => {
 router.get('/relatorios', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
-    const periodo = ['dia', 'semana', 'mes'].includes(req.query.periodo as string)
-      ? (req.query.periodo as 'dia' | 'semana' | 'mes') : 'dia';
-    const dias = { dia: 1, semana: 7, mes: 30 }[periodo];
-    const inicio = new Date(Date.now() - dias * 24 * 60 * 60 * 1000).toISOString();
+    /**
+     * PERÍODO EM DIA DE CALENDÁRIO E FUSO DE BRASÍLIA (ver ../periodo.ts).
+     *
+     * Antes eram "últimas N horas" em UTC, e isso quebrava de dois jeitos: às 10h
+     * o faturamento "de hoje" incluía o jantar de ontem, e o corte UTC jogava as
+     * vendas das 21h à meia-noite pro dia seguinte. O relatório nunca batia com a
+     * gaveta, sem nenhum erro aparente pra investigar.
+     *
+     * `dia`/`mes` continuam aceitos como apelido de `hoje`/`mes` pra não quebrar
+     * link salvo nem a tela antiga durante o deploy.
+     */
+    const apelidos: Record<string, NomePeriodo> = { dia: 'hoje', hoje: 'hoje', ontem: 'ontem',
+      semana: 'semana', mes: 'mes', mes_passado: 'mes_passado', personalizado: 'personalizado' };
+    const nomePeriodo = apelidos[String(req.query.periodo || 'hoje')] || 'hoje';
+    const intervalo = resolverPeriodo(nomePeriodo, { de: req.query.de, ate: req.query.ate });
+    const inicio = intervalo.inicio;
+    // FIM importa: sem limite superior, "ontem" e "mês passado" incluiriam tudo
+    // até agora — o período fechado viraria "de tal data pra cá".
+    const fim = intervalo.fim;
+    const periodo = nomePeriodo;
 
     type Resumo = { pedidos: number; faturamento_centavos: number; comissao_centavos: number; ticket_medio_centavos: number };
     const resumo = await db.prepare(
@@ -2602,34 +2619,34 @@ router.get('/relatorios', async (req, res, next) => {
               COALESCE(SUM(comissao_centavos), 0) AS comissao_centavos,
               COALESCE(AVG(total_centavos), 0)    AS ticket_medio_centavos
          FROM pedidos
-        WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ?`
-    ).get(loja.id, inicio) as Resumo;
+        WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ? AND criado_em <= ?`
+    ).get(loja.id, inicio, fim) as Resumo;
 
     const maisVendidos = await db.prepare(
       `SELECT i.nome_produto, SUM(i.quantidade) AS quantidade,
               SUM(i.quantidade * i.preco_unit_centavos) AS total_centavos
          FROM itens_pedido i
          JOIN pedidos p ON p.id = i.pedido_id
-        WHERE p.loja_id = ? AND p.status = 'entregue' AND p.criado_em >= ?
+        WHERE p.loja_id = ? AND p.status = 'entregue' AND p.criado_em >= ? AND p.criado_em <= ? AND criado_em <= ?
         GROUP BY i.nome_produto
         ORDER BY quantidade DESC LIMIT 10`
-    ).all(loja.id, inicio);
+    ).all(loja.id, inicio, fim);
 
     // Faturamento por forma de pagamento (só entregues).
     const porPagamento = await db.prepare(
       `SELECT forma_pagamento, COUNT(*) AS qtd, COALESCE(SUM(total_centavos),0) AS total_centavos
          FROM pedidos
-        WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ?
+        WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ? AND criado_em <= ?
         GROUP BY forma_pagamento`
-    ).all(loja.id, inicio);
+    ).all(loja.id, inicio, fim);
 
     // Taxa de cancelamento (cancelados + recusados sobre o total de pedidos do período).
     const contagem = await db.prepare(
       `SELECT
           SUM(CASE WHEN status IN ('cancelado','recusado') THEN 1 ELSE 0 END) AS cancelados,
           COUNT(*) AS total
-         FROM pedidos WHERE loja_id = ? AND criado_em >= ?`
-    ).get(loja.id, inicio) as { cancelados: number; total: number };
+         FROM pedidos WHERE loja_id = ? AND criado_em >= ? AND criado_em <= ?`
+    ).get(loja.id, inicio, fim) as { cancelados: number; total: number };
     const taxaCancelamento = contagem.total > 0
       ? Math.round((contagem.cancelados / contagem.total) * 1000) / 10 : 0;
 
@@ -2640,9 +2657,9 @@ router.get('/relatorios', async (req, res, next) => {
       `SELECT HOUR(SUBTIME(STR_TO_DATE(criado_em, '%Y-%m-%dT%H:%i:%s'), '03:00:00')) AS hora,
               COUNT(*) AS qtd
          FROM pedidos
-        WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ?
+        WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ? AND criado_em <= ?
         GROUP BY hora ORDER BY hora`
-    ).all(loja.id, inicio) as Array<{ hora: number; qtd: number }>;
+    ).all(loja.id, inicio, fim) as Array<{ hora: number; qtd: number }>;
 
     // Financeiro: bruto, comissão da plataforma e líquido a receber.
     const bruto = resumo.faturamento_centavos;
@@ -2655,6 +2672,9 @@ router.get('/relatorios', async (req, res, next) => {
 
     res.json({
       periodo,
+      // A tela precisa do intervalo REAL pra rotular e nomear o CSV: "mês" sem
+      // dizer qual mês é relatório que ninguém consegue arquivar.
+      intervalo: { de: intervalo.de, ate: intervalo.ate, rotulo: rotuloPeriodo(intervalo) },
       resumo: { ...resumo, ticket_medio_centavos: Math.round(resumo.ticket_medio_centavos) },
       mais_vendidos: maisVendidos,
       por_pagamento: porPagamento,
