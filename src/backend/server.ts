@@ -305,6 +305,19 @@ app.use((req, res, next) => {
   if (req.path.includes('.')) return next();
 
   /**
+   * O HTML do app NUNCA pode ser cacheado: ele é o "ponteiro" que aponta pro
+   * bundle com hash mais novo. Cacheado, o navegador prende o usuário numa versão
+   * antiga do app indefinidamente (inclusive via PWA instalado).
+   *
+   * Precisa estar AQUI: quem punha esse header era o `setHeaders` do
+   * express.static, e ele só roda quando é o static que responde. Como agora
+   * `index: false` manda a raiz pra este handler — e as demais rotas do SPA
+   * sempre passaram por aqui — sem esta linha o header simplesmente não ia mais
+   * junto. Regressão que eu mesmo introduzi ao mover a raiz pra cá.
+   */
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+  /**
    * Injeta Open Graph por rota (ver og.ts). WhatsApp/Facebook/Telegram não
    * executam JS, então isto TEM que sair do servidor: antes, o link do pedido
    * mostrava a marca e o texto de venda da plataforma pro consumidor final, em

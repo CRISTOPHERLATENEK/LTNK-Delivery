@@ -27,10 +27,21 @@ export interface MetaOg {
   tipo: 'website' | 'article';
 }
 
-/** Rotas de 1 nível que são do APP, não slug de loja. */
+/**
+ * Rotas de 1 nível que são do APP, não slug de loja.
+ *
+ * Conferido contra os `<Route path>` do App.tsx: o painel admin mora em
+ * `/painel-admin`, e aqui estava só `admin` — então `/painel-admin` disparava
+ * busca de loja com esse slug. Consulta desperdiçada, e se alguma loja tivesse
+ * esse slug o link do painel mostraria o cartão dela.
+ *
+ * `api` e `uploads` nunca chegam aqui (são interceptados antes), mas ficam como
+ * defesa: se a ordem dos middlewares mudar, não vira busca de loja.
+ */
 const ROTAS_RESERVADAS = new Set([
   'conta', 'carrinho', 'pedidos', 'pedido', 'lojista', 'entregador', 'cozinha',
-  'admin', 'demo', 'esqueci-senha', 'redefinir-senha', 'uploads', 'api',
+  'painel-admin', 'admin', 'demo', 'esqueci-senha', 'redefinir-senha',
+  'uploads', 'api',
 ]);
 
 type LinhaLoja = { nome: string; descricao: string | null; logo_url: string | null; capa_url: string | null };
