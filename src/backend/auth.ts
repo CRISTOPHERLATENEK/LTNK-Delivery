@@ -81,12 +81,39 @@ declare global {
  */
 const JWT_EXPIRACAO_LONGA = (process.env.JWT_EXPIRACAO_LONGA || '30d') as SignOptions['expiresIn'];
 
+/**
+ * Perfis que NÃO expiram: entregador e cozinha.
+ *
+ * POR QUE: são ferramentas de turno, não sessões de escritório. O entregador está
+ * na rua, de moto, muitas vezes sem saber a senha de cor — ser deslogado no meio
+ * de uma entrega significa corrida perdida e cliente sem rastreio. O KDS é um
+ * tablet preso na parede da cozinha: relogar toda manhã é atrito puro, e no pico
+ * do almoço é pedido saindo errado.
+ *
+ * POR QUE ISSO NÃO É IMPRUDENTE: `autenticar` e `autenticarCozinha` recarregam o
+ * usuário/conta do banco em CADA requisição e recusam quem está `bloqueado`.
+ * Existe revogação de verdade: bloquear no painel encerra a sessão na hora,
+ * independente do prazo do token. É o que substitui a expiração aqui — e é o que
+ * o lojista deve usar quando um entregador sai da equipe ou um tablet é perdido.
+ *
+ * Sem essa checagem por request, token sem prazo seria irresponsável.
+ */
+const PERFIS_SEM_EXPIRACAO = new Set(['entregador']);
+
 export function gerarToken(
   usuario: Pick<Usuario, 'id' | 'perfil'>,
   opcoes: { manterConectado?: boolean } = {},
 ): string {
+  const conteudo = { sub: usuario.id, perfil: usuario.perfil, tenant: bancoTenantAtual() };
+
+  // Sem `expiresIn` o JWT não carrega `exp`, e `jwt.verify` não tem o que checar:
+  // o token vale até a conta ser bloqueada. Deliberado, ver acima.
+  if (PERFIS_SEM_EXPIRACAO.has(usuario.perfil)) {
+    return jwt.sign(conteudo, JWT_SECRET as string);
+  }
+
   return jwt.sign(
-    { sub: usuario.id, perfil: usuario.perfil, tenant: bancoTenantAtual() },
+    conteudo,
     JWT_SECRET as string,
     { expiresIn: opcoes.manterConectado ? JWT_EXPIRACAO_LONGA : JWT_EXPIRACAO }
   );
@@ -227,10 +254,13 @@ export const autenticarPreAuth: RequestHandler = (req, _res, next) => {
 // Token separado do de usuário: carrega tipo='cozinha' e a loja vinculada.
 
 export function gerarTokenCozinha(conta: { id: number; loja_id: number }): string {
+  // SEM `expiresIn`, pelo mesmo motivo de PERFIS_SEM_EXPIRACAO acima: o KDS é um
+  // tablet fixo na cozinha e não pode cair no meio do serviço. Quem revoga é o
+  // lojista, desativando o acesso da cozinha (autenticarCozinha checa `bloqueado`
+  // a cada requisição). Antes expirava em 12h e a cozinha relogava toda manhã.
   return jwt.sign(
     { sub: conta.id, tipo: 'cozinha', loja_id: conta.loja_id },
     JWT_SECRET as string,
-    { expiresIn: JWT_EXPIRACAO }
   );
 }
 

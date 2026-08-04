@@ -50,3 +50,53 @@ describe('gerarToken — validade conforme "manter conectado"', () => {
     }
   });
 });
+
+/**
+ * Entregador e KDS NÃO podem deslogar. São ferramentas de turno: o entregador
+ * está na rua, de moto, muitas vezes sem saber a senha de cor — cair no meio de
+ * uma entrega é corrida perdida e cliente sem rastreio. O KDS é tablet preso na
+ * parede: relogar toda manhã é atrito, e no pico do almoço é pedido saindo errado.
+ *
+ * O que substitui a expiração é a revogação: `autenticar` e `autenticarCozinha`
+ * recarregam do banco a cada requisição e recusam quem está `bloqueado`.
+ */
+describe('perfis que não expiram', () => {
+  let comTenant: typeof import('./db-mysql').comTenant;
+  let auth: typeof import('./auth');
+
+  beforeAll(async () => {
+    process.env.JWT_SECRET = 'segredo-de-teste-com-tamanho-suficiente-123456';
+    comTenant = (await import('./db-mysql')).comTenant;
+    auth = await import('./auth');
+  });
+
+  const semExp = (token: string) => {
+    const d = jwt.decode(token) as Record<string, unknown>;
+    return d.exp === undefined;
+  };
+
+  it('entregador: token SEM exp — não desloga', () => {
+    const t = comTenant('banco_teste', () => auth.gerarToken({ id: 5, perfil: 'entregador' } as never));
+    expect(semExp(t)).toBe(true);
+  });
+
+  it('cozinha (KDS): token SEM exp — não desloga', () => {
+    const t = comTenant('banco_teste', () => auth.gerarTokenCozinha({ id: 3, loja_id: 1 }));
+    expect(semExp(t)).toBe(true);
+    expect((jwt.decode(t) as { tipo: string }).tipo).toBe('cozinha');
+  });
+
+  it('lojista e cliente CONTINUAM expirando — a exceção é só de quem opera na rua/cozinha', () => {
+    for (const perfil of ['lojista', 'cliente', 'admin']) {
+      const t = comTenant('banco_teste', () => auth.gerarToken({ id: 1, perfil } as never));
+      expect(semExp(t)).toBe(false);
+    }
+  });
+
+  it('token de cozinha segue verificável (assinatura válida, sem checagem de prazo)', () => {
+    const t = comTenant('banco_teste', () => auth.gerarTokenCozinha({ id: 9, loja_id: 2 }));
+    const d = jwt.verify(t, process.env.JWT_SECRET as string) as { sub: number; loja_id: number };
+    expect(d.sub).toBe(9);
+    expect(d.loja_id).toBe(2);
+  });
+});
