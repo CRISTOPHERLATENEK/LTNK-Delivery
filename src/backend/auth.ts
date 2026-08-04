@@ -65,11 +65,30 @@ declare global {
  * master, onde o usuário recém-criado não existe → 401 em cascata, sessão
  * derrubada, cliente jogado de volta pra tela de login/landing.
  */
-export function gerarToken(usuario: Pick<Usuario, 'id' | 'perfil'>): string {
+/**
+ * Validade longa, usada quando a pessoa marca "Manter conectado neste
+ * dispositivo".
+ *
+ * O QUE ESTAVA QUEBRADO: a opção só mudava ONDE o token era guardado
+ * (localStorage em vez de sessionStorage), então ele sobrevivia a fechar a aba —
+ * mas o JWT expirava em 12h de qualquer jeito. O lojista marcava a caixa e no dia
+ * seguinte estava fora. Do ponto de vista dele, a opção não fazia nada.
+ *
+ * POR QUE 30 DIAS É ACEITÁVEL AQUI: `autenticar` recarrega o usuário do banco em
+ * CADA requisição e recusa quem está `bloqueado`. Ou seja, existe revogação de
+ * verdade — bloquear a conta encerra as sessões na hora, independente da validade
+ * do token. Sem essa checagem por request, token de 30 dias seria imprudente.
+ */
+const JWT_EXPIRACAO_LONGA = (process.env.JWT_EXPIRACAO_LONGA || '30d') as SignOptions['expiresIn'];
+
+export function gerarToken(
+  usuario: Pick<Usuario, 'id' | 'perfil'>,
+  opcoes: { manterConectado?: boolean } = {},
+): string {
   return jwt.sign(
     { sub: usuario.id, perfil: usuario.perfil, tenant: bancoTenantAtual() },
     JWT_SECRET as string,
-    { expiresIn: JWT_EXPIRACAO }
+    { expiresIn: opcoes.manterConectado ? JWT_EXPIRACAO_LONGA : JWT_EXPIRACAO }
   );
 }
 

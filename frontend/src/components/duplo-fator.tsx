@@ -17,12 +17,18 @@ import { api, ApiError } from '@/lib/api';
 
 interface Props {
   tokenPreAuth: string;
+  /**
+   * "Manter conectado" marcado no login. Quem usa 2FA NAO passa pelo /login pra
+   * pegar o token final -- ele sai daqui. Sem repassar a preferencia, a opcao
+   * simplesmente nao valia pra quem tem dois fatores ligado.
+   */
+  manterConectado?: boolean;
   modo: 'configurar' | 'verificar';
   onSucesso: (token: string, usuario: any) => void;
   onCancelar: () => void;
 }
 
-export function Portal2FA({ tokenPreAuth, modo, onSucesso, onCancelar }: Props) {
+export function Portal2FA({ tokenPreAuth, modo, onSucesso, onCancelar, manterConectado }: Props) {
   const { mostrar } = useToast();
   const [carregandoQr, setCarregandoQr] = useState(modo === 'configurar');
   const [qr, setQr] = useState<string | null>(null);
@@ -57,7 +63,7 @@ export function Portal2FA({ tokenPreAuth, modo, onSucesso, onCancelar }: Props) 
     setEnviando(true);
     try {
       const r = await api<{ token: string; usuario: any; codigosBackup: string[] }>(
-        'POST', '/api/auth/2fa/confirmar', { codigo }, tokenPreAuth
+        'POST', '/api/auth/2fa/confirmar', { codigo, manter_conectado: !!manterConectado }, tokenPreAuth
       );
       setTokenFinal({ token: r.token, usuario: r.usuario });
       setCodigosBackup(r.codigosBackup);
@@ -72,7 +78,7 @@ export function Portal2FA({ tokenPreAuth, modo, onSucesso, onCancelar }: Props) 
     e.preventDefault();
     setEnviando(true);
     try {
-      const corpo = usarBackup ? { codigoBackup } : { codigo };
+      const corpo = { ...(usarBackup ? { codigoBackup } : { codigo }), manter_conectado: !!manterConectado };
       const r = await api<{ token: string; usuario: any }>('POST', '/api/auth/2fa/verificar', corpo, tokenPreAuth);
       onSucesso(r.token, r.usuario);
     } catch (err) {

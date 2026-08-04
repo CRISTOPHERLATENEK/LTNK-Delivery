@@ -1068,7 +1068,11 @@ function LoginLojista() {
       const r = await api<
         | { token: string; usuario: any }
         | { precisa2fa: true; modo2fa: 'configurar' | 'verificar'; tokenPreAuth: string; redirecionar?: string | null }
-      >('POST', '/api/auth/login', { email, senha });
+      >('POST', '/api/auth/login', { email, senha, manter_conectado: lembrar });
+      // `manter_conectado` decide a VALIDADE do token no servidor (30d vs 12h);
+      // `lembrar` no salvarSessao decide so ONDE ele fica (localStorage vs
+      // sessionStorage). Antes so o segundo existia: o token sobrevivia a fechar a
+      // aba, mas expirava em 12h e a caixinha nao servia pra nada.
       if ('precisa2fa' in r) {
         // Conta que mora em OUTRA marca: o 2FA precisa ser concluído no
         // domínio dela, porque o token de pré-autenticação é carimbado com
@@ -1101,6 +1105,7 @@ function LoginLojista() {
         <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-accent/30" />
         <div className="relative">
           <Portal2FA
+            manterConectado={lembrar}
             tokenPreAuth={duploFator.tokenPreAuth}
             modo={duploFator.modo}
             onCancelar={() => setDuploFator(null)}

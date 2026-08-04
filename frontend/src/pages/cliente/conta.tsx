@@ -460,6 +460,8 @@ function FormLogin({ onLogar, irParaCadastro }: { onLogar: (u: UsuarioSessao) =>
       const r = await api<{ token: string; usuario: UsuarioSessao }>(
         'POST', '/api/auth/login',
         {
+          // Ver comentario em lojista/painel.tsx: isto define a validade do token.
+          manter_conectado: lembrar,
           email: ehEmail ? valor.toLowerCase() : undefined,
           telefone: ehEmail ? undefined : telefoneDigitos(valor),
           senha, loja_id: lojaAtualId() ?? marca.loja_id ?? null,

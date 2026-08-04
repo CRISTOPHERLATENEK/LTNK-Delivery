@@ -252,8 +252,14 @@ router.post('/login', limiteLogin, async (req, res, next) => {
       });
     }
 
+    /**
+     * "Manter conectado neste dispositivo" (checkbox do login). Antes o front
+     * mandava a preferencia e o backend nao lia: o token vinha com 12h de
+     * qualquer jeito, e a pessoa era deslogada no dia seguinte mesmo tendo
+     * marcado a caixa.
+     */
     res.json({
-      token: gerarToken(usuario),
+      token: gerarToken(usuario, { manterConectado: req.body?.manter_conectado === true }),
       usuario: {
         id: usuario.id, nome: usuario.nome, email: usuario.email,
         perfil: usuario.perfil, telefone: usuario.telefone, cpf: usuario.cpf || null,
@@ -327,7 +333,9 @@ router.post('/2fa/confirmar', limite2fa, autenticarPreAuth, async (req, res, nex
       .run(JSON.stringify(codigos.map(c => c.hash)), usuario.id);
 
     res.json({
-      token: gerarToken(usuario),
+      // Quem usa 2FA passa por aqui em vez do /login: sem repassar a opcao, o
+      // "manter conectado" simplesmente nao valeria pra esses usuarios.
+      token: gerarToken(usuario, { manterConectado: req.body?.manter_conectado === true }),
       usuario: usuarioPublico(usuario),
       codigosBackup: codigos.map(c => c.texto),
     });
@@ -360,7 +368,7 @@ router.post('/2fa/verificar', limite2fa, autenticarPreAuth, async (req, res, nex
       throw erroHttp(400, 'Informe o código do app ou um código de backup.');
     }
 
-    res.json({ token: gerarToken(usuario), usuario: usuarioPublico(usuario) });
+    res.json({ token: gerarToken(usuario, { manterConectado: req.body?.manter_conectado === true }), usuario: usuarioPublico(usuario) });
   } catch (e) { next(e); }
 });
 
