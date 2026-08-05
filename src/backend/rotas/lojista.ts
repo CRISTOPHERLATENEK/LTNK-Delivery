@@ -2627,7 +2627,7 @@ router.get('/relatorios', async (req, res, next) => {
               SUM(i.quantidade * i.preco_unit_centavos) AS total_centavos
          FROM itens_pedido i
          JOIN pedidos p ON p.id = i.pedido_id
-        WHERE p.loja_id = ? AND p.status = 'entregue' AND p.criado_em >= ? AND p.criado_em <= ? AND criado_em <= ?
+        WHERE p.loja_id = ? AND p.status = 'entregue' AND p.criado_em >= ? AND p.criado_em <= ?
         GROUP BY i.nome_produto
         ORDER BY quantidade DESC LIMIT 10`
     ).all(loja.id, inicio, fim);
