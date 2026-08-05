@@ -58,6 +58,25 @@ function larguraMmDe(largura: '80' | '58'): number {
 }
 
 /**
+ * Quantidade do item do DANFE com a palavra "Qtd" na frente.
+ *
+ * POR QUE A PALAVRA: o DANFE imprime o número SEQUENCIAL do item numa linha e a
+ * QUANTIDADE na linha seguinte. Quando os dois coincidem — item 2, 2 unidades —
+ * o cupom mostra dois "2" um embaixo do outro e o cliente lê como se algo
+ * estivesse repetido ou cobrado a mais. Rotular a quantidade resolve a dúvida no
+ * lugar onde ela nasce; a norma exige que os campos apareçam, não que apareçam
+ * sem rótulo.
+ *
+ * A unidade só sai quando NÃO é "UN": "Qtd 2" já se entende, "Qtd 2 UN" é ruído
+ * na linha mais apertada do cupom — mas em produto pesado ("0,350 KG") a unidade
+ * é a informação que impede o cliente de achar que levou 350 unidades.
+ */
+function rotuloQtd(quantidade: string | number, unidade: string): string {
+  const un = String(unidade || '').trim().toUpperCase();
+  return un && un !== 'UN' ? `Qtd ${quantidade} ${un}` : `Qtd ${quantidade}`;
+}
+
+/**
  * Despacha a impressão: se o NOSSO agente estiver rodando, imprime por ele
  * (ESC/POS, com a config do cupom fiscal aplicada) — auto-selecionando a
  * térmica se preciso. Só cai no diálogo do navegador quando o agente está
@@ -381,8 +400,11 @@ export function montarHtmlDanfe(d: DadosDanfe, largura: '80' | '58' = '80', conf
 
   const itensHtml = d.danfe.itens.map((i, idx) => `
     <div class="it">
-      <div class="it-l">${idx + 1} ${esc(i.descricao)}</div>
-      <div class="it-r">${i.quantidade} ${esc(i.unidade)} x ${cents(i.v_unit)} = <b>${cents(i.v_total)}</b></div>
+      <div class="it-l"><span class="it-n">${idx + 1}.</span> ${esc(i.descricao)}</div>
+      <div class="it-r">
+        <span>${rotuloQtd(i.quantidade, i.unidade)} x ${cents(i.v_unit)}</span>
+        <b>${cents(i.v_total)}</b>
+      </div>
     </div>`).join('');
 
   const pagsHtml = d.danfe.pagamentos.map(p =>
@@ -407,9 +429,13 @@ export function montarHtmlDanfe(d: DadosDanfe, largura: '80' | '58' = '80', conf
   .emit { font-weight:bold; font-size:${fonte + 1}px; }
   .sep { border-top:1px dashed #000; margin:4px 0; }
   .tit { font-weight:bold; font-size:${fonte - 1}px; margin:3px 0; }
-  .it { margin-bottom:3px; }
+  .it { margin-bottom:5px; }
   .it-l { }
-  .it-r { padding-left:10px; }
+  /* O número do item em cinza: some do caminho de quem procura a quantidade. */
+  .it-n { color:#555; }
+  /* Total de cada item na MESMA coluna do VALOR TOTAL, pra conferir de cima a
+     baixo com o dedo em vez de caçar o "=" no meio da linha. */
+  .it-r { padding-left:12px; display:flex; justify-content:space-between; gap:6px; }
   .row { display:flex; justify-content:space-between; }
   .tot { font-weight:bold; font-size:${fonte + 2}px; }
   .aviso { text-align:center; font-weight:bold; border:1px solid #000; padding:3px; margin:5px 0; font-size:${fonte - 1}px; }
@@ -468,8 +494,12 @@ export function montarBlocosDanfe(d: DadosDanfe): BlocoImpressao[] {
     { t: 'linha' },
   ];
   d.danfe.itens.forEach((i, idx) => {
-    b.push({ t: 'texto', txt: `${idx + 1} ${i.descricao}` });
-    b.push({ t: 'texto', txt: `${i.quantidade} ${i.unidade} x ${cents(i.v_unit)} = ${cents(i.v_total)}` });
+    b.push({ t: 'texto', txt: `${idx + 1}. ${i.descricao}` });
+    // `lr` em vez de texto corrido: joga o total do item na MESMA coluna do
+    // VALOR TOTAL lá embaixo, então dá pra descer o dedo pela direita conferindo.
+    // Antes era "2 UN x R$ 34,90 = R$ 69,80" — três números na mesma linha, e o
+    // que o cliente quer ver (o que ele vai pagar por aquele item) no meio.
+    b.push({ t: 'lr', b: true, l: `  ${rotuloQtd(i.quantidade, i.unidade)} x ${cents(i.v_unit)}`, r: cents(i.v_total) });
   });
   b.push({ t: 'linha' });
   b.push({ t: 'lr', l: 'Qtde. total de itens', r: String(d.danfe.itens.length) });
