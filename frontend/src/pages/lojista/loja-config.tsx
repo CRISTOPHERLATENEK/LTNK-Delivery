@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck, Search } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
-import { statusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
+import { statusAgente, esquecerStatusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1164,6 +1164,10 @@ export function ImpressaoLoja() {
 
   async function conectarAgente() {
     setAgEstado('buscando');
+    // O resto do app consulta o status por um cache de 5s (ver agente.ts). Sem
+    // limpar aqui, o lojista abriria o agente, veria "conectado" nesta tela, e a
+    // próxima impressão ainda usaria o "fechado" de segundos atrás.
+    esquecerStatusAgente();
     const status = await statusAgente();
     if (!status) { setAgEstado('off'); return; }
     setAgVersao(status.versao);

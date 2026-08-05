@@ -8,7 +8,7 @@ import { Home, ShoppingBag, Receipt, User, ChevronRight } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { useCarrinho, totalItensCarrinho } from '@/lib/carrinho';
-import { rotaInicioCliente, corLojaAtual } from '@/lib/loja-atual';
+import { rotaInicioCliente, corLojaAtual, ehPreview } from '@/lib/loja-atual';
 import { api, sessaoUsuario } from '@/lib/api';
 import { useTema } from '@/lib/tema';
 // Área do CLIENTE fica no bundle principal: é a rota que todo visitante abre
@@ -75,7 +75,18 @@ function BannerPedidoAtivo() {
     queryFn: () => api<{ pedidos: { id: number; status: string; loja_nome: string }[] }>(
       'GET', '/api/cliente/pedidos'
     ).then(r => r.pedidos),
-    enabled: !!usuario,
+    /*
+     * FORA DO PREVIEW DO EDITOR VISUAL. O preview é a vitrine REAL num iframe
+     * (`/:id?preview=1`, ver PhonePreview), então este banner montava lá dentro e
+     * ficava batendo em /api/cliente/pedidos a cada 8 segundos enquanto o lojista
+     * mexia nas cores. Pior: o iframe é same-origin e lê a MESMA sessão, então a
+     * chamada saía com o token do lojista — pedido de cliente que não existe
+     * naquele contexto, poluindo o console de quem está editando o layout.
+     *
+     * O banner também não faz sentido visual ali: ele é um aviso flutuante pro
+     * cliente voltar ao pedido dele, não parte do cardápio que se está desenhando.
+     */
+    enabled: !!usuario && !ehPreview(),
     refetchInterval: 8000,
   });
 

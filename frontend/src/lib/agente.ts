@@ -62,11 +62,18 @@ export function definirImpressoraSetor(setorId: number, nome: string): void {
  * escolhida ainda mas o agente está rodando — auto-seleciona a térmica (e salva).
  * Retorna null se o agente não estiver ativo. Assim a impressão pelo agente
  * funciona mesmo que o lojista nunca tenha entrado na tela de configuração.
+ *
+ * A CHECAGEM DE STATUS VEM PRIMEIRO, INCLUSIVE COM IMPRESSORA SALVA. Antes a
+ * impressora salva era devolvida sem checar nada, então com o agente fechado cada
+ * documento fazia um POST /imprimir condenado, esperava a conexão ser recusada, e
+ * só então caía no diálogo do navegador. Numa venda que imprime cupom + comanda
+ * por setor isso eram várias tentativas mortas em fila, uma atrasando a próxima —
+ * e o operador esperando por elas.
  */
 export async function impressoraAgentePreferida(): Promise<string | null> {
+  if (!(await agenteAtivo())) return null;
   const salva = impressoraAgente();
   if (salva) return salva;
-  if (!(await agenteAtivo())) return null;
   try {
     const lista = await listarImpressorasAgente();
     const escolha = lista.find(n => RE_TERMICA.test(n)) || lista[0];
@@ -75,9 +82,35 @@ export async function impressoraAgentePreferida(): Promise<string | null> {
   return null;
 }
 
+/**
+ * Último resultado de `/status`, válido por alguns segundos.
+ *
+ * POR QUE CACHEAR: uma venda dispara vários documentos quase juntos (cupom da
+ * venda + uma comanda por setor de produção). Sem cache, cada um repete o
+ * `/status` — e com o agente fechado são N falhas de conexão em vez de uma, cada
+ * uma custando o tempo do timeout. O TTL é curto de propósito: o lojista abre o
+ * agente e imprime de novo em segundos, e uma janela grande faria o sistema
+ * insistir que ele continua fechado.
+ */
+let statusMemo: { quando: number; ativo: boolean } | null = null;
+const TTL_STATUS_MS = 5_000;
+
 /** true se o agente está rodando (responde ao /status rápido). */
 export async function agenteAtivo(): Promise<boolean> {
-  return (await statusAgente()) !== null;
+  const agora = Date.now();
+  if (statusMemo && agora - statusMemo.quando < TTL_STATUS_MS) return statusMemo.ativo;
+  const ativo = (await statusAgente()) !== null;
+  statusMemo = { quando: Date.now(), ativo };
+  return ativo;
+}
+
+/**
+ * Esquece o status cacheado. A tela de configuração da impressora chama isto
+ * antes de testar, senão o botão "Testar" responderia com um resultado de até 5s
+ * atrás — justamente quando o lojista acabou de abrir o agente pra conferir.
+ */
+export function esquecerStatusAgente(): void {
+  statusMemo = null;
 }
 
 /** Versão do Software de Impressão rodando neste PC, ou null se não estiver ativo. */

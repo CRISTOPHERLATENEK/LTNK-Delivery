@@ -46,3 +46,18 @@ export function lojaAtualId(): number | null {
   const id = sessionStorage.getItem(CHAVE);
   return id ? Number(id) : null;
 }
+
+/**
+ * true quando esta página é o PREVIEW do editor visual, não uma visita de
+ * cliente de verdade.
+ *
+ * O preview é a vitrine real dentro de um iframe (`/:id?preview=1`, ver
+ * PhonePreview) — proposital, pra o lojista ver exatamente o que o cliente vê. O
+ * efeito colateral é que tudo que a vitrine faz por conta própria roda ali
+ * também, inclusive consulta que fica se repetindo enquanto ele mexe nas cores.
+ * Quem só serve ao cliente de verdade se desliga com isto.
+ */
+export function ehPreview(): boolean {
+  try { return new URLSearchParams(window.location.search).get('preview') === '1'; }
+  catch { return false; }
+}
