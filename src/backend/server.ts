@@ -29,7 +29,7 @@ import webhooksRoutes from './rotas/webhooks';
 import { ErroHttp, lojaAbertaPorAgenda, agoraUTC, mensagemDeDuplicidade } from './util';
 import db, { comTenant, abrirPool, BANCO_PADRAO } from './db-mysql';
 import { inicializarSchema } from './schema-mysql';
-import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants, poolCentral, tenantDesativadoDoHost } from './tenants-mysql';
+import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants, poolCentral, tenantDesativadoDoHost, ehMaster } from './tenants-mysql';
 import { inicializarAssinaturas, processarVencimentos } from './assinaturas';
 import { tenantDoToken } from './auth';
 import { capturarErro } from './monitoramento';
@@ -232,7 +232,22 @@ app.use((req, res, next) => {
     // parar de rodar, e o lojista voltar a levar "e-mail ou senha incorretos"
     // sem ninguém entender por quê. DOMINIO_PLATAFORMA (lista separada por
     // vírgula) declara essas portas de forma explícita e vence o palpite.
-    req.hostEhDaPlataforma = ehHostDaPlataforma(req.headers.host) || !tenantDoHost;
+    //
+    // E FOI EXATAMENTE ISSO QUE ACONTECEU. O domínio da plataforma foi cadastrado
+    // como domínio do tenant MASTER, então `tenantDoHost` passou a existir, o
+    // palpite morreu, e sem `DOMINIO_PLATAFORMA` no .env o login central parou:
+    // quem tinha conta em outra marca voltou a levar "e-mail ou senha incorretos"
+    // digitando tudo certo, sem redirecionamento nenhum. Perder o login central
+    // por causa de uma variável de ambiente esquecida é caro demais.
+    //
+    // O TENANT MASTER É A PLATAFORMA — isso não é configuração, é definição (`db`
+    // igual ao BANCO_PADRAO). Se o Host resolve pro master, esta É a porta da
+    // plataforma, e a busca entre tenants pode rodar. Nenhum risco de vazamento
+    // white-label: a fronteira que precisa ser respeitada é a do domínio de um
+    // CLIENTE, e esse nunca resolve pro master.
+    req.hostEhDaPlataforma = ehHostDaPlataforma(req.headers.host)
+      || !tenantDoHost
+      || ehMaster(tenantDoHost.db_nome);
 
     /**
      * DOMÍNIO DE CLIENTE SUSPENSO → aviso honesto, não conteúdo de outra pessoa.
