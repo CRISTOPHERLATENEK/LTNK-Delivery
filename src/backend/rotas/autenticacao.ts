@@ -1,13 +1,17 @@
 /**
  * Rotas de autenticação: cadastro, login (com rate limiting) e dados da sessão.
  */
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
-import db, { comTenant } from '../db-mysql';
+import db, { comTenant, bancoTenantAtual } from '../db-mysql';
+import {
+  provedoresDisponiveis, assinarEstado, lerEstado, urlDeAutorizacao,
+  perfilDoCodigo, decidirVinculo, nomeUsavel, type ProvedorOauth,
+} from '../oauth';
 import { listarTenants, urlDoTenant, Tenant } from '../tenants-mysql';
 import { gerarToken, gerarTokenPreAuth, autenticar, autenticarPreAuth } from '../auth';
 import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, telefoneDigitos, erroHttp } from '../util';
@@ -442,5 +446,191 @@ router.post('/redefinir-senha', async (req, res, next) => {
 router.get('/eu', autenticar, (req, res) => {
   res.json({ usuario: req.usuario });
 });
+
+
+/* ═══════════════════════ LOGIN SOCIAL (Google / Facebook) ═══════════════════════ */
+
+/**
+ * Provedores disponíveis — a tela só desenha botão pro que o servidor tem
+ * credencial. Sem isto o cliente veria "Entrar com Google" e receberia um erro do
+ * Google, que é pior que não ter o botão.
+ */
+router.get('/oauth/provedores', (_req, res) => {
+  res.json({ provedores: provedoresDisponiveis() });
+});
+
+/** Valida o provedor pedido na URL, ou erro legível. */
+function provedorDaRota(valor: string): ProvedorOauth {
+  if (valor !== 'google' && valor !== 'facebook') throw erroHttp(404, 'Provedor de login não suportado.');
+  if (!provedoresDisponiveis().includes(valor)) throw erroHttp(503, 'Este login social não está configurado.');
+  return valor;
+}
+
+/**
+ * Passo 1 — manda a pessoa pro provedor.
+ *
+ * Roda no domínio da LOJA, e é aqui que o tenant é capturado: `bancoTenantAtual()`
+ * só existe dentro do contexto desta requisição. O callback roda noutro domínio e
+ * resolveria o tenant errado se dependesse do Host.
+ */
+router.get('/oauth/:provedor/iniciar', async (req, res, next) => {
+  try {
+    const provedor = provedorDaRota(String(req.params.provedor));
+    const origem = `${req.protocol}://${req.headers.host}`;
+    // Destino limitado a rota INTERNA: sem isso, `?voltar=https://malicioso`
+    // transformaria nosso login num redirecionador aberto, útil pra phishing.
+    const bruto = textoLimpo(String(req.query.voltar || '/conta'), 200);
+    const caminho = bruto.startsWith('/') && !bruto.startsWith('//') ? bruto : '/conta';
+
+    const state = assinarEstado({
+      tenant: bancoTenantAtual(),
+      lojaId: req.query.loja_id ? Number(req.query.loja_id) : null,
+      origem,
+      caminho,
+    });
+    const url = urlDeAutorizacao(provedor, state);
+    if (!url) throw erroHttp(503, 'Este login social não está configurado.');
+    res.redirect(url);
+  } catch (e) { next(e); }
+});
+
+/** Volta pro domínio da loja com uma mensagem de erro legível no fragmento. */
+function voltarComErro(res: Response, destino: string, motivo: string) {
+  const sep = destino.includes('#') ? '&' : '#';
+  res.redirect(`${destino}${sep}oauth_erro=${encodeURIComponent(motivo)}`);
+}
+
+/**
+ * Passo 2 — callback, no domínio FIXO da plataforma.
+ *
+ * Tudo aqui roda DENTRO do tenant que veio no `state` (via `comTenant`): é o único
+ * jeito de criar o usuário no banco certo, já que o Host deste domínio aponta pro
+ * tenant da plataforma, não pro da loja.
+ */
+router.get('/oauth/:provedor/callback', async (req, res, next) => {
+  let destino = '';
+  try {
+    const provedor = provedorDaRota(String(req.params.provedor));
+    const estado = lerEstado(String(req.query.state || ''));
+    // Sem state válido não há pra onde voltar com segurança: um destino vindo de
+    // outro lugar que não o nosso próprio state é exatamente o que não se pode
+    // seguir. Responde no domínio da plataforma mesmo.
+    if (!estado) throw erroHttp(400, 'Sessão de login social expirada ou inválida. Tente novamente.');
+    destino = `${estado.origem}${estado.caminho}`;
+
+    // A pessoa clicou "cancelar" na tela do provedor: não é erro nosso.
+    if (req.query.error) return voltarComErro(res, destino, 'Login social cancelado.');
+    const code = String(req.query.code || '');
+    if (!code) return voltarComErro(res, destino, 'O provedor não devolveu o código de autorização.');
+
+    const perfil = await perfilDoCodigo(provedor, code);
+
+    const resultado = await comTenant(estado.tenant, async (): Promise<{ erro?: string; codigo?: string }> => {
+      const porSub = perfil.sub
+        ? await db.prepare('SELECT id FROM usuarios WHERE oauth_provedor = ? AND oauth_sub = ?')
+            .get(provedor, perfil.sub) as { id: number } | undefined
+        : undefined;
+      const porEmail = perfil.email
+        ? await db.prepare('SELECT id, perfil FROM usuarios WHERE email = ?')
+            .get(perfil.email) as { id: number; perfil: string } | undefined
+        : undefined;
+
+      const decisao = decidirVinculo(perfil, { porSub, porEmail });
+      if (decisao.acao === 'recusar') return { erro: decisao.motivo };
+
+      let usuarioId: number;
+      if (decisao.acao === 'criar') {
+        /*
+         * `senha_hash` é NOT NULL no schema, e conta de login social não tem senha.
+         * Grava o hash de um valor ALEATÓRIO: não pode ser vazio (viola a coluna)
+         * nem previsível (viraria senha universal). Assim nenhuma senha digitada
+         * bate, e quem quiser uma usa "esqueci minha senha", que gera de verdade.
+         */
+        const inutilizavel = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
+        const info = await db.prepare(
+          `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, criado_em, loja_id, oauth_provedor, oauth_sub)
+           VALUES (?, ?, ?, 'cliente', '', ?, ?, ?, ?)`
+        ).run(nomeUsavel(perfil), perfil.email, inutilizavel, agoraUTC(), estado.lojaId, provedor, perfil.sub);
+        usuarioId = Number(info.lastInsertRowid);
+      } else {
+        usuarioId = decisao.usuarioId;
+        if (decisao.acao === 'vincular') {
+          await db.prepare('UPDATE usuarios SET oauth_provedor = ?, oauth_sub = ? WHERE id = ?')
+            .run(provedor, perfil.sub, usuarioId);
+        }
+      }
+
+      const usuario = await db.prepare('SELECT id, bloqueado FROM usuarios WHERE id = ?')
+        .get(usuarioId) as { id: number; bloqueado: number };
+      if (usuario.bloqueado) return { erro: 'Sua conta está bloqueada. Fale com o suporte.' };
+
+      /*
+       * CÓDIGO DE USO ÚNICO em vez do token de sessão na URL. Mesmo no fragmento,
+       * token de sessão fica no histórico do aparelho — e no delivery o aparelho é
+       * com frequência compartilhado. Guardamos só o HASH: vazamento do banco não
+       * devolve códigos utilizáveis.
+       */
+      const codigo = crypto.randomBytes(32).toString('hex');
+      const hash = crypto.createHash('sha256').update(codigo).digest('hex');
+      const agora = new Date();
+      await db.prepare(
+        'INSERT INTO oauth_codigos (codigo_hash, usuario_id, expira_em, criado_em) VALUES (?, ?, ?, ?)'
+      ).run(hash, usuarioId, new Date(agora.getTime() + 2 * 60_000).toISOString(), agora.toISOString());
+      return { codigo };
+    });
+
+    if (resultado.erro) return voltarComErro(res, destino, resultado.erro);
+    // Fragmento (#), não query: não vai pro servidor, não entra em log de acesso e
+    // não viaja no Referer — mesma escolha do repasse de 2FA entre domínios.
+    return res.redirect(`${destino}#oauth=${resultado.codigo}`);
+  } catch (e) {
+    // Falha do provedor (rede, credencial errada, código já usado) não pode
+    // terminar em página de erro no domínio da plataforma: a pessoa tem que voltar
+    // pra loja com uma mensagem que explique o que houve.
+    if (destino) return voltarComErro(res, destino, (e as Error).message || 'Não foi possível concluir o login social.');
+    return next(e);
+  }
+});
+
+/**
+ * Passo 3 — troca o código pela sessão. Chamado pelo frontend no domínio da loja.
+ *
+ * Marca `usado_em` em vez de apagar: código apresentado duas vezes é sinal (link
+ * copiado, replay), e apagando, a segunda tentativa seria indistinguível de
+ * expiração.
+ */
+router.post('/oauth/trocar', limiteLogin, async (req, res, next) => {
+  try {
+    const codigo = typeof req.body?.codigo === 'string' ? req.body.codigo : '';
+    if (!codigo) throw erroHttp(400, 'Código de login ausente.');
+    const hash = crypto.createHash('sha256').update(codigo).digest('hex');
+
+    const linha = await db.prepare(
+      'SELECT id, usuario_id, expira_em, usado_em FROM oauth_codigos WHERE codigo_hash = ?'
+    ).get(hash) as { id: number; usuario_id: number; expira_em: string; usado_em: string } | undefined;
+
+    // Mensagem única pra "não existe", "expirou" e "já usado": as três não têm
+    // ação diferente pra quem é dono do código, e distinguir só ajudaria quem
+    // estivesse testando códigos.
+    const GENERICO = 'Link de login expirado ou já utilizado. Entre novamente.';
+    if (!linha || linha.usado_em || linha.expira_em <= agoraUTC()) throw erroHttp(401, GENERICO);
+
+    // Consumo CONDICIONAL: duas requisições simultâneas com o mesmo código (duplo
+    // clique, prefetch do navegador) só podem render uma sessão.
+    const r = await db.prepare("UPDATE oauth_codigos SET usado_em = ? WHERE id = ? AND usado_em = ''")
+      .run(agoraUTC(), linha.id);
+    if (r.changes === 0) throw erroHttp(401, GENERICO);
+
+    const usuario = await db.prepare('SELECT * FROM usuarios WHERE id = ?')
+      .get(linha.usuario_id) as Usuario | undefined;
+    if (!usuario) throw erroHttp(401, GENERICO);
+    if (usuario.bloqueado) throw erroHttp(403, 'Sua conta está bloqueada. Fale com o suporte.');
+
+    // Login social entra sempre como "manter conectado": a pessoa escolheu o
+    // caminho de não digitar senha, e pedir pra refazer em 12h anula o motivo.
+    res.json({ token: gerarToken(usuario, { manterConectado: true }), usuario: usuarioPublico(usuario) });
+  } catch (e) { next(e); }
+});
+
 
 export default router;

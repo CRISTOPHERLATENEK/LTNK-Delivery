@@ -499,6 +499,31 @@ const TABELAS: string[] = [
   KEY idx_mov_caixa (caixa_id)
 ) ${SUFIXO_TABELA}`,
 
+/**
+ * CÓDIGOS DE USO ÚNICO do login social.
+ *
+ * POR QUE NO BANCO e não num Map em memória: o callback do OAuth roda no domínio
+ * da PLATAFORMA e a troca pela sessão acontece no domínio da LOJA — duas
+ * requisições que podem cair em processos diferentes (pm2 em cluster, ou dois
+ * servidores amanhã). Em memória, o código gerado num processo não existiria no
+ * outro, e o login falharia de forma intermitente: o pior tipo de bug pra
+ * diagnosticar depois.
+ *
+ * `usado_em` em vez de DELETE: um código apresentado duas vezes é sinal (link
+ * copiado, histórico compartilhado, tentativa de replay). Apagando, a segunda
+ * tentativa é indistinguível de código expirado.
+ */
+`CREATE TABLE IF NOT EXISTS oauth_codigos (
+  id          INT PRIMARY KEY AUTO_INCREMENT,
+  codigo_hash VARCHAR(64) NOT NULL UNIQUE,
+  usuario_id  INT NOT NULL,
+  expira_em   VARCHAR(32) NOT NULL,
+  usado_em    VARCHAR(32) NOT NULL DEFAULT '',
+  criado_em   VARCHAR(32) NOT NULL,
+  KEY idx_oauth_cod_exp (expira_em),
+  FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+) ${SUFIXO_TABELA}`,
+
 `CREATE TABLE IF NOT EXISTS cozinha_tickets (
   id         INT PRIMARY KEY AUTO_INCREMENT,
   loja_id    INT NOT NULL,
@@ -732,6 +757,11 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     ['caixas', 'vendas_quantidade',        'vendas_quantidade INT NOT NULL DEFAULT 0'],
     ['caixas', 'sangrias_centavos',        'sangrias_centavos INT NOT NULL DEFAULT 0'],
     ['caixas', 'suprimentos_centavos',     'suprimentos_centavos INT NOT NULL DEFAULT 0'],
+    // Login social: identidade no provedor. `oauth_sub` é o id NO PROVEDOR, que é
+    // estável e nunca reutilizado — casar por e-mail sozinho não serve, porque a
+    // pessoa pode trocar o e-mail da conta Google e continuar sendo a mesma.
+    ['usuarios', 'oauth_provedor', "oauth_provedor VARCHAR(20) NOT NULL DEFAULT ''"],
+    ['usuarios', 'oauth_sub',      "oauth_sub VARCHAR(64) NOT NULL DEFAULT ''"],
   ] as Array<[string, string, string]>) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS

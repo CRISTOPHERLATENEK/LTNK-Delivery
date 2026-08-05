@@ -9,6 +9,8 @@ import {
   Eye, EyeOff, ArrowRight, ShieldCheck, Phone, Mail,
 } from 'lucide-react';
 import { api, ApiError, salvarSessao, sessaoUsuario, encerrarSessao, tenantDemoAtivo } from '@/lib/api';
+import { BotoesLoginSocial } from '@/components/login-social';
+import { useRetornoLoginSocial } from '@/lib/login-social';
 import { useTema } from '@/lib/tema';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -50,6 +52,9 @@ export function PaginaConta() {
 
 /* ─────────────────── Tela de login/cadastro (deslogado) ─────────────────── */
 function TelaAuth({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
+  // Retorno do provedor social — fica AQUI, na tela de auth, porque é onde o
+  // callback devolve a pessoa (`voltar=/conta`).
+  useRetornoLoginSocial(onLogar);
   const { marca } = useTema();
   const cadastroRef = useRef<HTMLDivElement>(null);
 
@@ -515,6 +520,13 @@ function FormLogin({ onLogar, irParaCadastro }: { onLogar: (u: UsuarioSessao) =>
       <Button type="submit" size="lg" className="w-full" disabled={enviando}>
         {enviando ? 'Entrando…' : <>Entrar <ArrowRight className="size-4" /></>}
       </Button>
+
+      {/*
+        Login social DEPOIS do formulário de senha, não antes: quem já tem conta
+        aqui vem pelo caminho que conhece, e a alternativa fica visível pra quem
+        precisa dela sem empurrar o campo de senha pra baixo da dobra no celular.
+      */}
+      <BotoesLoginSocial />
 
       <p className="text-center text-sm text-muted-foreground lg:hidden">
         Não tem uma conta?{' '}
