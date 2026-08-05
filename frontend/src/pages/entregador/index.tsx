@@ -11,6 +11,7 @@ import {
   Check, AlertTriangle, Wallet, Route as RouteIcon, ChevronDown, ChevronUp, BatteryLow,
 } from 'lucide-react';
 import { AppLayout } from '@/components/app-layout';
+import { ContaDeOutroPerfil } from '@/components/conta-outro-perfil';
 import { ChatPedido } from '@/components/chat-pedido';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -130,6 +131,13 @@ export function TelaEntregador() {
     if (suportaPush()) ativarPush().catch(() => { /* best-effort */ });
   }, [ehEntregador]);
 
+  // Mesma armadilha corrigida no painel do lojista e no da plataforma: sessão
+  // válida de OUTRO perfil caía de volta no formulário, sem dizer que o login deu
+  // certo e a conta era de outra área. Ver components/conta-outro-perfil.tsx.
+  if (u && !ehEntregador) {
+    return <ContaDeOutroPerfil perfil={u.perfil} nome={u.nome}
+      areaAtual="app do entregador" chaveSessao="entregador" />;
+  }
   if (!ehEntregador) return <LoginEntregador />;
 
   return (
