@@ -31,7 +31,8 @@ import { testarCredenciaisOficial } from '../whatsapp';
 import { wbapiConfigurado, statusSessaoPlataforma } from '../whatsapp-nao-oficial';
 import { geocodificarTexto, buscarLocais } from '../geo';
 import { somarVendas, montarResumo, diferencaDeCaixa, classificarDiferenca, somarMovimentos, tempoAberto } from '../caixa';
-import { resolverPeriodo, rotuloPeriodo, type NomePeriodo } from '../periodo';
+import { resolverPeriodo, rotuloPeriodo, periodoAnterior, variacaoPercentual, type NomePeriodo } from '../periodo';
+import { classificarCurvaAbc, resumirClassesAbc } from '../curva-abc';
 import { GrupoOpcao, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
 
 /**
@@ -2639,6 +2640,35 @@ router.get('/relatorios', async (req, res, next) => {
         ORDER BY quantidade DESC LIMIT 10`
     ).all(loja.id, inicio, fim);
 
+    /*
+     * CURVA ABC — o cardápio INTEIRO, não o top 10.
+     *
+     * Consulta separada de propósito: a curva precisa de todos os produtos pra o
+     * acumulado fechar em 100%, e o "mais vendidos" é limitado a 10 e ordenado por
+     * QUANTIDADE. Reaproveitar aquele resultado daria uma curva que só enxerga o
+     * topo, com percentuais calculados sobre um total que não é o faturamento.
+     */
+    const itensDoPeriodo = await db.prepare(
+      `SELECT i.nome_produto, SUM(i.quantidade) AS quantidade,
+              SUM(i.quantidade * i.preco_unit_centavos) AS total_centavos
+         FROM itens_pedido i
+         JOIN pedidos p ON p.id = i.pedido_id
+        WHERE p.loja_id = ? AND p.status = 'entregue' AND p.criado_em >= ? AND p.criado_em <= ?
+        GROUP BY i.nome_produto`
+    ).all(loja.id, inicio, fim) as Array<{ nome_produto: string; quantidade: number; total_centavos: number }>;
+    const curva = classificarCurvaAbc(itensDoPeriodo);
+
+    // Faturamento por CANAL de venda (delivery do app, balcão, mesa). Sem isto,
+    // "R$ 766 hoje" não diz quanto veio do salão e quanto veio da entrega — duas
+    // operações com custo e problema completamente diferentes.
+    const porCanal = await db.prepare(
+      `SELECT origem, COUNT(*) AS qtd, COALESCE(SUM(total_centavos),0) AS total_centavos
+         FROM pedidos
+        WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ? AND criado_em <= ?
+        GROUP BY origem
+        ORDER BY total_centavos DESC`
+    ).all(loja.id, inicio, fim);
+
     // Faturamento por forma de pagamento (só entregues).
     const porPagamento = await db.prepare(
       `SELECT forma_pagamento, COUNT(*) AS qtd, COALESCE(SUM(total_centavos),0) AS total_centavos
@@ -2677,17 +2707,72 @@ router.get('/relatorios', async (req, res, next) => {
       liquido_centavos: bruto - comissao,
     };
 
+    /*
+     * COMPARAÇÃO COM O PERÍODO ANTERIOR.
+     *
+     * Número sozinho não informa: "R$ 766 hoje" não diz se o dia foi bom. A mesma
+     * consulta do resumo, no intervalo imediatamente anterior de igual tamanho
+     * (ver `periodoAnterior` — igual tamanho importa em período parcial).
+     */
+    const antes = periodoAnterior(intervalo);
+    const resumoAntes = await db.prepare(
+      `SELECT COUNT(*) AS pedidos,
+              COALESCE(SUM(total_centavos), 0) AS faturamento_centavos,
+              COALESCE(AVG(total_centavos), 0) AS ticket_medio_centavos
+         FROM pedidos
+        WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ? AND criado_em <= ?`
+    ).get(loja.id, antes.inicio, antes.fim) as { pedidos: number; faturamento_centavos: number; ticket_medio_centavos: number };
+
+    /*
+     * ESTOQUE — só de quem tem controle ligado.
+     *
+     * `valor_centavos` é a PREÇO DE VENDA, não custo: não existe custo cadastrado
+     * no sistema (é o que a nota de compra vai trazer). A tela precisa rotular
+     * assim, senão o lojista lê como capital parado e o número está inflado pela
+     * margem.
+     */
+    const estoque = await db.prepare(
+      `SELECT id, nome, estoque, preco_centavos,
+              (estoque * preco_centavos) AS valor_centavos
+         FROM produtos
+        WHERE loja_id = ? AND excluido = 0 AND controla_estoque = 1
+        ORDER BY estoque ASC, nome ASC`
+    ).all(loja.id) as Array<{ id: number; nome: string; estoque: number; preco_centavos: number; valor_centavos: number }>;
+
     res.json({
       periodo,
       // A tela precisa do intervalo REAL pra rotular e nomear o CSV: "mês" sem
       // dizer qual mês é relatório que ninguém consegue arquivar.
       intervalo: { de: intervalo.de, ate: intervalo.ate, rotulo: rotuloPeriodo(intervalo) },
       resumo: { ...resumo, ticket_medio_centavos: Math.round(resumo.ticket_medio_centavos) },
+      // `variacao` null = sem base de comparação (período anterior sem venda).
+      // A tela diz isso em texto, em vez de mostrar "+100%" pra primeira venda.
+      comparacao: {
+        intervalo: { de: antes.de, ate: antes.ate, rotulo: rotuloPeriodo(antes) },
+        pedidos: resumoAntes.pedidos,
+        faturamento_centavos: resumoAntes.faturamento_centavos,
+        ticket_medio_centavos: Math.round(resumoAntes.ticket_medio_centavos),
+        variacao: {
+          pedidos_percent: variacaoPercentual(resumo.pedidos, resumoAntes.pedidos),
+          faturamento_percent: variacaoPercentual(resumo.faturamento_centavos, resumoAntes.faturamento_centavos),
+          ticket_percent: variacaoPercentual(resumo.ticket_medio_centavos, resumoAntes.ticket_medio_centavos),
+        },
+      },
       mais_vendidos: maisVendidos,
+      curva_abc: { itens: curva, classes: resumirClassesAbc(curva) },
       por_pagamento: porPagamento,
+      por_canal: porCanal,
       cancelamento: { cancelados: contagem.cancelados || 0, total: contagem.total || 0, taxa_percent: taxaCancelamento },
       por_hora: porHora,
       financeiro,
+      estoque: {
+        itens: estoque,
+        // `sem_estoque` e `baixo` calculados aqui pra a tela não repetir a regra
+        // (e divergir dela no dia em que o limite mudar).
+        sem_estoque: estoque.filter(p => p.estoque <= 0).length,
+        baixo: estoque.filter(p => p.estoque > 0 && p.estoque <= 5).length,
+        valor_total_centavos: estoque.reduce((s, p) => s + p.valor_centavos, 0),
+      },
     });
   } catch (e) { next(e); }
 });

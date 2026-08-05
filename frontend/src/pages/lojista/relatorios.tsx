@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { BarChart3, TrendingUp, ShoppingBag, Ticket, Wallet, Download, XCircle, Clock } from 'lucide-react';
+import { BarChart3, TrendingUp, ShoppingBag, Ticket, Wallet, Download, XCircle, Clock,
+  ArrowUpRight, ArrowDownRight, Layers, Package } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { api } from '@/lib/api';
 import { brl } from '@/lib/format';
+import { cn } from '@/lib/utils';
 
 type Periodo = 'hoje' | 'ontem' | 'semana' | 'mes' | 'mes_passado' | 'personalizado';
 
@@ -33,6 +35,42 @@ interface Relatorio {
     comissao_plataforma_centavos: number;
     liquido_centavos: number;
   };
+  comparacao: Comparacao;
+  curva_abc: { itens: ItemAbc[]; classes: ResumoClasse[] };
+  por_canal: PorCanal[];
+  estoque: {
+    itens: ItemEstoque[];
+    sem_estoque: number;
+    baixo: number;
+    valor_total_centavos: number;
+  };
+}
+
+interface Comparacao {
+  intervalo: { de: string; ate: string; rotulo: string };
+  pedidos: number;
+  faturamento_centavos: number;
+  ticket_medio_centavos: number;
+  /** null = período anterior sem venda; não há percentual a mostrar. */
+  variacao: {
+    pedidos_percent: number | null;
+    faturamento_percent: number | null;
+    ticket_percent: number | null;
+  };
+}
+interface ItemAbc {
+  nome_produto: string; quantidade: number; total_centavos: number;
+  classe: 'A' | 'B' | 'C';
+  participacao_percent: number; acumulado_percent: number;
+}
+interface ResumoClasse {
+  classe: 'A' | 'B' | 'C'; itens: number;
+  total_centavos: number; participacao_percent: number;
+}
+interface PorCanal { origem: string; qtd: number; total_centavos: number }
+interface ItemEstoque {
+  id: number; nome: string; estoque: number;
+  preco_centavos: number; valor_centavos: number;
 }
 
 const LABEL: Record<Periodo, string> = {
@@ -46,6 +84,18 @@ const LABEL: Record<Periodo, string> = {
  */
 const NOME_PAGAMENTO: Record<string, string> = {
   pix: 'Pix', dinheiro: 'Dinheiro', cartao_entrega: 'Cartão na entrega',
+};
+
+/** Canal de venda. `app` é o delivery do próprio cardápio. */
+const NOME_CANAL: Record<string, string> = {
+  app: 'Delivery (app)', balcao: 'Balcão (PDV)', mesa: 'Mesa / comanda',
+};
+
+/** O que cada classe da curva significa, em uma linha. */
+const SOBRE_CLASSE: Record<'A' | 'B' | 'C', string> = {
+  A: 'Os que sustentam o faturamento — faltar estoque aqui dói',
+  B: 'Importantes, mas não críticos',
+  C: 'Cauda longa: vendem pouco e custam preparo, compra e espaço',
 };
 
 export function RelatoriosLoja() {
@@ -88,6 +138,21 @@ export function RelatoriosLoja() {
     linhas.push(`Ticket médio,${(d.resumo.ticket_medio_centavos / 100).toFixed(2)}`);
     linhas.push(`Taxa de cancelamento,${d.cancelamento.taxa_percent}%`);
     linhas.push('');
+    // Período anterior no CSV também: quem arquiva a planilha perde a comparação
+    // se ela só existir na tela, e é justamente ao comparar meses que se usa o
+    // arquivo.
+    linhas.push(`Comparação,${d.comparacao.intervalo.rotulo}`);
+    linhas.push(`Pedidos no período anterior,${d.comparacao.pedidos}`);
+    linhas.push(`Faturamento no período anterior,${(d.comparacao.faturamento_centavos / 100).toFixed(2)}`);
+    const pct = (v: number | null) => (v === null ? 'sem base' : `${v}%`);
+    linhas.push(`Variação de pedidos,${pct(d.comparacao.variacao.pedidos_percent)}`);
+    linhas.push(`Variação de faturamento,${pct(d.comparacao.variacao.faturamento_percent)}`);
+    linhas.push('');
+    linhas.push('Canal,Pedidos,Total');
+    for (const c of d.por_canal) {
+      linhas.push(`${NOME_CANAL[c.origem] || c.origem},${c.qtd},${(c.total_centavos / 100).toFixed(2)}`);
+    }
+    linhas.push('');
     linhas.push('Forma de pagamento,Pedidos,Total');
     for (const p of d.por_pagamento) {
       linhas.push(`${NOME_PAGAMENTO[p.forma_pagamento] || p.forma_pagamento},${p.qtd},${(p.total_centavos / 100).toFixed(2)}`);
@@ -96,6 +161,19 @@ export function RelatoriosLoja() {
     linhas.push('Produto,Quantidade,Total');
     for (const m of d.mais_vendidos) {
       linhas.push(`"${m.nome_produto}",${m.quantidade},${(m.total_centavos / 100).toFixed(2)}`);
+    }
+    linhas.push('');
+    // Curva ABC completa (não os 12 da tela): é na planilha que se filtra e ordena.
+    linhas.push('Curva ABC — por faturamento (custo não cadastrado; não é curva de lucro)');
+    linhas.push('Classe,Produto,Quantidade,Total,Participação %,Acumulado %');
+    for (const i of d.curva_abc.itens) {
+      linhas.push(`${i.classe},"${i.nome_produto}",${i.quantidade},${(i.total_centavos / 100).toFixed(2)},${i.participacao_percent},${i.acumulado_percent}`);
+    }
+    linhas.push('');
+    linhas.push('Estoque — valor a PREÇO DE VENDA (custo não cadastrado)');
+    linhas.push('Produto,Estoque,Preço,Valor');
+    for (const p of d.estoque.itens) {
+      linhas.push(`"${p.nome}",${p.estoque},${(p.preco_centavos / 100).toFixed(2)},${(p.valor_centavos / 100).toFixed(2)}`);
     }
     const csv = '﻿' + linhas.join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -178,13 +256,26 @@ export function RelatoriosLoja() {
 
       {d && (
         <>
-          {/* Métricas principais */}
+          {/* Métricas principais, cada uma com a variação contra o período anterior */}
           <div className="grid grid-cols-2 gap-3">
-            <Metric icone={ShoppingBag} valor={String(d.resumo.pedidos)} rotulo="Pedidos entregues" />
-            <Metric icone={TrendingUp} valor={brl(d.resumo.faturamento_centavos)} rotulo="Faturamento bruto" />
-            <Metric icone={Ticket} valor={brl(d.resumo.ticket_medio_centavos)} rotulo="Ticket médio" />
+            <Metric icone={ShoppingBag} valor={String(d.resumo.pedidos)} rotulo="Pedidos entregues"
+              variacao={d.comparacao.variacao.pedidos_percent} />
+            <Metric icone={TrendingUp} valor={brl(d.resumo.faturamento_centavos)} rotulo="Faturamento bruto"
+              variacao={d.comparacao.variacao.faturamento_percent} />
+            <Metric icone={Ticket} valor={brl(d.resumo.ticket_medio_centavos)} rotulo="Ticket médio"
+              variacao={d.comparacao.variacao.ticket_percent} />
             <Metric icone={XCircle} valor={`${d.cancelamento.taxa_percent}%`} rotulo="Cancelamento" alerta={d.cancelamento.taxa_percent > 15} />
           </div>
+
+          {/*
+            CONTRA O QUE a comparação é feita. Sem dizer o intervalo, "+12%" não é
+            verificável — e o lojista não tem como saber que a comparação usa o mesmo
+            número de dias (em período parcial, comparar com um período fechado
+            mostraria queda que é só aritmética).
+          */}
+          <p className="-mt-1 text-center text-[11px] text-muted-foreground">
+            Comparado com {d.comparacao.intervalo.rotulo} · {brl(d.comparacao.faturamento_centavos)} em {d.comparacao.pedidos} pedido{d.comparacao.pedidos !== 1 ? 's' : ''}
+          </p>
 
           {/* Financeiro — extrato de repasse */}
           <Card className="border-green-500/30 bg-green-500/[0.03]">
@@ -203,6 +294,49 @@ export function RelatoriosLoja() {
               </div>
             </CardContent>
           </Card>
+
+          {/*
+            POR CANAL — antes do "por forma de pagamento" de propósito: a primeira
+            pergunta é de onde vem a venda (salão ou entrega, operações com custo e
+            problema diferentes); a forma de pagamento é detalhe dentro disso.
+          */}
+          {d.por_canal.length > 0 && (
+            <div>
+              <h3 className="mb-3 font-bold">Por canal de venda</h3>
+              <div className="space-y-2">
+                {d.por_canal.map(c => {
+                  const fatia = d.resumo.faturamento_centavos > 0
+                    ? Math.round((c.total_centavos / d.resumo.faturamento_centavos) * 100) : 0;
+                  return (
+                    <Card key={c.origem}>
+                      <CardContent className="p-3">
+                        <div className="flex items-center gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-semibold">{NOME_CANAL[c.origem] || c.origem}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {c.qtd} pedido{c.qtd !== 1 ? 's' : ''} · {fatia}% do faturamento
+                            </div>
+                          </div>
+                          <div className="shrink-0 text-sm font-bold tabular-nums">{brl(c.total_centavos)}</div>
+                        </div>
+                        {/* Barra: a proporção entre canais se lê de relance, o que
+                            uma coluna de números não entrega. */}
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                          <div className="h-full rounded-full bg-primary" style={{ width: `${fatia}%` }} />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Curva ABC */}
+          {d.curva_abc.itens.length > 0 && <CurvaAbc dados={d.curva_abc} />}
+
+          {/* Estoque */}
+          {d.estoque.itens.length > 0 && <Estoque dados={d.estoque} />}
 
           {/* Formas de pagamento */}
           {d.por_pagamento.length > 0 && (
@@ -288,15 +422,200 @@ export function RelatoriosLoja() {
   );
 }
 
-function Metric({ icone: Icone, valor, rotulo, alerta }: { icone: typeof ShoppingBag; valor: string; rotulo: string; alerta?: boolean }) {
+function Metric({ icone: Icone, valor, rotulo, alerta, variacao }: {
+  icone: typeof ShoppingBag; valor: string; rotulo: string; alerta?: boolean;
+  /** Variação % contra o período anterior. `null` = sem base de comparação. */
+  variacao?: number | null;
+}) {
   return (
     <Card>
       <CardContent className="p-4">
         <Icone className={`size-5 mb-2 ${alerta ? 'text-destructive' : 'text-muted-foreground'}`} />
         <div className={`text-2xl font-extrabold tabular-nums ${alerta ? 'text-destructive' : ''}`}>{valor}</div>
         <div className="text-xs text-muted-foreground mt-1">{rotulo}</div>
+        {variacao !== undefined && <Variacao percent={variacao} />}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Variação contra o período anterior.
+ *
+ * VERDE/VERMELHO SEM DIZER O NÚMERO seria pior que nada: 0,4% e 40% pintam igual. E
+ * `null` (período anterior sem venda) sai como TEXTO, não como "+100%" — sair de
+ * zero pra qualquer coisa não é crescimento percentual, é a primeira venda, e um
+ * "+100%" ali seria informação inventada.
+ */
+function Variacao({ percent }: { percent: number | null }) {
+  if (percent === null) {
+    return <div className="mt-1 text-[11px] text-muted-foreground">sem base de comparação</div>;
+  }
+  if (percent === 0) {
+    return <div className="mt-1 text-[11px] text-muted-foreground">igual ao período anterior</div>;
+  }
+  const subiu = percent > 0;
+  const Icone = subiu ? ArrowUpRight : ArrowDownRight;
+  return (
+    <div className={cn('mt-1 flex items-center gap-0.5 text-[11px] font-bold',
+      subiu ? 'text-emerald-600' : 'text-destructive')}>
+      <Icone className="size-3" />
+      {subiu ? '+' : ''}{percent.toString().replace('.', ',')}%
+    </div>
+  );
+}
+
+const COR_CLASSE: Record<'A' | 'B' | 'C', string> = {
+  A: 'bg-emerald-500', B: 'bg-amber-500', C: 'bg-muted-foreground/40',
+};
+
+/**
+ * CURVA ABC.
+ *
+ * POR QUE NÃO É O "MAIS VENDIDOS": aquele ranking é por QUANTIDADE, e quantidade
+ * não paga conta — refrigerante lidera em unidades em quase todo delivery e
+ * responde por uma fatia pequena do dinheiro. Aqui a ordem é por FATURAMENTO.
+ *
+ * A tela diz que é curva de FATURAMENTO, e não de lucro, porque não existe custo
+ * cadastrado no sistema. Omitir isso faria o lojista cortar da classe C um produto
+ * de margem alta — decisão de margem tomada com número de receita.
+ */
+function CurvaAbc({ dados }: { dados: { itens: ItemAbc[]; classes: ResumoClasse[] } }) {
+  const [tudo, setTudo] = useState(false);
+  const visiveis = tudo ? dados.itens : dados.itens.slice(0, 12);
+
+  return (
+    <div>
+      <h3 className="flex items-center gap-2 font-bold">
+        <Layers className="size-4 text-primary" /> Curva ABC dos produtos
+      </h3>
+      <p className="mb-3 mt-0.5 text-[11px] text-muted-foreground">
+        Por <strong>faturamento</strong>, não por quantidade — o que mais sai em unidades
+        raramente é o que mais traz dinheiro. (Curva por <em>lucro</em> depende do custo
+        de cada produto, que ainda não é cadastrado.)
+      </p>
+
+      <div className="mb-3 grid grid-cols-3 gap-2">
+        {dados.classes.map(c => (
+          <Card key={c.classe}>
+            <CardContent className="p-3">
+              <div className="flex items-center gap-1.5">
+                <span className={cn('size-2.5 rounded-full', COR_CLASSE[c.classe])} />
+                <span className="text-sm font-extrabold">Classe {c.classe}</span>
+              </div>
+              <div className="mt-1 text-lg font-extrabold tabular-nums">{c.participacao_percent}%</div>
+              <div className="text-[11px] text-muted-foreground">
+                {c.itens} produto{c.itens !== 1 ? 's' : ''} · {brl(c.total_centavos)}
+              </div>
+              <div className="mt-1 text-[10px] leading-tight text-muted-foreground">{SOBRE_CLASSE[c.classe]}</div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <Card>
+        <CardContent className="divide-y divide-border/60 p-0">
+          {visiveis.map(i => (
+            <div key={i.nome_produto} className="flex items-center gap-3 px-3 py-2.5">
+              <span className={cn('flex size-6 shrink-0 items-center justify-center rounded-md text-[11px] font-extrabold text-white',
+                COR_CLASSE[i.classe])}>
+                {i.classe}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold">{i.nome_produto}</div>
+                <div className="text-[11px] text-muted-foreground">
+                  {i.quantidade} un · {i.participacao_percent}% do faturamento · acumulado {i.acumulado_percent}%
+                </div>
+              </div>
+              <div className="shrink-0 text-sm font-bold tabular-nums">{brl(i.total_centavos)}</div>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {dados.itens.length > 12 && (
+        <button type="button" onClick={() => setTudo(v => !v)}
+          className="mt-2 w-full text-xs font-bold text-primary hover:underline">
+          {tudo ? 'Mostrar menos' : `Ver todos os ${dados.itens.length} produtos`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * ESTOQUE.
+ *
+ * Ordenado do MENOR estoque pra cima — a lista existe pra responder "o que vai
+ * faltar?", não pra inventariar. Quem tem 200 unidades não precisa de atenção hoje.
+ *
+ * O valor é a PREÇO DE VENDA e a tela diz isso: sem custo cadastrado, chamar de
+ * "capital parado" seria mentira inflada pela margem.
+ */
+function Estoque({ dados }: { dados: { itens: ItemEstoque[]; sem_estoque: number; baixo: number; valor_total_centavos: number } }) {
+  const [tudo, setTudo] = useState(false);
+  const visiveis = tudo ? dados.itens : dados.itens.slice(0, 10);
+
+  return (
+    <div>
+      <h3 className="flex items-center gap-2 font-bold">
+        <Package className="size-4 text-primary" /> Estoque
+      </h3>
+      <p className="mb-3 mt-0.5 text-[11px] text-muted-foreground">
+        Só produtos com controle de estoque ligado, do que está acabando pro que sobra.
+      </p>
+
+      <div className="mb-3 grid grid-cols-3 gap-2">
+        <Card className={dados.sem_estoque > 0 ? 'border-destructive/40' : undefined}>
+          <CardContent className="p-3">
+            <div className={cn('text-lg font-extrabold tabular-nums', dados.sem_estoque > 0 && 'text-destructive')}>
+              {dados.sem_estoque}
+            </div>
+            <div className="text-[11px] text-muted-foreground">Zerados</div>
+          </CardContent>
+        </Card>
+        <Card className={dados.baixo > 0 ? 'border-amber-500/40' : undefined}>
+          <CardContent className="p-3">
+            <div className={cn('text-lg font-extrabold tabular-nums', dados.baixo > 0 && 'text-amber-600')}>
+              {dados.baixo}
+            </div>
+            <div className="text-[11px] text-muted-foreground">5 ou menos</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-3">
+            <div className="text-lg font-extrabold tabular-nums">{brl(dados.valor_total_centavos)}</div>
+            <div className="text-[11px] text-muted-foreground">A preço de venda</div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardContent className="divide-y divide-border/60 p-0">
+          {visiveis.map(p => (
+            <div key={p.id} className="flex items-center gap-3 px-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-semibold">{p.nome}</div>
+                <div className="text-[11px] text-muted-foreground">{brl(p.preco_centavos)} cada</div>
+              </div>
+              <span className={cn('shrink-0 rounded-lg px-2 py-1 text-xs font-extrabold tabular-nums',
+                p.estoque <= 0 ? 'bg-destructive/10 text-destructive'
+                  : p.estoque <= 5 ? 'bg-amber-500/10 text-amber-600'
+                  : 'bg-muted text-muted-foreground')}>
+                {p.estoque <= 0 ? 'sem estoque' : `${p.estoque} un`}
+              </span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+
+      {dados.itens.length > 10 && (
+        <button type="button" onClick={() => setTudo(v => !v)}
+          className="mt-2 w-full text-xs font-bold text-primary hover:underline">
+          {tudo ? 'Mostrar menos' : `Ver todos os ${dados.itens.length} produtos`}
+        </button>
+      )}
+    </div>
   );
 }
 

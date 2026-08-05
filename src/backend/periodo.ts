@@ -65,6 +65,43 @@ export function intervaloUtcDeDatas(de: string, ate: string): IntervaloUtc {
   return { inicio: inicio.toISOString(), fim: fim.toISOString(), de, ate };
 }
 
+/** Dias que um intervalo cobre, contando as duas pontas. */
+function diasDoIntervalo(de: string, ate: string): number {
+  const ms = Date.parse(ate + 'T00:00:00Z') - Date.parse(de + 'T00:00:00Z');
+  return Math.round(ms / 86_400_000) + 1;
+}
+
+/**
+ * O intervalo IMEDIATAMENTE ANTERIOR, do mesmo tamanho.
+ *
+ * POR QUE COMPARAR: número sozinho não informa. "R$ 766 hoje" não diz se o dia foi
+ * bom; "R$ 766, 12% acima de ontem" diz. É a diferença entre relatório que se olha
+ * e relatório que se usa.
+ *
+ * MESMO NÚMERO DE DIAS, colado no início: "esta semana" (7 dias) compara com os 7
+ * dias anteriores, não com "a semana passada do calendário". Isso importa no meio
+ * da semana — quarta-feira, "esta semana" tem 3 dias, e comparar com uma semana
+ * fechada de 7 mostraria uma queda de 60% que é só aritmética.
+ */
+export function periodoAnterior(intervalo: IntervaloUtc): IntervaloUtc {
+  const dias = diasDoIntervalo(intervalo.de, intervalo.ate);
+  const ate = somarDias(intervalo.de, -1);
+  const de = somarDias(ate, -(dias - 1));
+  return intervaloUtcDeDatas(de, ate);
+}
+
+/**
+ * Variação percentual entre dois valores, arredondada a 1 casa.
+ *
+ * Base ZERO devolve null, não "+100%" nem "+∞": sair de 0 pra qualquer coisa não é
+ * percentual de crescimento, é a primeira venda. A tela mostra "sem base de
+ * comparação" em vez de um número que parece informação e não é.
+ */
+export function variacaoPercentual(atual: number, anterior: number): number | null {
+  if (!anterior) return null;
+  return Math.round(((atual - anterior) / anterior) * 1000) / 10;
+}
+
 /**
  * Resolve o período pedido em um intervalo UTC.
  *

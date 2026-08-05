@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolverPeriodo, intervaloUtcDeDatas, dataLocalDe, dataValida, rotuloPeriodo,
+  periodoAnterior, variacaoPercentual,
 } from './periodo';
 
 /**
@@ -131,5 +132,51 @@ describe('rotuloPeriodo', () => {
   });
   it('intervalo mostra os dois extremos', () => {
     expect(rotuloPeriodo(intervaloUtcDeDatas('2026-03-01', '2026-03-31'))).toBe('01/03/2026 a 31/03/2026');
+  });
+});
+
+describe('periodoAnterior', () => {
+  /** Mesmo tamanho, colado no início — não "a semana passada do calendário". */
+  it('devolve o intervalo imediatamente anterior, do mesmo tamanho', () => {
+    const atual = intervaloUtcDeDatas('2026-08-05', '2026-08-05');
+    expect(periodoAnterior(atual)).toMatchObject({ de: '2026-08-04', ate: '2026-08-04' });
+  });
+
+  it('preserva a quantidade de dias em período parcial', () => {
+    // Quarta-feira: "esta semana" tem 3 dias. Comparar com 7 mostraria queda
+    // que é só aritmética.
+    const atual = intervaloUtcDeDatas('2026-08-03', '2026-08-05');
+    expect(periodoAnterior(atual)).toMatchObject({ de: '2026-07-31', ate: '2026-08-02' });
+  });
+
+  it('atravessa virada de mês e de ano', () => {
+    expect(periodoAnterior(intervaloUtcDeDatas('2026-03-01', '2026-03-31')))
+      .toMatchObject({ de: '2026-01-29', ate: '2026-02-28' });
+    expect(periodoAnterior(intervaloUtcDeDatas('2026-01-01', '2026-01-01')))
+      .toMatchObject({ de: '2025-12-31', ate: '2025-12-31' });
+  });
+
+  it('mantém as bordas em Brasília (03:00 UTC)', () => {
+    const anterior = periodoAnterior(intervaloUtcDeDatas('2026-08-05', '2026-08-05'));
+    expect(anterior.inicio).toBe('2026-08-04T03:00:00.000Z');
+    expect(anterior.fim).toBe('2026-08-05T02:59:59.999Z');
+  });
+});
+
+describe('variacaoPercentual', () => {
+  it('calcula alta e queda com 1 casa', () => {
+    expect(variacaoPercentual(112, 100)).toBe(12);
+    expect(variacaoPercentual(85, 100)).toBe(-15);
+    expect(variacaoPercentual(1005, 1000)).toBe(0.5);
+  });
+
+  /** Sair de zero não é crescimento percentual — é a primeira venda. */
+  it('devolve null quando não há base de comparação', () => {
+    expect(variacaoPercentual(500, 0)).toBeNull();
+    expect(variacaoPercentual(0, 0)).toBeNull();
+  });
+
+  it('zero a zero de faturamento igual é 0%, não null', () => {
+    expect(variacaoPercentual(100, 100)).toBe(0);
   });
 });
