@@ -233,9 +233,34 @@ export function montarXmlNfce(emit: EmitenteNfce, venda: VendaNfce): { xml: stri
     const item = (emit.ambiente === 2 && idx === 0) ? { ...it, descricao: HOMOLOG_XPROD } : it;
     return detItem(item, idx + 1);
   }).join('');
-  const pags = venda.pagamentos.map(p =>
-    `<detPag><tPag>${TPAG[p.tipo] || '99'}</tPag><vPag>${reais(p.valorCentavos)}</vPag></detPag>`
-  ).join('');
+  const pags = venda.pagamentos.map(p => {
+    const tPag = TPAG[p.tipo] || '99';
+    /*
+     * PAGAMENTO ELETRÔNICO EXIGE O GRUPO <card> — sem ele a SEFAZ devolve
+     * REJEIÇÃO 391. Era o que derrubava a emissão: a nota era montada, assinada,
+     * transmitida e rejeitada, e o lojista via só o número do erro.
+     *
+     * E VALE PRO PIX, não só pro cartão. O texto da rejeição fala em "dados do
+     * cartão de crédito/débito" porque a SEFAZ reaproveita o mesmo código para o
+     * grupo ausente — o grupo se chama `card` no leiaute, mas o que ele carrega é
+     * o `tpIntegra`, que também precisa ser informado no Pix. Foi assim que o erro
+     * apareceu aqui: nota de venda paga em PIX (tPag 17), rejeição falando de
+     * cartão. Ler a mensagem ao pé da letra levava a mexer no lugar errado.
+     *
+     * `tpIntegra` 2 = pagamento NÃO integrado ao sistema de automação. É o caso
+     * das duas formas aqui: a maquininha é um aparelho separado, e o Pix é
+     * conferido pelo painel do gateway. `tpIntegra` 1 (integrado) obrigaria CNPJ
+     * da credenciadora, bandeira e código de autorização da transação — dados que
+     * só existem quando o PDV conversa com a maquininha, e informá-los inventados
+     * seria pior que declarar não-integrado.
+     *
+     * 20 = Pix estático, incluído pra não repetir a rejeição no dia em que o
+     * sistema passar a distinguir os dois tipos de Pix.
+     */
+    const EXIGE_CARD = ['03', '04', '17', '20'];
+    const card = EXIGE_CARD.includes(tPag) ? '<card><tpIntegra>2</tpIntegra></card>' : '';
+    return `<detPag><tPag>${tPag}</tPag><vPag>${reais(p.valorCentavos)}</vPag>${card}</detPag>`;
+  }).join('');
 
   const infNFe =
     `<infNFe Id="NFe${chave}" versao="4.00">` +

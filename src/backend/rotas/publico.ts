@@ -41,27 +41,72 @@ router.get('/tema', async (req, res, next) => {
     // dizer uma coisa e a página abrir com a marca de outra.
     const lojaId = await lojaIdDoHost(req.headers.host);
 
-    // Favicon: se o admin não definiu um favicon próprio da plataforma e o
-    // domínio é white-label de uma loja, usa o favicon dessa loja (reforça a
-    // identidade de "site próprio" de quem paga white-label).
+    /*
+     * Identidade da LOJA no domínio dela, não a da plataforma.
+     *
+     * O QUE ESTAVA ERRADO: este endpoint é o que pinta `--primary` no boot de
+     * TODO o app, e devolvia sempre `marca_cor_primaria` (padrão '#dc2640').
+     * Num domínio white-label isso significava que o KDS, o app do entregador e
+     * todas as telas de LOGIN saíam no vermelho da plataforma mesmo com a loja
+     * tendo escolhido outra cor em Visual → Cores. O painel do lojista e a
+     * vitrine do cliente não sofriam porque carregam a loja e reaplicam a cor
+     * por conta própria — as telas que NÃO carregam a loja (e as que rodam antes
+     * do login, quando não há como carregar) ficavam com a cor errada.
+     *
+     * A regra do favicon já era esta desde antes; a cor só não tinha vindo com
+     * ela. Vale a mesma razão: quem paga white-label espera o domínio dele
+     * inteiro com a marca dele.
+     */
     let favicon = await valor('marca_favicon_url');
-    if (!favicon && lojaId > 0) {
-      const loja = await db.prepare('SELECT favicon_url FROM lojas WHERE id = ?').get(lojaId) as { favicon_url: string } | undefined;
-      favicon = loja?.favicon_url || '';
+    let corPrimaria = await valor('marca_cor_primaria', '#dc2640');
+    let corSecundaria = await valor('marca_cor_secundaria');
+    let nome = await valor('marca_nome', 'Delivery Já');
+    let slogan = await valor('marca_slogan', 'Peça das melhores lojas da sua região');
+    let logo = await valor('marca_logo_url');
+    let descricao = await valor('marca_descricao');
+
+    if (lojaId > 0) {
+      const loja = await db.prepare(
+        'SELECT nome, descricao, favicon_url, logo_url, cor_marca, cor_secundaria FROM lojas WHERE id = ?'
+      ).get(lojaId) as {
+        nome: string; descricao: string; favicon_url: string; logo_url: string;
+        cor_marca: string; cor_secundaria: string;
+      } | undefined;
+
+      if (!favicon) favicon = loja?.favicon_url || '';
+      // Só sobrescreve o que a loja realmente escolheu: coluna vazia (default do
+      // schema) mantém a cor da plataforma, senão o domínio cairia no preto/vazio.
+      if (loja?.cor_marca?.trim()) {
+        corPrimaria = loja.cor_marca.trim();
+        // A secundária acompanha a primária da LOJA — misturar a secundária da
+        // plataforma com a primária da loja dá um par de cores que ninguém
+        // escolheu, e é o tipo de coisa que só aparece num botão perdido.
+        corSecundaria = loja.cor_secundaria?.trim() || '';
+      }
+      if (loja?.nome?.trim()) {
+        nome = loja.nome.trim();
+        // SLOGAN DA PLATAFORMA SAI JUNTO. Ele é texto de marketplace ("Peça das
+        // melhores lojas da sua região") e virava título de aba com o nome da
+        // loja na frente — anunciando um marketplace no domínio de quem paga
+        // white-label justamente pra não parecer estar dentro de um.
+        slogan = '';
+      }
+      if (loja?.logo_url?.trim()) logo = loja.logo_url.trim();
+      if (loja?.descricao?.trim()) descricao = loja.descricao.trim();
     }
 
     // Conteúdo da landing page do produto (só relevante quando lojaId=0, mas
     // sempre incluído — barato e evita um segundo round-trip no boot).
     res.json({
-      nome:              await valor('marca_nome', 'Delivery Já'),
-      slogan:            await valor('marca_slogan', 'Peça das melhores lojas da sua região'),
-      logo_url:          await valor('marca_logo_url'),
+      nome,
+      slogan,
+      logo_url:          logo,
       favicon_url:       favicon,
-      cor_primaria:      await valor('marca_cor_primaria', '#dc2640'),
-      cor_secundaria:    await valor('marca_cor_secundaria'),
+      cor_primaria:      corPrimaria,
+      cor_secundaria:    corSecundaria,
       raio:              await valor('marca_raio', 'suave'),
       fonte:             await valor('marca_fonte', 'inter'),
-      descricao:         await valor('marca_descricao'),
+      descricao,
       og_image:          await valor('marca_og_image'),
       login_banner_url:  await valor('marca_login_banner_url'),
       loja_id:           lojaId,

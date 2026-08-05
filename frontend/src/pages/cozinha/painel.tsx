@@ -20,6 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario, salvarSessao, encerrarSessao } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useTema } from '@/lib/tema';
 
 type FonteCozinha = 'delivery' | 'mesa' | 'balcao';
 
@@ -125,6 +126,33 @@ function TelaKDS() {
   // IDs já vistos: base do alerta sonoro (ver efeito abaixo). `null` no primeiro
   // render pra não bipar a fila inteira ao abrir a tela.
   const idsVistos = useRef<Set<string> | null>(null);
+
+  /*
+   * COR DA LOJA NO KDS.
+   *
+   * O KDS usa `bg-primary`/`text-primary` no cabeçalho e nos destaques, mas
+   * `--primary` vinha do /api/tema — a cor da PLATAFORMA. A cozinha ficava no
+   * vermelho padrão mesmo com a loja tendo escolhido outra cor em Visual → Cores.
+   *
+   * A conta de cozinha é amarrada a UMA loja, então dá pra acertar mesmo no
+   * domínio da plataforma, onde o /api/tema não tem como saber de qual loja se
+   * trata. Consulta em vez de guardar no login: o token do KDS não expira mais e
+   * a cozinha fica meses sem relogar — guardado, ficaria com a cor antiga pra
+   * sempre depois de o lojista trocá-la.
+   */
+  const { aplicarCorPrimaria, marca } = useTema();
+  const contaQ = useQuery({
+    queryKey: ['cozinha-eu'],
+    queryFn: () => api<{ conta: { cor_marca?: string; cor_secundaria?: string } }>('GET', '/api/cozinha/eu').then(r => r.conta),
+    staleTime: 5 * 60_000,
+  });
+  useEffect(() => {
+    const cor = contaQ.data?.cor_marca;
+    if (cor) aplicarCorPrimaria(cor, contaQ.data?.cor_secundaria);
+    // `marca` na lista: o /api/tema resolve em paralelo e, chegando depois,
+    // sobrescreve --primary de volta pro padrão (mesma corrida já documentada no
+    // painel do lojista).
+  }, [contaQ.data, aplicarCorPrimaria, marca]);
 
   const pedidosQ = useQuery({
     queryKey: ['cozinha-pedidos'],

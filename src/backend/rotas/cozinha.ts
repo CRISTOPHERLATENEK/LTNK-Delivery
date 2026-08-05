@@ -59,8 +59,17 @@ router.use(autenticarCozinha);
 router.get('/eu', async (req, res, next) => {
   try {
     const c = req.cozinha!;
-    const loja = await db.prepare('SELECT nome FROM lojas WHERE id = ?').get(c.loja_id) as { nome: string } | undefined;
-    res.json({ conta: { id: c.id, nome: c.nome, loja_id: c.loja_id, loja_nome: loja?.nome || '' } });
+    // Cor da marca junto: a conta de cozinha é amarrada a UMA loja, então o KDS
+    // consegue se pintar com a cor certa mesmo quando é aberto no domínio da
+    // plataforma (onde o /api/tema não tem como saber de qual loja se trata).
+    const loja = await db.prepare('SELECT nome, cor_marca, cor_secundaria FROM lojas WHERE id = ?')
+      .get(c.loja_id) as { nome: string; cor_marca: string; cor_secundaria: string } | undefined;
+    res.json({
+      conta: {
+        id: c.id, nome: c.nome, loja_id: c.loja_id, loja_nome: loja?.nome || '',
+        cor_marca: loja?.cor_marca || '', cor_secundaria: loja?.cor_secundaria || '',
+      },
+    });
   } catch (e) { next(e); }
 });
 
