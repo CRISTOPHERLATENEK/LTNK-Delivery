@@ -306,19 +306,44 @@ function ConfiguracoesLoja() {
   );
 }
 
-/* ── Vendas: hub que junta PDV (balcão) e Mesas (salão) numa aba só ── */
+/* ── Vendas: hub que junta PDV (balcão), Mesas (salão), Caixa e NFC-e ── */
 function VendasLoja() {
   const [aba, setAba] = useState<'pdv' | 'mesas' | 'delivery' | 'caixa'>('pdv');
-  // Caixa fica JUNTO das vendas de propósito: quem abre e fecha o caixa é a mesma
-  // pessoa que está no PDV. Numa aba separada do menu, viraria tela que ninguém
-  // lembra de abrir — e caixa não conferido é o estado padrão de todo lugar que
-  // não coloca a conferência no caminho de quem opera.
-  const ABAS = [
-    { id: 'pdv' as const, label: 'PDV Balcão', icone: ShoppingCart },
-    { id: 'mesas' as const, label: 'Mesas', icone: UtensilsCrossed },
-    { id: 'caixa' as const, label: 'Caixa', icone: Banknote },
-    { id: 'delivery' as const, label: 'Delivery', icone: FileText },
+
+  /**
+   * SEM CAIXA ABERTO, PDV E MESAS NÃO APARECEM — a tela de abertura vem primeiro.
+   *
+   * POR QUE: venda registrada com o caixa fechado não entra em conferência
+   * nenhuma. O dinheiro entra na gaveta e não há turno pra comparar, então a
+   * diferença só aparece dias depois, sem dono e sem período. Pôr a abertura no
+   * caminho de quem opera é o que faz a conferência existir de fato — a
+   * alternativa é uma tela que ninguém lembra de abrir.
+   *
+   * DELIVERY (emissão de NFC-e) segue acessível de propósito: não mexe na gaveta,
+   * e travar reemissão de nota atrás da abertura de caixa viraria armadilha num
+   * dia em que ninguém abriu o caixa ainda.
+   */
+  const caixaQ = useQuery({
+    queryKey: ['lojista-caixa'],
+    queryFn: () => api<{ aberto: { id: number } | null }>('GET', '/api/lojista/caixa'),
+  });
+  const caixaAberto = !!caixaQ.data?.aberto;
+
+  // Aba EFETIVA derivada, não setState em efeito: se o caixa fecha enquanto a
+  // pessoa está no PDV, ela cai na abertura sem render extra nem loop.
+  const abaEfetiva = !caixaAberto && (aba === 'pdv' || aba === 'mesas') ? 'caixa' : aba;
+
+  const TODAS = [
+    { id: 'pdv' as const, label: 'PDV Balcão', icone: ShoppingCart, exigeCaixa: true },
+    { id: 'mesas' as const, label: 'Mesas', icone: UtensilsCrossed, exigeCaixa: true },
+    { id: 'caixa' as const, label: 'Caixa', icone: Banknote, exigeCaixa: false },
+    { id: 'delivery' as const, label: 'Delivery', icone: FileText, exigeCaixa: false },
   ];
+  const ABAS = TODAS.filter(a => caixaAberto || !a.exigeCaixa);
+
+  // Enquanto não se sabe se há caixa aberto, não mostra aba nenhuma: piscar o PDV
+  // e trocar pra abertura meio segundo depois é pior que esperar.
+  if (caixaQ.isLoading) return <Skeleton className="h-64" />;
 
   return (
     <div className="space-y-4">
@@ -331,7 +356,7 @@ function VendasLoja() {
               onClick={() => setAba(a.id)}
               className={cn(
                 'flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-semibold transition-all',
-                aba === a.id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
+                abaEfetiva === a.id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
               )}
             >
               <Icone className="size-4 shrink-0" />
@@ -341,7 +366,20 @@ function VendasLoja() {
         })}
       </div>
 
-      {aba === 'pdv' ? <BalcaoLoja /> : aba === 'mesas' ? <MesasLoja /> : aba === 'caixa' ? <CaixaLoja /> : <NfceDeliveryLoja />}
+      {!caixaAberto && abaEfetiva === 'caixa' && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 px-4 py-3 text-sm">
+          <b>Abra o caixa para começar a vender.</b>{' '}
+          <span className="text-muted-foreground">
+            PDV Balcão e Mesas aparecem assim que o caixa estiver aberto — venda com caixa
+            fechado não entra em conferência nenhuma.
+          </span>
+        </div>
+      )}
+
+      {abaEfetiva === 'pdv' ? <BalcaoLoja />
+        : abaEfetiva === 'mesas' ? <MesasLoja />
+        : abaEfetiva === 'caixa' ? <CaixaLoja />
+        : <NfceDeliveryLoja />}
     </div>
   );
 }
