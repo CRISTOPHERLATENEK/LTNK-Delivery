@@ -21,6 +21,7 @@ import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { gtinValido } from '@/lib/gtin';
 import type { Produto } from '@/types';
 
 /* ─────────────────────── tipos ──────────────────────── */
@@ -529,6 +530,22 @@ export function ProdutosLoja() {
                 <p className="text-[11px] text-muted-foreground mt-1">
                   Permite bipar no PDV. Para produtos por peso, use o PLU configurado na balança.
                 </p>
+                {/*
+                  Diz na hora do cadastro se o código vai ou não pra nota fiscal.
+                  Sem isso o lojista digita um EAN com um dígito errado, acha que
+                  cadastrou o código de barras, e só descobre — se descobrir — que
+                  a NFC-e saiu como "SEM GTIN". Não bloqueia: PLU de balança é um
+                  código interno legítimo e não é um GTIN.
+                */}
+                {form.codigo_barras.trim() !== '' && (
+                  <p className={cn('text-[11px] mt-1',
+                    gtinValido(form.codigo_barras) ? 'text-emerald-600' : 'text-amber-600')}>
+                    {gtinValido(form.codigo_barras)
+                      ? '✓ EAN válido — vai na nota fiscal como código do produto.'
+                      : 'Não é um EAN válido (dígito verificador não fecha). Serve pra bipar no PDV, '
+                        + 'mas a nota sai como “SEM GTIN” — confira se digitou certo.'}
+                  </p>
+                )}
               </div>
 
               {/* Serve pessoas + toggles */}

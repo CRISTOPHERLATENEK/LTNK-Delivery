@@ -10,6 +10,7 @@
  * Os valores fiscais (NCM/CSOSN/CFOP) devem ser conferidos pelo contador.
  */
 import crypto from 'crypto';
+import { eanDaNfce } from './codigo-produto';
 
 /** Código IBGE da UF (cUF) — primeiros 2 dígitos da chave de acesso. */
 export const CODIGO_UF: Record<string, string> = {
@@ -36,6 +37,11 @@ export interface EmitenteNfce {
 
 export interface ItemNfce {
   codigo: string; descricao: string;
+  /**
+   * Código de barras cadastrado. Vai pra `cEAN`/`cEANTrib` só se for um GTIN
+   * válido (ver `eanDaNfce`) — dígito verificador errado é rejeição da SEFAZ.
+   */
+  codigoBarras?: string;
   ncm: string; cfop: string; csosn: string; origem: string; cest?: string;
   unidade: string; quantidade: number; valorUnitCentavos: number; valorTotalCentavos: number;
 }
@@ -175,7 +181,7 @@ function detItem(item: ItemNfce, i: number): string {
   return `<det nItem="${i}">` +
     `<prod>` +
       `<cProd>${esc(item.codigo)}</cProd>` +
-      `<cEAN>SEM GTIN</cEAN>` +
+      `<cEAN>${esc(eanDaNfce(item.codigoBarras))}</cEAN>` +
       `<xProd>${esc(item.descricao)}</xProd>` +
       `<NCM>${esc(item.ncm || '00000000')}</NCM>` +
       (item.cest ? `<CEST>${esc(item.cest)}</CEST>` : '') +
@@ -184,7 +190,7 @@ function detItem(item: ItemNfce, i: number): string {
       `<qCom>${q}</qCom>` +
       `<vUnCom>${vUn}</vUnCom>` +
       `<vProd>${vProd}</vProd>` +
-      `<cEANTrib>SEM GTIN</cEANTrib>` +
+      `<cEANTrib>${esc(eanDaNfce(item.codigoBarras))}</cEANTrib>` +
       `<uTrib>${esc(item.unidade || 'UN')}</uTrib>` +
       `<qTrib>${q}</qTrib>` +
       `<vUnTrib>${vUn}</vUnTrib>` +

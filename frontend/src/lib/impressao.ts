@@ -380,7 +380,7 @@ export interface DadosDanfe {
   qr_url: string;
   danfe: {
     emitente: { nome: string; fantasia: string; cnpj: string; endereco: string };
-    itens: Array<{ descricao: string; quantidade: number; unidade: string; v_unit: number; v_total: number }>;
+    itens: Array<{ codigo?: string; descricao: string; quantidade: number; unidade: string; v_unit: number; v_total: number }>;
     total: number;           // líquido (bruto - desconto)
     desconto?: number;       // desconto/cupom aplicado (centavos)
     pagamentos: Array<{ tipo: string; valor: number }>;
@@ -410,7 +410,7 @@ export function montarHtmlDanfe(d: DadosDanfe, largura: '80' | '58' = '80', conf
   const semCents = (c: number) => (c / 100).toFixed(2).replace('.', ',');
   const itensHtml = d.danfe.itens.map((i, idx) => `
     <div class="it">
-      <div class="it-l"><span class="it-n">${idx + 1}.</span> ${esc(i.descricao)}</div>
+      <div class="it-l"><span class="it-n">${idx + 1}.</span> <span class="it-c">${esc(i.codigo || '')}</span> ${esc(i.descricao)}</div>
       <div class="it-r">
         <span>${esc(linhaValoresItem(i.quantidade, i.unidade, i.v_unit))}</span>
         <b>${semCents(i.v_total)}</b>
@@ -446,6 +446,8 @@ export function montarHtmlDanfe(d: DadosDanfe, largura: '80' | '58' = '80', conf
   .it-l { }
   /* O número do item em cinza: some do caminho de quem procura a quantidade. */
   .it-n { color:#555; }
+  /* Código também em cinza: é rastreabilidade, não é o que o cliente confere. */
+  .it-c { color:#555; }
   /* Total de cada item na MESMA coluna do VALOR TOTAL, pra conferir de cima a
      baixo com o dedo em vez de caçar o "=" no meio da linha. */
   .it-r { padding-left:12px; display:flex; justify-content:space-between; gap:6px; }
@@ -466,7 +468,7 @@ export function montarHtmlDanfe(d: DadosDanfe, largura: '80' | '58' = '80', conf
   <div class="c tit">DANFE NFC-e - Documento Auxiliar da<br>Nota Fiscal de Consumidor Eletrônica</div>
   <div class="sep"></div>
   <div class="it-cab">
-    <div>ITEM  DESCRIÇÃO</div>
+    <div>ITEM  CÓDIGO  DESCRIÇÃO</div>
     <div class="it-r"><span>QTD UN x VL UNIT</span><span>VL TOTAL</span></div>
   </div>
   <div class="sep"></div>
@@ -514,12 +516,12 @@ export function montarBlocosDanfe(d: DadosDanfe): BlocoImpressao[] {
     // tabela: sem ele, o número sequencial do item e a quantidade viram dois
     // números soltos um embaixo do outro, e quando coincidem (item 2, 2 unidades)
     // o cliente lê como cobrança repetida.
-    { t: 'texto', txt: 'ITEM  DESCRICAO' },
+    { t: 'texto', txt: 'ITEM  CODIGO  DESCRICAO' },
     { t: 'lr', l: '      QTD UN x VL UNIT', r: 'VL TOTAL' },
     { t: 'linha' },
   ];
   d.danfe.itens.forEach((i, idx) => {
-    b.push({ t: 'texto', txt: `${idx + 1}. ${i.descricao}` });
+    b.push({ t: 'texto', txt: `${idx + 1}. ${i.codigo || ''} ${i.descricao}`.replace(/\s+/g, ' ') });
     // `lr` em vez de texto corrido: joga o total do item na MESMA coluna do
     // VALOR TOTAL lá embaixo, então dá pra descer o dedo pela direita conferindo.
     // Antes era "2 UN x R$ 34,90 = R$ 69,80" — três números na mesma linha, e o

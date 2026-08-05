@@ -18,6 +18,7 @@ import { poligonoValido } from '../geometria';
 import { validarCertificado, lerCertificadoPfx, assinarXmlNfce, assinarPorTag, type CertificadoLido } from '../assinatura';
 import QRCode from 'qrcode';
 import { montarXmlNfce, urlQrCode, CODIGO_UF, type EmitenteNfce, type VendaNfce } from '../nfce';
+import { codigoProdutoNfce } from '../codigo-produto';
 import {
   transmitirNfce, montarEventoCancelamento, transmitirCancelamento,
   montarInutilizacao, transmitirInutilizacao,
@@ -2048,6 +2049,7 @@ function montarDanfeDados(emit: EmitenteNfce, venda: VendaNfce) {
       endereco: `${emit.logradouro}, ${emit.numero} - ${emit.bairro} - ${emit.municipio}/${emit.uf}`,
     },
     itens: venda.itens.map(i => ({
+      codigo: i.codigo,
       descricao: i.descricao, quantidade: i.quantidade, unidade: i.unidade,
       v_unit: i.valorUnitCentavos, v_total: i.valorTotalCentavos,
     })),
@@ -2100,15 +2102,20 @@ router.post('/nfce/teste', async (req, res, next) => {
 /** Monta a VendaNfce a partir de um pedido real (itens + pagamento + total). */
 async function vendaDoPedido(loja: any, pedido: any, numero: number): Promise<VendaNfce> {
   const itens = await db.prepare(
-    `SELECT i.nome_produto, i.preco_unit_centavos, i.quantidade,
-            p.ncm, p.cfop, p.csosn, p.origem, p.unidade_comercial
+    `SELECT i.nome_produto, i.preco_unit_centavos, i.quantidade, i.produto_id,
+            p.ncm, p.cfop, p.csosn, p.origem, p.unidade_comercial, p.codigo_barras
        FROM itens_pedido i LEFT JOIN produtos p ON p.id = i.produto_id
       WHERE i.pedido_id = ?`
   ).all(pedido.id) as any[];
   if (itens.length === 0) throw erroHttp(400, 'Venda sem itens.');
 
-  const itensNfce = itens.map((it, idx) => ({
-    codigo: String(idx + 1), descricao: it.nome_produto,
+  const itensNfce = itens.map(it => ({
+    // `cProd` ESTÁVEL: o GTIN do produto, ou P+id. Era `String(idx + 1)` — o
+    // índice do item na venda —, então o mesmo produto saía com código diferente
+    // em cada nota e nada ligava a NFC-e ao cadastro (ver codigo-produto.ts).
+    codigo: codigoProdutoNfce(it.produto_id, it.codigo_barras),
+    codigoBarras: it.codigo_barras || '',
+    descricao: it.nome_produto,
     ncm: it.ncm || loja.nfce_ncm_padrao || '21069090',
     cfop: it.cfop || loja.nfce_cfop_padrao || '5102',
     csosn: it.csosn || loja.nfce_csosn_padrao || '102',
