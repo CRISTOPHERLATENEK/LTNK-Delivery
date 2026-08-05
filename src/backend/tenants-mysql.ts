@@ -116,6 +116,45 @@ export async function resolverPorHost(host: string | undefined): Promise<Tenant 
  * pra montar URL nenhuma (sem domínio e sem DOMINIO_BASE configurado) — aí não
  * há pra onde redirecionar.
  */
+/**
+ * Slugs que NÃO podem virar tenant, porque virariam subdomínio real.
+ *
+ * COM `DOMINIO_BASE` LIGADO, O SLUG É UM ENDEREÇO. `resolverPorHost` casa
+ * `<slug>.<base>` com o tenant de mesmo slug — então um cliente cadastrado como
+ * `www` passaria a RESPONDER por `www.seudominio`, e o site principal viraria a
+ * loja dele. O mesmo vale pra `api`, `mail`, `admin`: são nomes que já existem, ou
+ * vão existir, como serviço da plataforma.
+ *
+ * A hora de barrar é no cadastro. Depois de criado, o tenant já tem banco, loja e
+ * gente logando — desfazer é bem mais caro do que recusar o nome na frente.
+ */
+const SLUGS_RESERVADOS = new Set([
+  'www', 'api', 'admin', 'app', 'mail', 'email', 'smtp', 'imap', 'pop', 'ftp',
+  'ns', 'ns1', 'ns2', 'dns', 'mx', 'cdn', 'static', 'assets', 'uploads',
+  'painel', 'plataforma', 'suporte', 'ajuda', 'blog', 'status', 'docs',
+  'lojista', 'entregador', 'cozinha', 'kds', 'cliente', 'pdv', 'checkout',
+  'pay', 'pagamento', 'webhook', 'webhooks', 'auth', 'login', 'sso',
+  'test', 'teste', 'dev', 'staging', 'homolog', 'demo', 'localhost',
+]);
+
+/**
+ * Diz por que um slug de tenant não serve, ou null se está tudo bem.
+ * Devolver a MENSAGEM (e não um booleano) porque "slug inválido" sozinho manda
+ * quem cadastra ficar tentando adivinhar o que a regra é.
+ */
+export function problemaNoSlugTenant(slug: string): string | null {
+  const s = String(slug || '').trim().toLowerCase();
+  if (s.length < 2) return 'O endereço precisa de pelo menos 2 caracteres.';
+  if (s.length > 40) return 'O endereço ficou longo demais (máx. 40 caracteres).';
+  if (!/^[a-z0-9-]+$/.test(s)) return 'Use só letras minúsculas, números e hífen.';
+  // Hífen na ponta é nome de host inválido; sequência dupla confunde e é
+  // reservada pelo padrão IDN ("xn--").
+  if (s.startsWith('-') || s.endsWith('-')) return 'O endereço não pode começar nem terminar com hífen.';
+  if (s.includes('--')) return 'O endereço não pode ter dois hífens seguidos.';
+  if (SLUGS_RESERVADOS.has(s)) return `"${s}" é um endereço reservado da plataforma. Escolha outro.`;
+  return null;
+}
+
 export function urlDoTenant(tenant: Tenant): string | null {
   if (tenant.dominio) return `https://${tenant.dominio}`;
   const base = (process.env.DOMINIO_BASE || '').toLowerCase().replace(/^www\./, '');

@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward } from 'lucide-react';
+import { Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward, Link2 } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,12 @@ interface Tenant {
   ativo: 0 | 1;
   criado_em: string;
   lojas: number;
+  /**
+   * Endereço público, calculado no servidor: domínio próprio, senão
+   * `<slug>.<DOMINIO_BASE>`. Null quando não há nenhum dos dois — aí o cliente
+   * só é alcançável pelo domínio da plataforma, e não há link pra entregar.
+   */
+  url: string | null;
 }
 
 function gerarSlug(nome: string): string {
@@ -622,6 +628,28 @@ function TenantCard({ t, onToggle, onSalvarDominio }: {
             )}
           </div>
         </div>
+
+        {/*
+          ENDEREÇO EFETIVO deste cliente — o link que se entrega pra ele.
+          Sem isto, cliente sem domínio próprio aparecia só como "sem domínio" e
+          quem cadastrou não tinha como descobrir o endereço: o subdomínio
+          `<slug>.<DOMINIO_BASE>` existe e funciona, mas a regra e o DOMINIO_BASE
+          moram no servidor, invisíveis pro painel. Vem do backend já resolvido.
+        */}
+        {t.url && (
+          <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2">
+            <Link2 className="size-4 shrink-0 text-primary" />
+            <a href={t.url} target="_blank" rel="noreferrer"
+              className="flex-1 truncate font-mono text-sm font-semibold text-primary hover:underline">
+              {t.url.replace(/^https?:\/\//, '')}
+            </a>
+            <button type="button" title="Copiar endereço"
+              onClick={() => navigator.clipboard?.writeText(t.url!)}
+              className="text-xs font-semibold text-muted-foreground hover:text-primary">
+              copiar
+            </button>
+          </div>
+        )}
 
         {/* Domínio */}
         <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">

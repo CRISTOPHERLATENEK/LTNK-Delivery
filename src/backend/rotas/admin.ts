@@ -17,7 +17,7 @@ import multer from 'multer';
 import { spawn } from 'child_process';
 import path from 'path';
 import os from 'os';
-import { listarTenants, criarTenant, atualizarTenant, tenantPorId, ehMaster, urlDoTenant, poolCentral } from '../tenants-mysql';
+import { listarTenants, criarTenant, atualizarTenant, tenantPorId, ehMaster, urlDoTenant, problemaNoSlugTenant, poolCentral } from '../tenants-mysql';
 import {
   listarAssinaturas, salvarAssinatura, registrarPagamento, historicoPagamentos,
   processarVencimentos, statusCalculado, diasDeAtraso,
@@ -1587,7 +1587,11 @@ router.get('/tenants', exigirSuperAdmin, async (_req, res, next) => {
         const [rows] = await pool.query('SELECT COUNT(*) AS n FROM lojas') as any;
         lojas = rows[0]?.n ?? 0;
       } catch { /* banco ainda não acessível */ }
-      return { ...t, lojas };
+      // `url` calculada aqui e não no frontend: a regra (domínio próprio, senão
+      // subdomínio sob DOMINIO_BASE) vive em `urlDoTenant`, e DOMINIO_BASE é
+      // variável de servidor — o painel não tem como saber. Sem isto, quem cadastra
+      // um cliente sem domínio próprio não descobre qual endereço mandar pra ele.
+      return { ...t, lojas, url: urlDoTenant(t) };
     }));
     res.json({ tenants });
   } catch (e) { next(e); }
@@ -1612,7 +1616,11 @@ router.post('/tenants', exigirSuperAdmin, async (req, res, next) => {
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
     const telefone = textoLimpo(req.body.telefone || '', 30);
     if (nome.length < 2) throw erroHttp(400, 'Informe o nome do cliente.');
-    if (slug.length < 2) throw erroHttp(400, 'Informe um slug válido (mín. 2 caracteres).');
+    // Com DOMINIO_BASE ligado o slug É um subdomínio real: `www` viraria
+    // www.seudominio e o site principal passaria a ser a loja desse cliente.
+    // Ver SLUGS_RESERVADOS em tenants-mysql.ts.
+    const problemaSlug = problemaNoSlugTenant(slug);
+    if (problemaSlug) throw erroHttp(400, problemaSlug);
     if (nomeDono.length < 2) throw erroHttp(400, 'Informe o nome do responsável pela loja.');
     if (!emailValido(email)) throw erroHttp(400, 'E-mail do responsável inválido.');
     if (senha.length < 6) throw erroHttp(400, 'Senha do responsável: mínimo 6 caracteres.');
