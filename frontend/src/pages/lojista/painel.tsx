@@ -136,15 +136,58 @@ export function PainelLojista() {
     primeiraCarga.current = false;
   }, [pedidosQ.data]);
 
+  /*
+   * DUAS NAVEGAÇÕES, de propósito.
+   *
+   * `itensNav` é a barra INFERIOR do mobile: grade de largura fixa, então acima de
+   * 5 itens cada alvo fica menor que o dedo e o rótulo não cabe. Ela precisa do
+   * "Mais".
+   *
+   * `gruposNav` é a sidebar do DESKTOP, onde havia uma coluna inteira vazia com 5
+   * itens em cima e o resto escondido atrás de "Mais" — um clique a mais pra
+   * chegar em qualquer coisa, todo dia. Agora tudo aparece, agrupado pela mesma
+   * intenção da tela "Mais" (que continua existindo, é o caminho do celular).
+   */
+  const itemPedidos = {
+    rota: '/lojista/pedidos', icone: Bell, rotulo: 'Pedidos',
+    badge: pendentes > 0 ? <NavBadge valor={pendentes} /> : undefined,
+  };
+
   const itensNav = [
     { rota: '/lojista', icone: Home, rotulo: 'Início', fim: true },
-    {
-      rota: '/lojista/pedidos', icone: Bell, rotulo: 'Pedidos',
-      badge: pendentes > 0 ? <NavBadge valor={pendentes} /> : undefined,
-    },
+    itemPedidos,
     { rota: '/lojista/vendas', icone: ShoppingCart, rotulo: 'Vendas' },
     { rota: '/lojista/produtos', icone: Box, rotulo: 'Produtos' },
     { rota: '/lojista/mais', icone: LayoutGrid, rotulo: 'Mais' },
+  ];
+
+  const gruposNav = [
+    {
+      itens: [
+        { rota: '/lojista', icone: Home, rotulo: 'Início', fim: true },
+        itemPedidos,
+        { rota: '/lojista/vendas', icone: ShoppingCart, rotulo: 'Vendas' },
+        { rota: '/lojista/produtos', icone: Box, rotulo: 'Produtos' },
+      ],
+    },
+    {
+      titulo: 'Operação',
+      itens: [
+        { rota: '/lojista/cupons', icone: Ticket, rotulo: 'Cupons' },
+        { rota: '/lojista/categorias', icone: Tag, rotulo: 'Categorias' },
+        { rota: '/lojista/clientes', icone: Users, rotulo: 'Clientes' },
+        { rota: '/lojista/avaliacoes', icone: Star, rotulo: 'Avaliações' },
+        { rota: '/lojista/cozinha-equipe', icone: ChefHat, rotulo: 'Cozinha (KDS)' },
+      ],
+    },
+    {
+      titulo: 'Análise',
+      itens: [{ rota: '/lojista/relatorios', icone: BarChart3, rotulo: 'Relatórios' }],
+    },
+    {
+      titulo: 'Configuração',
+      itens: [{ rota: '/lojista/config', icone: Settings, rotulo: 'Configurações' }],
+    },
   ];
 
   // Enquanto valida o repasse, não mostra o formulário de login por baixo —
@@ -183,7 +226,7 @@ export function PainelLojista() {
   }
 
   return (
-    <AppLayout itens={itensNav} titulo="Painel do lojista">
+    <AppLayout itens={itensNav} grupos={gruposNav} titulo="Painel do lojista">
       <Routes>
         <Route index element={<DashboardLoja />} />
         <Route path="pedidos" element={<PedidosLoja />} />

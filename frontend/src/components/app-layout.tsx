@@ -20,10 +20,27 @@ interface ItemNav {
   fim?: boolean;
 }
 
+/** Bloco de itens da sidebar. `titulo` vazio = bloco principal, sem cabeçalho. */
+interface GrupoNav {
+  titulo?: string;
+  itens: ItemNav[];
+}
+
 interface Props {
   children: ReactNode;
   /** Itens da navegação inferior. Se omitido, usa o padrão do cliente. */
   itens?: ItemNav[];
+  /**
+   * Navegação COMPLETA da sidebar (desktop), agrupada. Quando presente, a barra
+   * inferior do mobile continua usando `itens`.
+   *
+   * POR QUE SÃO LISTAS DIFERENTES: a barra inferior é uma grade de largura fixa —
+   * passando de 5 itens, cada alvo fica menor que o dedo e o rótulo não cabe. Ela
+   * precisa de um "Mais". A sidebar do desktop tem 64 de largura e uma coluna
+   * inteira vazia: esconder ali o que já cabe só obriga um clique a mais pra
+   * chegar em tudo, todos os dias.
+   */
+  grupos?: GrupoNav[];
   /** Título no header. */
   titulo?: string;
   /** Subtítulo no header (ex.: "Olá, Carlos"). */
@@ -37,7 +54,43 @@ const ITENS_CLIENTE: ItemNav[] = [
   { rota: '/conta', icone: User, rotulo: 'Conta' },
 ];
 
-export function AppLayout({ children, itens, titulo, subtitulo }: Props) {
+/** Um item da sidebar. Extraído porque agora é usado dentro de cada grupo. */
+function LinkSidebar({ item }: { item: ItemNav }) {
+  const Icone = item.icone;
+  return (
+    <NavLink
+      to={item.rota}
+      end={item.fim ?? item.rota === '/'}
+      className={({ isActive }) =>
+        cn(
+          'relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors',
+          isActive
+            ? 'bg-primary/10 text-primary'
+            : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+        )
+      }
+    >
+      {({ isActive }) => (
+        <>
+          {isActive && (
+            <motion.span
+              layoutId="nav-rail"
+              className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r-full bg-primary"
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+            />
+          )}
+          <div className="relative" data-nav-icon={item.rota}>
+            <Icone className="size-5 shrink-0" strokeWidth={isActive ? 2.5 : 2} />
+            {item.badge && <span className="absolute -right-2 -top-1.5">{item.badge}</span>}
+          </div>
+          <span className="truncate">{item.rotulo}</span>
+        </>
+      )}
+    </NavLink>
+  );
+}
+
+export function AppLayout({ children, itens, grupos, titulo, subtitulo }: Props) {
   const usuario = sessaoUsuario();
   const itensNav = itens || ITENS_CLIENTE;
   const location = useLocation();
@@ -81,44 +134,21 @@ export function AppLayout({ children, itens, titulo, subtitulo }: Props) {
       {/* ───── Sidebar (somente desktop) ───── */}
       <aside className="hidden lg:flex lg:fixed lg:inset-y-0 lg:left-0 lg:z-30 lg:w-64 lg:flex-col border-r border-border/60 bg-card/40 px-3 py-4">
         <div className="px-2 pb-4">{Logo}</div>
-        <nav className="flex flex-1 flex-col gap-1 mt-2">
-          {itensNav.map(item => {
-            const Icone = item.icone;
-            return (
-              <NavLink
-                key={item.rota}
-                to={item.rota}
-                end={item.fim ?? item.rota === '/'}
-                className={({ isActive }) =>
-                  cn(
-                    'relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors',
-                    isActive
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                  )
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    {isActive && (
-                      <motion.span
-                        layoutId="nav-rail"
-                        className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r-full bg-primary"
-                        transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-                      />
-                    )}
-                    <div className="relative" data-nav-icon={item.rota}>
-                      <Icone className="size-5 shrink-0" strokeWidth={isActive ? 2.5 : 2} />
-                      {item.badge && (
-                        <span className="absolute -right-2 -top-1.5">{item.badge}</span>
-                      )}
-                    </div>
-                    <span className="truncate">{item.rotulo}</span>
-                  </>
-                )}
-              </NavLink>
-            );
-          })}
+        {/* `overflow-y-auto`: com a navegação completa a lista passa de 10 itens e
+            em notebook de tela curta os últimos ficariam fora do alcance. */}
+        <nav className="mt-2 flex flex-1 flex-col gap-1 overflow-y-auto">
+          {(grupos ?? [{ itens: itensNav }]).map((grupo, i) => (
+            <div key={grupo.titulo || `g${i}`} className={i > 0 ? 'mt-4' : undefined}>
+              {grupo.titulo && (
+                <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70">
+                  {grupo.titulo}
+                </div>
+              )}
+              <div className="flex flex-col gap-1">
+                {grupo.itens.map(item => <LinkSidebar key={item.rota} item={item} />)}
+              </div>
+            </div>
+          ))}
         </nav>
         <div className="mt-2 flex items-center justify-between border-t border-border/60 pt-3">
           <ThemeToggle />
