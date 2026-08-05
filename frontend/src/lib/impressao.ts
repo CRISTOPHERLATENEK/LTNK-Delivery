@@ -58,22 +58,31 @@ function larguraMmDe(largura: '80' | '58'): number {
 }
 
 /**
- * Quantidade do item do DANFE com a palavra "Qtd" na frente.
+ * Quantidade do item como o DANFE escreve.
  *
- * POR QUE A PALAVRA: o DANFE imprime o número SEQUENCIAL do item numa linha e a
- * QUANTIDADE na linha seguinte. Quando os dois coincidem — item 2, 2 unidades —
- * o cupom mostra dois "2" um embaixo do outro e o cliente lê como se algo
- * estivesse repetido ou cobrado a mais. Rotular a quantidade resolve a dúvida no
- * lugar onde ela nasce; a norma exige que os campos apareçam, não que apareçam
- * sem rótulo.
- *
- * A unidade só sai quando NÃO é "UN": "Qtd 2" já se entende, "Qtd 2 UN" é ruído
- * na linha mais apertada do cupom — mas em produto pesado ("0,350 KG") a unidade
- * é a informação que impede o cliente de achar que levou 350 unidades.
+ * Inteiro sai limpo ("2"); fracionado mantém as 3 casas ("0,350"), que é como se
+ * pesa e como o valor foi calculado. Cortar pra "0,35" faria a conta do cupom não
+ * fechar na mão de quem conferir — e é justo no item por peso que o cliente
+ * confere.
  */
-function rotuloQtd(quantidade: string | number, unidade: string): string {
-  const un = String(unidade || '').trim().toUpperCase();
-  return un && un !== 'UN' ? `Qtd ${quantidade} ${un}` : `Qtd ${quantidade}`;
+function fmtQtd(quantidade: string | number): string {
+  const n = Number(quantidade);
+  if (!Number.isFinite(n)) return String(quantidade);
+  return Number.isInteger(n) ? String(n) : n.toFixed(3).replace('.', ',');
+}
+
+/**
+ * Linha de valores do item: "2 UN x 34,90" à esquerda, total à direita.
+ *
+ * SEM "R$" NAS LINHAS DE ITEM — só nos totais. É o que o cupom fiscal impresso
+ * das redes grandes faz, e não é estética: o símbolo repetido três vezes por item
+ * come a largura que a descrição precisa, e na bobina de 58mm era a diferença
+ * entre caber e quebrar linha. O cabeçalho de colunas já diz que a coluna é
+ * dinheiro.
+ */
+function linhaValoresItem(quantidade: string | number, unidade: string, vUnit: number): string {
+  const un = String(unidade || 'UN').trim().toUpperCase();
+  return `${fmtQtd(quantidade)} ${un} x ${(vUnit / 100).toFixed(2).replace('.', ',')}`;
 }
 
 /**
@@ -398,12 +407,13 @@ export function montarHtmlDanfe(d: DadosDanfe, largura: '80' | '58' = '80', conf
   const cents = (c: number) => `R$ ${(c / 100).toFixed(2).replace('.', ',')}`;
   const qtdItens = d.danfe.itens.length;
 
+  const semCents = (c: number) => (c / 100).toFixed(2).replace('.', ',');
   const itensHtml = d.danfe.itens.map((i, idx) => `
     <div class="it">
       <div class="it-l"><span class="it-n">${idx + 1}.</span> ${esc(i.descricao)}</div>
       <div class="it-r">
-        <span>${rotuloQtd(i.quantidade, i.unidade)} x ${cents(i.v_unit)}</span>
-        <b>${cents(i.v_total)}</b>
+        <span>${esc(linhaValoresItem(i.quantidade, i.unidade, i.v_unit))}</span>
+        <b>${semCents(i.v_total)}</b>
       </div>
     </div>`).join('');
 
@@ -429,6 +439,9 @@ export function montarHtmlDanfe(d: DadosDanfe, largura: '80' | '58' = '80', conf
   .emit { font-weight:bold; font-size:${fonte + 1}px; }
   .sep { border-top:1px dashed #000; margin:4px 0; }
   .tit { font-weight:bold; font-size:${fonte - 1}px; margin:3px 0; }
+  /* Cabeçalho de colunas: uma vez, no topo. É por isso que o cupom das redes
+     grandes não precisa de rótulo em cada linha de item. */
+  .it-cab { font-weight:bold; font-size:${fonte - 1}px; }
   .it { margin-bottom:5px; }
   .it-l { }
   /* O número do item em cinza: some do caminho de quem procura a quantidade. */
@@ -451,6 +464,11 @@ export function montarHtmlDanfe(d: DadosDanfe, largura: '80' | '58' = '80', conf
   ${config?.cabecalho?.trim() ? `<div class="c b">${esc(config.cabecalho.trim())}</div>` : ''}
   <div class="sep"></div>
   <div class="c tit">DANFE NFC-e - Documento Auxiliar da<br>Nota Fiscal de Consumidor Eletrônica</div>
+  <div class="sep"></div>
+  <div class="it-cab">
+    <div>ITEM  DESCRIÇÃO</div>
+    <div class="it-r"><span>QTD UN x VL UNIT</span><span>VL TOTAL</span></div>
+  </div>
   <div class="sep"></div>
   ${itensHtml}
   <div class="sep"></div>
@@ -492,6 +510,13 @@ export function montarBlocosDanfe(d: DadosDanfe): BlocoImpressao[] {
     { t: 'center', txt: 'DANFE NFC-e - Documento Auxiliar da' },
     { t: 'center', txt: 'Nota Fiscal de Consumidor Eletrônica' },
     { t: 'linha' },
+    // Cabeçalho das colunas, uma vez. É o que faz o bloco de itens ser LIDO como
+    // tabela: sem ele, o número sequencial do item e a quantidade viram dois
+    // números soltos um embaixo do outro, e quando coincidem (item 2, 2 unidades)
+    // o cliente lê como cobrança repetida.
+    { t: 'texto', txt: 'ITEM  DESCRICAO' },
+    { t: 'lr', l: '      QTD UN x VL UNIT', r: 'VL TOTAL' },
+    { t: 'linha' },
   ];
   d.danfe.itens.forEach((i, idx) => {
     b.push({ t: 'texto', txt: `${idx + 1}. ${i.descricao}` });
@@ -499,7 +524,11 @@ export function montarBlocosDanfe(d: DadosDanfe): BlocoImpressao[] {
     // VALOR TOTAL lá embaixo, então dá pra descer o dedo pela direita conferindo.
     // Antes era "2 UN x R$ 34,90 = R$ 69,80" — três números na mesma linha, e o
     // que o cliente quer ver (o que ele vai pagar por aquele item) no meio.
-    b.push({ t: 'lr', b: true, l: `  ${rotuloQtd(i.quantidade, i.unidade)} x ${cents(i.v_unit)}`, r: cents(i.v_total) });
+    b.push({
+      t: 'lr', b: true,
+      l: '    ' + linhaValoresItem(i.quantidade, i.unidade, i.v_unit),
+      r: (i.v_total / 100).toFixed(2).replace('.', ','),
+    });
   });
   b.push({ t: 'linha' });
   b.push({ t: 'lr', l: 'Qtde. total de itens', r: String(d.danfe.itens.length) });
