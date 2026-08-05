@@ -29,7 +29,7 @@ import { credenciaisOnzDaLoja } from './pagamentos';
 import { testarCredenciaisOficial } from '../whatsapp';
 import { wbapiConfigurado, statusSessaoPlataforma } from '../whatsapp-nao-oficial';
 import { geocodificarTexto, buscarLocais } from '../geo';
-import { somarVendas, montarResumo, diferencaDeCaixa, classificarDiferenca } from '../caixa';
+import { somarVendas, montarResumo, diferencaDeCaixa, classificarDiferenca, somarMovimentos, tempoAberto } from '../caixa';
 import { resolverPeriodo, rotuloPeriodo, type NomePeriodo } from '../periodo';
 import { GrupoOpcao, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
 
@@ -3304,14 +3304,11 @@ async function caixaAbertoDaLoja(lojaId: number): Promise<CaixaLinha | undefined
 async function dadosDoCaixa(caixa: CaixaLinha, fim?: string) {
   const ate = fim || agoraUTC();
   const movs = await db.prepare(
-    'SELECT tipo, valor_centavos FROM caixa_movimentos WHERE caixa_id = ?'
-  ).all(caixa.id) as Array<{ tipo: string; valor_centavos: number }>;
-  const sangrias = movs
-    .filter(m => m.tipo === 'sangria')
-    .reduce((s, m) => s + m.valor_centavos, 0);
-  const suprimentos = movs
-    .filter(m => m.tipo === 'suprimento')
-    .reduce((s, m) => s + m.valor_centavos, 0);
+    'SELECT tipo, valor_centavos, cancelado_em FROM caixa_movimentos WHERE caixa_id = ?'
+  ).all(caixa.id) as Array<{ tipo: string; valor_centavos: number; cancelado_em: string }>;
+  // somarMovimentos IGNORA cancelados — é o par indispensável do cancelamento
+  // marcado: contar a linha cancelada faria "desfazer" não desfazer nada.
+  const { sangrias_centavos: sangrias, suprimentos_centavos: suprimentos } = somarMovimentos(movs);
 
   /*
    * `status <> 'cancelado'` e não `= 'entregue'`: venda de balcão nasce já
@@ -3343,7 +3340,9 @@ router.get('/caixa', async (req, res, next) => {
       const historico = await db.prepare(
         `SELECT id, aberto_em, fechado_em, usuario_abertura_nome, usuario_fechamento_nome,
                 valor_abertura_centavos, valor_contado_centavos, valor_esperado_centavos,
-                diferenca_centavos, observacoes
+                diferenca_centavos, vendas_dinheiro_centavos, vendas_cartao_centavos,
+                vendas_pix_centavos, vendas_quantidade, sangrias_centavos,
+                suprimentos_centavos, observacoes
            FROM caixas WHERE loja_id = ? AND status = 'fechado'
           ORDER BY id DESC LIMIT 10`
       ).all(loja.id);
@@ -3353,7 +3352,9 @@ router.get('/caixa', async (req, res, next) => {
     const movimentos = await db.prepare(
       'SELECT * FROM caixa_movimentos WHERE caixa_id = ? ORDER BY id DESC'
     ).all(caixa.id);
-    res.json({ aberto: caixa, vendas, resumo, movimentos });
+    // Caixa esquecido aberto continua somando as vendas dos dias seguintes; o
+    // aviso faz isso aparecer no dia em que ainda dá pra resolver.
+    res.json({ aberto: caixa, vendas, resumo, movimentos, tempo: tempoAberto(caixa.aberto_em) });
   } catch (e) { next(e); }
 });
 
@@ -3407,6 +3408,34 @@ router.post('/caixa/movimento', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * CANCELA um movimento lançado errado. Marca, não apaga.
+ *
+ * Sem isto o operador não tinha saída: sangria de R$ 1.000 no lugar de R$ 100 só
+ * se "corrigia" com um suprimento de R$ 900, e o histórico do turno passava a
+ * mostrar duas movimentações que nunca aconteceram. Apagar a linha seria pior —
+ * some o rastro de que houve erro, que é justamente o que auditoria procura.
+ */
+router.post('/caixa/movimento/:id/cancelar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const caixa = await caixaAbertoDaLoja(loja.id);
+    if (!caixa) throw erroHttp(409, 'Nenhum caixa aberto.');
+
+    // Amarra no caixa ABERTO da loja: sem isso, id de movimento de um turno já
+    // fechado (ou de outra loja do mesmo tenant) poderia ser cancelado depois,
+    // mudando um esperado que alguém já conferiu e assinou.
+    const r = await db.prepare(
+      `UPDATE caixa_movimentos SET cancelado_em = ?, cancelado_por = ?
+        WHERE id = ? AND caixa_id = ? AND cancelado_em = ''`
+    ).run(agoraUTC(), req.usuario!.nome, req.params.id, caixa.id);
+    if (r.changes === 0) {
+      throw erroHttp(409, 'Movimento não encontrado neste caixa, ou já cancelado.');
+    }
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 /** Fecha o caixa conferindo o dinheiro contado contra o esperado. */
 router.post('/caixa/fechar', async (req, res, next) => {
   try {
@@ -3432,9 +3461,17 @@ router.post('/caixa/fechar', async (req, res, next) => {
     const r = await db.prepare(
       `UPDATE caixas SET status = 'fechado', fechado_em = ?, usuario_fechamento_nome = ?,
               valor_contado_centavos = ?, valor_esperado_centavos = ?, diferenca_centavos = ?,
+              vendas_dinheiro_centavos = ?, vendas_cartao_centavos = ?, vendas_pix_centavos = ?,
+              vendas_quantidade = ?, sangrias_centavos = ?, suprimentos_centavos = ?,
               observacoes = TRIM(CONCAT(COALESCE(observacoes, ''), ' ', ?))
         WHERE id = ? AND status = 'aberto'`
-    ).run(fechadoEm, req.usuario!.nome, contado, resumo.esperado_centavos, diferenca, obs, caixa.id);
+    ).run(fechadoEm, req.usuario!.nome, contado, resumo.esperado_centavos, diferenca,
+          // Totais CONGELADOS aqui: sem isso, "quanto entrou de cartão naquele
+          // turno?" só se respondia reconsultando pedidos por data e
+          // reconstruindo — e o número já estava calculado, sendo descartado.
+          vendas.dinheiro_centavos, vendas.cartao_centavos, vendas.pix_centavos,
+          vendas.quantidade, resumo.sangrias_centavos, resumo.suprimentos_centavos,
+          obs, caixa.id);
 
     // UPDATE condicional: se duas abas fecharem junto, só a primeira vale.
     if (r.changes === 0) throw erroHttp(409, 'Este caixa já foi fechado por outra pessoa.');

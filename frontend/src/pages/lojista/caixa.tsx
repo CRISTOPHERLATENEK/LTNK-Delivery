@@ -25,7 +25,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { Falha } from '@/components/ui/estado';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, sessaoUsuario } from '@/lib/api';
+import { imprimirFechamentoCaixa } from '@/lib/impressao';
 import { brl, dataLocal } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -41,6 +42,8 @@ interface Resumo {
 interface Movimento {
   id: number; tipo: 'sangria' | 'suprimento'; valor_centavos: number;
   motivo: string; usuario_nome: string; criado_em: string;
+  /** Preenchido = cancelado. Fica no histórico riscado, não desaparece. */
+  cancelado_em?: string; cancelado_por?: string;
 }
 interface CaixaAberto {
   id: number; aberto_em: string; usuario_abertura_nome: string; valor_abertura_centavos: number;
@@ -48,8 +51,14 @@ interface CaixaAberto {
 interface Fechado {
   id: number; aberto_em: string; fechado_em: string;
   usuario_abertura_nome: string; usuario_fechamento_nome: string;
+  valor_abertura_centavos: number;
   valor_contado_centavos: number; valor_esperado_centavos: number;
   diferenca_centavos: number; observacoes: string | null;
+  // Totais congelados no fechamento — antes eram descartados e só se
+  // recuperavam reconsultando pedidos por data.
+  vendas_dinheiro_centavos: number; vendas_cartao_centavos: number;
+  vendas_pix_centavos: number; vendas_quantidade: number;
+  sangrias_centavos: number; suprimentos_centavos: number;
 }
 interface Resposta {
   aberto: CaixaAberto | null;
@@ -57,6 +66,8 @@ interface Resposta {
   vendas?: { quantidade: number };
   movimentos?: Movimento[];
   historico?: Fechado[];
+  /** Horas aberto + se já passou do razoável (caixa esquecido). */
+  tempo?: { horas: number; alerta: boolean };
 }
 
 /** Reais digitados → centavos. Aceita vírgula, que é como se digita aqui. */
@@ -96,7 +107,8 @@ export function CaixaLoja() {
 
       {!d?.aberto
         ? <Abrir onAberto={recarregar} historico={d?.historico ?? []} erroToast={mostrar} />
-        : <Aberto caixa={d.aberto} resumo={d.resumo!} vendas={d.vendas!} movimentos={d.movimentos ?? []} onMudou={recarregar} />}
+        : <Aberto caixa={d.aberto} resumo={d.resumo!} vendas={d.vendas!} movimentos={d.movimentos ?? []}
+            tempo={d.tempo} onMudou={recarregar} />}
     </div>
   );
 }
@@ -191,12 +203,21 @@ function LinhaHistorico({ h }: { h: Fechado }) {
   );
 }
 
-function Aberto({ caixa, resumo, vendas, movimentos, onMudou }: {
+function Aberto({ caixa, resumo, vendas, movimentos, tempo, onMudou }: {
   caixa: CaixaAberto; resumo: Resumo; vendas: { quantidade: number };
-  movimentos: Movimento[]; onMudou: () => void;
+  movimentos: Movimento[]; tempo?: { horas: number; alerta: boolean }; onMudou: () => void;
 }) {
   const { mostrar } = useToast();
   const pedirConfirmacao = useConfirm();
+  // Nome e largura da bobina saem da config da loja — MESMA query key que o PDV
+  // usa, então não gera requisição extra (o React Query compartilha o cache).
+  const lojaQ = useQuery({
+    queryKey: ['lojista-loja'],
+    queryFn: () => api<{ loja: Record<string, unknown> }>('GET', '/api/lojista/loja').then(r => r.loja),
+    staleTime: 60_000,
+  });
+  const nomeLoja = String(lojaQ.data?.nome || 'Loja');
+  const largura: '80' | '58' = lojaQ.data?.impressora_largura === '58' ? '58' : '80';
   const [contado, setContado] = useState('');
   const [obs, setObs] = useState('');
   const [fechando, setFechando] = useState(false);
@@ -226,6 +247,35 @@ function Aberto({ caixa, resumo, vendas, movimentos, onMudou }: {
       const r = await api<{ diferenca_centavos: number; situacao: 'ok' | 'sobra' | 'falta' }>(
         'POST', '/api/lojista/caixa/fechar',
         { valor_contado_centavos: contadoCent, observacoes: obs });
+
+      /*
+       * IMPRIME o comprovante: é o papel que o operador assina e guarda.
+       * Conferência que só existe na tela não serve no dia em que houver
+       * divergência e alguém precisar mostrar o que foi contado, por quem e
+       * quando. Best-effort — impressora fora não pode desfazer o fechamento,
+       * que já foi gravado no servidor.
+       */
+      try {
+        imprimirFechamentoCaixa({
+          loja_nome: nomeLoja,
+          aberto_em: caixa.aberto_em,
+          fechado_em: new Date().toISOString(),
+          usuario_abertura: caixa.usuario_abertura_nome,
+          usuario_fechamento: sessaoUsuario('lojista')?.nome || '',
+          abertura_centavos: resumo.abertura_centavos,
+          vendas_dinheiro_centavos: resumo.vendas_dinheiro_centavos,
+          vendas_cartao_centavos: resumo.cartao_centavos,
+          vendas_pix_centavos: resumo.pix_centavos,
+          vendas_quantidade: vendas.quantidade,
+          suprimentos_centavos: resumo.suprimentos_centavos,
+          sangrias_centavos: resumo.sangrias_centavos,
+          esperado_centavos: resumo.esperado_centavos,
+          contado_centavos: contadoCent,
+          diferenca_centavos: r.diferenca_centavos,
+          observacoes: obs,
+        }, largura);
+      } catch { /* impressora fora não desfaz o fechamento */ }
+
       mostrar({
         tipo: r.situacao === 'ok' ? 'sucesso' : 'info',
         titulo: r.situacao === 'ok' ? 'Caixa fechado, conferido!' : `Caixa fechado com ${r.situacao}`,
@@ -243,8 +293,9 @@ function Aberto({ caixa, resumo, vendas, movimentos, onMudou }: {
         <CardContent className="p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2 text-sm font-bold">
-              <span className="inline-flex size-2 rounded-full bg-emerald-500" />
+              <span className={cn('inline-flex size-2 rounded-full', tempo?.alerta ? 'bg-amber-500' : 'bg-emerald-500')} />
               Caixa aberto
+              {tempo && <span className="font-normal text-muted-foreground">· {tempo.horas}h</span>}
             </div>
             <div className="text-xs text-muted-foreground">
               desde {dataLocal(caixa.aberto_em)} · {caixa.usuario_abertura_nome} · {vendas.quantidade} venda(s)
@@ -252,6 +303,25 @@ function Aberto({ caixa, resumo, vendas, movimentos, onMudou }: {
           </div>
         </CardContent>
       </Card>
+
+      {/*
+        CAIXA ESQUECIDO ABERTO: continua somando as vendas dos dias seguintes, e
+        quando alguém fechar a divergência será enorme e sem como reconstituir de
+        qual dia veio o quê. O aviso não impede nada — faz o problema aparecer no
+        dia em que ainda dá pra resolver.
+      */}
+      {tempo?.alerta && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+          <div>
+            <b className="text-amber-700 dark:text-amber-400">Este caixa está aberto há {tempo.horas} horas.</b>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Se o turno já acabou, feche-o. Caixa aberto continua somando as vendas dos dias
+              seguintes, e depois não dá pra saber de qual dia veio a diferença.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* CONFERÊNCIA — só dinheiro */}
       <Card>
@@ -416,23 +486,78 @@ function Movimentos({ movimentos, onMudou }: { movimentos: Movimento[]; onMudou:
         {movimentos.length > 0 && (
           <div className="divide-y divide-border/60 border-t border-border pt-1">
             {movimentos.map(m => (
-              <div key={m.id} className="flex items-center justify-between gap-2 py-2 text-xs">
-                <div className="min-w-0">
-                  <span className={cn('font-semibold', m.tipo === 'sangria' ? 'text-destructive' : 'text-emerald-600')}>
-                    {m.tipo === 'sangria' ? 'Sangria' : 'Suprimento'}
-                  </span>
-                  {m.motivo && <span className="text-muted-foreground"> · {m.motivo}</span>}
-                  <div className="text-[10px] text-muted-foreground">{m.usuario_nome} · {dataLocal(m.criado_em)}</div>
-                </div>
-                <span className={cn('shrink-0 font-bold tabular-nums',
-                  m.tipo === 'sangria' ? 'text-destructive' : 'text-emerald-600')}>
-                  {m.tipo === 'sangria' ? '−' : '+'}{brl(m.valor_centavos)}
-                </span>
-              </div>
+              <LinhaMovimento key={m.id} m={m} onMudou={onMudou} />
             ))}
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Linha de um movimento, com CANCELAMENTO.
+ *
+ * Cancelado fica no histórico riscado, com quem cancelou — não desaparece. Apagar
+ * a linha sumiria com o rastro de que houve erro, que é justamente o que uma
+ * conferência precisa mostrar depois.
+ */
+function LinhaMovimento({ m, onMudou }: { m: Movimento; onMudou: () => void }) {
+  const { mostrar } = useToast();
+  const pedirConfirmacao = useConfirm();
+  const [cancelando, setCancelando] = useState(false);
+  const cancelado = !!m.cancelado_em;
+
+  async function cancelar() {
+    if (!(await pedirConfirmacao({
+      titulo: 'Cancelar este lançamento?',
+      descricao: `${m.tipo === 'sangria' ? 'Sangria' : 'Suprimento'} de ${brl(m.valor_centavos)}. `
+        + 'Ele sai da conta do caixa, mas continua no histórico marcado como cancelado.',
+      confirmar: 'Cancelar lançamento',
+      destrutivo: true,
+    }))) return;
+    setCancelando(true);
+    try {
+      await api('POST', `/api/lojista/caixa/movimento/${m.id}/cancelar`);
+      mostrar({ tipo: 'sucesso', titulo: 'Lançamento cancelado.', descricao: 'O esperado na gaveta foi recalculado.' });
+      onMudou();
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setCancelando(false); }
+  }
+
+  return (
+    <div className={cn('flex items-center justify-between gap-2 py-2 text-xs', cancelado && 'opacity-60')}>
+      <div className="min-w-0">
+        <span className={cn('font-semibold',
+          cancelado ? 'text-muted-foreground line-through'
+            : m.tipo === 'sangria' ? 'text-destructive' : 'text-emerald-600')}>
+          {m.tipo === 'sangria' ? 'Sangria' : 'Suprimento'}
+        </span>
+        {m.motivo && <span className={cn('text-muted-foreground', cancelado && 'line-through')}> · {m.motivo}</span>}
+        <div className="text-[10px] text-muted-foreground">
+          {m.usuario_nome} · {dataLocal(m.criado_em)}
+          {cancelado && (
+            <span className="ml-1 font-semibold text-amber-600">
+              · CANCELADO por {m.cancelado_por || '—'}
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <span className={cn('font-bold tabular-nums',
+          cancelado ? 'text-muted-foreground line-through'
+            : m.tipo === 'sangria' ? 'text-destructive' : 'text-emerald-600')}>
+          {m.tipo === 'sangria' ? '−' : '+'}{brl(m.valor_centavos)}
+        </span>
+        {!cancelado && (
+          <button type="button" onClick={cancelar} disabled={cancelando}
+            aria-label="Cancelar lançamento"
+            className="rounded-lg px-2 py-1 text-[10px] font-bold text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+            {cancelando ? '…' : 'cancelar'}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

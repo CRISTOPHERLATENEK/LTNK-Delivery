@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   esperadoEmDinheiro, diferencaDeCaixa, classificarDiferenca, somarVendas, montarResumo,
+  somarMovimentos, tempoAberto,
 } from './caixa';
 
 /**
@@ -110,5 +111,56 @@ describe('montarResumo — a regra central', () => {
       aberturaCentavos: 10000, vendas, suprimentosCentavos: 0, sangriasCentavos: 25000,
     });
     expect(r.esperado_centavos).toBe(15000);
+  });
+});
+
+describe('somarMovimentos — cancelado não conta', () => {
+  it('ignora o movimento cancelado', () => {
+    const r = somarMovimentos([
+      { tipo: 'sangria', valor_centavos: 100000, cancelado_em: '2026-08-05T12:00:00Z' },
+      { tipo: 'sangria', valor_centavos: 10000, cancelado_em: '' },
+      { tipo: 'suprimento', valor_centavos: 5000 },
+    ]);
+    // Sem ignorar o cancelado, "desfazer" não desfaria nada e o esperado
+    // continuaria errado — o problema que o cancelamento existe pra resolver.
+    expect(r.sangrias_centavos).toBe(10000);
+    expect(r.suprimentos_centavos).toBe(5000);
+  });
+
+  it('trata null e ausente como NÃO cancelado', () => {
+    const r = somarMovimentos([
+      { tipo: 'sangria', valor_centavos: 1000, cancelado_em: null },
+      { tipo: 'sangria', valor_centavos: 2000 },
+    ]);
+    expect(r.sangrias_centavos).toBe(3000);
+  });
+
+  it('tudo cancelado zera', () => {
+    const r = somarMovimentos([
+      { tipo: 'sangria', valor_centavos: 9999, cancelado_em: 'x' },
+      { tipo: 'suprimento', valor_centavos: 8888, cancelado_em: 'x' },
+    ]);
+    expect(r).toEqual({ sangrias_centavos: 0, suprimentos_centavos: 0 });
+  });
+});
+
+describe('tempoAberto — caixa esquecido', () => {
+  const abriu = '2026-08-05T11:00:00Z';
+  it('turno normal não alerta', () => {
+    expect(tempoAberto(abriu, new Date('2026-08-05T19:00:00Z'))).toEqual({ horas: 8, alerta: false });
+  });
+  it('13h ainda não alerta (turno longo de restaurante)', () => {
+    expect(tempoAberto(abriu, new Date('2026-08-06T00:00:00Z')).alerta).toBe(false);
+  });
+  it('14h alerta', () => {
+    expect(tempoAberto(abriu, new Date('2026-08-06T01:00:00Z')).alerta).toBe(true);
+  });
+  it('esquecido por dois dias mostra as horas acumuladas', () => {
+    const r = tempoAberto(abriu, new Date('2026-08-07T11:00:00Z'));
+    expect(r.horas).toBe(48);
+    expect(r.alerta).toBe(true);
+  });
+  it('relógio atrasado não devolve horas negativas', () => {
+    expect(tempoAberto(abriu, new Date('2026-08-05T10:00:00Z')).horas).toBe(0);
   });
 });

@@ -144,3 +144,37 @@ export function montarResumo(dados: {
     pix_centavos: dados.vendas.pix_centavos,
   };
 }
+
+/**
+ * Soma os movimentos IGNORANDO os cancelados.
+ *
+ * É o par indispensável do cancelamento marcado: se a soma contasse a linha
+ * cancelada, "desfazer" não desfaria nada — o esperado continuaria errado e o
+ * operador ficaria sem saída, que é o problema original.
+ */
+export function somarMovimentos(
+  movimentos: Array<{ tipo: string; valor_centavos: number; cancelado_em?: string | null }>,
+): { sangrias_centavos: number; suprimentos_centavos: number } {
+  const validos = movimentos.filter(m => !m.cancelado_em);
+  return {
+    sangrias_centavos: validos.filter(m => m.tipo === 'sangria').reduce((s, m) => s + m.valor_centavos, 0),
+    suprimentos_centavos: validos.filter(m => m.tipo === 'suprimento').reduce((s, m) => s + m.valor_centavos, 0),
+  };
+}
+
+/**
+ * Horas que o caixa está aberto, e se isso já é anormal.
+ *
+ * POR QUE EXISTE: caixa esquecido aberto na segunda continua somando as vendas de
+ * terça e quarta. Quando alguém fecha, a divergência é enorme e ninguém consegue
+ * reconstituir de qual dia veio o quê. O aviso não impede nada — só faz o problema
+ * aparecer no dia em que ainda dá pra resolver.
+ *
+ * 14h como limite: cobre o turno mais longo de um restaurante (almoço + jantar
+ * com folga) sem alarmar quem só abriu cedo.
+ */
+export function tempoAberto(abertoEm: string, agora: Date = new Date()): { horas: number; alerta: boolean } {
+  const ms = agora.getTime() - Date.parse(abertoEm);
+  const horas = ms > 0 ? Math.floor(ms / 3_600_000) : 0;
+  return { horas, alerta: horas >= 14 };
+}

@@ -479,3 +479,145 @@ export function montarBlocosDanfe(d: DadosDanfe): BlocoImpressao[] {
 export function imprimirDanfe(d: DadosDanfe, largura: '80' | '58' = '80'): void {
   despacharImpressao(montarHtmlDanfe(d, largura), larguraMmDe(largura), montarBlocosDanfe(d), true);
 }
+
+/* ─────────────────── Fechamento de caixa ─────────────────── */
+
+export interface DadosFechamentoCaixa {
+  loja_nome: string;
+  aberto_em: string;
+  fechado_em: string;
+  usuario_abertura: string;
+  usuario_fechamento: string;
+  abertura_centavos: number;
+  vendas_dinheiro_centavos: number;
+  vendas_cartao_centavos: number;
+  vendas_pix_centavos: number;
+  vendas_quantidade: number;
+  suprimentos_centavos: number;
+  sangrias_centavos: number;
+  esperado_centavos: number;
+  contado_centavos: number;
+  diferenca_centavos: number;
+  observacoes?: string;
+}
+
+const reaisBr = (c: number) => (c / 100).toFixed(2).replace('.', ',');
+const dataBr = (iso: string) => (iso ? new Date(iso).toLocaleString('pt-BR') : '—');
+
+/**
+ * Blocos ESC/POS do comprovante de fechamento.
+ *
+ * POR QUE IMPRIMIR: é o papel que o operador assina e guarda. Conferência que
+ * existe só na tela não serve de nada no dia em que houver divergência e alguém
+ * precisar mostrar o que foi contado, por quem e quando.
+ *
+ * Cartão e Pix saem em bloco SEPARADO e rotulado, igual à tela: no papel a
+ * confusão é ainda mais fácil, porque quem lê depois não tem o contexto.
+ */
+export function montarBlocosFechamentoCaixa(d: DadosFechamentoCaixa): BlocoImpressao[] {
+  const b: BlocoImpressao[] = [
+    { t: 'center', b: true, txt: d.loja_nome },
+    { t: 'center', b: true, txt: 'FECHAMENTO DE CAIXA' },
+    { t: 'linha' },
+    { t: 'lr', l: 'Abertura', r: dataBr(d.aberto_em) },
+    { t: 'lr', l: 'Fechamento', r: dataBr(d.fechado_em) },
+    { t: 'lr', l: 'Abriu', r: d.usuario_abertura || '—' },
+    { t: 'lr', l: 'Fechou', r: d.usuario_fechamento || '—' },
+    { t: 'linha' },
+    { t: 'center', txt: 'DINHEIRO NA GAVETA' },
+    { t: 'lr', l: 'Fundo de troco', r: reaisBr(d.abertura_centavos) },
+    { t: 'lr', l: 'Vendas em dinheiro', r: reaisBr(d.vendas_dinheiro_centavos) },
+  ];
+  if (d.suprimentos_centavos > 0) b.push({ t: 'lr', l: 'Suprimentos', r: reaisBr(d.suprimentos_centavos) });
+  if (d.sangrias_centavos > 0) b.push({ t: 'lr', l: 'Sangrias', r: '-' + reaisBr(d.sangrias_centavos) });
+
+  b.push(
+    { t: 'lr', b: true, l: 'ESPERADO', r: reaisBr(d.esperado_centavos) },
+    { t: 'lr', b: true, l: 'CONTADO', r: reaisBr(d.contado_centavos) },
+    { t: 'linha' },
+    {
+      t: 'lr', b: true,
+      // Palavra explícita em vez de sinal: "-15,00" num papel térmico com pouca
+      // tinta some, e "FALTA" não se confunde com nada.
+      l: d.diferenca_centavos === 0 ? 'CONFERIDO'
+        : d.diferenca_centavos < 0 ? 'FALTA' : 'SOBRA',
+      r: reaisBr(Math.abs(d.diferenca_centavos)),
+    },
+  );
+
+  if (d.vendas_cartao_centavos > 0 || d.vendas_pix_centavos > 0) {
+    b.push(
+      { t: 'linha' },
+      { t: 'center', txt: 'NAO ENTRA NA GAVETA' },
+      { t: 'texto', txt: '(cai no banco - confira pelo extrato)' },
+    );
+    if (d.vendas_cartao_centavos > 0) b.push({ t: 'lr', l: 'Cartao', r: reaisBr(d.vendas_cartao_centavos) });
+    if (d.vendas_pix_centavos > 0) b.push({ t: 'lr', l: 'Pix', r: reaisBr(d.vendas_pix_centavos) });
+  }
+
+  b.push(
+    { t: 'linha' },
+    { t: 'lr', l: 'Vendas no turno', r: String(d.vendas_quantidade) },
+  );
+  if (d.observacoes?.trim()) {
+    b.push({ t: 'linha' }, { t: 'texto', txt: 'Obs.: ' + d.observacoes.trim() });
+  }
+  b.push(
+    { t: 'pular', n: 2 },
+    { t: 'center', txt: '____________________________' },
+    { t: 'center', txt: 'Assinatura do responsavel' },
+    { t: 'pular', n: 1 },
+    { t: 'corte' },
+  );
+  return b;
+}
+
+/** HTML equivalente, para o fallback do navegador (sem agente de impressão). */
+export function montarHtmlFechamentoCaixa(d: DadosFechamentoCaixa, largura: '80' | '58' = '80'): string {
+  const mm = largura === '58' ? 58 : 80;
+  const linha = (l: string, r: string, forte = false) =>
+    `<div class="row${forte ? ' b' : ''}"><span>${esc(l)}</span><span>${esc(r)}</span></div>`;
+  const rotulo = d.diferenca_centavos === 0 ? 'CONFERIDO' : d.diferenca_centavos < 0 ? 'FALTA' : 'SOBRA';
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Fechamento de caixa</title>
+<style>
+  @page { size: ${mm}mm auto; margin: 0 }
+  body { width:${mm - 4}mm; margin:2mm; font-family:'DejaVu Sans Mono',monospace; font-size:12px }
+  .c { text-align:center } .b { font-weight:700 }
+  .row { display:flex; justify-content:space-between; gap:6px }
+  hr { border:0; border-top:1px dashed #000; margin:4px 0 }
+  .ass { margin-top:14mm; text-align:center }
+</style></head><body>
+<div class="c b">${esc(d.loja_nome)}</div>
+<div class="c b">FECHAMENTO DE CAIXA</div><hr>
+${linha('Abertura', dataBr(d.aberto_em))}
+${linha('Fechamento', dataBr(d.fechado_em))}
+${linha('Abriu', d.usuario_abertura || '—')}
+${linha('Fechou', d.usuario_fechamento || '—')}<hr>
+<div class="c">DINHEIRO NA GAVETA</div>
+${linha('Fundo de troco', reaisBr(d.abertura_centavos))}
+${linha('Vendas em dinheiro', reaisBr(d.vendas_dinheiro_centavos))}
+${d.suprimentos_centavos > 0 ? linha('Suprimentos', reaisBr(d.suprimentos_centavos)) : ''}
+${d.sangrias_centavos > 0 ? linha('Sangrias', '-' + reaisBr(d.sangrias_centavos)) : ''}
+${linha('ESPERADO', reaisBr(d.esperado_centavos), true)}
+${linha('CONTADO', reaisBr(d.contado_centavos), true)}<hr>
+${linha(rotulo, reaisBr(Math.abs(d.diferenca_centavos)), true)}
+${(d.vendas_cartao_centavos > 0 || d.vendas_pix_centavos > 0) ? `<hr>
+<div class="c">NÃO ENTRA NA GAVETA</div>
+<div style="font-size:11px">(cai no banco — confira pelo extrato)</div>
+${d.vendas_cartao_centavos > 0 ? linha('Cartão', reaisBr(d.vendas_cartao_centavos)) : ''}
+${d.vendas_pix_centavos > 0 ? linha('Pix', reaisBr(d.vendas_pix_centavos)) : ''}` : ''}
+<hr>${linha('Vendas no turno', String(d.vendas_quantidade))}
+${d.observacoes?.trim() ? `<hr><div>Obs.: ${esc(d.observacoes.trim())}</div>` : ''}
+<div class="ass">____________________________<br>Assinatura do responsável</div>
+</body></html>`;
+}
+
+/** Imprime o fechamento: agente ESC/POS quando disponível, senão o navegador. */
+export function imprimirFechamentoCaixa(d: DadosFechamentoCaixa, largura: '80' | '58' = '80'): void {
+  despacharImpressao(
+    montarHtmlFechamentoCaixa(d, largura),
+    largura === '58' ? 58 : 80,
+    montarBlocosFechamentoCaixa(d),
+  );
+}

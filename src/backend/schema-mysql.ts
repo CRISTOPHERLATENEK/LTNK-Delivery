@@ -466,6 +466,16 @@ const TABELAS: string[] = [
   valor_contado_centavos    INT NOT NULL DEFAULT 0,
   valor_esperado_centavos   INT NOT NULL DEFAULT 0,
   diferenca_centavos        INT NOT NULL DEFAULT 0,
+  -- Totais por FORMA congelados no fechamento. Antes só contado/esperado eram
+  -- guardados, então "quanto entrou de cartão naquele turno?" só se respondia
+  -- reconsultando pedidos por data e reconstruindo -- e o número já estava
+  -- calculado na tela, sendo descartado.
+  vendas_dinheiro_centavos  INT NOT NULL DEFAULT 0,
+  vendas_cartao_centavos    INT NOT NULL DEFAULT 0,
+  vendas_pix_centavos       INT NOT NULL DEFAULT 0,
+  vendas_quantidade         INT NOT NULL DEFAULT 0,
+  sangrias_centavos         INT NOT NULL DEFAULT 0,
+  suprimentos_centavos      INT NOT NULL DEFAULT 0,
   observacoes               TEXT,
   KEY idx_caixas_loja (loja_id, status),
   KEY idx_caixas_abertura (loja_id, aberto_em)
@@ -479,6 +489,13 @@ const TABELAS: string[] = [
   motivo         VARCHAR(200) NOT NULL DEFAULT '',
   usuario_nome   VARCHAR(120) NOT NULL DEFAULT '',
   criado_em      VARCHAR(32) NOT NULL,
+  -- CANCELAMENTO MARCADO, não DELETE: erro de digitação em campo de dinheiro é
+  -- rotina (sangria de 1000 no lugar de 100), e sem caminho de correção o
+  -- operador compensa com um lançamento inverso -- o esperado fica certo e o
+  -- histórico passa a mostrar duas movimentações que nunca aconteceram. Apagar a
+  -- linha seria pior ainda: some o rastro de que houve erro.
+  cancelado_em   VARCHAR(32) NOT NULL DEFAULT '',
+  cancelado_por  VARCHAR(120) NOT NULL DEFAULT '',
   KEY idx_mov_caixa (caixa_id)
 ) ${SUFIXO_TABELA}`,
 
@@ -695,6 +712,35 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
   ) as any;
   if (jaTemIndiceIdem.length === 0) {
     await pool.query('ALTER TABLE pedidos ADD UNIQUE KEY idx_pedidos_idempotencia (idempotencia)');
+  }
+
+  /**
+   * CAIXA — colunas novas em tabelas que já existem em produção.
+   *
+   * `caixas` e `caixa_movimentos` foram criadas num deploy anterior, então
+   * `CREATE TABLE IF NOT EXISTS` acima não adiciona coluna nenhuma nelas: para
+   * banco existente, quem faz o trabalho é o ALTER daqui. Sem isto, o tenant que
+   * já rodou a versão anterior ficaria sem as colunas e toda consulta ao caixa
+   * daria "Unknown column" — exatamente o erro que já apareceu neste projeto.
+   */
+  for (const [tabela, coluna, ddl] of [
+    ['caixa_movimentos', 'cancelado_em',  "cancelado_em VARCHAR(32) NOT NULL DEFAULT ''"],
+    ['caixa_movimentos', 'cancelado_por', "cancelado_por VARCHAR(120) NOT NULL DEFAULT ''"],
+    ['caixas', 'vendas_dinheiro_centavos', 'vendas_dinheiro_centavos INT NOT NULL DEFAULT 0'],
+    ['caixas', 'vendas_cartao_centavos',   'vendas_cartao_centavos INT NOT NULL DEFAULT 0'],
+    ['caixas', 'vendas_pix_centavos',      'vendas_pix_centavos INT NOT NULL DEFAULT 0'],
+    ['caixas', 'vendas_quantidade',        'vendas_quantidade INT NOT NULL DEFAULT 0'],
+    ['caixas', 'sangrias_centavos',        'sangrias_centavos INT NOT NULL DEFAULT 0'],
+    ['caixas', 'suprimentos_centavos',     'suprimentos_centavos INT NOT NULL DEFAULT 0'],
+  ] as Array<[string, string, string]>) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`,
+      [tabela, coluna],
+    ) as any;
+    if (existe.length === 0) {
+      await pool.query(`ALTER TABLE \`${tabela}\` ADD COLUMN ${ddl}`);
+    }
   }
 
   // lojas.pagamento_gateway: idem — escolha do gateway de Pix online por loja
