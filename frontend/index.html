@@ -11,7 +11,18 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Delivery Já" />
-    <link rel="apple-touch-icon" href="/favicon.ico" />
+    <!--
+      Ícone padrão da aba. SEM ISTO O CONSOLE DAVA 404 EM TODA CARGA: não existe
+      /favicon.ico no projeto (o arquivo é favicon.svg), e sem nenhum <link
+      rel="icon"> o navegador pede /favicon.ico por conta própria — dois 404 por
+      página, um do apple-touch-icon e um do pedido automático.
+
+      O tema (lib/tema.ts) troca o href quando a plataforma ou a loja tem favicon
+      próprio; este aqui é o que aparece quando NENHUM dos dois tem — antes disso
+      era a aba sem ícone.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/mascote/mascote.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
