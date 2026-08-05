@@ -73,7 +73,11 @@ router.get('/tema', async (req, res, next) => {
         cor_marca: string; cor_secundaria: string;
       } | undefined;
 
-      if (!favicon) favicon = loja?.favicon_url || '';
+      // O FAVICON DA LOJA GANHA DO DA PLATAFORMA aqui, e não o contrário: no
+      // domínio dela, tudo o mais (nome, logo, cores) já é dela. Manter o ícone da
+      // plataforma por cima deixaria a marca alheia justamente no lugar mais
+      // visível — a aba do navegador, que fica aberta o dia inteiro.
+      if (loja?.favicon_url?.trim()) favicon = loja.favicon_url.trim();
       // Só sobrescreve o que a loja realmente escolheu: coluna vazia (default do
       // schema) mantém a cor da plataforma, senão o domínio cairia no preto/vazio.
       if (loja?.cor_marca?.trim()) {

@@ -71,6 +71,37 @@ export function LogoTab({ estado, atualizar, restaurarPadrao }: Props) {
             <Toggle label="Padding" ativo={estado.logo.padding} onClick={() => atualizar('logo.padding', !estado.logo.padding)} />
           </div>
         </div>
+
+        {/*
+          FAVICON — o campo NUNCA EXISTIU na interface. `favicon_url` já estava no
+          estado do formulário e já ia no PUT da loja (o backend grava a coluna há
+          tempo), mas nenhuma tela mostrava o campo: era um recurso pronto e
+          inalcançável. Sem ele a aba do navegador ficava com o ícone genérico da
+          plataforma em cima do domínio da própria loja.
+
+          Vive aqui, junto do logo, porque é o logo em 32px — e é assim que se
+          decide se ele funciona: olhando o logo do lado e vendo se sobrevive ao
+          tamanho. Aba separada só pra isso esconderia a decisão.
+        */}
+        <div className="border-t border-border/60 pt-4">
+          <Label className="mb-1 block">Ícone da aba (favicon)</Label>
+          <p className="mb-2 text-[11px] text-muted-foreground">
+            Aparece na aba do navegador e nos favoritos. Use uma imagem
+            <strong> quadrada</strong> e bem simples — ela é exibida com cerca de 32px,
+            onde texto e detalhe fino desaparecem. Sem favicon, fica o ícone padrão da plataforma.
+          </p>
+          <ImageUpload value={estado.favicon_url} onChange={url => atualizar('favicon_url', url)} aspectRatio="square" />
+          {estado.favicon_url && (
+            <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2">
+              {/* Prévia no tamanho REAL: em 32px é que se descobre que o logo com
+                  nome escrito virou um borrão. Ampliado, todo favicon parece bom. */}
+              <img src={estado.favicon_url} alt="" className="size-8 rounded shrink-0 object-cover" />
+              <span className="truncate text-xs text-muted-foreground">
+                É assim que ele aparece na aba — some algum detalhe?
+              </span>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );
