@@ -1100,6 +1100,8 @@ function LoginLojista() {
   const [enviando, setEnviando] = useState(false);
   const [duploFator, setDuploFator] = useState<{ tokenPreAuth: string; modo: 'configurar' | 'verificar' } | null>(null);
   const { mostrar } = useToast();
+  // Nome da marca deste domínio — é o que diz em qual sistema a pessoa está.
+  const { marca } = useTema();
 
   // Chegada vinda do login da plataforma (ver `lerRepasse2FA`): retoma o 2FA
   // aqui, já no domínio do tenant dono da conta.
@@ -1215,7 +1217,25 @@ function LoginLojista() {
               <Store className="size-7 text-primary-foreground" strokeWidth={2.5} />
             </div>
             <h1 className="text-2xl font-extrabold">Painel do lojista</h1>
-            <p className="mt-1 text-sm text-muted-foreground">Bem-vindo de volta! Entre com sua conta para continuar.</p>
+            {/*
+              QUAL SISTEMA É ESTE. Cada domínio abre um BANCO diferente (um por
+              tenant), então a mesma conta com a mesma senha entra num endereço e
+              é recusada no outro — e a recusa sai como "e-mail ou senha
+              inválidos", indistinguível de erro de digitação. Quem tenta entrar no
+              endereço errado conclui que esqueceu a senha e fica tentando de novo
+              na tela onde nunca vai funcionar.
+
+              Mostrar a marca resolve ANTES de digitar, e sem vazar nada: não diz
+              onde a conta existe (isso seria entregar cadastro de um tenant pra
+              quem está noutro), só diz onde a pessoa está.
+            */}
+            <p className="mt-1 text-sm text-muted-foreground">
+              Entre com sua conta do <span className="font-bold text-foreground">{marca.nome}</span>.
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Se sua loja usa outro endereço, o acesso é por lá — as contas não são
+              compartilhadas entre sistemas.
+            </p>
           </div>
 
           <form onSubmit={enviar} className="space-y-4">
