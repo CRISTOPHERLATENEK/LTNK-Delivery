@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { Card, CardContent } from '@/components/ui/card';
+import { ContaDeOutroPerfil } from '@/components/conta-outro-perfil';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -154,6 +155,27 @@ export function PainelLojista() {
         <div className="size-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
       </div>
     );
+  }
+
+  /*
+   * SESSÃO VÁLIDA DE OUTRO PERFIL: explica, em vez de pedir login de novo.
+   *
+   * ISTO ERA O "LOGUEI E VOLTOU PRA TELA DE LOGIN". Quem entrasse aqui com uma
+   * conta de admin (ou cliente, ou entregador) fazia o login inteiro — senha,
+   * 2FA, tudo — a sessão era gravada, a página recarregava, `ehLojista` dava
+   * false e caía direto no formulário. Zero mensagem: do lado de quem usa, o
+   * login simplesmente não funcionou, e não havia nada na tela sugerindo tentar
+   * outro endereço.
+   *
+   * A checagem de perfil existia no `enviar()`, mas é INALCANÇÁVEL pra estas
+   * contas: lojista e admin sempre passam pelo 2FA, e o caminho do 2FA grava a
+   * sessão e recarrega sem conferir perfil nenhum. Guardar aqui — no ponto por
+   * onde TODA entrada passa, inclusive o repasse entre domínios — cobre os três
+   * caminhos de uma vez.
+   */
+  if (u && !ehLojista) {
+    return <ContaDeOutroPerfil perfil={u.perfil} nome={u.nome}
+      areaAtual="painel do lojista" chaveSessao="lojista" />;
   }
 
   if (!ehLojista) {

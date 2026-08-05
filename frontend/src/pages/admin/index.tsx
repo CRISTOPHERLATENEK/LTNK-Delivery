@@ -8,6 +8,7 @@ import {
   Mail, Lock, Eye, EyeOff, ScrollText, Wallet,
 } from 'lucide-react';
 import { AdminLayout } from './layout';
+import { ContaDeOutroPerfil } from '@/components/conta-outro-perfil';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -35,7 +36,14 @@ interface DadosDashboard {
 
 export function TelaAdmin() {
   const u = sessaoUsuario();
-  if (!u || u.perfil !== 'admin') return <LoginAdmin />;
+  // Mesma armadilha do painel do lojista: conta de outro perfil fazia o login
+  // inteiro (2FA incluso) e caía de volta no formulário, sem mensagem. Ver
+  // components/conta-outro-perfil.tsx.
+  if (u && u.perfil !== 'admin') {
+    return <ContaDeOutroPerfil perfil={u.perfil} nome={u.nome}
+      areaAtual="painel da plataforma" chaveSessao="admin" />;
+  }
+  if (!u) return <LoginAdmin />;
   return (
     <AdminLayout titulo="Dashboard">
       <Dashboard />
