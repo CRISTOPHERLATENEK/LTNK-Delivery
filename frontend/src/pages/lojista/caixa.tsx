@@ -15,7 +15,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Banknote, LockOpen, Lock, ArrowDownCircle, ArrowUpCircle,
-  AlertTriangle, CheckCircle2, CreditCard, QrCode, History,
+  AlertTriangle, CheckCircle2, CreditCard, QrCode, History, ChevronDown,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -108,7 +108,7 @@ export function CaixaLoja() {
       {!d?.aberto
         ? <Abrir onAberto={recarregar} historico={d?.historico ?? []} erroToast={mostrar} />
         : <Aberto caixa={d.aberto} resumo={d.resumo!} vendas={d.vendas!} movimentos={d.movimentos ?? []}
-            tempo={d.tempo} onMudou={recarregar} />}
+            tempo={d.tempo} historico={d.historico ?? []} onMudou={recarregar} />}
     </div>
   );
 }
@@ -159,19 +159,51 @@ function Abrir({ onAberto, historico }: {
         </CardContent>
       </Card>
 
-      {historico.length > 0 && (
-        <Card>
-          <CardContent className="p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-bold">
-              <History className="size-4 text-muted-foreground" /> Últimos fechamentos
-            </div>
-            <div className="divide-y divide-border/60">
-              {historico.map(h => <LinhaHistorico key={h.id} h={h} />)}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <CardHistorico historico={historico} />
     </div>
+  );
+}
+
+/**
+ * Últimos fechamentos.
+ *
+ * Aparece com o caixa ABERTO também: é durante o turno que se quer comparar
+ * ("ontem faltou 20 também, ou é só hoje?"), e antes o histórico só existia na
+ * tela de caixa fechado. Com o turno em andamento vem recolhido, pra não empurrar
+ * o formulário de fechamento pra fora da tela no celular.
+ */
+function CardHistorico({ historico, recolhido = false }: { historico: Fechado[]; recolhido?: boolean }) {
+  if (historico.length === 0) return null;
+  const lista = (
+    <div className="divide-y divide-border/60">
+      {historico.map(h => <LinhaHistorico key={h.id} h={h} />)}
+    </div>
+  );
+  const titulo = (
+    <span className="flex items-center gap-2 text-sm font-bold">
+      <History className="size-4 text-muted-foreground" /> Últimos fechamentos
+      <span className="font-normal text-muted-foreground">({historico.length})</span>
+    </span>
+  );
+  return (
+    <Card>
+      <CardContent className="p-4">
+        {recolhido ? (
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2">
+              {titulo}
+              <ChevronDown className="size-4 text-muted-foreground transition-transform group-open:rotate-180" />
+            </summary>
+            <div className="mt-2">{lista}</div>
+          </details>
+        ) : (
+          <>
+            <div className="mb-2">{titulo}</div>
+            {lista}
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -203,9 +235,10 @@ function LinhaHistorico({ h }: { h: Fechado }) {
   );
 }
 
-function Aberto({ caixa, resumo, vendas, movimentos, tempo, onMudou }: {
+function Aberto({ caixa, resumo, vendas, movimentos, tempo, historico, onMudou }: {
   caixa: CaixaAberto; resumo: Resumo; vendas: { quantidade: number };
-  movimentos: Movimento[]; tempo?: { horas: number; alerta: boolean }; onMudou: () => void;
+  movimentos: Movimento[]; tempo?: { horas: number; alerta: boolean };
+  historico: Fechado[]; onMudou: () => void;
 }) {
   const { mostrar } = useToast();
   const pedirConfirmacao = useConfirm();
@@ -415,6 +448,8 @@ function Aberto({ caixa, resumo, vendas, movimentos, tempo, onMudou }: {
           </Button>
         </CardContent>
       </Card>
+
+      <CardHistorico historico={historico} recolhido />
     </div>
   );
 }

@@ -3331,30 +3331,40 @@ async function dadosDoCaixa(caixa: CaixaLinha, fim?: string) {
   return { vendas, resumo };
 }
 
+/** Últimos fechamentos da loja, com os totais congelados de cada turno. */
+async function fechamentosDaLoja(lojaId: number, limite = 10) {
+  return db.prepare(
+    `SELECT id, aberto_em, fechado_em, usuario_abertura_nome, usuario_fechamento_nome,
+            valor_abertura_centavos, valor_contado_centavos, valor_esperado_centavos,
+            diferenca_centavos, vendas_dinheiro_centavos, vendas_cartao_centavos,
+            vendas_pix_centavos, vendas_quantidade, sangrias_centavos,
+            suprimentos_centavos, observacoes
+       FROM caixas WHERE loja_id = ? AND status = 'fechado'
+      ORDER BY id DESC LIMIT ${limite}`
+  ).all(lojaId);
+}
+
 /** Situação atual: caixa aberto com resumo ao vivo, ou histórico dos últimos. */
 router.get('/caixa', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const caixa = await caixaAbertoDaLoja(loja.id);
-    if (!caixa) {
-      const historico = await db.prepare(
-        `SELECT id, aberto_em, fechado_em, usuario_abertura_nome, usuario_fechamento_nome,
-                valor_abertura_centavos, valor_contado_centavos, valor_esperado_centavos,
-                diferenca_centavos, vendas_dinheiro_centavos, vendas_cartao_centavos,
-                vendas_pix_centavos, vendas_quantidade, sangrias_centavos,
-                suprimentos_centavos, observacoes
-           FROM caixas WHERE loja_id = ? AND status = 'fechado'
-          ORDER BY id DESC LIMIT 10`
-      ).all(loja.id);
-      return res.json({ aberto: null, historico });
-    }
+    // O histórico vai nas DUAS respostas: durante o turno é justamente quando se
+    // quer comparar com ontem ("ontem faltou 20 também?"), e antes só aparecia
+    // com o caixa fechado.
+    const historico = await fechamentosDaLoja(loja.id);
+    if (!caixa) return res.json({ aberto: null, historico });
+
     const { vendas, resumo } = await dadosDoCaixa(caixa);
     const movimentos = await db.prepare(
       'SELECT * FROM caixa_movimentos WHERE caixa_id = ? ORDER BY id DESC'
     ).all(caixa.id);
     // Caixa esquecido aberto continua somando as vendas dos dias seguintes; o
     // aviso faz isso aparecer no dia em que ainda dá pra resolver.
-    res.json({ aberto: caixa, vendas, resumo, movimentos, tempo: tempoAberto(caixa.aberto_em) });
+    res.json({
+      aberto: caixa, vendas, resumo, movimentos, historico,
+      tempo: tempoAberto(caixa.aberto_em),
+    });
   } catch (e) { next(e); }
 });
 
