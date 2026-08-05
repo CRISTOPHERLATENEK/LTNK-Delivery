@@ -108,13 +108,32 @@ export function abrirEImprimir(html: string): void {
     quadro.remove();
   };
 
-  quadro.onload = () => {
+  let jaImprimiu = false;
+  /**
+   * SAÍA FOLHA EM BRANCO por causa disto: o evento `load` do iframe dispara
+   * TAMBÉM para o `about:blank` que o navegador cria ao inserir o elemento no
+   * DOM — antes do nosso HTML entrar. Imprimindo esse documento vazio o Chrome
+   * manda uma folha branca, e como `about:blank` herda a identidade do
+   * documento que o criou, o cabeçalho e o rodapé saem com o título e a URL da
+   * PÁGINA DO PAINEL — foi exatamente o que apareceu na pré-visualização, o que
+   * fazia parecer que o comprovante estava vazio quando ele nunca chegou a ser
+   * impresso.
+   *
+   * A checagem do body é o que distingue os dois: o `about:blank` vem sem nada
+   * dentro. Só imprime quando o conteúdo que mandamos já está lá, e uma vez só.
+   */
+  const imprimirQuandoPronto = () => {
+    if (jaImprimiu) return;
     const w = quadro.contentWindow;
-    if (!w) { limpar(); return; }
+    const doc = quadro.contentDocument;
+    if (!w || !doc?.body || doc.body.childElementCount === 0) return;
+    jaImprimiu = true;
     try {
       // `afterprint` cobre imprimir e cancelar. Onde não dispara, o timeout
       // abaixo garante que o iframe não fique pra sempre no DOM.
       w.addEventListener('afterprint', limpar, { once: true });
+      // `focus()` no iframe antes do `print()`: sem isso há navegador que manda
+      // o frame de cima pra impressora em vez deste.
       w.focus();
       w.print();
       setTimeout(limpar, 60_000);
@@ -130,8 +149,12 @@ export function abrirEImprimir(html: string): void {
     }
   };
 
-  document.body.appendChild(quadro);
+  quadro.onload = imprimirQuandoPronto;
   quadro.srcdoc = html;
+  document.body.appendChild(quadro);
+  // Rede de segurança: se o `load` do srcdoc já tiver passado antes de chegarmos
+  // aqui, ninguém mais chamaria a impressão e o cupom simplesmente não sairia.
+  setTimeout(imprimirQuandoPronto, 300);
 }
 
 /** Monta o HTML do cupom (PDV/comanda). */
