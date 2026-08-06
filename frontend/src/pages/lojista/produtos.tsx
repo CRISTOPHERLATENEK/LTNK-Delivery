@@ -14,6 +14,9 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Falha } from '@/components/ui/estado';
+import {
+  Sheet, SheetContent, SheetHeader, SheetFooter, SheetTitle, SheetDescription,
+} from '@/components/ui/sheet';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { useToast } from '@/components/ui/toast';
@@ -92,6 +95,8 @@ export function ProdutosLoja() {
   const [busca, setBusca] = useState('');
   const [gerindoGrupos, setGerindoGrupos] = useState<Produto | null>(null);
   const [mostrarFiscal, setMostrarFiscal] = useState(false);
+  /** Qual dos dois botões de submit foi clicado (ver `salvar`). */
+  const criarOutroRef = useRef(false);
   const [modoSelecao, setModoSelecao] = useState(false);
   const [densidade, setDensidade] = useState<Densidade>(
     () => (localStorage.getItem(CHAVE_DENSIDADE) as Densidade) || 'confortavel',
@@ -193,8 +198,28 @@ export function ProdutosLoja() {
       // tela Fiscal), mas agora o lojista não precisa sair do cadastro do
       // produto pra preencher isso.
       await api('PUT', `/api/lojista/fiscal/produtos/${produtoId}`, corpoFiscal).catch(() => {});
-      setEditando(null);
       qc.invalidateQueries({ queryKey: ['lojista-produtos'] });
+      /*
+       * "Salvar e criar outro" reabre o formulário LIMPO em vez de fechar.
+       *
+       * `ref` e não estado: o clique no botão precisa registrar a intenção ANTES do
+       * submit disparar, e um `setState` só valeria no render seguinte — o `salvar`
+       * leria o valor velho e fecharia o drawer. Cadastro de cardápio é trabalho em
+       * lote (30 itens numa sentada), e reabrir o drawer a cada um dobra os cliques.
+       *
+       * A CATEGORIA É PRESERVADA de propósito: quem cadastra em lote está numa
+       * categoria só ("Bebidas" inteira de uma vez), e zerá-la obrigaria a reescolher
+       * a cada item.
+       */
+      if (criarOutroRef.current) {
+        criarOutroRef.current = false;
+        setForm({ ...FORM_VAZIO, categoria: form.categoria, subcategoria: form.subcategoria });
+        setEditando('novo');
+        setMostrarFiscal(false);
+        setTimeout(() => document.getElementById('campo-nome')?.focus(), 50);
+      } else {
+        setEditando(null);
+      }
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
@@ -375,33 +400,74 @@ export function ProdutosLoja() {
       )}
 
       {/* ── Formulário ── */}
-      {editando !== null && (
-        <Card className="border-primary/40 shadow-md">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="font-bold text-base">
-                {editando === 'novo' ? '✨ Novo produto' : '✏️ Editar produto'}
-              </h3>
+      {/*
+        CADASTRO EM DRAWER LATERAL, não em card expandido no meio da lista.
+        Duas coisas concretas melhoram: a lista continua visível atrás (dá pra ver o
+        que já existe enquanto se cadastra), e o botão de salvar fica FIXO no rodapé —
+        no card inline ele descia com o formulário e, num cadastro longo, sumia da
+        tela justo quando se ia usar.
+
+        Usa o `Sheet` do projeto (Radix Dialog): foco preso dentro do drawer, Esc pra
+        fechar e clique no overlay vêm de graça e corretos. Reimplementar isso à mão
+        é onde acessibilidade costuma quebrar.
+      */}
+      <Sheet open={editando !== null} onOpenChange={aberto => { if (!aberto) setEditando(null); }}>
+        <SheetContent
+          side="right"
+          hideClose
+          className="flex w-full flex-col gap-0 p-0 sm:max-w-[640px]"
+          // O formulário é longo e tem campo numérico: fechar sem querer ao clicar
+          // fora perderia o preenchimento. Esc e o X continuam fechando.
+          onInteractOutside={e => e.preventDefault()}
+        >
+          {/* ─── Header fixo ─── */}
+          <SheetHeader className="flex-row items-start justify-between gap-3 border-b p-6 pb-5">
+            <div className="min-w-0">
+              <SheetTitle className="text-[19px] font-extrabold leading-tight">
+                {editando === 'novo' ? 'Novo produto' : 'Editar produto'}
+              </SheetTitle>
+              <SheetDescription className="mt-0.5 truncate text-[13px]">
+                {editando === 'novo'
+                  ? 'Preencha os dados e salve para publicar no cardápio.'
+                  : [form.nome, form.categoria].filter(Boolean).join(' · ') || 'Produto'}
+              </SheetDescription>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {/* Estado À VENDA / PAUSADO no header: é a informação que decide se o
+                  cliente vê o produto, e ela some se ficar só no meio do formulário. */}
+              <span className={cn('rounded-full px-2.5 py-1 text-[11px] font-bold',
+                form.disponivel ? 'bg-emerald-500/12 text-emerald-600' : 'bg-muted text-muted-foreground')}>
+                {form.disponivel ? 'À venda' : 'Pausado'}
+              </span>
               <button
                 type="button"
                 onClick={() => setEditando(null)}
-                className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground"
+                aria-label="Fechar"
+                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 <X className="size-4" />
               </button>
             </div>
+          </SheetHeader>
 
-            <form onSubmit={salvar} className="space-y-5">
-              {/* Foto */}
-              <ImageUpload
-                label="Foto do produto"
-                value={form.foto_url}
-                onChange={url => setForm(f => ({ ...f, foto_url: url }))}
-                aspectRatio="wide"
-              />
+          <form onSubmit={salvar} className="flex min-h-0 flex-1 flex-col">
+            {/* ─── Corpo com rolagem ─── */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
+              {/* FOTO — quadrada 1:1 e não banner esticado: o cardápio e o PDV
+                  mostram o produto em quadrado, então recorte largo aqui engana
+                  quem cadastra sobre o que vai aparecer depois. */}
+              <SecaoDrawer titulo="Foto">
+                <ImageUpload
+                  value={form.foto_url}
+                  onChange={url => setForm(f => ({ ...f, foto_url: url }))}
+                  aspectRatio="square"
+                />
+                <p className="mt-2 text-[12.5px] text-muted-foreground">
+                  Quadrada (1:1), mínimo 500×500. É assim que ela aparece no cardápio e no PDV.
+                </p>
+              </SecaoDrawer>
 
-              {/* Nome + Descrição lado a lado no desktop */}
-              <div className="space-y-4">
+              <SecaoDrawer titulo="Produto">
                 <div>
                   <Label htmlFor="campo-nome">Nome *</Label>
                   <Input
@@ -410,296 +476,280 @@ export function ProdutosLoja() {
                     value={form.nome}
                     onChange={set('nome')}
                     placeholder="Ex.: X-Burguer Especial"
-                    className="text-base"
+                    className={CAMPO_DRAWER}
                   />
                 </div>
 
-                <div>
-                  <Label>Descrição</Label>
+                <div className="mt-4">
+                  <Label>
+                    Descrição
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
+                  </Label>
                   <textarea
                     value={form.descricao}
                     onChange={set('descricao')}
                     rows={2}
                     placeholder="Ingredientes, tamanho, detalhes que ajudam o cliente a escolher…"
-                    className="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                  />
-                </div>
-              </div>
-
-              {/* Categoria + Subcategoria */}
-              <div className="space-y-4">
-                <SeletorChips
-                  label="Categoria"
-                  obrigatorio
-                  valor={form.categoria}
-                  opcoes={categoriasExistentes}
-                  onChange={v => setForm(f => ({ ...f, categoria: v }))}
-                  placeholderNovo="Ex.: Lanches, Bebidas, Sobremesas…"
-                  rotuloNovo="Nova categoria"
-                />
-                <SeletorChips
-                  label="Subcategoria"
-                  valor={form.subcategoria}
-                  opcoes={subcategoriasDaCategoria}
-                  onChange={v => setForm(f => ({ ...f, subcategoria: v }))}
-                  placeholderNovo="Ex.: Especiais, Veganos…"
-                  rotuloNovo="Nova subcategoria"
-                  dica={form.categoria ? undefined : 'Escolha uma categoria primeiro'}
-                />
-              </div>
-
-              {/* Unidade de venda (un / kg) */}
-              <div>
-                <Label>Como é vendido?</Label>
-                <div className="mt-1.5 flex gap-2">
-                  {([['un', 'Por unidade'], ['kg', 'Por peso (kg)']] as const).map(([v, txt]) => (
-                    <button
-                      key={v}
-                      type="button"
-                      onClick={() => setForm(f => ({ ...f, vendido_por: v }))}
-                      className={cn(
-                        'flex-1 rounded-xl border-2 px-3 py-2.5 text-sm font-semibold transition-colors',
-                        form.vendido_por === v
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border text-muted-foreground hover:border-primary/40',
-                      )}
-                    >
-                      {txt}
-                    </button>
-                  ))}
-                </div>
-                {form.vendido_por === 'kg' && (
-                  <p className="text-[11px] text-muted-foreground mt-1.5">
-                    No PDV o operador informa o peso (ou lê a etiqueta da balança) e o preço é calculado por kg.
-                  </p>
-                )}
-              </div>
-
-              {/* Preços */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>{form.vendido_por === 'kg' ? 'Preço por kg (R$) *' : 'Preço (R$) *'}</Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">R$</span>
-                    <Input
-                      required
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      value={form.preco}
-                      onChange={set('preco')}
-                      placeholder="0,00"
-                      className="pl-9"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <Label>
-                    Preço promocional
-                    <span className="text-muted-foreground font-normal ml-1 text-xs">(opcional)</span>
-                  </Label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">R$</span>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      value={form.preco_promocional}
-                      onChange={set('preco_promocional')}
-                      placeholder="—"
-                      className="pl-9"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Código de barras (EAN/PLU) */}
-              <div>
-                <Label>
-                  Código de barras
-                  <span className="text-muted-foreground font-normal ml-1 text-xs">(opcional · EAN ou PLU da balança)</span>
-                </Label>
-                <Input
-                  value={form.codigo_barras}
-                  onChange={e => setForm(f => ({ ...f, codigo_barras: e.target.value.replace(/\D/g, '') }))}
-                  inputMode="numeric"
-                  placeholder="Ex.: 7891234567890 ou PLU da balança"
-                  className="font-mono"
-                  maxLength={20}
-                />
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Permite bipar no PDV. Para produtos por peso, use o PLU configurado na balança.
-                </p>
-                {/*
-                  Diz na hora do cadastro se o código vai ou não pra nota fiscal.
-                  Sem isso o lojista digita um EAN com um dígito errado, acha que
-                  cadastrou o código de barras, e só descobre — se descobrir — que
-                  a NFC-e saiu como "SEM GTIN". Não bloqueia: PLU de balança é um
-                  código interno legítimo e não é um GTIN.
-                */}
-                {form.codigo_barras.trim() !== '' && (
-                  <p className={cn('text-[11px] mt-1',
-                    gtinValido(form.codigo_barras) ? 'text-emerald-600' : 'text-amber-600')}>
-                    {gtinValido(form.codigo_barras)
-                      ? '✓ EAN válido — vai na nota fiscal como código do produto.'
-                      : 'Não é um EAN válido (dígito verificador não fecha). Serve pra bipar no PDV, '
-                        + 'mas a nota sai como “SEM GTIN” — confira se digitou certo.'}
-                  </p>
-                )}
-              </div>
-
-              {/* Serve pessoas + toggles */}
-              <div className="flex items-end gap-6 flex-wrap">
-                <div className="w-36">
-                  <Label>
-                    Serve pessoas
-                    <span className="text-muted-foreground font-normal ml-1 text-xs">(opc.)</span>
-                  </Label>
-                  <Input
-                    type="number"
-                    min="1"
-                    max="20"
-                    value={form.serve_pessoas}
-                    onChange={set('serve_pessoas')}
-                    placeholder="Ex.: 2"
+                    className="mt-1.5 w-full resize-none rounded-[10px] border border-input bg-background px-3 py-2.5 text-[15px] transition-colors placeholder:text-muted-foreground focus-visible:border-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-primary/15"
                   />
                 </div>
 
-                <div className="flex gap-6 pb-1">
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <button
-                      type="button"
-                      onClick={() => setForm(f => ({ ...f, disponivel: !f.disponivel }))}
-                    >
-                      {form.disponivel
-                        ? <ToggleRight className="size-7 text-primary" />
-                        : <ToggleLeft className="size-7 text-muted-foreground" />}
-                    </button>
-                    <span className="text-sm font-medium">Disponível</span>
-                  </label>
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <button
-                      type="button"
-                      onClick={() => setForm(f => ({ ...f, destaque: !f.destaque }))}
-                    >
-                      {form.destaque
-                        ? <Star className="size-5 fill-amber-400 text-amber-400" />
-                        : <Star className="size-5 text-muted-foreground" />}
-                    </button>
-                    <span className="text-sm font-medium">Destaque</span>
-                  </label>
+                <div className="mt-4 space-y-4">
+                  <SeletorChips
+                    label="Categoria"
+                    obrigatorio
+                    valor={form.categoria}
+                    opcoes={categoriasExistentes}
+                    onChange={v => setForm(f => ({ ...f, categoria: v }))}
+                    placeholderNovo="Ex.: Lanches, Bebidas, Sobremesas…"
+                    rotuloNovo="Nova categoria"
+                  />
+                  <SeletorChips
+                    label="Subcategoria"
+                    valor={form.subcategoria}
+                    opcoes={subcategoriasDaCategoria}
+                    onChange={v => setForm(f => ({ ...f, subcategoria: v }))}
+                    placeholderNovo="Ex.: Especiais, Veganos…"
+                    rotuloNovo="Nova subcategoria"
+                    dica={form.categoria ? undefined : 'Escolha uma categoria primeiro'}
+                  />
                 </div>
-              </div>
+              </SecaoDrawer>
 
-              {/* Controle de estoque */}
-              <div className="rounded-xl border border-border bg-muted/30 p-3.5">
-                <label className="flex items-center gap-2.5 cursor-pointer">
-                  <button
-                    type="button"
-                    onClick={() => setForm(f => ({ ...f, controla_estoque: !f.controla_estoque }))}
-                  >
-                    {form.controla_estoque
-                      ? <ToggleRight className="size-7 text-primary" />
-                      : <ToggleLeft className="size-7 text-muted-foreground" />}
-                  </button>
-                  <span className="text-sm font-medium">Controlar estoque</span>
-                </label>
-                {form.controla_estoque ? (
-                  <div className="mt-3 w-40">
-                    <Label>Quantidade disponível</Label>
-                    <Input
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={form.estoque}
-                      onChange={set('estoque')}
-                      placeholder="Ex.: 20"
-                    />
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      Baixa automática a cada pedido. Em 0, o item aparece como “Esgotado”.
+              <SecaoDrawer titulo="Preço e venda">
+                {/* SEGMENTED CONTROL em vez de dois botões grandes com borda: são duas
+                    opções mutuamente exclusivas de um mesmo atributo, e o formato
+                    "trilho com a ativa em branco" diz isso sem precisar de rótulo. */}
+                <div>
+                  <Label>Como é vendido?</Label>
+                  <div className="mt-1.5 flex rounded-[11px] bg-muted p-1">
+                    {([['un', 'Por unidade'], ['kg', 'Por peso (kg)']] as const).map(([v, txt]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, vendido_por: v }))}
+                        className={cn(
+                          'flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-all',
+                          form.vendido_por === v
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        {txt}
+                      </button>
+                    ))}
+                  </div>
+                  {form.vendido_por === 'kg' && (
+                    <p className="mt-1.5 text-[12.5px] text-muted-foreground">
+                      No PDV o operador informa o peso (ou lê a etiqueta da balança) e o preço é calculado por kg.
                     </p>
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-muted-foreground mt-1.5 ml-9">
-                    Sem limite de quantidade — o produto nunca fica esgotado sozinho.
-                  </p>
-                )}
-              </div>
+                  )}
+                </div>
 
-              {/* Dados fiscais (NFC-e) — colapsado por padrão, com valores
-                  padrão seguros pra quem não mexe. Antes isso só existia numa
-                  tela separada (Fiscal), desconectada do cadastro do produto. */}
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <div>
+                    {/* O rótulo muda com a unidade: "Preço" num produto por peso é
+                        ambíguo entre preço do quilo e preço da peça. */}
+                    <Label>{form.vendido_por === 'kg' ? 'Preço por kg (R$) *' : 'Preço (R$) *'}</Label>
+                    <div className="relative mt-1.5">
+                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
+                      <Input
+                        required type="number" step="0.01" min="0.01"
+                        value={form.preco} onChange={set('preco')} placeholder="0,00"
+                        className={cn(CAMPO_DRAWER, 'mt-0 pl-9')}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>
+                      Preço promocional
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
+                    </Label>
+                    <div className="relative mt-1.5">
+                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
+                      <Input
+                        type="number" step="0.01" min="0.01"
+                        value={form.preco_promocional} onChange={set('preco_promocional')} placeholder="—"
+                        className={cn(CAMPO_DRAWER, 'mt-0 pl-9')}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_160px]">
+                  <div>
+                    <Label>
+                      Código de barras
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
+                    </Label>
+                    <Input
+                      value={form.codigo_barras}
+                      onChange={e => setForm(f => ({ ...f, codigo_barras: e.target.value.replace(/\D/g, '') }))}
+                      inputMode="numeric"
+                      placeholder="7891234567890"
+                      className={cn(CAMPO_DRAWER, 'font-mono')}
+                      maxLength={20}
+                    />
+                    <p className="mt-1 text-[12.5px] text-muted-foreground">
+                      Permite bipar no PDV. Por peso, use o PLU da balança.
+                    </p>
+                    {/*
+                      Diz na hora do cadastro se o código vai ou não pra nota fiscal.
+                      Sem isso o lojista digita um EAN com um dígito errado, acha que
+                      cadastrou, e só descobre — se descobrir — que a NFC-e saiu como
+                      "SEM GTIN". Não bloqueia: PLU de balança é código interno
+                      legítimo e não é um GTIN.
+                    */}
+                    {form.codigo_barras.trim() !== '' && (
+                      <p className={cn('mt-1 text-[12.5px]',
+                        gtinValido(form.codigo_barras) ? 'text-emerald-600' : 'text-amber-600')}>
+                        {gtinValido(form.codigo_barras)
+                          ? '✓ EAN válido — vai na nota fiscal como código do produto.'
+                          : 'Não é um EAN válido (dígito verificador não fecha). Serve pra bipar no PDV, '
+                            + 'mas a nota sai como “SEM GTIN”.'}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <Label>
+                      Serve pessoas
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">(opc.)</span>
+                    </Label>
+                    <Input
+                      type="number" min="1" max="20"
+                      value={form.serve_pessoas} onChange={set('serve_pessoas')} placeholder="Ex.: 2"
+                      className={CAMPO_DRAWER}
+                    />
+                  </div>
+                </div>
+              </SecaoDrawer>
+
+              {/*
+                DISPONIBILIDADE COMO LINHAS COM INTERRUPTOR, não chips.
+                Chip comunica "filtro/opção selecionável"; interruptor comunica
+                "ligado/desligado". Eram três controles de estado com três aparências
+                diferentes (dois ícones de toggle e uma estrela solta num card cinza),
+                e cada um exigia decifrar o que estava ativo.
+              */}
+              <SecaoDrawer titulo="Disponibilidade">
+                <div className="divide-y divide-border/70 rounded-xl border border-border">
+                  <LinhaInterruptor
+                    titulo="Disponível para venda"
+                    descricao="Aparece no cardápio e no PDV"
+                    ativo={form.disponivel}
+                    onAlternar={() => setForm(f => ({ ...f, disponivel: !f.disponivel }))}
+                  />
+                  <LinhaInterruptor
+                    titulo="Destaque"
+                    descricao="Aparece no topo do cardápio"
+                    ativo={form.destaque}
+                    onAlternar={() => setForm(f => ({ ...f, destaque: !f.destaque }))}
+                  />
+                  <LinhaInterruptor
+                    titulo="Controlar estoque"
+                    descricao="Esgota sozinho quando a quantidade zera"
+                    ativo={form.controla_estoque}
+                    onAlternar={() => setForm(f => ({ ...f, controla_estoque: !f.controla_estoque }))}
+                  >
+                    {form.controla_estoque && (
+                      <div className="mt-3 w-44">
+                        <Label>Quantidade disponível</Label>
+                        <Input
+                          type="number" min="0" step="1"
+                          value={form.estoque} onChange={set('estoque')} placeholder="Ex.: 20"
+                          className={CAMPO_DRAWER}
+                        />
+                        <p className="mt-1 text-[12.5px] text-muted-foreground">
+                          Baixa automática a cada pedido. Em 0, aparece como “Esgotado”.
+                        </p>
+                      </div>
+                    )}
+                  </LinhaInterruptor>
+                </div>
+              </SecaoDrawer>
+
+              {/* Dados fiscais colapsados: já vêm com padrão seguro, e quem não
+                  emite nota não deve tropeçar em NCM/CFOP pra cadastrar um lanche. */}
               <div className="rounded-xl border border-border">
                 <button
                   type="button"
                   onClick={() => setMostrarFiscal(v => !v)}
-                  className="flex w-full items-center gap-2.5 p-3.5 text-left"
+                  className="flex w-full items-center gap-2.5 p-4 text-left"
                 >
-                  <FileText className="size-4 text-muted-foreground shrink-0" />
-                  <span className="text-sm font-medium flex-1">Dados fiscais (NFC-e)</span>
-                  <span className="text-[11px] text-muted-foreground">opcional</span>
-                  {mostrarFiscal ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
+                  <FileText className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 text-sm font-semibold">Dados fiscais (NFC-e)</span>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                    Opcional
+                  </span>
+                  <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', mostrarFiscal && 'rotate-180')} />
                 </button>
                 {mostrarFiscal && (
-                  <div className="px-3.5 pb-3.5 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    <div>
-                      <Label>NCM</Label>
-                      <Input value={form.ncm} onChange={e => setForm(f => ({ ...f, ncm: e.target.value.replace(/\D/g, '').slice(0, 8) }))}
-                        maxLength={8} className="font-mono" placeholder="21069090" />
-                    </div>
-                    <div>
-                      <Label>CFOP</Label>
-                      <Input value={form.cfop} onChange={e => setForm(f => ({ ...f, cfop: e.target.value.replace(/\D/g, '').slice(0, 4) }))}
-                        maxLength={4} className="font-mono" placeholder="5102" />
-                    </div>
-                    <div>
-                      <Label>CSOSN</Label>
-                      <Input value={form.csosn} onChange={e => setForm(f => ({ ...f, csosn: e.target.value.replace(/\D/g, '').slice(0, 3) }))}
-                        maxLength={3} className="font-mono" placeholder="102" />
-                    </div>
-                    <div>
-                      <Label>Origem</Label>
-                      <Input value={form.origem} onChange={e => setForm(f => ({ ...f, origem: e.target.value.replace(/\D/g, '').slice(0, 1) }))}
-                        maxLength={1} className="font-mono" placeholder="0" />
-                    </div>
-                    <div>
-                      <Label>Unidade</Label>
-                      <Input value={form.unidade_comercial} onChange={e => setForm(f => ({ ...f, unidade_comercial: e.target.value.toUpperCase().slice(0, 6) }))}
-                        maxLength={6} className="font-mono uppercase" placeholder="UN" />
-                    </div>
-                    <div>
-                      <Label>CEST <span className="text-muted-foreground font-normal text-xs">(opc.)</span></Label>
-                      <Input value={form.cest} onChange={e => setForm(f => ({ ...f, cest: e.target.value.replace(/\D/g, '').slice(0, 7) }))}
-                        maxLength={7} className="font-mono" placeholder="—" />
-                    </div>
-                    <p className="col-span-2 sm:col-span-3 text-[11px] text-muted-foreground">
+                  <div className="grid grid-cols-2 gap-3 border-t border-border px-4 pb-4 pt-4 sm:grid-cols-3">
+                    {([
+                      ['NCM', form.ncm, (v: string) => setForm(f => ({ ...f, ncm: v.replace(/\D/g, '').slice(0, 8) })), 8, '21069090'],
+                      ['CFOP', form.cfop, (v: string) => setForm(f => ({ ...f, cfop: v.replace(/\D/g, '').slice(0, 4) })), 4, '5102'],
+                      ['CSOSN', form.csosn, (v: string) => setForm(f => ({ ...f, csosn: v.replace(/\D/g, '').slice(0, 3) })), 3, '102'],
+                      ['Origem', form.origem, (v: string) => setForm(f => ({ ...f, origem: v.replace(/\D/g, '').slice(0, 1) })), 1, '0'],
+                      ['Unidade', form.unidade_comercial, (v: string) => setForm(f => ({ ...f, unidade_comercial: v.toUpperCase().slice(0, 6) })), 6, 'UN'],
+                      ['CEST', form.cest, (v: string) => setForm(f => ({ ...f, cest: v.replace(/\D/g, '').slice(0, 7) })), 7, '—'],
+                    ] as Array<[string, string, (v: string) => void, number, string]>).map(([rotulo, valor, aoMudar, max, dica]) => (
+                      <div key={rotulo}>
+                        <Label>{rotulo}</Label>
+                        <Input
+                          value={valor}
+                          onChange={e => aoMudar(e.target.value)}
+                          maxLength={max}
+                          placeholder={dica}
+                          className={cn(CAMPO_DRAWER, 'font-mono')}
+                        />
+                      </div>
+                    ))}
+                    <p className="col-span-2 text-[12.5px] text-muted-foreground sm:col-span-3">
                       Já vem com valores padrão genéricos. Se seu contador pedir códigos específicos, ajuste aqui.
                     </p>
                   </div>
                 )}
               </div>
+            </div>
 
-              {/* Botões */}
-              <div className="flex gap-3 pt-1">
-                <Button type="submit" size="lg" className="flex-1" disabled={enviando}>
-                  {enviando
-                    ? 'Salvando…'
-                    : editando === 'novo' ? 'Criar produto' : 'Salvar alterações'}
+            {/*
+              ─── Footer FIXO ───
+              É a diferença prática do drawer: no card inline o botão de salvar
+              descia junto com o formulário e, num cadastro longo, saía da tela
+              justo na hora de usar.
+            */}
+            <SheetFooter className="flex flex-row items-center justify-between gap-3 border-t p-4">
+              <Button type="button" variant="ghost" onClick={() => setEditando(null)} disabled={enviando}>
+                Cancelar
+              </Button>
+              <div className="flex items-center gap-2">
+                {/* "Salvar e criar outro" existe porque cadastro de cardápio é
+                    trabalho em lote: são 30 itens numa sentada, e reabrir o drawer
+                    a cada um dobra o número de cliques. */}
+                <Button
+                  type="submit"
+                  variant="outline"
+                  className="h-[46px] rounded-[10px]"
+                  disabled={enviando}
+                  onClick={() => { criarOutroRef.current = true; }}
+                >
+                  Salvar e criar outro
                 </Button>
                 <Button
-                  type="button"
-                  size="lg"
-                  variant="outline"
-                  onClick={() => setEditando(null)}
-                  disabled={enviando}
+                  type="submit"
+                  className="h-[46px] rounded-[10px]"
+                  loading={enviando}
+                  loadingText="Salvando…"
+                  onClick={() => { criarOutroRef.current = false; }}
                 >
-                  Cancelar
+                  {editando === 'novo' ? 'Criar produto' : 'Salvar alterações'}
                 </Button>
               </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
+            </SheetFooter>
+          </form>
+        </SheetContent>
+      </Sheet>
+
 
       {/* ── Loading ── */}
       {consulta.isLoading && (
@@ -750,6 +800,68 @@ export function ProdutosLoja() {
 }
 
 /* ─────────────────────── seletor de chips (categoria/subcategoria) ──────────────────────── */
+/**
+ * Altura e canto dos campos do drawer, num lugar só.
+ *
+ * O foco sobrescreve o padrão do `Input` (anel de 2px na cor `ring`, com offset) por
+ * borda na cor da marca + anel de 3px translúcido sem offset: offset abre um vão
+ * branco entre borda e anel, que num formulário com muitos campos lado a lado fica
+ * visível como falha de alinhamento.
+ */
+const CAMPO_DRAWER = 'mt-1.5 h-[46px] rounded-[10px] text-[15px] shadow-none '
+  + 'focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 focus-visible:ring-offset-0';
+
+/** Seção do drawer: rótulo em caixa alta pequena + divisor acima (menos na primeira). */
+function SecaoDrawer({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return (
+    <section className="mb-7 border-t border-border pt-6 first:mt-0 first:border-t-0 first:pt-0">
+      <h4 className="mb-3 text-[12px] font-bold uppercase tracking-wider text-muted-foreground">{titulo}</h4>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Linha com interruptor — título, descrição do efeito e o controle à direita.
+ *
+ * A DESCRIÇÃO NÃO É ENFEITE: "Destaque" sozinho não diz onde o produto aparece, e
+ * "Controlar estoque" não diz que o item some do cardápio ao zerar. Sem a segunda
+ * linha, o lojista liga e desliga pra descobrir o que faz.
+ */
+function LinhaInterruptor({ titulo, descricao, ativo, onAlternar, children }: {
+  titulo: string; descricao: string; ativo: boolean; onAlternar: () => void; children?: React.ReactNode;
+}) {
+  return (
+    <div className="p-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold">{titulo}</div>
+          <div className="mt-0.5 text-[12.5px] text-muted-foreground">{descricao}</div>
+        </div>
+        {/* `role="switch"` + `aria-checked`: é um botão, mas leitor de tela precisa
+            anunciar o ESTADO, não só o rótulo. */}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={ativo}
+          aria-label={titulo}
+          onClick={onAlternar}
+          className={cn(
+            'relative h-[26px] w-11 shrink-0 rounded-full transition-colors',
+            ativo ? 'bg-primary' : 'bg-muted-foreground/30',
+          )}
+        >
+          <span className={cn(
+            'absolute top-[3px] size-5 rounded-full bg-white shadow-sm transition-all',
+            ativo ? 'left-[21px]' : 'left-[3px]',
+          )} />
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 function SeletorChips({
   label, valor, opcoes, onChange, placeholderNovo, rotuloNovo, obrigatorio = false, dica,
 }: {
