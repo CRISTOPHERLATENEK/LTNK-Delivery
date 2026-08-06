@@ -1165,8 +1165,6 @@ function LoginLojista() {
   const [enviando, setEnviando] = useState(false);
   const [duploFator, setDuploFator] = useState<{ tokenPreAuth: string; modo: 'configurar' | 'verificar' } | null>(null);
   const { mostrar } = useToast();
-  // Nome da marca deste domínio — é o que diz em qual sistema a pessoa está.
-  const { marca } = useTema();
 
   // Chegada vinda do login da plataforma (ver `lerRepasse2FA`): retoma o 2FA
   // aqui, já no domínio do tenant dono da conta.
@@ -1283,23 +1281,20 @@ function LoginLojista() {
             </div>
             <h1 className="text-2xl font-extrabold">Painel do lojista</h1>
             {/*
-              QUAL SISTEMA É ESTE. Cada domínio abre um BANCO diferente (um por
-              tenant), então a mesma conta com a mesma senha entra num endereço e
-              é recusada no outro — e a recusa sai como "e-mail ou senha
-              inválidos", indistinguível de erro de digitação. Quem tenta entrar no
-              endereço errado conclui que esqueceu a senha e fica tentando de novo
-              na tela onde nunca vai funcionar.
+              Aviso de "cada domínio é um sistema" REMOVIDO daqui.
 
-              Mostrar a marca resolve ANTES de digitar, e sem vazar nada: não diz
-              onde a conta existe (isso seria entregar cadastro de um tenant pra
-              quem está noutro), só diz onde a pessoa está.
+              Ele nasceu como remendo pra um sintoma que se atribuiu ao domínio
+              errado ("login volta pra tela de login") — mas a causa real era outra:
+              conta de OUTRO PERFIL entrava e o painel caía de volta no formulário
+              sem dizer nada. Isso está resolvido em components/conta-outro-perfil.tsx,
+              com uma tela que explica e aponta o caminho.
+
+              Com a causa consertada, o texto sobrava: ocupava duas linhas antes do
+              campo de e-mail pra explicar arquitetura interna a quem só quer entrar.
+              Aviso que não serve a quem lê é ruído.
             */}
             <p className="mt-1 text-sm text-muted-foreground">
-              Entre com sua conta do <span className="font-bold text-foreground">{marca.nome}</span>.
-            </p>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Se sua loja usa outro endereço, o acesso é por lá — as contas não são
-              compartilhadas entre sistemas.
+              Bem-vindo de volta! Entre para gerenciar sua loja.
             </p>
           </div>
 
