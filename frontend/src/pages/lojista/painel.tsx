@@ -1341,7 +1341,17 @@ function LoginLojista() {
           )}
         </div>
 
-        <div className="relative z-10">
+        {/*
+          `max-w-[19rem]` no BLOCO, não só no título: o filete (`border-t`) tem a
+          largura do item da lista, e com o bloco largo ele atravessava o mascote — um
+          risco branco cortando o personagem no meio.
+
+          21rem é o número medido: em 19rem as três frases quebravam em DUAS linhas
+          cada (76px de altura em vez de 52px), e em 23rem o filete encostava no
+          mascote. Mascote grande e linhas largas não cabem juntos em 46% da tela, e a
+          lista é a parte que aceita ser estreita sem perder informação.
+        */}
+        <div className="relative z-10 max-w-[21rem]">
           {/*
             Título dividido POR PALAVRA em spans `inline-block`, montados no JSX e não
             por manipulação de DOM: o GSAP anima cada palavra, e transform só funciona
@@ -1349,7 +1359,7 @@ function LoginLojista() {
             selecionável e legível por leitor de tela como uma frase.
           */}
           <h2
-            className="max-w-[26rem] font-extrabold leading-[1.06]"
+            className="font-extrabold leading-[1.06]"
             style={{ fontSize: 'clamp(30px, 2.9vw, 44px)', letterSpacing: '-0.035em' }}
           >
             {LOGIN_TITULO.map((palavra, i) => (
@@ -1371,7 +1381,7 @@ function LoginLojista() {
             {LOJISTA_VALOR.map(v => (
               <li
                 key={v}
-                className="flex items-center gap-3 border-t border-white/20 py-[15px] text-[15px] font-medium"
+                className="flex items-center gap-3 border-t border-white/20 py-[15px] text-[15px] font-medium last:border-b"
                 data-anim="apoio"
               >
                 <Check className="size-[18px] shrink-0" strokeWidth={3} />
@@ -1389,14 +1399,30 @@ function LoginLojista() {
           Mascote sem animação: é o elemento mais pesado da tela, e movimento nele puxa
           o olho pra longe do formulário.
 
+          DIMENSIONADO POR ALTURA porque o arquivo foi RECORTADO: o original tinha
+          1536x1024 com o personagem ocupando só 636x935 no meio — 506px de vazio à
+          esquerda. Dimensionar por largura escalava a margem transparente junto, então
+          o mascote saía pequeno e empurrado pra direita. Recortado, altura da imagem =
+          altura do personagem, e o tamanho na tela vira o que se pede.
+
+          LARGURA E NÃO ALTURA, e nunca as duas juntas: fixar `height` E `maxWidth` ao
+          mesmo tempo criou uma caixa de 424x860 com a imagem de 424x621 flutuando
+          letterboxed dentro — ar sobrando embaixo do personagem. Com largura em % do
+          painel, a caixa É a imagem, ancorada no rodapé, sem distorcer.
+
+          `w-[42%]` até 1536px e `50%` acima: medindo em 1280, com 50% fixo ele cobria
+          as linhas por 27px — o painel encolhe com a tela, o texto não encolhe junto, e
+          o aperto aparece só na ponta de baixo. Em classe (não em estilo inline) porque
+          porcentagem com breakpoint o Tailwind expressa, e assim o elemento fica sem
+          estilo inline nenhum.
+
           `z-0` com o texto em `z-10`: como último filho do painel, ele pintava POR CIMA
           das linhas de benefício e cortava as frases no meio ("...sem outro si").
         */}
         <img
           src="/mascote/avatar.png"
           alt="" aria-hidden="true" draggable={false}
-          className="pointer-events-none absolute z-0 select-none object-contain"
-          style={{ right: '-11%', bottom: '-1%', width: '70%', maxWidth: '600px' }}
+          className="pointer-events-none absolute bottom-[-1%] right-[-12%] z-0 w-[42%] max-w-[470px] select-none object-contain object-bottom 2xl:w-[50%]"
         />
       </div>
 
