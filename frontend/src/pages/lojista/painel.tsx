@@ -25,7 +25,7 @@ import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
 import { useTema, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
-import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag, MessageCircle, ShieldCheck } from 'lucide-react';
+import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag, MessageCircle, ShieldCheck, LogIn } from 'lucide-react';
 import { ImageUpload } from '@/components/ui/image-upload';
 import {
   garantirPermissaoNotificacao, notificarNovoPedido,
@@ -1151,12 +1151,6 @@ function CardPedidoLojista({ pedido, aoAtualizar }: { pedido: PedidoComItens; ao
 }
 
 const LOJISTA_ZAP_MSG = 'Olá! Preciso de ajuda pra entrar no painel do lojista.';
-const LOJISTA_VALOR = [
-  { icone: Bell, texto: 'Pedidos em tempo real, direto na cozinha' },
-  { icone: FileText, texto: 'NFC-e emitida na hora, sem outro sistema' },
-  { icone: BarChart3, texto: 'Relatórios e faturamento no painel' },
-];
-
 function LoginLojista() {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
@@ -1229,72 +1223,120 @@ function LoginLojista() {
   }
 
   return (
-    <div className="flex min-h-dvh bg-background">
-      {/* Painel de marca — escondido em telas estreitas */}
-      <div className="relative hidden w-[44%] flex-col justify-between overflow-hidden bg-gradient-to-br from-primary via-primary to-primary/80 p-10 text-primary-foreground lg:flex xl:p-14">
-        <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-white/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-32 -left-16 size-80 rounded-full bg-black/10 blur-3xl" />
+    /*
+     * TUDO EM `--primary`, NENHUM LARANJA FIXO. O layout veio laranja, mas laranja é
+     * a cor DESTE tenant: este mesmo arquivo serve todo cliente white-label, e cor
+     * cravada aqui pintaria de laranja o login de quem escolheu roxo. Mesmo motivo
+     * pelo qual o verde do WhatsApp É fixo lá embaixo — aquele é marca de outra
+     * empresa, não de quem está usando o sistema.
+     */
+    <div className="relative flex min-h-dvh overflow-hidden bg-background">
+      {/*
+        Tinta quente no fundo inteiro, no lugar da metade colorida do desenho
+        anterior. Gradiente e não cor plana: cor plana clara no lado esquerdo faria o
+        card branco da direita desaparecer, e é ele que tem que ser o foco.
+      */}
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.07] via-background to-primary/[0.04]" />
 
-        <div className="relative flex items-center gap-2.5">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-primary-foreground/15 backdrop-blur-sm">
+      {/* ── Lado da marca (só desktop: em tela estreita o formulário é tudo) ── */}
+      <div className="relative hidden w-[48%] shrink-0 flex-col justify-between p-10 lg:flex xl:p-14">
+        {/*
+          TEXTURA em dois retalhos, não no fundo todo: ponto por toda a área compete
+          com o texto e deixa a tela suja. Em retalho, ela preenche o vazio ao lado
+          do mascote e some onde há leitura.
+        */}
+        {[
+          { classe: 'right-[18%] top-10 size-40' },
+          { classe: 'left-4 bottom-[26%] size-32' },
+        ].map(p => (
+          <div
+            key={p.classe}
+            aria-hidden="true"
+            className={cn('pointer-events-none absolute text-primary/25', p.classe)}
+            style={{
+              backgroundImage: 'radial-gradient(currentColor 1.5px, transparent 1.5px)',
+              backgroundSize: '16px 16px',
+            }}
+          />
+        ))}
+
+        {/* Círculos atrás do mascote: dão um "chão" pra ele em vez de flutuar solto. */}
+        <div className="pointer-events-none absolute bottom-[12%] left-[24%] hidden xl:block" aria-hidden="true">
+          {[0, 1].map(i => (
+            <div key={i} className="absolute rounded-full border border-primary/10"
+              style={{ width: 300 + i * 130, height: 300 + i * 130, left: i * -65, top: i * -65 }} />
+          ))}
+        </div>
+
+        {/*
+          MASCOTE atrás do texto (`z-0`), e o texto com `z-10`: se a frase passar por
+          cima do ombro dele em alguma largura, quem vence é a frase.
+
+          `onError` cai no mascote antigo — enquanto o avatar novo não estiver na
+          pasta, a tela mostra o de sempre em vez de um ícone de imagem quebrada.
+        */}
+        <img
+          src="/mascote/avatar.png"
+          onError={e => { (e.currentTarget as HTMLImageElement).src = '/mascote/mascote.png'; }}
+          alt="" aria-hidden="true" draggable={false}
+          className="pointer-events-none absolute bottom-0 left-[14%] z-0 hidden w-[76%] max-w-[420px] select-none object-contain object-bottom xl:block"
+        />
+
+        <div className="relative z-10 flex items-center gap-3">
+          <div className="flex size-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/25">
             <Store className="size-5" strokeWidth={2.5} />
           </div>
           <span className="text-lg font-extrabold">Painel do lojista</span>
         </div>
 
-        <div className="relative max-w-md">
-          <h2 className="text-3xl font-black leading-tight tracking-tight xl:text-4xl">
-            Sua loja, seus pedidos, seu controle.
+        <div className="relative z-10">
+          <h2 className="text-4xl font-black leading-[1.08] tracking-tight xl:text-5xl">
+            Sua loja,<br />seus pedidos,<br />
+            {/* Terceira linha na cor da marca: fecha a frase e marca a hierarquia sem
+                precisar de outro tamanho de fonte. */}
+            <span className="text-primary">seu controle.</span>
           </h2>
-          <ul className="mt-8 space-y-4">
-            {LOJISTA_VALOR.map(v => (
-              <li key={v.texto} className="flex items-center gap-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary-foreground/15 backdrop-blur-sm">
-                  <v.icone className="size-4.5" />
-                </span>
-                <span className="text-sm font-medium text-primary-foreground/90">{v.texto}</span>
-              </li>
-            ))}
-          </ul>
-
-          {/* Card flutuante de prova social */}
-          <div className="mt-10 flex items-center gap-3 rounded-2xl bg-primary-foreground/10 p-4 backdrop-blur-sm">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-success/20 text-success">
-              <CheckCircle2 className="size-5" />
-            </span>
-            <div>
-              <div className="text-sm font-bold">Pedido #482 recebido</div>
-              <div className="text-xs text-primary-foreground/70">já está na cozinha</div>
-            </div>
-          </div>
+          {/* Traço curto no lugar do parágrafo e dos cards de recurso que havia aqui:
+              tela de login é pra entrar, não pra vender o produto a quem já comprou. */}
+          <div className="mt-5 h-1.5 w-12 rounded-full bg-primary" />
         </div>
 
-        <div className="relative text-xs text-primary-foreground/60">© {new Date().getFullYear()} — sistema de delivery</div>
+        <div className="relative z-10 text-xs text-muted-foreground">
+          © {new Date().getFullYear()} — <span className="font-semibold text-primary">sistema de delivery</span>
+        </div>
       </div>
 
-      {/* Formulário */}
-      <div className="flex flex-1 items-center justify-center px-4 py-10 sm:px-6">
-        <div className="w-full max-w-sm">
-          <div className="mb-8 text-center lg:text-left">
-            <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30 lg:hidden">
+      {/* ── Formulário ── */}
+      <div className="relative flex flex-1 items-center justify-center overflow-hidden px-4 py-10 sm:px-6">
+        {/* Círculos concêntricos de canto: decoração que não rouba contraste do card. */}
+        <div className="pointer-events-none absolute -right-32 -top-32 hidden lg:block" aria-hidden="true">
+          {[0, 1, 2].map(i => (
+            <div
+              key={i}
+              className="absolute rounded-full border border-primary/15"
+              style={{ width: 260 + i * 110, height: 260 + i * 110, right: 0, top: 0 }}
+            />
+          ))}
+        </div>
+
+        {/*
+          CARD ELEVADO em vez do formulário solto no fundo. Numa tela dividida, o
+          formulário sem moldura fica "colado" na metade colorida; a moldura o
+          transforma no objeto em foco. `bg-card` e não branco fixo, senão o tema
+          escuro ganha um retângulo branco no meio.
+        */}
+        <div className="relative w-full max-w-md rounded-3xl border border-border/60 bg-card p-6 shadow-xl shadow-black/5 sm:p-9">
+          <div className="mb-7">
+            <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30 lg:hidden">
               <Store className="size-7 text-primary-foreground" strokeWidth={2.5} />
             </div>
-            <h1 className="text-2xl font-extrabold">Painel do lojista</h1>
-            {/*
-              Aviso de "cada domínio é um sistema" REMOVIDO daqui.
-
-              Ele nasceu como remendo pra um sintoma que se atribuiu ao domínio
-              errado ("login volta pra tela de login") — mas a causa real era outra:
-              conta de OUTRO PERFIL entrava e o painel caía de volta no formulário
-              sem dizer nada. Isso está resolvido em components/conta-outro-perfil.tsx,
-              com uma tela que explica e aponta o caminho.
-
-              Com a causa consertada, o texto sobrava: ocupava duas linhas antes do
-              campo de e-mail pra explicar arquitetura interna a quem só quer entrar.
-              Aviso que não serve a quem lê é ruído.
-            */}
-            <p className="mt-1 text-sm text-muted-foreground">
-              Bem-vindo de volta! Entre para gerenciar sua loja.
+            {/* Saudação como sobretítulo pequeno, com o nome da tela em destaque
+                abaixo: quem já conhece o painel identifica onde está pelo título, e
+                a saudação não disputa esse papel. */}
+            <p className="text-sm font-bold text-primary">Bem-vindo de volta! 👋</p>
+            <h1 className="mt-1 text-3xl font-black tracking-tight">Painel do lojista</h1>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              Entre para gerenciar sua loja e acompanhar seus pedidos.
             </p>
           </div>
 
@@ -1344,17 +1386,17 @@ function LoginLojista() {
                 </button>
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <label className="flex cursor-pointer select-none items-center gap-2.5 text-sm">
               <input
                 type="checkbox"
                 checked={lembrar}
                 onChange={e => setLembrar(e.target.checked)}
-                className="size-4 rounded border-input text-primary focus:ring-2 focus:ring-primary/40"
+                className="size-4 shrink-0 rounded border-input accent-[hsl(var(--primary))]"
               />
               Manter conectado neste dispositivo
             </label>
-            <Button type="submit" size="lg" className="w-full" loading={enviando} loadingText="Entrando…">
-              Entrar
+            <Button type="submit" size="lg" className="mt-1 w-full" loading={enviando} loadingText="Entrando…">
+              <LogIn className="size-4" /> Entrar
             </Button>
           </form>
 
