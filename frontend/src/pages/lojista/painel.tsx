@@ -1151,6 +1151,17 @@ function CardPedidoLojista({ pedido, aoAtualizar }: { pedido: PedidoComItens; ao
 }
 
 const LOJISTA_ZAP_MSG = 'Olá! Preciso de ajuda pra entrar no painel do lojista.';
+/**
+ * Duas linhas por item, não uma frase corrida: a primeira é O QUE é, a segunda é o
+ * detalhe que responde "e daí?". Numa linha só o olho lê metade e para — e o detalhe
+ * ("sem outro sistema", "direto na cozinha") é justamente o que diferencia.
+ */
+const LOJISTA_VALOR = [
+  { icone: Bell,      titulo: 'Pedidos em tempo real,',   detalhe: 'direto na cozinha' },
+  { icone: FileText,  titulo: 'NFC-e emitida na hora,',   detalhe: 'sem outro sistema' },
+  { icone: BarChart3, titulo: 'Relatórios e faturamento', detalhe: 'no painel' },
+];
+
 function LoginLojista() {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
@@ -1224,124 +1235,138 @@ function LoginLojista() {
 
   return (
     /*
-     * TUDO EM `--primary`, NENHUM LARANJA FIXO. O layout veio laranja, mas laranja é
+     * TUDO EM `--primary`, NENHUM LARANJA FIXO. O desenho veio laranja, mas laranja é
      * a cor DESTE tenant: este mesmo arquivo serve todo cliente white-label, e cor
      * cravada aqui pintaria de laranja o login de quem escolheu roxo. (O verde do
      * WhatsApp É fixo lá embaixo — aquele é marca de outra empresa, não de quem usa
      * o sistema.)
-     *
-     * COMPOSIÇÃO CENTRALIZADA E LIMITADA (`max-w`), não duas colunas esticando até a
-     * borda. A primeira tentativa fez isso e em monitor largo virou um vazio no meio
-     * da tela com o card empurrado pro canto: coluna de 48% cheia de ar, porque o
-     * conteúdo dela é pequeno e não cresce junto. Logo e rodapé ficam ancorados nos
-     * cantos da PÁGINA; o miolo (frase + mascote | formulário) é uma grade centrada.
      */
-    <div className="relative min-h-dvh overflow-hidden bg-background">
-      {/* Tinta quente no fundo. Gradiente e não cor plana: cor clara plana faria o
-          card da direita desaparecer, e é ele que tem que ser o foco. */}
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.07] via-background to-primary/[0.04]" />
+    <div className="relative flex min-h-dvh overflow-hidden bg-background">
+      {/* ── Painel da marca (só desktop: em tela estreita o formulário é tudo) ── */}
+      <div className="relative hidden w-[56%] shrink-0 flex-col justify-between overflow-hidden bg-gradient-to-br from-primary via-primary to-primary/85 p-10 text-primary-foreground lg:flex xl:p-14">
+        {/* Textura de pontos: profundidade sem competir com o texto. */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 opacity-[0.14]"
+          style={{
+            backgroundImage: 'radial-gradient(currentColor 1px, transparent 1px)',
+            backgroundSize: '18px 18px',
+          }}
+        />
+        <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-white/10 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-32 -left-16 size-80 rounded-full bg-black/10 blur-3xl" />
 
-      {/* Arcos do canto — bem fracos, só pra o canto não ficar morto. */}
-      <div className="pointer-events-none absolute -right-40 -top-40 hidden lg:block" aria-hidden="true">
-        {[0, 1, 2].map(i => (
-          <div key={i} className="absolute rounded-full border border-primary/[0.12]"
-            style={{ width: 380 + i * 150, height: 380 + i * 150, right: 0, top: 0 }} />
-        ))}
-      </div>
+        {/*
+          CURVA que separa os dois lados. SVG e não `border-radius`: a borda arredondada
+          só curva o canto, e o que faz a composição é a onda ao longo da altura inteira.
+          `preserveAspectRatio="none"` deixa ela esticar com a janela.
 
-      {/*
-        LOGO E RODAPÉ ALINHADOS COM O TÍTULO, não com a borda da janela.
-        Medindo em 1920px: presos no canto da página eles ficavam em x=40 enquanto o
-        título começava em x=330 (o miolo tem teto de largura e é centrado) — três
-        elementos em três alinhamentos diferentes. Repetir aqui o mesmo `max-w` e o
-        mesmo padding do miolo põe os três na mesma coluna em qualquer largura.
-      */}
-      <div className="pointer-events-none absolute inset-x-0 top-6 z-20 hidden sm:top-8 lg:block">
-        <div className="mx-auto flex max-w-[1340px] items-center gap-3 px-6 sm:px-10">
-          <div className="flex size-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/25">
+          `fill-background` — a MESMA cor do lado direito, sem alpha. Na primeira
+          tentativa usei `fill-muted/30`: por ser translúcido, compunha sobre o laranja
+          em vez de casar com o branco, e a curva simplesmente não aparecia.
+        */}
+        <svg
+          className="pointer-events-none absolute -right-px top-0 z-20 h-full w-24 fill-background"
+          viewBox="0 0 100 800" preserveAspectRatio="none" aria-hidden="true"
+        >
+          <path d="M100 0 H34 C88 205 88 595 34 800 H100 Z" />
+        </svg>
+
+        <div className="relative z-30 flex items-center gap-3">
+          <div className="flex size-11 items-center justify-center rounded-2xl bg-primary-foreground/15 backdrop-blur-sm">
             <Store className="size-5" strokeWidth={2.5} />
           </div>
           <span className="text-lg font-extrabold">Painel do lojista</span>
         </div>
-      </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-6 z-20 hidden lg:block">
-        <div className="mx-auto max-w-[1340px] px-6 text-xs text-muted-foreground sm:px-10">
-          © {new Date().getFullYear()} — <span className="font-semibold text-primary">sistema de delivery</span>
-        </div>
-      </div>
+        {/* Coluna de conteúdo ESTREITA de propósito: o mascote ocupa a metade direita
+            do painel, e texto largo passaria por baixo dele. */}
+        <div className="relative z-30 max-w-[21rem]">
+          <h2 className="text-[2.4rem] font-black leading-[1.08] tracking-tight xl:text-[2.9rem]">
+            Sua loja,<br />seus pedidos,<br />
+            {/* Terceira linha mais escura: fecha a frase e cria hierarquia sem
+                precisar de outro tamanho de fonte. */}
+            <span className="text-primary-foreground/50">seu controle.</span>
+          </h2>
+          <p className="mt-4 text-sm leading-relaxed text-primary-foreground/85">
+            Gerencie seu negócio de forma simples, rápida e inteligente.
+          </p>
 
-      {/* Miolo: grade de duas colunas, centrada, com teto de largura. */}
-      <div className="relative mx-auto grid min-h-dvh w-full max-w-[1340px] items-center gap-10 px-6 py-24 sm:px-10 lg:grid-cols-[1fr_28rem] lg:py-10">
-        {/* ── Frase + mascote ── */}
-        <div className="relative hidden h-full items-center lg:flex">
+          <ul className="mt-7 space-y-2.5">
+            {LOJISTA_VALOR.map(v => (
+              <li key={v.titulo} className="flex items-center gap-3 rounded-2xl bg-primary-foreground/[0.14] p-3">
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary-foreground/20">
+                  <v.icone className="size-4.5" />
+                </span>
+                <span className="text-sm leading-tight">
+                  <span className="block font-bold">{v.titulo}</span>
+                  <span className="block text-primary-foreground/70">{v.detalhe}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+
           {/*
-            Pontinhos embaixo da frase, à esquerda — onde o desenho os põe, e onde não
-            atravessam leitura nenhuma.
+            Prova social em card CLARO, diferente dos de cima: os translúcidos são a
+            lista de recursos ("o que o sistema faz"), este é o sistema em
+            funcionamento. Mesma aparência colocaria os dois no mesmo plano de leitura.
           */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute bottom-[16%] left-0 size-32 text-primary/25"
-            style={{
-              backgroundImage: 'radial-gradient(currentColor 1.5px, transparent 1.5px)',
-              backgroundSize: '16px 16px',
-            }}
-          />
-
-          {/*
-            FRASE E MASCOTE COMO IRMÃOS NUMA LINHA, não o mascote solto em `absolute`.
-            Foi assim na tentativa anterior e ele atravessou o título: medindo, o
-            mascote começava em x=249 e o título ia até x=444. Posição absoluta em
-            porcentagem depende da largura da janela E do quanto de área transparente
-            a imagem tem em volta — dois valores que eu não controlo, então a
-            sobreposição voltava em alguma largura.
-
-            Em linha com `items-end`, a colisão é impossível por construção: o texto
-            ocupa a coluna dele, o mascote a dele, e os dois se alinham pelo rodapé.
-          */}
-          <div className="flex h-full w-full items-end gap-2">
-            {/* Texto no ALTO e mascote no rodapé, como no desenho — não os dois
-                alinhados embaixo, que punha a frase na altura dos pés dele.
-                Largura fixa: deixar o texto flexível fazia ele roubar espaço do
-                mascote conforme a janela, e o mascote é o que dá a cara da tela. */}
-            <div className="relative z-10 w-[17rem] shrink-0 self-start pt-[16%] xl:w-[20rem] xl:pt-[18%]">
-              <h2 className="text-[2.1rem] font-black leading-[1.05] tracking-tight xl:text-[2.9rem]">
-                Sua loja,<br />seus pedidos,<br />
-                {/* Terceira linha na cor da marca: fecha a frase e cria hierarquia
-                    sem precisar de outro tamanho de fonte. */}
-                <span className="text-primary">seu controle.</span>
-              </h2>
-              {/* Traço curto no lugar do parágrafo e dos cards de recurso que havia
-                  aqui: tela de login é pra entrar, não pra vender a quem já comprou. */}
-              <div className="mt-6 h-1.5 w-14 rounded-full bg-primary" />
+          <div className="mt-4 flex items-center gap-3 rounded-2xl bg-background/95 p-4 text-foreground shadow-lg">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
+              <CheckCircle2 className="size-5" />
+            </span>
+            <div>
+              <div className="text-sm font-bold">Pedido #482 recebido</div>
+              <div className="text-xs text-muted-foreground">já está na cozinha</div>
             </div>
-
-            {/*
-              `-ml-8` deixa o mascote encostar no texto sem invadir: a margem negativa
-              come só o vazio transparente da borda da imagem. `min-w-0` pra ele ceder
-              largura primeiro quando a janela aperta — o texto é que não pode quebrar.
-
-              `onError` cai no mascote antigo: enquanto o avatar novo não estiver na
-              pasta, aparece o de sempre em vez de ícone de imagem quebrada.
-            */}
-            <img
-              src="/mascote/avatar.png"
-              onError={e => { (e.currentTarget as HTMLImageElement).src = '/mascote/mascote.png'; }}
-              alt="" aria-hidden="true" draggable={false}
-              className="pointer-events-none -ml-6 h-[72%] w-auto max-w-none select-none self-end object-contain object-bottom xl:h-[80%]"
-            />
           </div>
         </div>
 
-        {/* ── Formulário ──
-            CARD ELEVADO em vez do formulário solto no fundo: sem moldura ele fica
-            "boiando" no gradiente; a moldura o transforma no objeto em foco. `bg-card`
-            e não branco fixo, senão o tema escuro ganha um retângulo branco no meio.
+        <div className="relative z-30 text-xs text-primary-foreground/60">
+          © {new Date().getFullYear()} — sistema de delivery
+        </div>
+      </div>
 
-            `lg:justify-self-end` + `max-w-md`: no desktop o card encosta à direita da
-            grade (como no desenho) e no mobile fica centrado, porque aí ele é a tela
-            inteira. */}
-        <div className="relative mx-auto w-full max-w-md rounded-3xl border border-border/60 bg-card p-6 shadow-xl shadow-black/5 sm:p-9 lg:mx-0 lg:justify-self-end">
+      {/*
+        MASCOTE FORA DO PAINEL LARANJA, ancorado na PÁGINA.
+        No desenho a mão dele passa por cima da curva e entra na área branca — dentro
+        do painel, que tem `overflow-hidden` por causa da textura e dos blurs, ele
+        seria cortado exatamente ali. Como irmão do painel, atravessa; e o `z-20` o põe
+        acima da curva.
+
+        `max-w-[36%]` COM `object-contain` é o que impede ele de entrar no card do
+        formulário. Sem esse teto, medindo: o mascote terminava em x=1173 e o card
+        começava em 899 — 274px de invasão. E a causa é sutil: dimensionado só por
+        ALTURA, a largura sai da proporção do ARQUIVO, que muda quando o avatar é
+        trocado. Com teto de largura, o pior caso é ele aparecer um pouco menor;
+        sem teto, o pior caso é ele cobrir o campo de senha.
+
+        `onError` cai no mascote antigo: enquanto o avatar novo não estiver na pasta,
+        aparece o de sempre em vez de ícone de imagem quebrada.
+      */}
+      <img
+        src="/mascote/avatar.png"
+        onError={e => { (e.currentTarget as HTMLImageElement).src = '/mascote/mascote.png'; }}
+        alt="" aria-hidden="true" draggable={false}
+        className="pointer-events-none absolute bottom-0 left-[28%] z-20 hidden h-[86%] max-h-[760px] w-auto max-w-[33%] select-none object-contain object-bottom lg:block"
+      />
+
+      {/* ── Formulário ── */}
+      <div className="relative flex flex-1 items-center justify-center px-4 py-10 sm:px-6">
+        {/* Arcos do canto: decoração fraca, que não rouba contraste do card. */}
+        <div className="pointer-events-none absolute -right-36 -top-36 hidden lg:block" aria-hidden="true">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="absolute rounded-full border border-primary/[0.12]"
+              style={{ width: 340 + i * 140, height: 340 + i * 140, right: 0, top: 0 }} />
+          ))}
+        </div>
+
+        {/*
+          CARD ELEVADO em vez do formulário solto no fundo: sem moldura ele fica
+          "colado" na metade colorida; a moldura o transforma no objeto em foco.
+          `bg-card` e não branco fixo, senão o tema escuro ganha um retângulo branco.
+        */}
+        <div className="relative w-full max-w-md rounded-3xl border border-border/60 bg-card p-6 shadow-xl shadow-black/5 sm:p-9">
           <div className="mb-7">
             <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30 lg:hidden">
               <Store className="size-7 text-primary-foreground" strokeWidth={2.5} />
