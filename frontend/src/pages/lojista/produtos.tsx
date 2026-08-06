@@ -3,11 +3,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Box, Plus, Pencil, Trash2, X, Star, ChevronDown, ChevronUp,
-  ToggleLeft, ToggleRight, Tag, SlidersHorizontal, Check, Layers,
-  Copy, CheckSquare, Square, FileText, Rows3, Rows4, UtensilsCrossed,
-} from 'lucide-react';
+import { Check, CheckSquare, ChevronDown, Copy, FileText, Layers, ListPlus, Pencil, Plus, Rows3, Rows4, Search, SlidersHorizontal, Square, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -91,6 +87,8 @@ export function ProdutosLoja() {
   const [form, setForm] = useState<FormProduto>(FORM_VAZIO);
   const [enviando, setEnviando] = useState(false);
   const [busca, setBusca] = useState('');
+  /** Chip de categoria da toolbar. '' = todas. */
+  const [filtroCategoria, setFiltroCategoria] = useState('');
   const [gerindoGrupos, setGerindoGrupos] = useState<Produto | null>(null);
   const [mostrarFiscal, setMostrarFiscal] = useState(false);
   /** Qual dos dois botões de submit foi clicado (ver `salvar`). */
@@ -297,12 +295,19 @@ export function ProdutosLoja() {
   }
 
   const todos = consulta.data ?? [];
-  const filtrados = busca
-    ? todos.filter(p =>
-        p.nome.toLowerCase().includes(busca.toLowerCase()) ||
-        (p.categoria || '').toLowerCase().includes(busca.toLowerCase())
-      )
-    : todos;
+  /*
+   * Busca também no CÓDIGO DE BARRAS: é o que o placeholder promete, e é como se acha
+   * um item bipando o produto em vez de lembrar como ele foi escrito. Sem isso o campo
+   * dizia "ou código de barras" e não achava nada por código.
+   */
+  const termo = busca.trim().toLowerCase();
+  const filtrados = todos.filter(p => {
+    if (filtroCategoria && (p.categoria || 'Geral') !== filtroCategoria) return false;
+    if (!termo) return true;
+    return p.nome.toLowerCase().includes(termo)
+      || (p.categoria || '').toLowerCase().includes(termo)
+      || (p.codigo_barras || '').includes(termo);
+  });
 
   const porCategoria = filtrados.reduce<Record<string, Record<string, Produto[]>>>((acc, p) => {
     const cat = p.categoria || 'Geral';
@@ -314,7 +319,6 @@ export function ProdutosLoja() {
   }, {});
 
   const disponiveis = todos.filter(p => p.disponivel).length;
-  const indisponiveis = todos.filter(p => !p.disponivel).length;
 
   const categoriasExistentes = [...new Set(todos.map(p => p.categoria).filter(Boolean))].sort() as string[];
   const subcategoriasDaCategoria = [...new Set(
@@ -325,450 +329,519 @@ export function ProdutosLoja() {
   )].sort() as string[];
 
   return (
-    <div className="space-y-4">
-      {/* Modal de grupos de opções — sobrepõe tudo */}
-      {gerindoGrupos && (
-        <GruposModal produto={gerindoGrupos} onFechar={() => setGerindoGrupos(null)} />
-      )}
+    /*
+     * PALETA DA ESPECIFICAÇÃO TRADUZIDA PARA TOKENS, não cravada em hexadecimal.
+     *
+     * A especificação pedia `#F6F5F3` de fundo, `#1C1917` de título, `#78716C` de
+     * secundário, `#E7E5E1` de filete. Cravar isso deixaria a tela CERTA no tema claro
+     * e QUEBRADA no escuro (este app tem alternador de tema): um retângulo off-white
+     * com texto quase preto no meio de uma interface escura.
+     *
+     * O mapeamento é direto e preserva a intenção:
+     *   #F6F5F3 fundo      → `bg-muted/40`      (off-white quente no claro, escuro no escuro)
+     *   #1C1917 título     → `text-foreground`
+     *   #78716C secundário → `text-muted-foreground`
+     *   #A8A29E terciário  → `text-muted-foreground/70`
+     *   #E7E5E1 filete     → `border-border`
+     *   chip ativo preto   → `bg-foreground text-background`  (inverte junto, sem virar
+     *                        branco-no-branco no tema escuro)
+     *
+     * Ficam FIXOS só o âmbar do "Destaque" e o verde de promoção/"à venda": são cores
+     * SEMÂNTICAS, não de marca — igual aos vermelhos/verdes do KDS. Seguindo o tema,
+     * uma loja de paleta verde perderia a distinção entre promoção e o resto.
+     */
+    <div className="-mx-4 -my-4 min-h-full bg-muted/40 px-4 py-6 sm:-mx-6 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1160px] space-y-5">
+        {/* Modal de grupos de opções — sobrepõe tudo */}
+        {gerindoGrupos && (
+          <GruposModal produto={gerindoGrupos} onFechar={() => setGerindoGrupos(null)} />
+        )}
 
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h2 className="flex items-center gap-2 text-lg font-bold">
-            <Box className="size-5 text-primary" /> Produtos ({todos.length})
-          </h2>
-          {todos.length > 0 && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {disponiveis} disponíveis · {indisponiveis} indisponíveis
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {todos.length > 3 && (
-            <Button
-              size="sm" variant="outline"
-              onClick={alternarDensidade}
-              title={densidade === 'confortavel' ? 'Ver mais compacto' : 'Ver mais espaçado'}
-            >
-              {densidade === 'confortavel' ? <Rows4 className="size-4" /> : <Rows3 className="size-4" />}
-            </Button>
-          )}
-          {todos.length > 0 && (
-            modoSelecao ? (
-              <Button size="sm" variant="outline" onClick={sairDaSelecao}>
-                <X className="size-4" /> Cancelar
-              </Button>
-            ) : (
-              <Button size="sm" variant="outline" onClick={() => setModoSelecao(true)} disabled={editando !== null}>
-                <CheckSquare className="size-4" /> Selecionar
-              </Button>
-            )
-          )}
-          <Button size="sm" onClick={abrirNovo} disabled={editando !== null || modoSelecao}>
-            <Plus className="size-4" /> Novo produto
-          </Button>
-        </div>
-      </div>
-
-      {/* Barra flutuante de ações em massa */}
-      {modoSelecao && selecionados.size > 0 && (
-        <div className="sticky top-2 z-20 flex items-center gap-2 rounded-2xl border border-primary/30 bg-card px-4 py-2.5 shadow-lg">
-          <span className="text-sm font-bold shrink-0">{selecionados.size} selecionado{selecionados.size > 1 ? 's' : ''}</span>
-          <div className="flex items-center gap-1.5 ml-auto flex-wrap justify-end">
-            <Button size="sm" variant="outline" disabled={aplicandoAcao} onClick={() => aplicarAcaoEmMassa('ativar')}>
-              <ToggleRight className="size-4" /> Ativar
-            </Button>
-            <Button size="sm" variant="outline" disabled={aplicandoAcao} onClick={() => aplicarAcaoEmMassa('desativar')}>
-              <ToggleLeft className="size-4" /> Desativar
-            </Button>
-            <Button size="sm" variant="destructive" disabled={aplicandoAcao} onClick={() => aplicarAcaoEmMassa('excluir')}>
-              <Trash2 className="size-4" /> Excluir
-            </Button>
+        {/* ─────────── Header ─────────── */}
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-[28px] font-extrabold leading-none tracking-[-0.03em]">Produtos</h2>
+            {todos.length > 0 && (
+              <p className="mt-2 text-[13.5px] text-muted-foreground">
+                {todos.length} {todos.length === 1 ? 'item' : 'itens'} no cardápio
+                {' · '}
+                {/* Verde fixo: "quantos estão vendendo" é a informação que o lojista
+                    procura primeiro, e verde é a convenção pra isso em qualquer marca. */}
+                <span className="font-semibold text-emerald-700 dark:text-emerald-400">
+                  {disponiveis} à venda
+                </span>
+              </p>
+            )}
           </div>
-        </div>
-      )}
-
-      {/* Busca */}
-      {todos.length > 3 && (
-        <Input
-          placeholder="Buscar por nome ou categoria…"
-          value={busca}
-          onChange={e => setBusca(e.target.value)}
-        />
-      )}
-
-      {/* ── Formulário ── */}
-      {/*
-        CADASTRO EM MODAL CENTRADO DE DUAS COLUNAS.
-        Antes era um card que se expandia NO MEIO DA LISTA, e o botão de salvar descia
-        junto com o formulário — num cadastro longo ele saía da tela justo na hora de
-        usar. Aqui o footer é fixo e o corpo rola por dentro.
-
-        DUAS COLUNAS porque os campos se dividem em dois assuntos que não se leem em
-        sequência: o que a foto mostra e o que o produto É. Empilhados, a foto empurra
-        todo o resto pra baixo da dobra.
-
-        Coluna esquerda = foto + interruptores de estado (as decisões de "aparece ou
-        não"); direita = os dados que descrevem e precificam.
-      */}
-      <Modal open={editando !== null} onOpenChange={aberto => { if (!aberto) setEditando(null); }}>
-        <ModalConteudo>
-          {/* ─── Header fixo ─── */}
-          <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-6 py-[22px] sm:px-8">
-            <div className="min-w-0">
-              <ModalTitulo className="text-[21px] font-extrabold leading-tight tracking-tight">
-                {editando === 'novo' ? 'Novo produto' : 'Editar produto'}
-              </ModalTitulo>
-              <ModalDescricao className="mt-0.5 truncate text-[13.5px] text-muted-foreground">
-                {editando === 'novo'
-                  ? 'Preencha os dados e salve para publicar no cardápio.'
-                  : [form.nome, form.categoria].filter(Boolean).join(' · ') || 'Produto'}
-              </ModalDescricao>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {/*
-                Estado no HEADER e não no meio do formulário: é a informação que decide
-                se o cliente vê o produto, e no meio da lista de campos ela se perde. O
-                verde é a única cor fixa aqui — status "ok" em verde é convenção que
-                atravessa qualquer paleta de marca.
-              */}
-              <span className={cn(
-                'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-bold',
-                form.disponivel
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950'
-                  : 'border-border bg-muted text-muted-foreground',
-              )}>
-                <span className={cn('size-1.5 rounded-full', form.disponivel ? 'bg-emerald-500' : 'bg-muted-foreground')} />
-                {form.disponivel ? 'À venda' : 'Pausado'}
-              </span>
-              <ModalClose
-                aria-label="Fechar"
-                className="flex size-[38px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          <div className="flex items-center gap-2">
+            {todos.length > 3 && (
+              <Button
+                variant="outline"
+                onClick={alternarDensidade}
+                className="h-11 rounded-[11px] shadow-sm"
+                title={densidade === 'confortavel' ? 'Mais colunas por linha' : 'Cards maiores'}
               >
-                <X className="size-[18px]" />
-              </ModalClose>
+                {densidade === 'confortavel' ? <Rows4 className="size-4" /> : <Rows3 className="size-4" />}
+              </Button>
+            )}
+            {todos.length > 0 && (
+              modoSelecao ? (
+                <Button variant="outline" onClick={sairDaSelecao} className="h-11 rounded-[11px] shadow-sm">
+                  <X className="size-4" /> Cancelar
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => setModoSelecao(true)}
+                  disabled={editando !== null}
+                  className="h-11 rounded-[11px] shadow-sm"
+                >
+                  <CheckSquare className="size-4" /> Selecionar
+                </Button>
+              )
+            )}
+            {/* Sombra na cor da marca só aqui: é a ação principal da tela, e é o único
+                lugar (com os interruptores e o anel de foco) onde a cor entra. */}
+            <Button
+              onClick={abrirNovo}
+              disabled={editando !== null || modoSelecao}
+              className="h-11 rounded-[11px] shadow-[0_10px_24px_-12px] shadow-primary/65"
+            >
+              <Plus className="size-4" /> Novo produto
+            </Button>
+          </div>
+        </div>
+
+        {/* Barra flutuante de ações em massa */}
+        {modoSelecao && selecionados.size > 0 && (
+          <div className="sticky top-2 z-20 flex items-center gap-2 rounded-2xl border border-primary/30 bg-card px-4 py-2.5 shadow-lg">
+            <span className="shrink-0 text-sm font-bold">{selecionados.size} selecionado{selecionados.size > 1 ? 's' : ''}</span>
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
+              <Button size="sm" variant="outline" disabled={aplicandoAcao} onClick={() => aplicarAcaoEmMassa('ativar')}>
+                <ToggleRight className="size-4" /> Ativar
+              </Button>
+              <Button size="sm" variant="outline" disabled={aplicandoAcao} onClick={() => aplicarAcaoEmMassa('desativar')}>
+                <ToggleLeft className="size-4" /> Pausar
+              </Button>
+              <Button size="sm" variant="outline" disabled={aplicandoAcao} onClick={() => aplicarAcaoEmMassa('excluir')}
+                className="text-destructive hover:text-destructive">
+                <Trash2 className="size-4" /> Excluir
+              </Button>
             </div>
           </div>
+        )}
 
-          <form onSubmit={salvar} className="flex min-h-0 flex-1 flex-col">
-            {/* ─── Corpo: duas colunas, rolagem por dentro ─── */}
-            <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[320px_1fr] lg:overflow-hidden">
-              {/* ── Esquerda: foto + disponibilidade ── */}
-              <div className="border-b border-border px-6 py-7 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-8 lg:py-8">
-                <RotuloSecao>Foto</RotuloSecao>
-                {/*
-                  256px e não miniatura: a foto é o assunto desta coluna, e em 96px não
-                  dá pra julgar se o recorte ficou bom. No celular volta pra pequena —
-                  ali a tela é o recurso escasso. (`square-lg` em image-upload.tsx.)
-                */}
-                <div className="hidden lg:block">
-                  <ImageUpload
-                    value={form.foto_url}
-                    onChange={url => setForm(f => ({ ...f, foto_url: url }))}
-                    aspectRatio="square-lg"
-                  />
-                </div>
-                <div className="lg:hidden">
-                  <ImageUpload
-                    value={form.foto_url}
-                    onChange={url => setForm(f => ({ ...f, foto_url: url }))}
-                    aspectRatio="square"
-                  />
-                </div>
-                <p className="mt-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
-                  Quadrada, mínimo 500×500. É assim que ela aparece no cardápio e no PDV.
-                </p>
+        {/* ─────────── Toolbar ─────────── */}
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-4 top-1/2 size-[18px] -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={busca}
+              onChange={e => setBusca(e.target.value)}
+              placeholder="Buscar por nome, categoria ou código de barras"
+              className="h-12 rounded-xl border-border bg-card pl-11 text-[15px] shadow-sm focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/[0.13] focus-visible:ring-offset-0"
+            />
+          </div>
 
-                <div className="my-7 h-px bg-border" />
-
-                {/*
-                  DISPONIBILIDADE COMO LINHAS COM INTERRUPTOR, não chips: chip comunica
-                  "filtro selecionável", interruptor comunica "ligado/desligado". Eram
-                  três controles de estado com três aparências diferentes (dois ícones
-                  de toggle e uma estrela solta num card cinza).
-                */}
-                <RotuloSecao>Disponibilidade</RotuloSecao>
-                <div className="-mx-1 space-y-1">
-                  <LinhaInterruptor
-                    titulo="Disponível para venda"
-                    descricao="Aparece no cardápio e no PDV"
-                    ativo={form.disponivel}
-                    onAlternar={() => setForm(f => ({ ...f, disponivel: !f.disponivel }))}
-                  />
-                  <LinhaInterruptor
-                    titulo="Destaque"
-                    descricao="Aparece no topo do cardápio"
-                    ativo={form.destaque}
-                    onAlternar={() => setForm(f => ({ ...f, destaque: !f.destaque }))}
-                  />
-                  <LinhaInterruptor
-                    titulo="Controlar estoque"
-                    descricao="Esgota sozinho quando zera"
-                    ativo={form.controla_estoque}
-                    onAlternar={() => setForm(f => ({ ...f, controla_estoque: !f.controla_estoque }))}
+          {/*
+            CHIP ATIVO EM PRETO, não na cor da marca. Com o laranja, o filtro
+            selecionado disputava atenção com o botão "Novo produto" — dois elementos
+            laranja na mesma dobra, e nenhum lendo como "o principal". Preto marca a
+            seleção sem competir. (`bg-foreground` inverte no tema escuro.)
+          */}
+          {categoriasExistentes.length > 1 && (
+            <div className="flex flex-wrap gap-2">
+              {['', ...categoriasExistentes].map(cat => {
+                const ativo = filtroCategoria === cat;
+                return (
+                  <button
+                    key={cat || '__todas'}
+                    type="button"
+                    onClick={() => setFiltroCategoria(cat)}
+                    className={cn(
+                      'h-[38px] rounded-full px-4 text-[13.5px] font-semibold transition-colors',
+                      ativo
+                        ? 'bg-foreground text-background'
+                        : 'border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+                    )}
                   >
-                    {form.controla_estoque && (
-                      <div className="mt-3">
-                        <Label>Quantidade disponível</Label>
-                        <Input
-                          type="number" min="0" step="1"
-                          value={form.estoque} onChange={set('estoque')} placeholder="Ex.: 20"
-                          className={CAMPO_MODAL}
-                        />
-                        <p className="mt-1 text-[12.5px] text-muted-foreground">
-                          Baixa a cada pedido. Em 0, aparece como “Esgotado”.
-                        </p>
-                      </div>
-                    )}
-                  </LinhaInterruptor>
-                </div>
+                    {cat || 'Todas'}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/*
+          CADASTRO EM MODAL CENTRADO DE DUAS COLUNAS.
+          Antes era um card que se expandia NO MEIO DA LISTA, e o botão de salvar descia
+          junto com o formulário — num cadastro longo ele saía da tela justo na hora de
+          usar. Aqui o footer é fixo e o corpo rola por dentro.
+
+          DUAS COLUNAS porque os campos se dividem em dois assuntos que não se leem em
+          sequência: o que a foto mostra e o que o produto É. Empilhados, a foto empurra
+          todo o resto pra baixo da dobra.
+
+          Coluna esquerda = foto + interruptores de estado (as decisões de "aparece ou
+          não"); direita = os dados que descrevem e precificam.
+        */}
+        <Modal open={editando !== null} onOpenChange={aberto => { if (!aberto) setEditando(null); }}>
+          <ModalConteudo>
+            {/* ─── Header fixo ─── */}
+            <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-6 py-[22px] sm:px-8">
+              <div className="min-w-0">
+                <ModalTitulo className="text-[21px] font-extrabold leading-tight tracking-tight">
+                  {editando === 'novo' ? 'Novo produto' : 'Editar produto'}
+                </ModalTitulo>
+                <ModalDescricao className="mt-0.5 truncate text-[13.5px] text-muted-foreground">
+                  {editando === 'novo'
+                    ? 'Preencha os dados e salve para publicar no cardápio.'
+                    : [form.nome, form.categoria].filter(Boolean).join(' · ') || 'Produto'}
+                </ModalDescricao>
               </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {/*
+                  Estado no HEADER e não no meio do formulário: é a informação que decide
+                  se o cliente vê o produto, e no meio da lista de campos ela se perde. O
+                  verde é a única cor fixa aqui — status "ok" em verde é convenção que
+                  atravessa qualquer paleta de marca.
+                */}
+                <span className={cn(
+                  'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-bold',
+                  form.disponivel
+                    ? 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950'
+                    : 'border-border bg-muted text-muted-foreground',
+                )}>
+                  <span className={cn('size-1.5 rounded-full', form.disponivel ? 'bg-emerald-500' : 'bg-muted-foreground')} />
+                  {form.disponivel ? 'À venda' : 'Pausado'}
+                </span>
+                <ModalClose
+                  aria-label="Fechar"
+                  className="flex size-[38px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <X className="size-[18px]" />
+                </ModalClose>
+              </div>
+            </div>
 
-              {/* ── Direita: dados do produto ── */}
-              <div className="px-6 py-7 lg:overflow-y-auto lg:px-9 lg:py-8">
-                <section>
-                  <RotuloSecao>Produto</RotuloSecao>
-                  <div>
-                    <Label htmlFor="campo-nome">Nome *</Label>
-                    <Input
-                      id="campo-nome"
-                      required
-                      value={form.nome}
-                      onChange={set('nome')}
-                      placeholder="Ex.: X-Burguer Especial"
-                      className={CAMPO_MODAL}
+            <form onSubmit={salvar} className="flex min-h-0 flex-1 flex-col">
+              {/* ─── Corpo: duas colunas, rolagem por dentro ─── */}
+              <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[320px_1fr] lg:overflow-hidden">
+                {/* ── Esquerda: foto + disponibilidade ── */}
+                <div className="border-b border-border px-6 py-7 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-8 lg:py-8">
+                  <RotuloSecao>Foto</RotuloSecao>
+                  {/*
+                    256px e não miniatura: a foto é o assunto desta coluna, e em 96px não
+                    dá pra julgar se o recorte ficou bom. No celular volta pra pequena —
+                    ali a tela é o recurso escasso. (`square-lg` em image-upload.tsx.)
+                  */}
+                  <div className="hidden lg:block">
+                    <ImageUpload
+                      value={form.foto_url}
+                      onChange={url => setForm(f => ({ ...f, foto_url: url }))}
+                      aspectRatio="square-lg"
                     />
                   </div>
-                  <div className="mt-4">
-                    <Label>
-                      Descrição
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
-                    </Label>
-                    <textarea
-                      value={form.descricao}
-                      onChange={set('descricao')}
-                      rows={2}
-                      placeholder="Ingredientes, tamanho, detalhes que ajudam o cliente a escolher…"
-                      className="mt-1.5 w-full resize-none rounded-[10px] border border-input bg-background px-3.5 py-2.5 text-[15.5px] transition-colors placeholder:text-muted-foreground focus-visible:border-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-primary/[0.14]"
+                  <div className="lg:hidden">
+                    <ImageUpload
+                      value={form.foto_url}
+                      onChange={url => setForm(f => ({ ...f, foto_url: url }))}
+                      aspectRatio="square"
                     />
                   </div>
-                  <div className="mt-4 space-y-4">
-                    <SeletorChips
-                      label="Categoria"
-                      obrigatorio
-                      valor={form.categoria}
-                      opcoes={categoriasExistentes}
-                      onChange={v => setForm(f => ({ ...f, categoria: v }))}
-                      placeholderNovo="Ex.: Lanches, Bebidas, Sobremesas…"
-                      rotuloNovo="Nova categoria"
+                  <p className="mt-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                    Quadrada, mínimo 500×500. É assim que ela aparece no cardápio e no PDV.
+                  </p>
+
+                  <div className="my-7 h-px bg-border" />
+
+                  {/*
+                    DISPONIBILIDADE COMO LINHAS COM INTERRUPTOR, não chips: chip comunica
+                    "filtro selecionável", interruptor comunica "ligado/desligado". Eram
+                    três controles de estado com três aparências diferentes (dois ícones
+                    de toggle e uma estrela solta num card cinza).
+                  */}
+                  <RotuloSecao>Disponibilidade</RotuloSecao>
+                  <div className="-mx-1 space-y-1">
+                    <LinhaInterruptor
+                      titulo="Disponível para venda"
+                      descricao="Aparece no cardápio e no PDV"
+                      ativo={form.disponivel}
+                      onAlternar={() => setForm(f => ({ ...f, disponivel: !f.disponivel }))}
                     />
-                    <SeletorChips
-                      label="Subcategoria"
-                      valor={form.subcategoria}
-                      opcoes={subcategoriasDaCategoria}
-                      onChange={v => setForm(f => ({ ...f, subcategoria: v }))}
-                      placeholderNovo="Ex.: Especiais, Veganos…"
-                      rotuloNovo="Nova subcategoria"
-                      dica={form.categoria ? undefined : 'Escolha uma categoria primeiro'}
+                    <LinhaInterruptor
+                      titulo="Destaque"
+                      descricao="Aparece no topo do cardápio"
+                      ativo={form.destaque}
+                      onAlternar={() => setForm(f => ({ ...f, destaque: !f.destaque }))}
                     />
-                  </div>
-                </section>
-
-                <div className="my-[26px] h-px bg-border" />
-
-                <section>
-                  <RotuloSecao>Preço e venda</RotuloSecao>
-                  {/* SEGMENTED CONTROL: duas opções exclusivas do mesmo atributo. O
-                      trilho com a ativa em branco diz isso sem precisar de rótulo. */}
-                  <div>
-                    <Label>Como é vendido?</Label>
-                    <div className="mt-1.5 flex rounded-xl bg-muted p-1">
-                      {([['un', 'Por unidade'], ['kg', 'Por peso (kg)']] as const).map(([v, txt]) => (
-                        <button
-                          key={v}
-                          type="button"
-                          onClick={() => setForm(f => ({ ...f, vendido_por: v }))}
-                          className={cn(
-                            'h-10 flex-1 rounded-lg text-sm font-semibold transition-all',
-                            form.vendido_por === v
-                              ? 'bg-background text-foreground shadow-sm'
-                              : 'text-muted-foreground hover:text-foreground',
-                          )}
-                        >
-                          {txt}
-                        </button>
-                      ))}
-                    </div>
-                    {form.vendido_por === 'kg' && (
-                      <p className="mt-1.5 text-[12.5px] text-muted-foreground">
-                        No PDV o operador informa o peso (ou lê a etiqueta da balança) e o preço é calculado por kg.
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <div>
-                      {/* O rótulo muda com a unidade: "Preço" num produto por peso é
-                          ambíguo entre o preço do quilo e o da peça. */}
-                      <Label>{form.vendido_por === 'kg' ? 'Preço por kg (R$) *' : 'Preço (R$) *'}</Label>
-                      <div className="relative mt-1.5">
-                        <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
-                        <Input
-                          required type="number" step="0.01" min="0.01"
-                          value={form.preco} onChange={set('preco')} placeholder="0,00"
-                          className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <Label>
-                        Preço promocional
-                        <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
-                      </Label>
-                      <div className="relative mt-1.5">
-                        <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
-                        <Input
-                          type="number" step="0.01" min="0.01"
-                          value={form.preco_promocional} onChange={set('preco_promocional')} placeholder="—"
-                          className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_180px]">
-                    <div>
-                      <Label>
-                        Código de barras
-                        <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
-                      </Label>
-                      <Input
-                        value={form.codigo_barras}
-                        onChange={e => setForm(f => ({ ...f, codigo_barras: e.target.value.replace(/\D/g, '') }))}
-                        inputMode="numeric"
-                        placeholder="7891234567890"
-                        className={cn(CAMPO_MODAL, 'font-mono')}
-                        maxLength={20}
-                      />
-                      <p className="mt-1 text-[12.5px] text-muted-foreground">
-                        Permite bipar no PDV. Por peso, use o PLU da balança.
-                      </p>
-                      {/*
-                        Diz na hora do cadastro se o código vai ou não pra nota fiscal.
-                        Sem isso o lojista digita um EAN com um dígito errado, acha que
-                        cadastrou, e só descobre — se descobrir — que a NFC-e saiu como
-                        "SEM GTIN". Não bloqueia: PLU de balança é código interno
-                        legítimo e não é um GTIN.
-                      */}
-                      {form.codigo_barras.trim() !== '' && (
-                        <p className={cn('mt-1 text-[12.5px]',
-                          gtinValido(form.codigo_barras) ? 'text-emerald-600' : 'text-amber-600')}>
-                          {gtinValido(form.codigo_barras)
-                            ? '✓ EAN válido — vai na nota fiscal como código do produto.'
-                            : 'Não é um EAN válido (dígito verificador não fecha). Serve pra bipar no PDV, '
-                              + 'mas a nota sai como “SEM GTIN”.'}
-                        </p>
+                    <LinhaInterruptor
+                      titulo="Controlar estoque"
+                      descricao="Esgota sozinho quando zera"
+                      ativo={form.controla_estoque}
+                      onAlternar={() => setForm(f => ({ ...f, controla_estoque: !f.controla_estoque }))}
+                    >
+                      {form.controla_estoque && (
+                        <div className="mt-3">
+                          <Label>Quantidade disponível</Label>
+                          <Input
+                            type="number" min="0" step="1"
+                            value={form.estoque} onChange={set('estoque')} placeholder="Ex.: 20"
+                            className={CAMPO_MODAL}
+                          />
+                          <p className="mt-1 text-[12.5px] text-muted-foreground">
+                            Baixa a cada pedido. Em 0, aparece como “Esgotado”.
+                          </p>
+                        </div>
                       )}
-                    </div>
+                    </LinhaInterruptor>
+                  </div>
+                </div>
+
+                {/* ── Direita: dados do produto ── */}
+                <div className="px-6 py-7 lg:overflow-y-auto lg:px-9 lg:py-8">
+                  <section>
+                    <RotuloSecao>Produto</RotuloSecao>
                     <div>
-                      <Label>
-                        Serve pessoas
-                        <span className="ml-1 text-xs font-normal text-muted-foreground">(opc.)</span>
-                      </Label>
+                      <Label htmlFor="campo-nome">Nome *</Label>
                       <Input
-                        type="number" min="1" max="20"
-                        value={form.serve_pessoas} onChange={set('serve_pessoas')} placeholder="Ex.: 2"
+                        id="campo-nome"
+                        required
+                        value={form.nome}
+                        onChange={set('nome')}
+                        placeholder="Ex.: X-Burguer Especial"
                         className={CAMPO_MODAL}
                       />
                     </div>
-                  </div>
-                </section>
+                    <div className="mt-4">
+                      <Label>
+                        Descrição
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
+                      </Label>
+                      <textarea
+                        value={form.descricao}
+                        onChange={set('descricao')}
+                        rows={2}
+                        placeholder="Ingredientes, tamanho, detalhes que ajudam o cliente a escolher…"
+                        className="mt-1.5 w-full resize-none rounded-[10px] border border-input bg-background px-3.5 py-2.5 text-[15.5px] transition-colors placeholder:text-muted-foreground focus-visible:border-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-primary/[0.14]"
+                      />
+                    </div>
+                    <div className="mt-4 space-y-4">
+                      <SeletorChips
+                        label="Categoria"
+                        obrigatorio
+                        valor={form.categoria}
+                        opcoes={categoriasExistentes}
+                        onChange={v => setForm(f => ({ ...f, categoria: v }))}
+                        placeholderNovo="Ex.: Lanches, Bebidas, Sobremesas…"
+                        rotuloNovo="Nova categoria"
+                      />
+                      <SeletorChips
+                        label="Subcategoria"
+                        valor={form.subcategoria}
+                        opcoes={subcategoriasDaCategoria}
+                        onChange={v => setForm(f => ({ ...f, subcategoria: v }))}
+                        placeholderNovo="Ex.: Especiais, Veganos…"
+                        rotuloNovo="Nova subcategoria"
+                        dica={form.categoria ? undefined : 'Escolha uma categoria primeiro'}
+                      />
+                    </div>
+                  </section>
 
-                <div className="my-[26px] h-px bg-border" />
+                  <div className="my-[26px] h-px bg-border" />
 
-                {/* Fiscal colapsado: já vem com padrão seguro, e quem não emite nota
-                    não deve tropeçar em NCM/CFOP pra cadastrar um lanche. */}
-                <div className="rounded-xl border border-border">
-                  <button
-                    type="button"
-                    onClick={() => setMostrarFiscal(v => !v)}
-                    className="flex w-full items-center gap-2.5 p-4 text-left"
-                  >
-                    <FileText className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="flex-1 text-sm font-semibold">Dados fiscais (NFC-e)</span>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                      Opcional
-                    </span>
-                    <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', mostrarFiscal && 'rotate-180')} />
-                  </button>
-                  {mostrarFiscal && (
-                    <div className="grid grid-cols-2 gap-3 border-t border-border p-4 sm:grid-cols-3">
-                      {([
-                        ['NCM', form.ncm, (v: string) => setForm(f => ({ ...f, ncm: v.replace(/\D/g, '').slice(0, 8) })), 8, '21069090'],
-                        ['CEST', form.cest, (v: string) => setForm(f => ({ ...f, cest: v.replace(/\D/g, '').slice(0, 7) })), 7, '—'],
-                        ['CFOP', form.cfop, (v: string) => setForm(f => ({ ...f, cfop: v.replace(/\D/g, '').slice(0, 4) })), 4, '5102'],
-                        ['CSOSN', form.csosn, (v: string) => setForm(f => ({ ...f, csosn: v.replace(/\D/g, '').slice(0, 3) })), 3, '102'],
-                        ['Origem', form.origem, (v: string) => setForm(f => ({ ...f, origem: v.replace(/\D/g, '').slice(0, 1) })), 1, '0'],
-                        ['Unidade', form.unidade_comercial, (v: string) => setForm(f => ({ ...f, unidade_comercial: v.toUpperCase().slice(0, 6) })), 6, 'UN'],
-                      ] as Array<[string, string, (v: string) => void, number, string]>).map(([rotulo, valor, aoMudar, max, dica]) => (
-                        <div key={rotulo}>
-                          <Label>{rotulo}</Label>
+                  <section>
+                    <RotuloSecao>Preço e venda</RotuloSecao>
+                    {/* SEGMENTED CONTROL: duas opções exclusivas do mesmo atributo. O
+                        trilho com a ativa em branco diz isso sem precisar de rótulo. */}
+                    <div>
+                      <Label>Como é vendido?</Label>
+                      <div className="mt-1.5 flex rounded-xl bg-muted p-1">
+                        {([['un', 'Por unidade'], ['kg', 'Por peso (kg)']] as const).map(([v, txt]) => (
+                          <button
+                            key={v}
+                            type="button"
+                            onClick={() => setForm(f => ({ ...f, vendido_por: v }))}
+                            className={cn(
+                              'h-10 flex-1 rounded-lg text-sm font-semibold transition-all',
+                              form.vendido_por === v
+                                ? 'bg-background text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground',
+                            )}
+                          >
+                            {txt}
+                          </button>
+                        ))}
+                      </div>
+                      {form.vendido_por === 'kg' && (
+                        <p className="mt-1.5 text-[12.5px] text-muted-foreground">
+                          No PDV o operador informa o peso (ou lê a etiqueta da balança) e o preço é calculado por kg.
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <div>
+                        {/* O rótulo muda com a unidade: "Preço" num produto por peso é
+                            ambíguo entre o preço do quilo e o da peça. */}
+                        <Label>{form.vendido_por === 'kg' ? 'Preço por kg (R$) *' : 'Preço (R$) *'}</Label>
+                        <div className="relative mt-1.5">
+                          <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
                           <Input
-                            value={valor}
-                            onChange={e => aoMudar(e.target.value)}
-                            maxLength={max}
-                            placeholder={dica}
-                            className={cn(CAMPO_MODAL, 'h-11 font-mono')}
+                            required type="number" step="0.01" min="0.01"
+                            value={form.preco} onChange={set('preco')} placeholder="0,00"
+                            className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
                           />
                         </div>
-                      ))}
-                      <p className="col-span-2 text-[12.5px] text-muted-foreground sm:col-span-3">
-                        Já vem com valores padrão genéricos. Se seu contador pedir códigos específicos, ajuste aqui.
-                      </p>
+                      </div>
+                      <div>
+                        <Label>
+                          Preço promocional
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
+                        </Label>
+                        <div className="relative mt-1.5">
+                          <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
+                          <Input
+                            type="number" step="0.01" min="0.01"
+                            value={form.preco_promocional} onChange={set('preco_promocional')} placeholder="—"
+                            className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
+                          />
+                        </div>
+                      </div>
                     </div>
-                  )}
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_180px]">
+                      <div>
+                        <Label>
+                          Código de barras
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
+                        </Label>
+                        <Input
+                          value={form.codigo_barras}
+                          onChange={e => setForm(f => ({ ...f, codigo_barras: e.target.value.replace(/\D/g, '') }))}
+                          inputMode="numeric"
+                          placeholder="7891234567890"
+                          className={cn(CAMPO_MODAL, 'font-mono')}
+                          maxLength={20}
+                        />
+                        <p className="mt-1 text-[12.5px] text-muted-foreground">
+                          Permite bipar no PDV. Por peso, use o PLU da balança.
+                        </p>
+                        {/*
+                          Diz na hora do cadastro se o código vai ou não pra nota fiscal.
+                          Sem isso o lojista digita um EAN com um dígito errado, acha que
+                          cadastrou, e só descobre — se descobrir — que a NFC-e saiu como
+                          "SEM GTIN". Não bloqueia: PLU de balança é código interno
+                          legítimo e não é um GTIN.
+                        */}
+                        {form.codigo_barras.trim() !== '' && (
+                          <p className={cn('mt-1 text-[12.5px]',
+                            gtinValido(form.codigo_barras) ? 'text-emerald-600' : 'text-amber-600')}>
+                            {gtinValido(form.codigo_barras)
+                              ? '✓ EAN válido — vai na nota fiscal como código do produto.'
+                              : 'Não é um EAN válido (dígito verificador não fecha). Serve pra bipar no PDV, '
+                                + 'mas a nota sai como “SEM GTIN”.'}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <Label>
+                          Serve pessoas
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">(opc.)</span>
+                        </Label>
+                        <Input
+                          type="number" min="1" max="20"
+                          value={form.serve_pessoas} onChange={set('serve_pessoas')} placeholder="Ex.: 2"
+                          className={CAMPO_MODAL}
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  <div className="my-[26px] h-px bg-border" />
+
+                  {/* Fiscal colapsado: já vem com padrão seguro, e quem não emite nota
+                      não deve tropeçar em NCM/CFOP pra cadastrar um lanche. */}
+                  <div className="rounded-xl border border-border">
+                    <button
+                      type="button"
+                      onClick={() => setMostrarFiscal(v => !v)}
+                      className="flex w-full items-center gap-2.5 p-4 text-left"
+                    >
+                      <FileText className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="flex-1 text-sm font-semibold">Dados fiscais (NFC-e)</span>
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        Opcional
+                      </span>
+                      <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', mostrarFiscal && 'rotate-180')} />
+                    </button>
+                    {mostrarFiscal && (
+                      <div className="grid grid-cols-2 gap-3 border-t border-border p-4 sm:grid-cols-3">
+                        {([
+                          ['NCM', form.ncm, (v: string) => setForm(f => ({ ...f, ncm: v.replace(/\D/g, '').slice(0, 8) })), 8, '21069090'],
+                          ['CEST', form.cest, (v: string) => setForm(f => ({ ...f, cest: v.replace(/\D/g, '').slice(0, 7) })), 7, '—'],
+                          ['CFOP', form.cfop, (v: string) => setForm(f => ({ ...f, cfop: v.replace(/\D/g, '').slice(0, 4) })), 4, '5102'],
+                          ['CSOSN', form.csosn, (v: string) => setForm(f => ({ ...f, csosn: v.replace(/\D/g, '').slice(0, 3) })), 3, '102'],
+                          ['Origem', form.origem, (v: string) => setForm(f => ({ ...f, origem: v.replace(/\D/g, '').slice(0, 1) })), 1, '0'],
+                          ['Unidade', form.unidade_comercial, (v: string) => setForm(f => ({ ...f, unidade_comercial: v.toUpperCase().slice(0, 6) })), 6, 'UN'],
+                        ] as Array<[string, string, (v: string) => void, number, string]>).map(([rotulo, valor, aoMudar, max, dica]) => (
+                          <div key={rotulo}>
+                            <Label>{rotulo}</Label>
+                            <Input
+                              value={valor}
+                              onChange={e => aoMudar(e.target.value)}
+                              maxLength={max}
+                              placeholder={dica}
+                              className={cn(CAMPO_MODAL, 'h-11 font-mono')}
+                            />
+                          </div>
+                        ))}
+                        <p className="col-span-2 text-[12.5px] text-muted-foreground sm:col-span-3">
+                          Já vem com valores padrão genéricos. Se seu contador pedir códigos específicos, ajuste aqui.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/*
-              ─── Footer fixo ───
-              É a diferença prática: no card inline o salvar descia com o formulário e,
-              num cadastro longo, saía da tela justo na hora de usar.
-            */}
-            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-[18px] sm:px-8">
-              <Button type="button" variant="ghost" onClick={() => setEditando(null)} disabled={enviando}>
-                Cancelar
-              </Button>
-              <div className="flex items-center gap-2">
-                {/* "Salvar e criar outro": cadastro de cardápio é trabalho em lote —
-                    são 30 itens numa sentada, e reabrir o modal a cada um dobra os
-                    cliques. */}
-                <Button
-                  type="submit"
-                  variant="outline"
-                  className="h-12 rounded-[10px]"
-                  disabled={enviando}
-                  onClick={() => { criarOutroRef.current = true; }}
-                >
-                  Salvar e criar outro
+              {/*
+                ─── Footer fixo ───
+                É a diferença prática: no card inline o salvar descia com o formulário e,
+                num cadastro longo, saía da tela justo na hora de usar.
+              */}
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-[18px] sm:px-8">
+                <Button type="button" variant="ghost" onClick={() => setEditando(null)} disabled={enviando}>
+                  Cancelar
                 </Button>
-                <Button
-                  type="submit"
-                  className="h-12 rounded-[10px] px-[30px]"
-                  loading={enviando}
-                  loadingText="Salvando…"
-                  onClick={() => { criarOutroRef.current = false; }}
-                >
-                  {editando === 'novo' ? 'Criar produto' : 'Salvar alterações'}
-                </Button>
+                <div className="flex items-center gap-2">
+                  {/* "Salvar e criar outro": cadastro de cardápio é trabalho em lote —
+                      são 30 itens numa sentada, e reabrir o modal a cada um dobra os
+                      cliques. */}
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    className="h-12 rounded-[10px]"
+                    disabled={enviando}
+                    onClick={() => { criarOutroRef.current = true; }}
+                  >
+                    Salvar e criar outro
+                  </Button>
+                  <Button
+                    type="submit"
+                    className="h-12 rounded-[10px] px-[30px]"
+                    loading={enviando}
+                    loadingText="Salvando…"
+                    onClick={() => { criarOutroRef.current = false; }}
+                  >
+                    {editando === 'novo' ? 'Criar produto' : 'Salvar alterações'}
+                  </Button>
+                </div>
               </div>
-            </div>
-          </form>
-        </ModalConteudo>
-      </Modal>
-
-
+            </form>
+          </ModalConteudo>
+        </Modal>
 
       {/* ── Loading ── */}
       {consulta.isLoading && (
@@ -812,8 +885,10 @@ export function ProdutosLoja() {
           selecionados={selecionados}
           onToggleSelecao={alternarSelecao}
           densidade={densidade}
+          onAdicionar={cat => { setForm({ ...FORM_VAZIO, categoria: cat }); setEditando('novo'); }}
         />
       ))}
+      </div>
     </div>
   );
 }
@@ -993,10 +1068,10 @@ function SeletorChips({
   );
 }
 
-/* ─────────────────────── seção de categoria ──────────────────────── */
+/* ─────────────────── seção de uma categoria ─────────────────── */
 function CategoriaSection({
   categoria, subs, onEditar, onExcluir, onAlternarDisponivel, onVerOpcoes, onDuplicar,
-  modoSelecao, selecionados, onToggleSelecao, densidade,
+  modoSelecao, selecionados, onToggleSelecao, densidade, onAdicionar,
 }: {
   categoria: string;
   subs: Record<string, Produto[]>;
@@ -1009,34 +1084,67 @@ function CategoriaSection({
   selecionados: Set<number>;
   onToggleSelecao: (id: number) => void;
   densidade: Densidade;
+  onAdicionar: (categoria: string) => void;
 }) {
   const [aberta, setAberta] = useState(true);
   const total = Object.values(subs).flat().length;
 
   return (
-    <div>
-      <button
-        className="flex w-full items-center justify-between gap-2 py-2 px-1"
-        onClick={() => setAberta(a => !a)}
-      >
-        <div className="flex items-center gap-2">
-          <Tag className="size-4 text-primary" />
-          <span className="font-bold text-sm uppercase tracking-wide">{categoria}</span>
-          <span className="text-xs text-muted-foreground">({total})</span>
-        </div>
-        {aberta ? <ChevronUp className="size-4 text-muted-foreground" /> : <ChevronDown className="size-4 text-muted-foreground" />}
-      </button>
+    <section>
+      {/*
+        FILETE QUE CORRE ATÉ A DIREITA no lugar do chevron isolado num canto: ele liga
+        visualmente o nome da categoria ao "Adicionar item" daquela categoria, e separa
+        um bloco do outro sem precisar de card em volta.
+
+        O botão de colapsar é só o nome + chevron, não a faixa inteira: com a faixa toda
+        clicável, tentar clicar em "Adicionar item" colapsava a seção.
+      */}
+      <div className="mb-3 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setAberta(a => !a)}
+          className="group flex shrink-0 items-center gap-2"
+        >
+          <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', !aberta && '-rotate-90')} />
+          <span className="text-[12.5px] font-extrabold uppercase tracking-[0.11em] text-muted-foreground group-hover:text-foreground">
+            {categoria}
+          </span>
+          <span className="text-[12px] text-muted-foreground/70">
+            {total} {total === 1 ? 'item' : 'itens'}
+          </span>
+        </button>
+        <div className="h-px flex-1 bg-border" />
+        <button
+          type="button"
+          onClick={() => onAdicionar(categoria)}
+          className="shrink-0 rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          + Adicionar item
+        </button>
+      </div>
 
       {aberta && (
-        <div className="space-y-4">
+        <div className="space-y-5">
           {Object.entries(subs).map(([sub, itens]) => (
             <div key={sub}>
               {sub && (
-                <p className="text-xs font-semibold text-muted-foreground italic px-1 mb-1.5">
-                  └ {sub}
+                <p className="mb-2 px-1 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  {sub}
                 </p>
               )}
-              <div className="space-y-2">
+              {/*
+                `auto-fill` com mínimo em px: a grade decide sozinha quantas colunas
+                cabem, sem breakpoint escrito à mão. A densidade mexe nesse mínimo —
+                440px é o card confortável, 340px empacota mais por linha. É o que
+                sobrou do antigo alternador de densidade, que antes trocava a altura da
+                linha e não faz sentido numa grade.
+              */}
+              <div
+                className="grid gap-4"
+                style={{
+                  gridTemplateColumns: `repeat(auto-fill, minmax(${densidade === 'compacta' ? 340 : 440}px, 1fr))`,
+                }}
+              >
                 {itens.map(p => (
                   <CardProduto
                     key={p.id}
@@ -1049,7 +1157,6 @@ function CategoriaSection({
                     modoSelecao={modoSelecao}
                     selecionado={selecionados.has(p.id)}
                     onToggleSelecao={() => onToggleSelecao(p.id)}
-                    densidade={densidade}
                   />
                 ))}
               </div>
@@ -1057,14 +1164,37 @@ function CategoriaSection({
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
 /* ─────────────────────── card do produto ──────────────────────── */
+
+/** Ícone de ação do rodapé do card: 32px, alvo aceitável sem inflar a linha. */
+function BotaoIcone({ titulo, onClick, destrutivo, children }: {
+  titulo: string; onClick: () => void; destrutivo?: boolean; children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={titulo}
+      aria-label={titulo}
+      className={cn(
+        'flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors',
+        destrutivo
+          ? 'hover:bg-destructive/10 hover:text-destructive'
+          : 'hover:bg-accent hover:text-foreground',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function CardProduto({
   produto: p, onEditar, onExcluir, onAlternarDisponivel, onVerOpcoes, onDuplicar,
-  modoSelecao, selecionado, onToggleSelecao, densidade,
+  modoSelecao, selecionado, onToggleSelecao,
 }: {
   produto: Produto;
   onEditar: () => void;
@@ -1075,128 +1205,136 @@ function CardProduto({
   modoSelecao: boolean;
   selecionado: boolean;
   onToggleSelecao: () => void;
-  densidade: Densidade;
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const grupos = (p as any).grupos as GrupoOpcoes[] | undefined;
-  const totalOpcoes = grupos?.reduce((s, g) => s + g.opcoes.length, 0) ?? 0;
   const totalGrupos = grupos?.length ?? 0;
-  const compacta = densidade === 'compacta';
+  const semEstoque = !!p.controla_estoque && (p.estoque ?? 0) <= 0;
 
   return (
-    <Card className={cn('transition-opacity', !p.disponivel && 'opacity-55', selecionado && 'ring-2 ring-primary')}>
-      <CardContent className="p-0">
-        <div
-          className={cn('flex items-center gap-3', compacta ? 'p-1.5' : 'p-3', modoSelecao && 'cursor-pointer')}
-          onClick={modoSelecao ? onToggleSelecao : undefined}
-        >
-          {/* Checkbox de seleção */}
-          {modoSelecao && (
-            <button type="button" onClick={e => { e.stopPropagation(); onToggleSelecao(); }} className="shrink-0 text-primary">
-              {selecionado ? <CheckSquare className="size-5" /> : <Square className="size-5 text-muted-foreground" />}
-            </button>
-          )}
-          {/* Foto */}
-          {p.foto_url
-            ? <img src={p.foto_url} alt={p.nome} className={cn('rounded-xl object-cover border border-border shrink-0 bg-muted', compacta ? 'size-9' : 'size-16')} />
-            : <div className={cn('flex items-center justify-center rounded-xl bg-accent text-muted-foreground shrink-0', compacta ? 'size-9' : 'size-16')}>
-                <UtensilsCrossed className={compacta ? 'size-4' : 'size-6'} strokeWidth={1.5} />
-              </div>
-          }
+    <div
+      className={cn(
+        // Sombra de repouso quase invisível + sombra difusa no hover. Borda E sombra
+        // forte juntas é o que faz card parecer "caixa dentro de caixa".
+        'group rounded-[18px] border border-border bg-card shadow-[0_1px_2px_rgba(28,25,23,0.04)] transition-all duration-[180ms]',
+        'hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-20px_rgba(28,25,23,0.25)]',
+        !p.disponivel && 'opacity-70',
+        selecionado && 'ring-2 ring-primary',
+        modoSelecao && 'cursor-pointer',
+      )}
+      onClick={modoSelecao ? onToggleSelecao : undefined}
+    >
+      <div className="flex gap-[18px] p-[18px]">
+        {modoSelecao && (
+          <button type="button" onClick={e => { e.stopPropagation(); onToggleSelecao(); }} className="shrink-0 text-primary">
+            {selecionado ? <CheckSquare className="size-5" /> : <Square className="size-5 text-muted-foreground" />}
+          </button>
+        )}
 
-          {/* Info */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="font-semibold text-sm leading-tight truncate max-w-[180px]">{p.nome}</span>
-              {p.destaque ? <Star className="size-3.5 text-amber-400 fill-amber-400 shrink-0" /> : null}
-              {!p.disponivel && <Badge variant="secondary" className="text-[10px] px-1.5">Indisponível</Badge>}
-              {p.controla_estoque ? (
-                (p.estoque ?? 0) <= 0
-                  ? <Badge variant="danger" className="text-[10px] px-1.5">Esgotado</Badge>
-                  : <Badge variant={(p.estoque ?? 0) <= 5 ? 'secondary' : 'outline'} className="text-[10px] px-1.5">
-                      {p.estoque} em estoque
-                    </Badge>
-              ) : null}
-            </div>
-            {!compacta && p.descricao && (
-              <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{p.descricao}</p>
-            )}
-            <div className={cn('flex items-center gap-2', compacta ? 'mt-0.5' : 'mt-1')}>
-              <span className="text-sm font-bold">{brl(p.preco_centavos)}</span>
-              {p.preco_promocional_centavos ? (
-                <Badge variant="success" className="text-[10px] px-1.5">
-                  {brl(p.preco_promocional_centavos)}
-                </Badge>
-              ) : null}
-            </div>
+        {/* Foto 96px com anel INTERNO: borda comum somaria 1px ao tamanho e desalinharia
+            a foto do texto ao lado; `inset` fica dentro da caixa. */}
+        {p.foto_url ? (
+          <img
+            src={p.foto_url}
+            alt={p.nome}
+            className="size-24 shrink-0 rounded-[15px] bg-muted object-cover shadow-[inset_0_0_0_1px_rgba(28,25,23,0.06)]"
+          />
+        ) : (
+          <div className="flex size-24 shrink-0 items-center justify-center rounded-[15px] bg-muted text-muted-foreground shadow-[inset_0_0_0_1px_rgba(28,25,23,0.06)]">
+            <UtensilsCrossed className="size-7" strokeWidth={1.5} />
+          </div>
+        )}
+
+        <div className="min-w-0 flex-1">
+          {/* Nome à esquerda, preço à direita na MESMA linha de base: o preço é o
+              número que se compara entre itens, e alinhado à direita a coluna de
+              preços se lê de cima a baixo sem procurar. */}
+          <div className="flex items-baseline justify-between gap-3">
+            <h3 className="truncate text-[16px] font-bold leading-tight">{p.nome}</h3>
+            <span className="shrink-0 text-[16px] font-extrabold tabular-nums">{brl(p.preco_centavos)}</span>
           </div>
 
-          {/* Ações */}
-          {!modoSelecao && (
-            <div className="flex flex-col items-center gap-1 shrink-0">
-              <button
-                onClick={onAlternarDisponivel}
-                className="text-muted-foreground hover:text-primary transition-colors"
-                title={p.disponivel ? 'Tornar indisponível' : 'Tornar disponível'}
-              >
-                {p.disponivel
-                  ? <ToggleRight className="size-6 text-primary" />
-                  : <ToggleLeft className="size-6" />}
-              </button>
-              <div className="flex gap-0.5">
-                <button
-                  onClick={onEditar}
-                  className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-                  title="Editar"
-                >
-                  <Pencil className="size-3.5" />
-                </button>
-                <button
-                  onClick={onDuplicar}
-                  className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground"
-                  title="Duplicar"
-                >
-                  <Copy className="size-3.5" />
-                </button>
-                <button
-                  onClick={onExcluir}
-                  className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-destructive"
-                  title="Excluir"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </div>
+          {p.descricao && (
+            <p className="mt-1 line-clamp-2 text-[13.5px] leading-snug text-muted-foreground">{p.descricao}</p>
+          )}
+
+          {/*
+            BADGES COM BORDA TONAL, não chapados: chapado com cor forte grita mais que o
+            nome do produto. Âmbar e verde ficam FIXOS porque são semânticos (destaque,
+            promoção) — seguindo a cor da marca, uma loja de paleta verde perderia a
+            distinção entre promoção e o resto.
+          */}
+          {(p.destaque || p.preco_promocional_centavos || semEstoque || p.controla_estoque) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {p.destaque && (
+                <span className="inline-flex items-center gap-1 rounded-md border border-[#F1E3C4] bg-[#FBF3E4] px-2 py-0.5 text-[11.5px] font-bold text-[#92610A] dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300">
+                  <Star className="size-3 fill-current" /> Destaque
+                </span>
+              )}
+              {p.preco_promocional_centavos ? (
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-[#CBEADB] bg-[#EBF7F1] px-2 py-0.5 text-[11.5px] font-bold text-[#047857] dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
+                  Promoção {brl(p.preco_promocional_centavos)}
+                  <span className="font-normal line-through opacity-70">antes {brl(p.preco_centavos)}</span>
+                </span>
+              ) : null}
+              {semEstoque ? (
+                <span className="rounded-md border border-destructive/25 bg-destructive/10 px-2 py-0.5 text-[11.5px] font-bold text-destructive">
+                  Esgotado
+                </span>
+              ) : p.controla_estoque ? (
+                <span className="rounded-md border border-border bg-muted px-2 py-0.5 text-[11.5px] font-semibold text-muted-foreground">
+                  {p.estoque} em estoque
+                </span>
+              ) : null}
             </div>
           )}
         </div>
+      </div>
 
-        {/* Barra de adicionais — destaque visual (some na densidade compacta, o
-            duplo-clique no card ou o botão editar continuam abrindo o produto) */}
-        {!compacta && (
+      {!modoSelecao && (
+        <div className="flex items-center justify-between gap-3 border-t border-border px-[18px] py-[11px]">
+          {/* Interruptor com RÓTULO: sozinho, um toggle não diz o que está ligado, e
+              "à venda ou pausado" é a informação mais consultada do card. */}
           <button
-            onClick={onVerOpcoes}
-            className={cn(
-              'flex w-full items-center gap-2 border-t px-3 py-2 text-xs font-semibold transition-colors',
-              totalGrupos > 0
-                ? 'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10'
-                : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground',
-            )}
+            type="button"
+            onClick={onAlternarDisponivel}
+            className="flex items-center gap-2.5"
+            role="switch"
+            aria-checked={!!p.disponivel}
+            aria-label={p.disponivel ? 'Pausar produto' : 'Colocar à venda'}
           >
-            <SlidersHorizontal className="size-3.5 shrink-0" />
-            <span className="flex-1 text-left">
-              {totalGrupos > 0
-                ? `${totalGrupos} grupo${totalGrupos > 1 ? 's' : ''} · ${totalOpcoes} opç${totalOpcoes !== 1 ? 'ões' : 'ão'}`
-                : 'Adicionar tamanhos, bordas e adicionais…'}
+            <span className={cn('relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors',
+              p.disponivel ? 'bg-primary' : 'bg-muted-foreground/30')}>
+              <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-all',
+                p.disponivel ? 'left-[19px]' : 'left-[3px]')} />
             </span>
-            <Layers className="size-3.5 shrink-0 opacity-60" />
+            <span className={cn('text-[12.5px] font-semibold',
+              p.disponivel ? 'text-foreground' : 'text-muted-foreground')}>
+              {p.disponivel ? 'À venda' : 'Pausado'}
+            </span>
           </button>
-        )}
-      </CardContent>
-    </Card>
+
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={onVerOpcoes}
+              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <ListPlus className="size-[15px]" />
+              Complementos
+              {totalGrupos > 0 && <span className="text-muted-foreground/70">({totalGrupos})</span>}
+            </button>
+            <span className="mx-0.5 h-5 w-px bg-border" />
+            <BotaoIcone titulo="Editar" onClick={onEditar}><Pencil className="size-[15px]" /></BotaoIcone>
+            <BotaoIcone titulo="Duplicar" onClick={onDuplicar}><Copy className="size-[15px]" /></BotaoIcone>
+            <BotaoIcone titulo="Excluir" onClick={onExcluir} destrutivo><Trash2 className="size-[15px]" /></BotaoIcone>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
-/* ─────────────────────── modal de grupos de opções ──────────────────────── */
 function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => void }) {
   const { mostrar } = useToast();
   const confirmar = useConfirm();
