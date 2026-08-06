@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import gsap from 'gsap';
 import { lerRepasse2FA, destinoRepasse2FA } from '../../lib/repasse-2fa';
 import { useQuery } from '@tanstack/react-query';
 import { Routes, Route, Link } from 'react-router-dom';
 import {
   CheckCircle2, ChefHat, XCircle, Package, Bell, Save, Eye, EyeOff, History,
-  Printer, Store, Lock, Banknote,
+  Printer, Store, Banknote,
 } from 'lucide-react';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,7 +26,7 @@ import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
 import { useTema, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
-import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag, MessageCircle, ShieldCheck, LogIn } from 'lucide-react';
+import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag, MessageCircle, ShieldCheck, Check } from 'lucide-react';
 import { ImageUpload } from '@/components/ui/image-upload';
 import {
   garantirPermissaoNotificacao, notificarNovoPedido,
@@ -1152,15 +1153,28 @@ function CardPedidoLojista({ pedido, aoAtualizar }: { pedido: PedidoComItens; ao
 
 const LOJISTA_ZAP_MSG = 'Olá! Preciso de ajuda pra entrar no painel do lojista.';
 /**
- * Duas linhas por item, não uma frase corrida: a primeira é O QUE é, a segunda é o
- * detalhe que responde "e daí?". Numa linha só o olho lê metade e para — e o detalhe
- * ("sem outro sistema", "direto na cozinha") é justamente o que diferencia.
+ * Título quebrado em PALAVRAS aqui e não no componente: o GSAP anima uma por uma, e
+ * a lista precisa ser estável entre renders pra o `key` não recriar os spans (o que
+ * reiniciaria a animação a cada digitação no formulário).
  */
+const LOGIN_TITULO = 'Sua loja, seus pedidos, seu controle.'.split(' ');
+
+/** Uma frase por linha — o filete separa, o texto não precisa de subtítulo. */
 const LOJISTA_VALOR = [
-  { icone: Bell,      titulo: 'Pedidos em tempo real,',   detalhe: 'direto na cozinha' },
-  { icone: FileText,  titulo: 'NFC-e emitida na hora,',   detalhe: 'sem outro sistema' },
-  { icone: BarChart3, titulo: 'Relatórios e faturamento', detalhe: 'no painel' },
+  'Pedidos em tempo real, direto na cozinha',
+  'NFC-e emitida na hora, sem outro sistema',
+  'Relatórios e faturamento no mesmo painel',
 ];
+
+/**
+ * Campo do login: 52px de altura e canto de 10px.
+ *
+ * O foco sobrescreve o padrão do `Input` (anel de 2px na cor `ring`, com offset) por
+ * borda na cor da marca + anel de 3px translúcido e SEM offset — offset abre um vão
+ * branco entre borda e anel, que num campo de 52px fica visível como falha.
+ */
+const CAMPO_LOGIN = 'mt-1.5 h-[52px] rounded-[10px] text-[15px] shadow-none '
+  + 'focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 focus-visible:ring-offset-0';
 
 function LoginLojista() {
   const [email, setEmail] = useState('');
@@ -1170,6 +1184,8 @@ function LoginLojista() {
   const [enviando, setEnviando] = useState(false);
   const [duploFator, setDuploFator] = useState<{ tokenPreAuth: string; modo: 'configurar' | 'verificar' } | null>(null);
   const { mostrar } = useToast();
+  // Logo e nome vêm da MARCA do domínio: é o que mantém o login white-label.
+  const { marca } = useTema();
 
   // Chegada vinda do login da plataforma (ver `lerRepasse2FA`): retoma o 2FA
   // aqui, já no domínio do tenant dono da conta.
@@ -1216,6 +1232,42 @@ function LoginLojista() {
     }
   }
 
+  /*
+   * ANIMAÇÃO DE ENTRADA (GSAP).
+   *
+   * `gsap.context` com escopo no container: o `revert()` no cleanup desfaz tudo o que
+   * foi criado aqui e nada mais — sem ele, remontar a tela (o `reload()` depois do
+   * login, o hot-reload em desenvolvimento) deixaria tweens vivos mexendo em nós que
+   * já saíram do DOM.
+   *
+   * SEM `clearProps`: ele APAGA estilo inline, e o mascote e o círculo decorativo
+   * dependem de estilo inline (posição em porcentagem que o Tailwind não expressa).
+   * Um `clearProps: 'all'` num seletor amplo levaria os dois embora.
+   *
+   * `prefers-reduced-motion` pula tudo em vez de encurtar: quem liga isso costuma
+   * fazer por enxaqueca ou sensibilidade vestibular, e movimento rápido é pior que
+   * movimento nenhum. Os elementos já estão visíveis por padrão — a animação só sai
+   * DE um estado deslocado (`gsap.from`), então não animar significa simplesmente a
+   * tela pronta.
+   */
+  const escopo = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const ctx = gsap.context(() => {
+      gsap.from('[data-anim="logo"]', { y: -14, opacity: 0, duration: 0.6, ease: 'power3.out' });
+      gsap.from('[data-anim="palavra"]', {
+        y: '0.9em', opacity: 0, duration: 0.7, ease: 'power3.out', stagger: 0.08, delay: 0.15,
+      });
+      gsap.from('[data-anim="apoio"]', {
+        y: 22, opacity: 0, duration: 0.6, ease: 'power3.out', stagger: 0.09, delay: 0.55,
+      });
+      gsap.from('[data-anim="campo"]', {
+        y: 18, opacity: 0, duration: 0.55, ease: 'power3.out', stagger: 0.07, delay: 0.25,
+      });
+    }, escopo);
+    return () => ctx.revert();
+  }, []);
+
   if (duploFator) {
     return (
       <div className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-background px-4 py-10">
@@ -1235,229 +1287,210 @@ function LoginLojista() {
 
   return (
     /*
-     * TUDO EM `--primary`, NENHUM LARANJA FIXO. O desenho veio laranja, mas laranja é
-     * a cor DESTE tenant: este mesmo arquivo serve todo cliente white-label, e cor
-     * cravada aqui pintaria de laranja o login de quem escolheu roxo. (O verde do
-     * WhatsApp É fixo lá embaixo — aquele é marca de outra empresa, não de quem usa
-     * o sistema.)
+     * TUDO EM `--primary` / `--primary-foreground`. Nenhum laranja cravado: este
+     * arquivo serve todo cliente white-label, e cor fixa aqui pintaria de laranja o
+     * login de quem escolheu roxo. O verde do WhatsApp é a ÚNICA cor fixa da tela —
+     * aquele é marca de outra empresa, não de quem usa o sistema.
      */
-    <div className="relative flex min-h-dvh overflow-hidden bg-background">
-      {/* ── Painel da marca (só desktop: em tela estreita o formulário é tudo) ── */}
-      <div className="relative hidden w-[56%] shrink-0 flex-col justify-between overflow-hidden bg-gradient-to-br from-primary via-primary to-primary/85 p-10 text-primary-foreground lg:flex xl:p-14">
-        {/* Textura de pontos: profundidade sem competir com o texto. */}
+    <div ref={escopo} className="flex min-h-dvh bg-background">
+      {/* ───────────── Painel da marca (só desktop) ───────────── */}
+      <div
+        className="relative hidden shrink-0 grow-0 basis-[46%] flex-col justify-between overflow-hidden bg-primary p-10 text-primary-foreground lg:flex xl:p-14"
+      >
+        {/* Único elemento decorativo. Sem gradiente, textura ou blur: cor chapada
+            aguenta qualquer `--primary` que o cliente escolher, inclusive os claros,
+            onde gradiente e textura viram sujeira. */}
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 opacity-[0.14]"
-          style={{
-            backgroundImage: 'radial-gradient(currentColor 1px, transparent 1px)',
-            backgroundSize: '18px 18px',
-          }}
+          className="pointer-events-none absolute rounded-full bg-white/10"
+          style={{ width: '46rem', height: '46rem', right: '-16rem', bottom: '-20rem' }}
         />
-        <div className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-white/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-32 -left-16 size-80 rounded-full bg-black/10 blur-3xl" />
 
         {/*
-          CURVA que separa os dois lados. SVG e não `border-radius`: a borda arredondada
-          só curva o canto, e o que faz a composição é a onda ao longo da altura inteira.
-          `preserveAspectRatio="none"` deixa ela esticar com a janela.
-
-          `fill-background` — a MESMA cor do lado direito, sem alpha. Na primeira
-          tentativa usei `fill-muted/30`: por ser translúcido, compunha sobre o laranja
-          em vez de casar com o branco, e a curva simplesmente não aparecia.
+          LOGO DO TENANT, não um arquivo fixo da plataforma: `logo-unimaxx.png` no
+          código faria a marca da Unimaxx aparecer no login de todos os clientes —
+          o oposto do white-label. Sem logo cadastrado, cai num selo com o nome.
         */}
-        <svg
-          className="pointer-events-none absolute -right-px top-0 z-20 h-full w-24 fill-background"
-          viewBox="0 0 100 800" preserveAspectRatio="none" aria-hidden="true"
-        >
-          <path d="M100 0 H34 C88 205 88 595 34 800 H100 Z" />
-        </svg>
-
-        <div className="relative z-30 flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-2xl bg-primary-foreground/15 backdrop-blur-sm">
-            <Store className="size-5" strokeWidth={2.5} />
-          </div>
-          <span className="text-lg font-extrabold">Painel do lojista</span>
+        <div className="relative" data-anim="logo">
+          {marca.logo_url ? (
+            <img src={marca.logo_url} alt={marca.nome} className="h-11 w-auto object-contain" draggable={false} />
+          ) : (
+            <div className="flex items-center gap-3">
+              <div className="flex size-11 items-center justify-center rounded-2xl bg-primary-foreground/15">
+                <Store className="size-5" strokeWidth={2.5} />
+              </div>
+              <span className="text-lg font-extrabold">{marca.nome}</span>
+            </div>
+          )}
         </div>
 
-        {/* Coluna de conteúdo ESTREITA de propósito: o mascote ocupa a metade direita
-            do painel, e texto largo passaria por baixo dele. */}
-        <div className="relative z-30 max-w-[21rem]">
-          <h2 className="text-[2.4rem] font-black leading-[1.08] tracking-tight xl:text-[2.9rem]">
-            Sua loja,<br />seus pedidos,<br />
-            {/* Terceira linha mais escura: fecha a frase e cria hierarquia sem
-                precisar de outro tamanho de fonte. */}
-            <span className="text-primary-foreground/50">seu controle.</span>
+        <div className="relative">
+          {/*
+            Título dividido POR PALAVRA em spans `inline-block`, montados no JSX e não
+            por manipulação de DOM: o GSAP anima cada palavra, e transform só funciona
+            em elemento que não seja inline puro. Feito no JSX, o texto continua
+            selecionável e legível por leitor de tela como uma frase.
+          */}
+          <h2
+            className="max-w-[26rem] font-extrabold leading-[1.06]"
+            style={{ fontSize: 'clamp(30px, 2.9vw, 44px)', letterSpacing: '-0.035em' }}
+          >
+            {LOGIN_TITULO.map((palavra, i) => (
+              <span key={`${palavra}-${i}`} className="inline-block" data-anim="palavra">
+                {palavra}{i < LOGIN_TITULO.length - 1 ? ' ' : ''}
+              </span>
+            ))}
           </h2>
-          <p className="mt-4 text-sm leading-relaxed text-primary-foreground/85">
-            Gerencie seu negócio de forma simples, rápida e inteligente.
+
+          <p className="mt-4 text-[15px] leading-relaxed text-primary-foreground/80" data-anim="apoio">
+            Gerencie o balcão, a cozinha e a entrega em um só painel.
           </p>
 
-          <ul className="mt-7 space-y-2.5">
+          {/*
+            Benefícios como LINHAS com filete, não cards: card sugere que dá pra
+            clicar. Aqui é texto informativo, e o filete separa sem prometer ação.
+          */}
+          <ul className="mt-8">
             {LOJISTA_VALOR.map(v => (
-              <li key={v.titulo} className="flex items-center gap-3 rounded-2xl bg-primary-foreground/[0.14] p-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary-foreground/20">
-                  <v.icone className="size-4.5" />
-                </span>
-                <span className="text-sm leading-tight">
-                  <span className="block font-bold">{v.titulo}</span>
-                  <span className="block text-primary-foreground/70">{v.detalhe}</span>
-                </span>
+              <li
+                key={v}
+                className="flex items-center gap-3 border-t border-white/20 py-[15px] text-[15px] font-medium"
+                data-anim="apoio"
+              >
+                <Check className="size-[18px] shrink-0" strokeWidth={3} />
+                {v}
               </li>
             ))}
           </ul>
-
-          {/*
-            Prova social em card CLARO, diferente dos de cima: os translúcidos são a
-            lista de recursos ("o que o sistema faz"), este é o sistema em
-            funcionamento. Mesma aparência colocaria os dois no mesmo plano de leitura.
-          */}
-          <div className="mt-4 flex items-center gap-3 rounded-2xl bg-background/95 p-4 text-foreground shadow-lg">
-            <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
-              <CheckCircle2 className="size-5" />
-            </span>
-            <div>
-              <div className="text-sm font-bold">Pedido #482 recebido</div>
-              <div className="text-xs text-muted-foreground">já está na cozinha</div>
-            </div>
-          </div>
         </div>
 
-        <div className="relative z-30 text-xs text-primary-foreground/60">
+        <div className="relative text-xs text-white/60" data-anim="apoio">
           © {new Date().getFullYear()} — sistema de delivery
         </div>
+
+        {/* Mascote sem animação: ele é o elemento mais pesado da tela, e movimento
+            nele puxa o olho pra longe do formulário, que é o que importa aqui. */}
+        <img
+          src="/mascote/mascote.png"
+          alt="" aria-hidden="true" draggable={false}
+          className="pointer-events-none absolute select-none object-contain"
+          style={{ right: '-11%', bottom: '-1%', width: '70%', maxWidth: '600px' }}
+        />
       </div>
 
-      {/*
-        MASCOTE FORA DO PAINEL LARANJA, ancorado na PÁGINA.
-        No desenho a mão dele passa por cima da curva e entra na área branca — dentro
-        do painel, que tem `overflow-hidden` por causa da textura e dos blurs, ele
-        seria cortado exatamente ali. Como irmão do painel, atravessa; e o `z-20` o põe
-        acima da curva.
-
-        `max-w-[36%]` COM `object-contain` é o que impede ele de entrar no card do
-        formulário. Sem esse teto, medindo: o mascote terminava em x=1173 e o card
-        começava em 899 — 274px de invasão. E a causa é sutil: dimensionado só por
-        ALTURA, a largura sai da proporção do ARQUIVO, que muda quando o avatar é
-        trocado. Com teto de largura, o pior caso é ele aparecer um pouco menor;
-        sem teto, o pior caso é ele cobrir o campo de senha.
-
-        Aponta direto pro arquivo que EXISTE. Antes pedia `avatar.png` e caía em
-        `mascote.png` no `onError`: funcionava, mas gastava uma requisição 404 em toda
-        carga da tela e sujava o console — o mesmo tipo de ruído do /favicon.ico. Pra
-        trocar a arte, é este `src` e nada mais.
-      */}
-      <img
-        src="/mascote/mascote.png"
-        alt="" aria-hidden="true" draggable={false}
-        className="pointer-events-none absolute bottom-0 left-[28%] z-20 hidden h-[86%] max-h-[760px] w-auto max-w-[33%] select-none object-contain object-bottom lg:block"
-      />
-
-      {/* ── Formulário ── */}
-      <div className="relative flex flex-1 items-center justify-center px-4 py-10 sm:px-6">
-        {/* Arcos do canto: decoração fraca, que não rouba contraste do card. */}
-        <div className="pointer-events-none absolute -right-36 -top-36 hidden lg:block" aria-hidden="true">
-          {[0, 1, 2].map(i => (
-            <div key={i} className="absolute rounded-full border border-primary/[0.12]"
-              style={{ width: 340 + i * 140, height: 340 + i * 140, right: 0, top: 0 }} />
-          ))}
-        </div>
-
-        {/*
-          CARD ELEVADO em vez do formulário solto no fundo: sem moldura ele fica
-          "colado" na metade colorida; a moldura o transforma no objeto em foco.
-          `bg-card` e não branco fixo, senão o tema escuro ganha um retângulo branco.
-        */}
-        <div className="relative w-full max-w-md rounded-3xl border border-border/60 bg-card p-6 shadow-xl shadow-black/5 sm:p-9">
-          <div className="mb-7">
-            <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30 lg:hidden">
-              <Store className="size-7 text-primary-foreground" strokeWidth={2.5} />
-            </div>
-            {/* Saudação como sobretítulo pequeno, com o nome da tela em destaque
-                abaixo: quem já conhece o painel identifica onde está pelo título, e
-                a saudação não disputa esse papel. */}
-            <p className="text-sm font-bold text-primary">Bem-vindo de volta! 👋</p>
-            <h1 className="mt-1 text-3xl font-black tracking-tight">Painel do lojista</h1>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              Entre para gerenciar sua loja e acompanhar seus pedidos.
-            </p>
+      {/* ───────────── Formulário ───────────── */}
+      <div className="flex flex-1 items-center justify-center px-5 py-10 sm:px-8">
+        {/* SEM card: sem borda e sem sombra. Ao lado de um bloco de cor chapada, a
+            moldura só adiciona uma segunda caixa competindo com a primeira. */}
+        <div className="w-full max-w-[404px]">
+          {/* No mobile o painel da marca não existe, então o selo aparece aqui —
+              senão a tela abre sem nada que diga de quem ela é. */}
+          <div className="mb-7 lg:hidden" data-anim="campo">
+            {marca.logo_url ? (
+              <img src={marca.logo_url} alt={marca.nome} className="h-9 w-auto object-contain" draggable={false} />
+            ) : (
+              <div className="flex size-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
+                <Store className="size-5" strokeWidth={2.5} />
+              </div>
+            )}
           </div>
 
-          <form onSubmit={enviar} className="space-y-4">
-            <div>
+          <h1 className="text-[30px] font-extrabold leading-tight tracking-tight" data-anim="campo">
+            Entrar no painel
+          </h1>
+          <p className="mt-1.5 text-sm text-muted-foreground" data-anim="campo">
+            Acesse com o e-mail cadastrado da sua loja.
+          </p>
+
+          <form onSubmit={enviar} className="mt-7 space-y-4">
+            <div data-anim="campo">
               <Label htmlFor="email-lojista">E-mail</Label>
-              <div className="relative mt-1.5">
-                <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="email-lojista"
-                  type="email"
-                  required
-                  autoComplete="email"
-                  placeholder="seu@email.com"
-                  className="pl-9"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                />
-              </div>
+              {/* Sem ícone dentro do campo: com o placeholder já explicando o que vai
+                  ali, o ícone é decoração que come o recuo do texto. */}
+              <Input
+                id="email-lojista"
+                type="email"
+                required
+                autoComplete="email"
+                placeholder="seu@email.com"
+                className={CAMPO_LOGIN}
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+              />
             </div>
-            <div>
-              <div className="flex items-center justify-between">
-                <Label htmlFor="senha-lojista">Senha</Label>
-                <Link to="/esqueci-senha" className="text-xs font-semibold text-primary hover:underline">
-                  Esqueci minha senha
-                </Link>
-              </div>
+
+            <div data-anim="campo">
+              <Label htmlFor="senha-lojista">Senha</Label>
               <div className="relative mt-1.5">
-                <Lock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="senha-lojista"
                   type={mostrarSenha ? 'text' : 'password'}
                   required
                   autoComplete="current-password"
-                  placeholder="••••••••"
-                  className="pl-9 pr-10"
+                  placeholder="Sua senha"
+                  className={cn(CAMPO_LOGIN, 'mt-0 pr-12')}
                   value={senha}
                   onChange={e => setSenha(e.target.value)}
                 />
                 <button
                   type="button"
                   onClick={() => setMostrarSenha(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
                   aria-label={mostrarSenha ? 'Esconder senha' : 'Mostrar senha'}
                 >
-                  {mostrarSenha ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                  {mostrarSenha ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
                 </button>
               </div>
             </div>
-            <label className="flex cursor-pointer select-none items-center gap-2.5 text-sm">
-              <input
-                type="checkbox"
-                checked={lembrar}
-                onChange={e => setLembrar(e.target.checked)}
-                className="size-4 shrink-0 rounded border-input accent-[hsl(var(--primary))]"
-              />
-              Manter conectado neste dispositivo
-            </label>
-            <Button type="submit" size="lg" className="mt-1 w-full" loading={enviando} loadingText="Entrando…">
-              <LogIn className="size-4" /> Entrar
+
+            {/* Lembrar e "esqueci" na MESMA linha: são as duas decisões secundárias da
+                tela, e empilhadas empurram o botão pra baixo da dobra no celular. */}
+            <div className="flex items-center justify-between gap-3" data-anim="campo">
+              <label className="flex cursor-pointer select-none items-center gap-2.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={lembrar}
+                  onChange={e => setLembrar(e.target.checked)}
+                  className="size-4 shrink-0 rounded border-input accent-[hsl(var(--primary))]"
+                />
+                Manter conectado
+              </label>
+              <Link to="/esqueci-senha" className="text-sm font-semibold text-primary hover:underline">
+                Esqueci minha senha
+              </Link>
+            </div>
+
+            <Button
+              type="submit"
+              className="h-[52px] w-full rounded-[10px] text-base font-bold hover:brightness-95"
+              loading={enviando}
+              loadingText="Entrando…"
+              data-anim="campo"
+            >
+              Entrar
             </Button>
           </form>
 
-          <div className="my-6 flex items-center gap-3">
-            <div className="h-px flex-1 bg-border" />
-            <span className="text-xs font-medium text-muted-foreground">ou</span>
-            <div className="h-px flex-1 bg-border" />
+          <div className="my-6 flex items-center gap-3" data-anim="campo">
+            <span className="h-px flex-1 bg-border" />
+            <span className="text-xs text-muted-foreground">ou</span>
+            <span className="h-px flex-1 bg-border" />
           </div>
 
           <a
             href={`https://wa.me/?text=${encodeURIComponent(LOJISTA_ZAP_MSG)}`}
             target="_blank"
             rel="noreferrer"
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-input bg-background text-sm font-semibold text-foreground transition-colors hover:bg-accent active:scale-[0.98]"
+            className="flex h-[52px] w-full items-center justify-center gap-2.5 rounded-[10px] text-sm font-semibold text-foreground transition-colors hover:bg-accent"
+            data-anim="campo"
           >
-            <MessageCircle className="size-4" style={{ color: '#25d366' }} /> Precisa de ajuda? Fale no WhatsApp
+            {/* Verde fixo: é a marca do WhatsApp. Trocar pela cor do tenant faria o
+                ícone deixar de ser reconhecível, que é a única função dele aqui. */}
+            <MessageCircle className="size-[18px]" style={{ color: '#25d366' }} />
+            Falar com o suporte
           </a>
 
-          <p className="mt-6 text-center text-xs text-muted-foreground">
+          <p className="mt-7 text-center text-xs text-muted-foreground" data-anim="campo">
             Ainda não tem uma loja?{' '}
             <a href="mailto:suporte.cristopher@unimaxx.com.br" className="font-semibold text-primary hover:underline">
               Fale com a gente
