@@ -18,7 +18,13 @@ interface Props {
   value: string;
   onChange: (url: string) => void;
   label?: string;
-  aspectRatio?: 'square' | 'wide' | 'free';
+  /**
+   * `square`     — miniatura de 96px com as ações ao lado (logo, favicon).
+   * `square-lg`  — 256px com as ações EMBAIXO: usado onde a foto é o assunto da
+   *                seção (cadastro de produto), e onde miniatura pequena não deixa
+   *                julgar se o recorte ficou bom.
+   */
+  aspectRatio?: 'square' | 'square-lg' | 'wide' | 'free';
   className?: string;
 }
 
@@ -85,8 +91,11 @@ export function ImageUpload({ value, onChange, label, aspectRatio = 'free', clas
     setUrlDigitada('');
   }
 
-  const isQuadrado = aspectRatio === 'square';
-  const previewClasse = isQuadrado
+  const isQuadradoGrande = aspectRatio === 'square-lg';
+  const isQuadrado = aspectRatio === 'square' || isQuadradoGrande;
+  const previewClasse = isQuadradoGrande
+    ? 'size-64 max-w-full rounded-2xl'
+    : isQuadrado
     ? 'size-24 rounded-2xl' // logo: miniatura fixa, não estica até a largura do card
     : cn('w-full rounded-xl max-h-32', aspectRatio === 'wide' ? 'aspect-video object-cover' : 'object-cover');
 
@@ -96,7 +105,8 @@ export function ImageUpload({ value, onChange, label, aspectRatio = 'free', clas
 
       {value ? (
         // ── Já tem imagem: preview compacto + ações, sem repetir o dropzone ──
-        <div className={cn('flex gap-3', isQuadrado ? 'items-center' : 'flex-col')}>
+        <div className={cn('flex gap-3',
+          isQuadradoGrande ? 'flex-col items-start' : isQuadrado ? 'items-center' : 'flex-col')}>
           <img src={value} alt="Preview" className={cn(previewClasse, 'border border-border object-cover bg-muted shrink-0')} />
           <div className="flex flex-wrap gap-1.5">
             <Button type="button" size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={carregando}>
@@ -118,7 +128,10 @@ export function ImageUpload({ value, onChange, label, aspectRatio = 'free', clas
           onDragOver={e => { e.preventDefault(); setArrastandoSobre(true); }}
           onDragLeave={() => setArrastandoSobre(false)}
           className={cn(
-            'relative flex items-center justify-center gap-2.5 rounded-xl border-2 border-dashed p-3.5 cursor-pointer transition-colors',
+            'relative flex cursor-pointer items-center justify-center gap-2.5 border-2 border-dashed transition-colors',
+            // Vazio no MESMO formato do preview: assim a área não muda de tamanho ao
+            // subir a imagem, e dá pra ver desde o início o espaço que ela vai ocupar.
+            isQuadradoGrande ? 'size-64 max-w-full flex-col rounded-2xl p-4 text-center' : 'rounded-xl p-3.5',
             arrastandoSobre ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-accent/50',
             carregando && 'pointer-events-none opacity-60',
           )}

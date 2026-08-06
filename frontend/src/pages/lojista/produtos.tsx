@@ -14,9 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Falha } from '@/components/ui/estado';
-import {
-  Sheet, SheetContent, SheetHeader, SheetFooter, SheetTitle, SheetDescription,
-} from '@/components/ui/sheet';
+import { Modal, ModalClose, ModalConteudo, ModalTitulo, ModalDescricao } from '@/components/ui/modal';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { useToast } from '@/components/ui/toast';
@@ -401,238 +399,96 @@ export function ProdutosLoja() {
 
       {/* ── Formulário ── */}
       {/*
-        CADASTRO EM DRAWER LATERAL, não em card expandido no meio da lista.
-        Duas coisas concretas melhoram: a lista continua visível atrás (dá pra ver o
-        que já existe enquanto se cadastra), e o botão de salvar fica FIXO no rodapé —
-        no card inline ele descia com o formulário e, num cadastro longo, sumia da
-        tela justo quando se ia usar.
+        CADASTRO EM MODAL CENTRADO DE DUAS COLUNAS.
+        Antes era um card que se expandia NO MEIO DA LISTA, e o botão de salvar descia
+        junto com o formulário — num cadastro longo ele saía da tela justo na hora de
+        usar. Aqui o footer é fixo e o corpo rola por dentro.
 
-        Usa o `Sheet` do projeto (Radix Dialog): foco preso dentro do drawer, Esc pra
-        fechar e clique no overlay vêm de graça e corretos. Reimplementar isso à mão
-        é onde acessibilidade costuma quebrar.
+        DUAS COLUNAS porque os campos se dividem em dois assuntos que não se leem em
+        sequência: o que a foto mostra e o que o produto É. Empilhados, a foto empurra
+        todo o resto pra baixo da dobra.
+
+        Coluna esquerda = foto + interruptores de estado (as decisões de "aparece ou
+        não"); direita = os dados que descrevem e precificam.
       */}
-      <Sheet open={editando !== null} onOpenChange={aberto => { if (!aberto) setEditando(null); }}>
-        <SheetContent
-          side="right"
-          hideClose
-          className="flex w-full flex-col gap-0 p-0 sm:max-w-[640px]"
-          // O formulário é longo e tem campo numérico: fechar sem querer ao clicar
-          // fora perderia o preenchimento. Esc e o X continuam fechando.
-          onInteractOutside={e => e.preventDefault()}
-        >
+      <Modal open={editando !== null} onOpenChange={aberto => { if (!aberto) setEditando(null); }}>
+        <ModalConteudo>
           {/* ─── Header fixo ─── */}
-          <SheetHeader className="flex-row items-start justify-between gap-3 border-b p-6 pb-5">
+          <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-6 py-[22px] sm:px-8">
             <div className="min-w-0">
-              <SheetTitle className="text-[19px] font-extrabold leading-tight">
+              <ModalTitulo className="text-[21px] font-extrabold leading-tight tracking-tight">
                 {editando === 'novo' ? 'Novo produto' : 'Editar produto'}
-              </SheetTitle>
-              <SheetDescription className="mt-0.5 truncate text-[13px]">
+              </ModalTitulo>
+              <ModalDescricao className="mt-0.5 truncate text-[13.5px] text-muted-foreground">
                 {editando === 'novo'
                   ? 'Preencha os dados e salve para publicar no cardápio.'
                   : [form.nome, form.categoria].filter(Boolean).join(' · ') || 'Produto'}
-              </SheetDescription>
+              </ModalDescricao>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              {/* Estado À VENDA / PAUSADO no header: é a informação que decide se o
-                  cliente vê o produto, e ela some se ficar só no meio do formulário. */}
-              <span className={cn('rounded-full px-2.5 py-1 text-[11px] font-bold',
-                form.disponivel ? 'bg-emerald-500/12 text-emerald-600' : 'bg-muted text-muted-foreground')}>
+              {/*
+                Estado no HEADER e não no meio do formulário: é a informação que decide
+                se o cliente vê o produto, e no meio da lista de campos ela se perde. O
+                verde é a única cor fixa aqui — status "ok" em verde é convenção que
+                atravessa qualquer paleta de marca.
+              */}
+              <span className={cn(
+                'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-bold',
+                form.disponivel
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-900 dark:bg-emerald-950'
+                  : 'border-border bg-muted text-muted-foreground',
+              )}>
+                <span className={cn('size-1.5 rounded-full', form.disponivel ? 'bg-emerald-500' : 'bg-muted-foreground')} />
                 {form.disponivel ? 'À venda' : 'Pausado'}
               </span>
-              <button
-                type="button"
-                onClick={() => setEditando(null)}
+              <ModalClose
                 aria-label="Fechar"
-                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                className="flex size-[38px] items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
-                <X className="size-4" />
-              </button>
+                <X className="size-[18px]" />
+              </ModalClose>
             </div>
-          </SheetHeader>
+          </div>
 
           <form onSubmit={salvar} className="flex min-h-0 flex-1 flex-col">
-            {/* ─── Corpo com rolagem ─── */}
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6">
-              {/* FOTO — quadrada 1:1 e não banner esticado: o cardápio e o PDV
-                  mostram o produto em quadrado, então recorte largo aqui engana
-                  quem cadastra sobre o que vai aparecer depois. */}
-              <SecaoDrawer titulo="Foto">
-                <ImageUpload
-                  value={form.foto_url}
-                  onChange={url => setForm(f => ({ ...f, foto_url: url }))}
-                  aspectRatio="square"
-                />
-                <p className="mt-2 text-[12.5px] text-muted-foreground">
-                  Quadrada (1:1), mínimo 500×500. É assim que ela aparece no cardápio e no PDV.
+            {/* ─── Corpo: duas colunas, rolagem por dentro ─── */}
+            <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[320px_1fr] lg:overflow-hidden">
+              {/* ── Esquerda: foto + disponibilidade ── */}
+              <div className="border-b border-border px-6 py-7 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-8 lg:py-8">
+                <RotuloSecao>Foto</RotuloSecao>
+                {/*
+                  256px e não miniatura: a foto é o assunto desta coluna, e em 96px não
+                  dá pra julgar se o recorte ficou bom. No celular volta pra pequena —
+                  ali a tela é o recurso escasso. (`square-lg` em image-upload.tsx.)
+                */}
+                <div className="hidden lg:block">
+                  <ImageUpload
+                    value={form.foto_url}
+                    onChange={url => setForm(f => ({ ...f, foto_url: url }))}
+                    aspectRatio="square-lg"
+                  />
+                </div>
+                <div className="lg:hidden">
+                  <ImageUpload
+                    value={form.foto_url}
+                    onChange={url => setForm(f => ({ ...f, foto_url: url }))}
+                    aspectRatio="square"
+                  />
+                </div>
+                <p className="mt-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                  Quadrada, mínimo 500×500. É assim que ela aparece no cardápio e no PDV.
                 </p>
-              </SecaoDrawer>
 
-              <SecaoDrawer titulo="Produto">
-                <div>
-                  <Label htmlFor="campo-nome">Nome *</Label>
-                  <Input
-                    id="campo-nome"
-                    required
-                    value={form.nome}
-                    onChange={set('nome')}
-                    placeholder="Ex.: X-Burguer Especial"
-                    className={CAMPO_DRAWER}
-                  />
-                </div>
+                <div className="my-7 h-px bg-border" />
 
-                <div className="mt-4">
-                  <Label>
-                    Descrição
-                    <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
-                  </Label>
-                  <textarea
-                    value={form.descricao}
-                    onChange={set('descricao')}
-                    rows={2}
-                    placeholder="Ingredientes, tamanho, detalhes que ajudam o cliente a escolher…"
-                    className="mt-1.5 w-full resize-none rounded-[10px] border border-input bg-background px-3 py-2.5 text-[15px] transition-colors placeholder:text-muted-foreground focus-visible:border-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-primary/15"
-                  />
-                </div>
-
-                <div className="mt-4 space-y-4">
-                  <SeletorChips
-                    label="Categoria"
-                    obrigatorio
-                    valor={form.categoria}
-                    opcoes={categoriasExistentes}
-                    onChange={v => setForm(f => ({ ...f, categoria: v }))}
-                    placeholderNovo="Ex.: Lanches, Bebidas, Sobremesas…"
-                    rotuloNovo="Nova categoria"
-                  />
-                  <SeletorChips
-                    label="Subcategoria"
-                    valor={form.subcategoria}
-                    opcoes={subcategoriasDaCategoria}
-                    onChange={v => setForm(f => ({ ...f, subcategoria: v }))}
-                    placeholderNovo="Ex.: Especiais, Veganos…"
-                    rotuloNovo="Nova subcategoria"
-                    dica={form.categoria ? undefined : 'Escolha uma categoria primeiro'}
-                  />
-                </div>
-              </SecaoDrawer>
-
-              <SecaoDrawer titulo="Preço e venda">
-                {/* SEGMENTED CONTROL em vez de dois botões grandes com borda: são duas
-                    opções mutuamente exclusivas de um mesmo atributo, e o formato
-                    "trilho com a ativa em branco" diz isso sem precisar de rótulo. */}
-                <div>
-                  <Label>Como é vendido?</Label>
-                  <div className="mt-1.5 flex rounded-[11px] bg-muted p-1">
-                    {([['un', 'Por unidade'], ['kg', 'Por peso (kg)']] as const).map(([v, txt]) => (
-                      <button
-                        key={v}
-                        type="button"
-                        onClick={() => setForm(f => ({ ...f, vendido_por: v }))}
-                        className={cn(
-                          'flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition-all',
-                          form.vendido_por === v
-                            ? 'bg-background text-foreground shadow-sm'
-                            : 'text-muted-foreground hover:text-foreground',
-                        )}
-                      >
-                        {txt}
-                      </button>
-                    ))}
-                  </div>
-                  {form.vendido_por === 'kg' && (
-                    <p className="mt-1.5 text-[12.5px] text-muted-foreground">
-                      No PDV o operador informa o peso (ou lê a etiqueta da balança) e o preço é calculado por kg.
-                    </p>
-                  )}
-                </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <div>
-                    {/* O rótulo muda com a unidade: "Preço" num produto por peso é
-                        ambíguo entre preço do quilo e preço da peça. */}
-                    <Label>{form.vendido_por === 'kg' ? 'Preço por kg (R$) *' : 'Preço (R$) *'}</Label>
-                    <div className="relative mt-1.5">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
-                      <Input
-                        required type="number" step="0.01" min="0.01"
-                        value={form.preco} onChange={set('preco')} placeholder="0,00"
-                        className={cn(CAMPO_DRAWER, 'mt-0 pl-9')}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>
-                      Preço promocional
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
-                    </Label>
-                    <div className="relative mt-1.5">
-                      <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
-                      <Input
-                        type="number" step="0.01" min="0.01"
-                        value={form.preco_promocional} onChange={set('preco_promocional')} placeholder="—"
-                        className={cn(CAMPO_DRAWER, 'mt-0 pl-9')}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_160px]">
-                  <div>
-                    <Label>
-                      Código de barras
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
-                    </Label>
-                    <Input
-                      value={form.codigo_barras}
-                      onChange={e => setForm(f => ({ ...f, codigo_barras: e.target.value.replace(/\D/g, '') }))}
-                      inputMode="numeric"
-                      placeholder="7891234567890"
-                      className={cn(CAMPO_DRAWER, 'font-mono')}
-                      maxLength={20}
-                    />
-                    <p className="mt-1 text-[12.5px] text-muted-foreground">
-                      Permite bipar no PDV. Por peso, use o PLU da balança.
-                    </p>
-                    {/*
-                      Diz na hora do cadastro se o código vai ou não pra nota fiscal.
-                      Sem isso o lojista digita um EAN com um dígito errado, acha que
-                      cadastrou, e só descobre — se descobrir — que a NFC-e saiu como
-                      "SEM GTIN". Não bloqueia: PLU de balança é código interno
-                      legítimo e não é um GTIN.
-                    */}
-                    {form.codigo_barras.trim() !== '' && (
-                      <p className={cn('mt-1 text-[12.5px]',
-                        gtinValido(form.codigo_barras) ? 'text-emerald-600' : 'text-amber-600')}>
-                        {gtinValido(form.codigo_barras)
-                          ? '✓ EAN válido — vai na nota fiscal como código do produto.'
-                          : 'Não é um EAN válido (dígito verificador não fecha). Serve pra bipar no PDV, '
-                            + 'mas a nota sai como “SEM GTIN”.'}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <Label>
-                      Serve pessoas
-                      <span className="ml-1 text-xs font-normal text-muted-foreground">(opc.)</span>
-                    </Label>
-                    <Input
-                      type="number" min="1" max="20"
-                      value={form.serve_pessoas} onChange={set('serve_pessoas')} placeholder="Ex.: 2"
-                      className={CAMPO_DRAWER}
-                    />
-                  </div>
-                </div>
-              </SecaoDrawer>
-
-              {/*
-                DISPONIBILIDADE COMO LINHAS COM INTERRUPTOR, não chips.
-                Chip comunica "filtro/opção selecionável"; interruptor comunica
-                "ligado/desligado". Eram três controles de estado com três aparências
-                diferentes (dois ícones de toggle e uma estrela solta num card cinza),
-                e cada um exigia decifrar o que estava ativo.
-              */}
-              <SecaoDrawer titulo="Disponibilidade">
-                <div className="divide-y divide-border/70 rounded-xl border border-border">
+                {/*
+                  DISPONIBILIDADE COMO LINHAS COM INTERRUPTOR, não chips: chip comunica
+                  "filtro selecionável", interruptor comunica "ligado/desligado". Eram
+                  três controles de estado com três aparências diferentes (dois ícones
+                  de toggle e uma estrela solta num card cinza).
+                */}
+                <RotuloSecao>Disponibilidade</RotuloSecao>
+                <div className="-mx-1 space-y-1">
                   <LinhaInterruptor
                     titulo="Disponível para venda"
                     descricao="Aparece no cardápio e no PDV"
@@ -647,89 +503,251 @@ export function ProdutosLoja() {
                   />
                   <LinhaInterruptor
                     titulo="Controlar estoque"
-                    descricao="Esgota sozinho quando a quantidade zera"
+                    descricao="Esgota sozinho quando zera"
                     ativo={form.controla_estoque}
                     onAlternar={() => setForm(f => ({ ...f, controla_estoque: !f.controla_estoque }))}
                   >
                     {form.controla_estoque && (
-                      <div className="mt-3 w-44">
+                      <div className="mt-3">
                         <Label>Quantidade disponível</Label>
                         <Input
                           type="number" min="0" step="1"
                           value={form.estoque} onChange={set('estoque')} placeholder="Ex.: 20"
-                          className={CAMPO_DRAWER}
+                          className={CAMPO_MODAL}
                         />
                         <p className="mt-1 text-[12.5px] text-muted-foreground">
-                          Baixa automática a cada pedido. Em 0, aparece como “Esgotado”.
+                          Baixa a cada pedido. Em 0, aparece como “Esgotado”.
                         </p>
                       </div>
                     )}
                   </LinhaInterruptor>
                 </div>
-              </SecaoDrawer>
+              </div>
 
-              {/* Dados fiscais colapsados: já vêm com padrão seguro, e quem não
-                  emite nota não deve tropeçar em NCM/CFOP pra cadastrar um lanche. */}
-              <div className="rounded-xl border border-border">
-                <button
-                  type="button"
-                  onClick={() => setMostrarFiscal(v => !v)}
-                  className="flex w-full items-center gap-2.5 p-4 text-left"
-                >
-                  <FileText className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="flex-1 text-sm font-semibold">Dados fiscais (NFC-e)</span>
-                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                    Opcional
-                  </span>
-                  <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', mostrarFiscal && 'rotate-180')} />
-                </button>
-                {mostrarFiscal && (
-                  <div className="grid grid-cols-2 gap-3 border-t border-border px-4 pb-4 pt-4 sm:grid-cols-3">
-                    {([
-                      ['NCM', form.ncm, (v: string) => setForm(f => ({ ...f, ncm: v.replace(/\D/g, '').slice(0, 8) })), 8, '21069090'],
-                      ['CFOP', form.cfop, (v: string) => setForm(f => ({ ...f, cfop: v.replace(/\D/g, '').slice(0, 4) })), 4, '5102'],
-                      ['CSOSN', form.csosn, (v: string) => setForm(f => ({ ...f, csosn: v.replace(/\D/g, '').slice(0, 3) })), 3, '102'],
-                      ['Origem', form.origem, (v: string) => setForm(f => ({ ...f, origem: v.replace(/\D/g, '').slice(0, 1) })), 1, '0'],
-                      ['Unidade', form.unidade_comercial, (v: string) => setForm(f => ({ ...f, unidade_comercial: v.toUpperCase().slice(0, 6) })), 6, 'UN'],
-                      ['CEST', form.cest, (v: string) => setForm(f => ({ ...f, cest: v.replace(/\D/g, '').slice(0, 7) })), 7, '—'],
-                    ] as Array<[string, string, (v: string) => void, number, string]>).map(([rotulo, valor, aoMudar, max, dica]) => (
-                      <div key={rotulo}>
-                        <Label>{rotulo}</Label>
+              {/* ── Direita: dados do produto ── */}
+              <div className="px-6 py-7 lg:overflow-y-auto lg:px-9 lg:py-8">
+                <section>
+                  <RotuloSecao>Produto</RotuloSecao>
+                  <div>
+                    <Label htmlFor="campo-nome">Nome *</Label>
+                    <Input
+                      id="campo-nome"
+                      required
+                      value={form.nome}
+                      onChange={set('nome')}
+                      placeholder="Ex.: X-Burguer Especial"
+                      className={CAMPO_MODAL}
+                    />
+                  </div>
+                  <div className="mt-4">
+                    <Label>
+                      Descrição
+                      <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
+                    </Label>
+                    <textarea
+                      value={form.descricao}
+                      onChange={set('descricao')}
+                      rows={2}
+                      placeholder="Ingredientes, tamanho, detalhes que ajudam o cliente a escolher…"
+                      className="mt-1.5 w-full resize-none rounded-[10px] border border-input bg-background px-3.5 py-2.5 text-[15.5px] transition-colors placeholder:text-muted-foreground focus-visible:border-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-primary/[0.14]"
+                    />
+                  </div>
+                  <div className="mt-4 space-y-4">
+                    <SeletorChips
+                      label="Categoria"
+                      obrigatorio
+                      valor={form.categoria}
+                      opcoes={categoriasExistentes}
+                      onChange={v => setForm(f => ({ ...f, categoria: v }))}
+                      placeholderNovo="Ex.: Lanches, Bebidas, Sobremesas…"
+                      rotuloNovo="Nova categoria"
+                    />
+                    <SeletorChips
+                      label="Subcategoria"
+                      valor={form.subcategoria}
+                      opcoes={subcategoriasDaCategoria}
+                      onChange={v => setForm(f => ({ ...f, subcategoria: v }))}
+                      placeholderNovo="Ex.: Especiais, Veganos…"
+                      rotuloNovo="Nova subcategoria"
+                      dica={form.categoria ? undefined : 'Escolha uma categoria primeiro'}
+                    />
+                  </div>
+                </section>
+
+                <div className="my-[26px] h-px bg-border" />
+
+                <section>
+                  <RotuloSecao>Preço e venda</RotuloSecao>
+                  {/* SEGMENTED CONTROL: duas opções exclusivas do mesmo atributo. O
+                      trilho com a ativa em branco diz isso sem precisar de rótulo. */}
+                  <div>
+                    <Label>Como é vendido?</Label>
+                    <div className="mt-1.5 flex rounded-xl bg-muted p-1">
+                      {([['un', 'Por unidade'], ['kg', 'Por peso (kg)']] as const).map(([v, txt]) => (
+                        <button
+                          key={v}
+                          type="button"
+                          onClick={() => setForm(f => ({ ...f, vendido_por: v }))}
+                          className={cn(
+                            'h-10 flex-1 rounded-lg text-sm font-semibold transition-all',
+                            form.vendido_por === v
+                              ? 'bg-background text-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground',
+                          )}
+                        >
+                          {txt}
+                        </button>
+                      ))}
+                    </div>
+                    {form.vendido_por === 'kg' && (
+                      <p className="mt-1.5 text-[12.5px] text-muted-foreground">
+                        No PDV o operador informa o peso (ou lê a etiqueta da balança) e o preço é calculado por kg.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3">
+                    <div>
+                      {/* O rótulo muda com a unidade: "Preço" num produto por peso é
+                          ambíguo entre o preço do quilo e o da peça. */}
+                      <Label>{form.vendido_por === 'kg' ? 'Preço por kg (R$) *' : 'Preço (R$) *'}</Label>
+                      <div className="relative mt-1.5">
+                        <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
                         <Input
-                          value={valor}
-                          onChange={e => aoMudar(e.target.value)}
-                          maxLength={max}
-                          placeholder={dica}
-                          className={cn(CAMPO_DRAWER, 'font-mono')}
+                          required type="number" step="0.01" min="0.01"
+                          value={form.preco} onChange={set('preco')} placeholder="0,00"
+                          className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
                         />
                       </div>
-                    ))}
-                    <p className="col-span-2 text-[12.5px] text-muted-foreground sm:col-span-3">
-                      Já vem com valores padrão genéricos. Se seu contador pedir códigos específicos, ajuste aqui.
-                    </p>
+                    </div>
+                    <div>
+                      <Label>
+                        Preço promocional
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
+                      </Label>
+                      <div className="relative mt-1.5">
+                        <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
+                        <Input
+                          type="number" step="0.01" min="0.01"
+                          value={form.preco_promocional} onChange={set('preco_promocional')} placeholder="—"
+                          className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
+                        />
+                      </div>
+                    </div>
                   </div>
-                )}
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_180px]">
+                    <div>
+                      <Label>
+                        Código de barras
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
+                      </Label>
+                      <Input
+                        value={form.codigo_barras}
+                        onChange={e => setForm(f => ({ ...f, codigo_barras: e.target.value.replace(/\D/g, '') }))}
+                        inputMode="numeric"
+                        placeholder="7891234567890"
+                        className={cn(CAMPO_MODAL, 'font-mono')}
+                        maxLength={20}
+                      />
+                      <p className="mt-1 text-[12.5px] text-muted-foreground">
+                        Permite bipar no PDV. Por peso, use o PLU da balança.
+                      </p>
+                      {/*
+                        Diz na hora do cadastro se o código vai ou não pra nota fiscal.
+                        Sem isso o lojista digita um EAN com um dígito errado, acha que
+                        cadastrou, e só descobre — se descobrir — que a NFC-e saiu como
+                        "SEM GTIN". Não bloqueia: PLU de balança é código interno
+                        legítimo e não é um GTIN.
+                      */}
+                      {form.codigo_barras.trim() !== '' && (
+                        <p className={cn('mt-1 text-[12.5px]',
+                          gtinValido(form.codigo_barras) ? 'text-emerald-600' : 'text-amber-600')}>
+                          {gtinValido(form.codigo_barras)
+                            ? '✓ EAN válido — vai na nota fiscal como código do produto.'
+                            : 'Não é um EAN válido (dígito verificador não fecha). Serve pra bipar no PDV, '
+                              + 'mas a nota sai como “SEM GTIN”.'}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <Label>
+                        Serve pessoas
+                        <span className="ml-1 text-xs font-normal text-muted-foreground">(opc.)</span>
+                      </Label>
+                      <Input
+                        type="number" min="1" max="20"
+                        value={form.serve_pessoas} onChange={set('serve_pessoas')} placeholder="Ex.: 2"
+                        className={CAMPO_MODAL}
+                      />
+                    </div>
+                  </div>
+                </section>
+
+                <div className="my-[26px] h-px bg-border" />
+
+                {/* Fiscal colapsado: já vem com padrão seguro, e quem não emite nota
+                    não deve tropeçar em NCM/CFOP pra cadastrar um lanche. */}
+                <div className="rounded-xl border border-border">
+                  <button
+                    type="button"
+                    onClick={() => setMostrarFiscal(v => !v)}
+                    className="flex w-full items-center gap-2.5 p-4 text-left"
+                  >
+                    <FileText className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="flex-1 text-sm font-semibold">Dados fiscais (NFC-e)</span>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                      Opcional
+                    </span>
+                    <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', mostrarFiscal && 'rotate-180')} />
+                  </button>
+                  {mostrarFiscal && (
+                    <div className="grid grid-cols-2 gap-3 border-t border-border p-4 sm:grid-cols-3">
+                      {([
+                        ['NCM', form.ncm, (v: string) => setForm(f => ({ ...f, ncm: v.replace(/\D/g, '').slice(0, 8) })), 8, '21069090'],
+                        ['CEST', form.cest, (v: string) => setForm(f => ({ ...f, cest: v.replace(/\D/g, '').slice(0, 7) })), 7, '—'],
+                        ['CFOP', form.cfop, (v: string) => setForm(f => ({ ...f, cfop: v.replace(/\D/g, '').slice(0, 4) })), 4, '5102'],
+                        ['CSOSN', form.csosn, (v: string) => setForm(f => ({ ...f, csosn: v.replace(/\D/g, '').slice(0, 3) })), 3, '102'],
+                        ['Origem', form.origem, (v: string) => setForm(f => ({ ...f, origem: v.replace(/\D/g, '').slice(0, 1) })), 1, '0'],
+                        ['Unidade', form.unidade_comercial, (v: string) => setForm(f => ({ ...f, unidade_comercial: v.toUpperCase().slice(0, 6) })), 6, 'UN'],
+                      ] as Array<[string, string, (v: string) => void, number, string]>).map(([rotulo, valor, aoMudar, max, dica]) => (
+                        <div key={rotulo}>
+                          <Label>{rotulo}</Label>
+                          <Input
+                            value={valor}
+                            onChange={e => aoMudar(e.target.value)}
+                            maxLength={max}
+                            placeholder={dica}
+                            className={cn(CAMPO_MODAL, 'h-11 font-mono')}
+                          />
+                        </div>
+                      ))}
+                      <p className="col-span-2 text-[12.5px] text-muted-foreground sm:col-span-3">
+                        Já vem com valores padrão genéricos. Se seu contador pedir códigos específicos, ajuste aqui.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
             {/*
-              ─── Footer FIXO ───
-              É a diferença prática do drawer: no card inline o botão de salvar
-              descia junto com o formulário e, num cadastro longo, saía da tela
-              justo na hora de usar.
+              ─── Footer fixo ───
+              É a diferença prática: no card inline o salvar descia com o formulário e,
+              num cadastro longo, saía da tela justo na hora de usar.
             */}
-            <SheetFooter className="flex flex-row items-center justify-between gap-3 border-t p-4">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-[18px] sm:px-8">
               <Button type="button" variant="ghost" onClick={() => setEditando(null)} disabled={enviando}>
                 Cancelar
               </Button>
               <div className="flex items-center gap-2">
-                {/* "Salvar e criar outro" existe porque cadastro de cardápio é
-                    trabalho em lote: são 30 itens numa sentada, e reabrir o drawer
-                    a cada um dobra o número de cliques. */}
+                {/* "Salvar e criar outro": cadastro de cardápio é trabalho em lote —
+                    são 30 itens numa sentada, e reabrir o modal a cada um dobra os
+                    cliques. */}
                 <Button
                   type="submit"
                   variant="outline"
-                  className="h-[46px] rounded-[10px]"
+                  className="h-12 rounded-[10px]"
                   disabled={enviando}
                   onClick={() => { criarOutroRef.current = true; }}
                 >
@@ -737,7 +755,7 @@ export function ProdutosLoja() {
                 </Button>
                 <Button
                   type="submit"
-                  className="h-[46px] rounded-[10px]"
+                  className="h-12 rounded-[10px] px-[30px]"
                   loading={enviando}
                   loadingText="Salvando…"
                   onClick={() => { criarOutroRef.current = false; }}
@@ -745,10 +763,11 @@ export function ProdutosLoja() {
                   {editando === 'novo' ? 'Criar produto' : 'Salvar alterações'}
                 </Button>
               </div>
-            </SheetFooter>
+            </div>
           </form>
-        </SheetContent>
-      </Sheet>
+        </ModalConteudo>
+      </Modal>
+
 
 
       {/* ── Loading ── */}
@@ -801,23 +820,20 @@ export function ProdutosLoja() {
 
 /* ─────────────────────── seletor de chips (categoria/subcategoria) ──────────────────────── */
 /**
- * Altura e canto dos campos do drawer, num lugar só.
+ * Altura e canto dos campos do modal, num lugar só.
  *
  * O foco sobrescreve o padrão do `Input` (anel de 2px na cor `ring`, com offset) por
- * borda na cor da marca + anel de 3px translúcido sem offset: offset abre um vão
- * branco entre borda e anel, que num formulário com muitos campos lado a lado fica
- * visível como falha de alinhamento.
+ * borda na cor da marca + anel de 3px translúcido sem offset: offset abre um vão branco
+ * entre borda e anel, que num formulário com muitos campos lado a lado aparece como
+ * falha de alinhamento.
  */
-const CAMPO_DRAWER = 'mt-1.5 h-[46px] rounded-[10px] text-[15px] shadow-none '
-  + 'focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/15 focus-visible:ring-offset-0';
+const CAMPO_MODAL = 'mt-1.5 h-12 rounded-[10px] px-3.5 text-[15.5px] shadow-none '
+  + 'focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/[0.14] focus-visible:ring-offset-0';
 
-/** Seção do drawer: rótulo em caixa alta pequena + divisor acima (menos na primeira). */
-function SecaoDrawer({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+/** Rótulo de seção: caixa alta pequena, o suficiente pra agrupar sem virar título. */
+function RotuloSecao({ children }: { children: React.ReactNode }) {
   return (
-    <section className="mb-7 border-t border-border pt-6 first:mt-0 first:border-t-0 first:pt-0">
-      <h4 className="mb-3 text-[12px] font-bold uppercase tracking-wider text-muted-foreground">{titulo}</h4>
-      {children}
-    </section>
+    <h4 className="mb-3 text-[12px] font-bold uppercase tracking-wider text-muted-foreground">{children}</h4>
   );
 }
 
