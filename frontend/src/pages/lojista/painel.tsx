@@ -1226,106 +1226,122 @@ function LoginLojista() {
     /*
      * TUDO EM `--primary`, NENHUM LARANJA FIXO. O layout veio laranja, mas laranja é
      * a cor DESTE tenant: este mesmo arquivo serve todo cliente white-label, e cor
-     * cravada aqui pintaria de laranja o login de quem escolheu roxo. Mesmo motivo
-     * pelo qual o verde do WhatsApp É fixo lá embaixo — aquele é marca de outra
-     * empresa, não de quem está usando o sistema.
+     * cravada aqui pintaria de laranja o login de quem escolheu roxo. (O verde do
+     * WhatsApp É fixo lá embaixo — aquele é marca de outra empresa, não de quem usa
+     * o sistema.)
+     *
+     * COMPOSIÇÃO CENTRALIZADA E LIMITADA (`max-w`), não duas colunas esticando até a
+     * borda. A primeira tentativa fez isso e em monitor largo virou um vazio no meio
+     * da tela com o card empurrado pro canto: coluna de 48% cheia de ar, porque o
+     * conteúdo dela é pequeno e não cresce junto. Logo e rodapé ficam ancorados nos
+     * cantos da PÁGINA; o miolo (frase + mascote | formulário) é uma grade centrada.
      */
-    <div className="relative flex min-h-dvh overflow-hidden bg-background">
-      {/*
-        Tinta quente no fundo inteiro, no lugar da metade colorida do desenho
-        anterior. Gradiente e não cor plana: cor plana clara no lado esquerdo faria o
-        card branco da direita desaparecer, e é ele que tem que ser o foco.
-      */}
+    <div className="relative min-h-dvh overflow-hidden bg-background">
+      {/* Tinta quente no fundo. Gradiente e não cor plana: cor clara plana faria o
+          card da direita desaparecer, e é ele que tem que ser o foco. */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/[0.07] via-background to-primary/[0.04]" />
 
-      {/* ── Lado da marca (só desktop: em tela estreita o formulário é tudo) ── */}
-      <div className="relative hidden w-[48%] shrink-0 flex-col justify-between p-10 lg:flex xl:p-14">
-        {/*
-          TEXTURA em dois retalhos, não no fundo todo: ponto por toda a área compete
-          com o texto e deixa a tela suja. Em retalho, ela preenche o vazio ao lado
-          do mascote e some onde há leitura.
-        */}
-        {[
-          { classe: 'right-[18%] top-10 size-40' },
-          { classe: 'left-4 bottom-[26%] size-32' },
-        ].map(p => (
-          <div
-            key={p.classe}
-            aria-hidden="true"
-            className={cn('pointer-events-none absolute text-primary/25', p.classe)}
-            style={{
-              backgroundImage: 'radial-gradient(currentColor 1.5px, transparent 1.5px)',
-              backgroundSize: '16px 16px',
-            }}
-          />
+      {/* Arcos do canto — bem fracos, só pra o canto não ficar morto. */}
+      <div className="pointer-events-none absolute -right-40 -top-40 hidden lg:block" aria-hidden="true">
+        {[0, 1, 2].map(i => (
+          <div key={i} className="absolute rounded-full border border-primary/[0.12]"
+            style={{ width: 380 + i * 150, height: 380 + i * 150, right: 0, top: 0 }} />
         ))}
+      </div>
 
-        {/* Círculos atrás do mascote: dão um "chão" pra ele em vez de flutuar solto. */}
-        <div className="pointer-events-none absolute bottom-[12%] left-[24%] hidden xl:block" aria-hidden="true">
-          {[0, 1].map(i => (
-            <div key={i} className="absolute rounded-full border border-primary/10"
-              style={{ width: 300 + i * 130, height: 300 + i * 130, left: i * -65, top: i * -65 }} />
-          ))}
-        </div>
-
-        {/*
-          MASCOTE atrás do texto (`z-0`), e o texto com `z-10`: se a frase passar por
-          cima do ombro dele em alguma largura, quem vence é a frase.
-
-          `onError` cai no mascote antigo — enquanto o avatar novo não estiver na
-          pasta, a tela mostra o de sempre em vez de um ícone de imagem quebrada.
-        */}
-        <img
-          src="/mascote/avatar.png"
-          onError={e => { (e.currentTarget as HTMLImageElement).src = '/mascote/mascote.png'; }}
-          alt="" aria-hidden="true" draggable={false}
-          className="pointer-events-none absolute bottom-0 left-[14%] z-0 hidden w-[76%] max-w-[420px] select-none object-contain object-bottom xl:block"
-        />
-
-        <div className="relative z-10 flex items-center gap-3">
+      {/*
+        LOGO E RODAPÉ ALINHADOS COM O TÍTULO, não com a borda da janela.
+        Medindo em 1920px: presos no canto da página eles ficavam em x=40 enquanto o
+        título começava em x=330 (o miolo tem teto de largura e é centrado) — três
+        elementos em três alinhamentos diferentes. Repetir aqui o mesmo `max-w` e o
+        mesmo padding do miolo põe os três na mesma coluna em qualquer largura.
+      */}
+      <div className="pointer-events-none absolute inset-x-0 top-6 z-20 hidden sm:top-8 lg:block">
+        <div className="mx-auto flex max-w-[1340px] items-center gap-3 px-6 sm:px-10">
           <div className="flex size-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/25">
             <Store className="size-5" strokeWidth={2.5} />
           </div>
           <span className="text-lg font-extrabold">Painel do lojista</span>
         </div>
+      </div>
 
-        <div className="relative z-10">
-          <h2 className="text-4xl font-black leading-[1.08] tracking-tight xl:text-5xl">
-            Sua loja,<br />seus pedidos,<br />
-            {/* Terceira linha na cor da marca: fecha a frase e marca a hierarquia sem
-                precisar de outro tamanho de fonte. */}
-            <span className="text-primary">seu controle.</span>
-          </h2>
-          {/* Traço curto no lugar do parágrafo e dos cards de recurso que havia aqui:
-              tela de login é pra entrar, não pra vender o produto a quem já comprou. */}
-          <div className="mt-5 h-1.5 w-12 rounded-full bg-primary" />
-        </div>
-
-        <div className="relative z-10 text-xs text-muted-foreground">
+      <div className="pointer-events-none absolute inset-x-0 bottom-6 z-20 hidden lg:block">
+        <div className="mx-auto max-w-[1340px] px-6 text-xs text-muted-foreground sm:px-10">
           © {new Date().getFullYear()} — <span className="font-semibold text-primary">sistema de delivery</span>
         </div>
       </div>
 
-      {/* ── Formulário ── */}
-      <div className="relative flex flex-1 items-center justify-center overflow-hidden px-4 py-10 sm:px-6">
-        {/* Círculos concêntricos de canto: decoração que não rouba contraste do card. */}
-        <div className="pointer-events-none absolute -right-32 -top-32 hidden lg:block" aria-hidden="true">
-          {[0, 1, 2].map(i => (
-            <div
-              key={i}
-              className="absolute rounded-full border border-primary/15"
-              style={{ width: 260 + i * 110, height: 260 + i * 110, right: 0, top: 0 }}
+      {/* Miolo: grade de duas colunas, centrada, com teto de largura. */}
+      <div className="relative mx-auto grid min-h-dvh w-full max-w-[1340px] items-center gap-10 px-6 py-24 sm:px-10 lg:grid-cols-[1fr_28rem] lg:py-10">
+        {/* ── Frase + mascote ── */}
+        <div className="relative hidden h-full items-center lg:flex">
+          {/*
+            Pontinhos embaixo da frase, à esquerda — onde o desenho os põe, e onde não
+            atravessam leitura nenhuma.
+          */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-[16%] left-0 size-32 text-primary/25"
+            style={{
+              backgroundImage: 'radial-gradient(currentColor 1.5px, transparent 1.5px)',
+              backgroundSize: '16px 16px',
+            }}
+          />
+
+          {/*
+            FRASE E MASCOTE COMO IRMÃOS NUMA LINHA, não o mascote solto em `absolute`.
+            Foi assim na tentativa anterior e ele atravessou o título: medindo, o
+            mascote começava em x=249 e o título ia até x=444. Posição absoluta em
+            porcentagem depende da largura da janela E do quanto de área transparente
+            a imagem tem em volta — dois valores que eu não controlo, então a
+            sobreposição voltava em alguma largura.
+
+            Em linha com `items-end`, a colisão é impossível por construção: o texto
+            ocupa a coluna dele, o mascote a dele, e os dois se alinham pelo rodapé.
+          */}
+          <div className="flex h-full w-full items-end gap-2">
+            {/* Texto no ALTO e mascote no rodapé, como no desenho — não os dois
+                alinhados embaixo, que punha a frase na altura dos pés dele.
+                Largura fixa: deixar o texto flexível fazia ele roubar espaço do
+                mascote conforme a janela, e o mascote é o que dá a cara da tela. */}
+            <div className="relative z-10 w-[17rem] shrink-0 self-start pt-[16%] xl:w-[20rem] xl:pt-[18%]">
+              <h2 className="text-[2.1rem] font-black leading-[1.05] tracking-tight xl:text-[2.9rem]">
+                Sua loja,<br />seus pedidos,<br />
+                {/* Terceira linha na cor da marca: fecha a frase e cria hierarquia
+                    sem precisar de outro tamanho de fonte. */}
+                <span className="text-primary">seu controle.</span>
+              </h2>
+              {/* Traço curto no lugar do parágrafo e dos cards de recurso que havia
+                  aqui: tela de login é pra entrar, não pra vender a quem já comprou. */}
+              <div className="mt-6 h-1.5 w-14 rounded-full bg-primary" />
+            </div>
+
+            {/*
+              `-ml-8` deixa o mascote encostar no texto sem invadir: a margem negativa
+              come só o vazio transparente da borda da imagem. `min-w-0` pra ele ceder
+              largura primeiro quando a janela aperta — o texto é que não pode quebrar.
+
+              `onError` cai no mascote antigo: enquanto o avatar novo não estiver na
+              pasta, aparece o de sempre em vez de ícone de imagem quebrada.
+            */}
+            <img
+              src="/mascote/avatar.png"
+              onError={e => { (e.currentTarget as HTMLImageElement).src = '/mascote/mascote.png'; }}
+              alt="" aria-hidden="true" draggable={false}
+              className="pointer-events-none -ml-6 h-[72%] w-auto max-w-none select-none self-end object-contain object-bottom xl:h-[80%]"
             />
-          ))}
+          </div>
         </div>
 
-        {/*
-          CARD ELEVADO em vez do formulário solto no fundo. Numa tela dividida, o
-          formulário sem moldura fica "colado" na metade colorida; a moldura o
-          transforma no objeto em foco. `bg-card` e não branco fixo, senão o tema
-          escuro ganha um retângulo branco no meio.
-        */}
-        <div className="relative w-full max-w-md rounded-3xl border border-border/60 bg-card p-6 shadow-xl shadow-black/5 sm:p-9">
+        {/* ── Formulário ──
+            CARD ELEVADO em vez do formulário solto no fundo: sem moldura ele fica
+            "boiando" no gradiente; a moldura o transforma no objeto em foco. `bg-card`
+            e não branco fixo, senão o tema escuro ganha um retângulo branco no meio.
+
+            `lg:justify-self-end` + `max-w-md`: no desktop o card encosta à direita da
+            grade (como no desenho) e no mobile fica centrado, porque aí ele é a tela
+            inteira. */}
+        <div className="relative mx-auto w-full max-w-md rounded-3xl border border-border/60 bg-card p-6 shadow-xl shadow-black/5 sm:p-9 lg:mx-0 lg:justify-self-end">
           <div className="mb-7">
             <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30 lg:hidden">
               <Store className="size-7 text-primary-foreground" strokeWidth={2.5} />
