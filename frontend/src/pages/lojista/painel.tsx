@@ -1341,12 +1341,13 @@ function LoginLojista() {
         trocado. Com teto de largura, o pior caso é ele aparecer um pouco menor;
         sem teto, o pior caso é ele cobrir o campo de senha.
 
-        `onError` cai no mascote antigo: enquanto o avatar novo não estiver na pasta,
-        aparece o de sempre em vez de ícone de imagem quebrada.
+        Aponta direto pro arquivo que EXISTE. Antes pedia `avatar.png` e caía em
+        `mascote.png` no `onError`: funcionava, mas gastava uma requisição 404 em toda
+        carga da tela e sujava o console — o mesmo tipo de ruído do /favicon.ico. Pra
+        trocar a arte, é este `src` e nada mais.
       */}
       <img
-        src="/mascote/avatar.png"
-        onError={e => { (e.currentTarget as HTMLImageElement).src = '/mascote/mascote.png'; }}
+        src="/mascote/mascote.png"
         alt="" aria-hidden="true" draggable={false}
         className="pointer-events-none absolute bottom-0 left-[28%] z-20 hidden h-[86%] max-h-[760px] w-auto max-w-[33%] select-none object-contain object-bottom lg:block"
       />
