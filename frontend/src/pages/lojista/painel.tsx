@@ -1264,6 +1264,23 @@ function LoginLojista() {
       gsap.from('[data-anim="campo"]', {
         y: 18, opacity: 0, duration: 0.55, ease: 'power3.out', stagger: 0.07, delay: 0.25,
       });
+      /*
+       * O BOTÃO DE ENVIAR ANIMA SÓ A POSIÇÃO, NUNCA A OPACIDADE.
+       *
+       * `gsap.from` com opacity esconde o elemento e conta com o tween TERMINAR pra
+       * revelá-lo. Se um frame não chega — aba em segundo plano, carga pesada,
+       * `requestAnimationFrame` estrangulado —, o elemento fica parado no estado
+       * inicial. Foi o que aconteceu: o botão ficou com `opacity: 0;
+       * transform: translate(0px, 18px)` no estilo inline e o lojista viu um buraco
+       * onde devia estar "Entrar".
+       *
+       * Num texto decorativo isso é um defeito visual. No botão que ENVIA O
+       * FORMULÁRIO é a tela inteira inutilizada. Animando só `y`, a pior falha
+       * possível é ele aparecer 18px fora do lugar — e clicável.
+       *
+       * Delay 0.67 = 0.25 + 0.07×6, a posição que ele teria no stagger dos campos.
+       */
+      gsap.from('[data-anim="botao"]', { y: 18, duration: 0.55, ease: 'power3.out', delay: 0.67 });
     }, escopo);
     return () => ctx.revert();
   }, []);
@@ -1311,7 +1328,7 @@ function LoginLojista() {
           código faria a marca da Unimaxx aparecer no login de todos os clientes —
           o oposto do white-label. Sem logo cadastrado, cai num selo com o nome.
         */}
-        <div className="relative" data-anim="logo">
+        <div className="relative z-10" data-anim="logo">
           {marca.logo_url ? (
             <img src={marca.logo_url} alt={marca.nome} className="h-11 w-auto object-contain" draggable={false} />
           ) : (
@@ -1324,7 +1341,7 @@ function LoginLojista() {
           )}
         </div>
 
-        <div className="relative">
+        <div className="relative z-10">
           {/*
             Título dividido POR PALAVRA em spans `inline-block`, montados no JSX e não
             por manipulação de DOM: o GSAP anima cada palavra, e transform só funciona
@@ -1364,16 +1381,21 @@ function LoginLojista() {
           </ul>
         </div>
 
-        <div className="relative text-xs text-white/60" data-anim="apoio">
+        <div className="relative z-10 text-xs text-white/60" data-anim="apoio">
           © {new Date().getFullYear()} — sistema de delivery
         </div>
 
-        {/* Mascote sem animação: ele é o elemento mais pesado da tela, e movimento
-            nele puxa o olho pra longe do formulário, que é o que importa aqui. */}
+        {/*
+          Mascote sem animação: é o elemento mais pesado da tela, e movimento nele puxa
+          o olho pra longe do formulário.
+
+          `z-0` com o texto em `z-10`: como último filho do painel, ele pintava POR CIMA
+          das linhas de benefício e cortava as frases no meio ("...sem outro si").
+        */}
         <img
-          src="/mascote/mascote.png"
+          src="/mascote/avatar.png"
           alt="" aria-hidden="true" draggable={false}
-          className="pointer-events-none absolute select-none object-contain"
+          className="pointer-events-none absolute z-0 select-none object-contain"
           style={{ right: '-11%', bottom: '-1%', width: '70%', maxWidth: '600px' }}
         />
       </div>
@@ -1460,15 +1482,19 @@ function LoginLojista() {
               </Link>
             </div>
 
-            <Button
-              type="submit"
-              className="h-[52px] w-full rounded-[10px] text-base font-bold hover:brightness-95"
-              loading={enviando}
-              loadingText="Entrando…"
-              data-anim="campo"
-            >
-              Entrar
-            </Button>
+            {/* Wrapper pro GSAP não escrever estilo inline no próprio <button>: ele
+                tem `transition-all` do variante, e transição CSS disputando com
+                animação JS na mesma propriedade é fonte de estado preso. */}
+            <div data-anim="botao">
+              <Button
+                type="submit"
+                className="h-[52px] w-full rounded-[10px] text-base font-bold hover:brightness-95"
+                loading={enviando}
+                loadingText="Entrando…"
+              >
+                Entrar
+              </Button>
+            </div>
           </form>
 
           <div className="my-6 flex items-center gap-3" data-anim="campo">
