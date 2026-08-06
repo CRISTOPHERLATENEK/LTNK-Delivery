@@ -264,32 +264,49 @@ export function decidirVinculo(
     };
   }
 
+  /*
+   * E-MAIL NÃO VERIFICADO → SEMPRE A MESMA RESPOSTA, exista conta aqui ou não.
+   *
+   * A mensagem específica ("já existe uma conta com este e-mail" contra "o
+   * provedor não confirmou seu e-mail") VAZAVA A EXISTÊNCIA DA CONTA. E aqui isso
+   * é grave de verdade, não teórico: e-mail não verificado significa que quem está
+   * do outro lado pode NÃO SER o dono do endereço — o Facebook nem sempre confirma
+   * —, então qualquer pessoa descobriria, um e-mail por vez, quem é cliente desta
+   * loja. Duas mensagens diferentes são um oráculo tão bom quanto uma que responde
+   * "sim".
+   *
+   * O caminho é o mesmo nos dois casos (entrar ou cadastrar com senha), então uma
+   * mensagem serve para ambos sem perder nada de utilidade. É a mesma decisão já
+   * tomada na mensagem de conflito do cadastro (rotas/autenticacao.ts).
+   */
+  if (!perfil.emailVerificado) {
+    return {
+      acao: 'recusar',
+      motivo: 'Não foi possível entrar com esse provedor porque ele não confirmou seu e-mail. '
+        + 'Entre com e-mail e senha, ou crie sua conta.',
+    };
+  }
+
   if (achados.porEmail) {
-    // Conta que JÁ EXISTE com este e-mail.
-    if (!perfil.emailVerificado) {
-      return {
-        acao: 'recusar',
-        motivo: 'Já existe uma conta com este e-mail, e o provedor não confirmou que o e-mail é seu. '
-          + 'Entre com e-mail e senha para acessá-la.',
-      };
-    }
-    // Só cliente entra por login social. Conta de lojista/entregador/admin tem
-    // 2FA e painel próprio; vincular Google a ela puliria o segundo fator.
+    /*
+     * Só cliente entra por login social. Conta de lojista/entregador/admin tem 2FA
+     * e painel próprio; vincular Google a ela puliria o segundo fator.
+     *
+     * A MENSAGEM NÃO DIZ QUE É CONTA DA EQUIPE. Dizia antes, e revelar o CARGO por
+     * trás de um e-mail entrega estrutura da operação pra quem for atacar — quem
+     * sabe qual endereço é do dono da loja sabe em quem insistir. Aqui já sabemos
+     * que a pessoa é dona do e-mail (verificado acima), então "já está em uso" é
+     * seguro e é o que ela precisa pra saber o que fazer.
+     */
     if (achados.porEmail.perfil !== 'cliente') {
       return {
         acao: 'recusar',
-        motivo: 'Este e-mail pertence a uma conta da equipe. Entre pelo painel correspondente, com e-mail e senha.',
+        motivo: 'Este e-mail já está em uso. Entre com e-mail e senha.',
       };
     }
     return { acao: 'vincular', usuarioId: achados.porEmail.id };
   }
 
-  if (!perfil.emailVerificado) {
-    return {
-      acao: 'recusar',
-      motivo: 'O provedor não confirmou seu e-mail. Cadastre-se com e-mail e senha.',
-    };
-  }
   return { acao: 'criar' };
 }
 

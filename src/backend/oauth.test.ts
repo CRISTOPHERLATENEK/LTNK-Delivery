@@ -49,11 +49,24 @@ describe('decidirVinculo', () => {
   it('RECUSA vincular a conta existente quando o e-mail não é verificado', () => {
     const d = decidirVinculo(perfil({ emailVerificado: false }), { porEmail: { id: 4, perfil: 'cliente' } });
     expect(d.acao).toBe('recusar');
-    expect(d).toHaveProperty('motivo', expect.stringContaining('não confirmou'));
   });
 
   it('recusa criar conta com e-mail não verificado', () => {
     expect(decidirVinculo(perfil({ emailVerificado: false }), {}).acao).toBe('recusar');
+  });
+
+  /**
+   * ENUMERAÇÃO DE CONTAS: com e-mail NÃO verificado, quem está do outro lado pode
+   * não ser o dono do endereço. Se a mensagem mudasse conforme existir conta aqui,
+   * daria pra descobrir a clientela da loja um e-mail por vez — duas mensagens
+   * diferentes são um oráculo tão bom quanto uma que responde "sim".
+   */
+  it('dá a MESMA recusa com e-mail não verificado, exista conta ou não', () => {
+    const semConta = decidirVinculo(perfil({ emailVerificado: false }), {});
+    const comConta = decidirVinculo(perfil({ emailVerificado: false }), { porEmail: { id: 4, perfil: 'cliente' } });
+    const comEquipe = decidirVinculo(perfil({ emailVerificado: false }), { porEmail: { id: 4, perfil: 'lojista' } });
+    expect(semConta).toEqual(comConta);
+    expect(semConta).toEqual(comEquipe);
   });
 
   /** Lojista/admin têm 2FA; vincular Google puliria o segundo fator. */
@@ -62,6 +75,16 @@ describe('decidirVinculo', () => {
       const d = decidirVinculo(perfil(), { porEmail: { id: 4, perfil: p } });
       expect(d.acao, p).toBe('recusar');
     }
+  });
+
+  /**
+   * A mensagem não pode revelar o CARGO por trás do e-mail: quem descobre qual
+   * endereço é do dono da loja sabe em quem insistir.
+   */
+  it('não revela que a conta é da equipe', () => {
+    const d = decidirVinculo(perfil(), { porEmail: { id: 4, perfil: 'lojista' } });
+    expect(d).toHaveProperty('motivo', 'Este e-mail já está em uso. Entre com e-mail e senha.');
+    expect((d as { motivo: string }).motivo).not.toMatch(/equipe|lojista|admin|painel/i);
   });
 
   it('recusa quando o provedor não mandou e-mail', () => {
