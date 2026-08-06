@@ -38,8 +38,11 @@ export function useRetornoLoginSocial(onLogar: (u: UsuarioSessao) => void) {
         // Sempre `lembrar` no login social: quem escolheu não digitar senha não
         // deve ser obrigado a refazer isso em 12h.
         salvarSessao(r.token, r.usuario, 'cliente', true);
+        // SEM toast de boas-vindas aqui: quem chama `onLogar` já mostra um (ver
+        // `aoLogar` em pages/cliente/conta.tsx). Os dois juntos empilhavam duas
+        // caixas com a mesma frase, uma escrita "Bem-vindo(a)" e outra
+        // "Bem-vindo" — parecia bug de duplicação, e era.
         onLogar(r.usuario);
-        mostrar({ tipo: 'sucesso', titulo: `Bem-vindo, ${r.usuario.nome.split(' ')[0]}!` });
       })
       .catch(e => mostrar({ tipo: 'erro', titulo: e?.message || 'Não foi possível concluir o login.' }));
     // Só na montagem: o retorno chega uma vez, na carga da página.
