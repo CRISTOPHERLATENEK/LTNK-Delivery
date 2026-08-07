@@ -2986,7 +2986,20 @@ router.get('/mesas', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const mesas = await db.prepare(`
-      SELECT m.id, m.numero, m.status,
+      SELECT m.id, m.numero,
+             /*
+              * STATUS DERIVADO DA COMANDA, e não da coluna m.status.
+              *
+              * mesas.status é cache denormalizado, e cache sai de sincronia: bastou
+              * uma limpeza de vendas apagar as comandas pra cinco mesas ficarem
+              * "ocupada" sem comanda nenhuma. Na tela isso vira uma mesa que diz
+              * Ocupada, não abre painel (não há comanda pra mostrar) e não deixa
+              * excluir (o botão só aparece em mesa livre) -- travada, sem saída.
+              *
+              * A comanda aberta É a verdade sobre a mesa estar ocupada. Derivando
+              * aqui, qualquer divergência futura some da tela sozinha.
+              */
+             CASE WHEN c.id IS NULL THEN 'livre' ELSE 'ocupada' END AS status,
              c.id AS comanda_id,
              COALESCE(t.total_centavos, 0) AS comanda_total,
              c.aberto_em AS comanda_aberto_em,
@@ -3040,7 +3053,16 @@ router.post('/mesas/:id/abrir', async (req, res, next) => {
     const mesa = await db.prepare('SELECT id, status FROM mesas WHERE id = ? AND loja_id = ?')
       .get(req.params.id, loja.id) as { id: number; status: string } | undefined;
     if (!mesa) throw erroHttp(404, 'Mesa não encontrada.');
-    if (mesa.status === 'ocupada') throw erroHttp(409, 'Esta mesa já está ocupada.');
+    /*
+     * Recusa pela COMANDA, não pelo campo `status`. Confiando no campo, uma mesa
+     * marcada `ocupada` sem comanda (cache dessincronizado) ficava impossível de
+     * abrir: a tela mostrava livre, o clique pedia abrir e o servidor respondia
+     * "já está ocupada" — sem caminho nenhum pra sair disso.
+     */
+    const comandaAberta = await db.prepare(
+      "SELECT id FROM comandas WHERE mesa_id = ? AND status = 'aberta' LIMIT 1"
+    ).get(mesa.id) as { id: number } | undefined;
+    if (comandaAberta) throw erroHttp(409, 'Esta mesa já está ocupada.');
 
     const comandaId = await comTransacao(async (tx) => {
       const info = await tx.prepare(
