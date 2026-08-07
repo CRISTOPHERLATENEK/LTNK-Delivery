@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, encerrarSessao } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { brl } from '@/lib/format';
+import { brl, dataLocal, tempoRelativo } from '@/lib/format';
 import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import { AreasEntrega } from './areas-entrega';
 import type { DiaHorario, Loja } from '@/types';
@@ -781,15 +781,79 @@ interface EstadoPagamentos {
   /** Esta loja tem conta ONZ PRÓPRIA (dinheiro cai direto nela)? */
   onz_conta_propria: boolean;
   onz_client_id_mascarado: string | null;
+  /** Client ID inteiro — identificador, não segredo (o secret nunca volta). */
+  onz_client_id: string;
   /** Loja tem conta PRÓPRIA de Mercado Pago no modo ATIVO (recebedor do cartão). */
   cartao_online_ativo: boolean;
   onz_pix_key: string;
+  /** Datas do 1º e do último pedido pago online — alimentam a linha do banner. */
+  primeiro_pagamento_em: string | null;
+  ultimo_pagamento_em: string | null;
   /** Recado do servidor (ex.: salvou mas não registrou a confirmação automática). */
   aviso?: string;
   modo: 'teste' | 'producao';
   ativo: boolean;
   token_teste_mascarado: string | null;
   token_producao_mascarado: string | null;
+}
+
+/**
+ * Mostra as pontas e come o miolo (`crist•••••@gmail.com`).
+ *
+ * Por que as PONTAS e não os últimos dígitos: o lojista usa isso pra responder
+ * "é essa credencial mesmo?", e quem reconhece uma credencial reconhece pelo
+ * começo. O miolo é o que identificaria a conta pra quem estivesse olhando de
+ * fora — e é exatamente ele que some.
+ */
+function mascararMeio(valor: string, inicio = 5, fim = 6): string {
+  if (!valor) return '';
+  if (valor.length <= inicio + fim) return '•'.repeat(Math.max(valor.length, 8));
+  return `${valor.slice(0, inicio)}${'•'.repeat(8)}${valor.slice(-fim)}`;
+}
+
+/**
+ * Linha de credencial já conectada: rótulo à esquerda, valor mascarado à direita.
+ *
+ * `jaMascarado` é pra valor que o SERVIDOR já entregou mascarado (os tokens do
+ * Mercado Pago). Mascarar de novo produziria um valor que não existe — o lojista
+ * compararia com o token dele e concluiria que salvamos errado.
+ */
+function LinhaCredencial({ rotulo, valor, revelavel = false, nunca = false, jaMascarado = false }: {
+  rotulo: string; valor: string; revelavel?: boolean; nunca?: boolean; jaMascarado?: boolean;
+}) {
+  const [aberto, setAberto] = useState(false);
+  return (
+    <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+      <span className="shrink-0 text-xs text-muted-foreground">{rotulo}</span>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <code className="truncate font-mono text-xs text-foreground">
+          {nunca ? '••••••••••••' : (jaMascarado || aberto ? valor : mascararMeio(valor))}
+        </code>
+        {revelavel && !nunca && (
+          <button
+            type="button"
+            onClick={() => setAberto(v => !v)}
+            title={aberto ? 'Ocultar' : 'Revelar'}
+            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            {aberto ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Passo numerado do "onde pegar as credenciais". */
+function Passo({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <li className="flex gap-2.5">
+      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">
+        {n}
+      </span>
+      <span className="text-xs leading-relaxed text-muted-foreground">{children}</span>
+    </li>
+  );
 }
 
 export function PagamentosLoja() {
@@ -804,6 +868,17 @@ export function PagamentosLoja() {
   const [mostrarProducao, setMostrarProducao] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [urlWebhookCopiada, setUrlWebhookCopiada] = useState(false);
+  const [testando, setTestando] = useState(false);
+  /*
+   * FORMULÁRIO FECHADO POR PADRÃO quando já há credencial conectada.
+   *
+   * A tela de pagamentos é visitada quase sempre pra CONFERIR ("o Pix tá certo?"),
+   * quase nunca pra trocar. Um formulário aberto de campos vazios por cima de uma
+   * conta que funciona convida a apagar o que estava certo — e o secret, uma vez
+   * salvo, não volta pra ser recolado.
+   */
+  const [editandoCred, setEditandoCred] = useState(false);
+  const [cartaoAberto, setCartaoAberto] = useState(false);
 
   const urlWebhook = `${window.location.origin}/api/pagamentos/webhook/mercadopago`;
 
@@ -815,7 +890,8 @@ export function PagamentosLoja() {
 
   useEffect(() => { carregar(); }, []);
 
-  async function enviar(corpo: Record<string, string>, mensagemSucesso: string) {
+  /** Devolve `true` só quando salvou — quem chamou usa isso pra fechar o formulário. */
+  async function enviar(corpo: Record<string, string>, mensagemSucesso: string): Promise<boolean> {
     setEnviando(true);
     try {
       const r = await api<EstadoPagamentos>('PUT', '/api/lojista/pagamentos', corpo);
@@ -828,10 +904,39 @@ export function PagamentosLoja() {
       // confirmação automática) — nesse caso mostramos o aviso, não "sucesso".
       if (r.aviso) mostrar({ tipo: 'erro', titulo: r.aviso });
       else mostrar({ tipo: 'sucesso', titulo: mensagemSucesso });
+      return true;
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+      return false;
     } finally {
       setEnviando(false);
+    }
+  }
+
+  /**
+   * Pergunta ao gateway se a credencial vale — de verdade, agora.
+   *
+   * O servidor faz uma consulta idempotente na conta do lojista e devolve DE QUEM
+   * ela é. Esse é o ponto: token inválido dá erro na hora do pagamento e a gente
+   * descobre; token válido da conta errada não dá erro nenhum — o dinheiro
+   * simplesmente cai no lugar errado, e ninguém percebe até o fim do mês.
+   */
+  async function testarConexao() {
+    setTestando(true);
+    try {
+      const r = await api<{ ok: boolean; detalhe: string }>('POST', '/api/lojista/pagamentos/testar');
+      mostrar({
+        tipo: r.ok ? 'sucesso' : 'erro',
+        titulo: r.ok ? 'Conexão testada' : 'Não consegui conectar',
+        descricao: r.detalhe,
+      });
+    } catch (err) {
+      mostrar({
+        tipo: 'erro',
+        titulo: err instanceof ApiError ? err.message : 'Não consegui falar com o servidor.',
+      });
+    } finally {
+      setTestando(false);
     }
   }
 
@@ -841,7 +946,9 @@ export function PagamentosLoja() {
     if (tokenTeste.trim()) corpo.token_teste = tokenTeste.trim();
     if (tokenProducao.trim()) corpo.token_producao = tokenProducao.trim();
     if (Object.keys(corpo).length === 0) return;
-    await enviar(corpo, 'Token salvo!');
+    if (!(await enviar(corpo, 'Token salvo!'))) return;
+    setEditandoCred(false);
+    await testarConexao();
   }
 
   function trocarModo(modo: 'teste' | 'producao') {
@@ -861,7 +968,13 @@ export function PagamentosLoja() {
     if (onzSecret.trim()) corpo.onz_client_secret = onzSecret.trim();
     if (onzChave.trim()) corpo.onz_pix_key = onzChave.trim();
     if (Object.keys(corpo).length === 0) return;
-    await enviar(corpo, 'Conta Planner conectada! A confirmação automática de pagamento já está ativa.');
+    const salvou = await enviar(corpo, 'Conta Planner conectada! A confirmação automática de pagamento já está ativa.');
+    if (!salvou) return;
+    setEditandoCred(false);
+    // Testa logo depois de salvar: "Conectar e testar" promete as duas coisas, e
+    // é aqui que um secret colado errado ainda pode ser corrigido de cabeça
+    // quente — daqui a uma semana ninguém lembra mais onde pegou.
+    await testarConexao();
   }
 
   const [mpToken, setMpToken] = useState('');
@@ -890,6 +1003,7 @@ export function PagamentosLoja() {
     // Limpa o campo depois de salvar: o valor volta mascarado do servidor, e deixar
     // o token em claro na tela é convite pra ele ser lido por cima do ombro.
     setMpToken('');
+    setCartaoAberto(false);
   }
 
   function removerCartao() {
@@ -922,41 +1036,67 @@ export function PagamentosLoja() {
   if (!estado) return <Skeleton className="h-64" />;
   const { modo, ativo, gateway, onz_disponivel } = estado;
   const viaOnz = gateway === 'onz';
+  /** Token (mascarado) do modo que está VALENDO — é o que define se há credencial. */
+  const tokenMpDoModo = modo === 'teste' ? estado.token_teste_mascarado : estado.token_producao_mascarado;
+
+  const nomeGateway = viaOnz ? 'Planner' : 'Mercado Pago';
+  /*
+   * A linha de baixo do banner conta a HISTÓRIA do recebimento — desde quando
+   * entra dinheiro e quando entrou pela última vez. É o que o lojista quer saber
+   * ao abrir esta tela; "credencial configurada" ele já vê pelo card verde.
+   * Sem nenhum pagamento ainda, dizer isso é mais útil que uma data inventada.
+   */
+  const linhaHistorico = !ativo
+    ? null
+    : estado.ultimo_pagamento_em
+      ? `Recebendo na sua conta ${nomeGateway}${estado.primeiro_pagamento_em ? ` desde ${dataLocal(estado.primeiro_pagamento_em)}` : ''} · último pagamento ${tempoRelativo(estado.ultimo_pagamento_em)}`
+      : `Recebendo na sua conta ${nomeGateway} — nenhum pagamento online ainda.`;
 
   return (
     <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-bold">Pagamentos</h2>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          Pix e cartão online — o dinheiro cai direto na sua conta, a plataforma não fica no meio.
+        </p>
+      </div>
+
       {/* Status atual */}
-      <Card className={ativo ? 'border-green-500/40 bg-green-500/5' : undefined}>
-        <CardContent className="p-5 flex items-center gap-4">
-          <div className={`flex size-11 shrink-0 items-center justify-center rounded-2xl ${ativo ? 'bg-green-500/15' : 'bg-muted'}`}>
+      <Card className={ativo ? 'border-emerald-600/25 bg-emerald-50/70 dark:bg-emerald-500/10' : undefined}>
+        <CardContent className="flex flex-wrap items-center gap-4 p-5">
+          <div className={cn('flex size-11 shrink-0 items-center justify-center rounded-2xl',
+            ativo ? 'bg-emerald-600/10' : 'bg-muted')}>
             {ativo
-              ? <CheckCircle2 className="size-5 text-green-600" />
+              ? <CheckCircle2 className="size-5 text-emerald-700 dark:text-emerald-400" />
               : <XCircle className="size-5 text-muted-foreground" />
             }
           </div>
-          <div>
-            <div className="font-bold flex items-center gap-2 flex-wrap">
+          <div className="min-w-[12rem] flex-1">
+            <div className="flex flex-wrap items-center gap-2 font-bold">
               {ativo ? 'Pix online ativo' : 'Pix online inativo'}
-              {viaOnz && <Badge variant="success" className="text-[10px]">Planner (Pix)</Badge>}
+              <Badge variant={ativo ? 'success' : 'secondary'} className="text-[10px]">{nomeGateway}</Badge>
               {!viaOnz && ativo && modo === 'teste' && (
                 <Badge variant="warning" className="text-[10px]">Modo teste — pagamentos não são reais</Badge>
               )}
-              {!viaOnz && ativo && modo === 'producao' && (
-                <Badge variant="success" className="text-[10px]">Produção</Badge>
-              )}
             </div>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {viaOnz
-                ? (ativo
-                    ? (estado.onz_conta_propria
-                        ? 'Recebendo na sua conta Planner — o dinheiro cai direto pra você.'
-                        : 'Recebendo pela conta Planner da plataforma. Conecte a sua conta abaixo pra receber direto.')
-                    : 'Conecte sua conta Planner abaixo para aceitar Pix.')
-                : (ativo
-                    ? `Usando o token de ${modo === 'teste' ? 'teste' : 'produção'} configurado abaixo.`
-                    : `Configure o token de ${modo === 'teste' ? 'teste' : 'produção'} abaixo para aceitar Pix.`)}
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {linhaHistorico ?? (viaOnz
+                ? 'Conecte sua conta Planner abaixo para aceitar Pix.'
+                : `Configure o token de ${modo === 'teste' ? 'teste' : 'produção'} abaixo para aceitar Pix.`)}
+              {ativo && viaOnz && !estado.onz_conta_propria && (
+                <> — hoje pela conta da plataforma. Conecte a sua abaixo pra receber direto.</>
+              )}
             </p>
           </div>
+          {ativo && (
+            <Button
+              type="button" variant="outline" size="sm" disabled={testando} onClick={testarConexao}
+              className="shrink-0 border-emerald-600/40 text-emerald-800 hover:bg-emerald-600/10 dark:text-emerald-400"
+            >
+              <RefreshCw className={cn('size-3.5', testando && 'animate-spin')} />
+              {testando ? 'Testando…' : 'Testar conexão'}
+            </Button>
+          )}
         </CardContent>
       </Card>
 
@@ -968,25 +1108,44 @@ export function PagamentosLoja() {
               <CreditCard className="size-4 text-primary" />
               <span className="font-bold text-sm">Como você quer receber o Pix?</span>
             </div>
+            {/*
+              RADIO VISÍVEL, não só a borda colorida. Dois cards em que só a cor
+              da borda muda são lidos como dois botões, e "qual dos dois está
+              ligado agora?" vira adivinhação — numa tela em que a resposta
+              errada manda o dinheiro pra outra conta.
+            */}
             <div className="grid gap-2 sm:grid-cols-2">
-              <button
-                type="button" disabled={enviando} onClick={() => trocarGateway('onz')}
-                className={`rounded-xl border-2 p-3 text-left transition-colors ${viaOnz ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
-              >
-                <div className="text-sm font-bold">Minha conta Planner (Pix)</div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  O dinheiro cai direto na sua conta Planner. Exige conta aberta e credenciais abaixo.
-                </div>
-              </button>
-              <button
-                type="button" disabled={enviando} onClick={() => trocarGateway('mercadopago')}
-                className={`rounded-xl border-2 p-3 text-left transition-colors ${!viaOnz ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40'}`}
-              >
-                <div className="text-sm font-bold">Minha conta do Mercado Pago</div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  O dinheiro cai direto na sua conta. Exige colar seu token abaixo.
-                </div>
-              </button>
+              {([
+                ['onz', 'Minha conta Planner (Pix)', 'O dinheiro cai direto na sua conta Planner. Exige conta aberta e credenciais abaixo.', true],
+                ['mercadopago', 'Minha conta do Mercado Pago', 'O dinheiro cai direto na sua conta. Exige colar seu token abaixo.', false],
+              ] as const).map(([valor, titulo, descricao, recomendado]) => {
+                const marcado = valor === 'onz' ? viaOnz : !viaOnz;
+                return (
+                  <button
+                    key={valor}
+                    type="button" role="radio" aria-checked={marcado}
+                    disabled={enviando} onClick={() => trocarGateway(valor)}
+                    className={cn('flex gap-3 rounded-2xl border-2 p-3.5 text-left transition-colors',
+                      marcado ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/40')}
+                  >
+                    <span className={cn('mt-0.5 flex size-[19px] shrink-0 items-center justify-center rounded-full border-2 transition-colors',
+                      marcado ? 'border-primary' : 'border-muted-foreground/40')}>
+                      {marcado && <span className="size-2.5 rounded-full bg-primary" />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-sm font-bold">{titulo}</span>
+                        {recomendado && (
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                            recomendado
+                          </span>
+                        )}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-muted-foreground">{descricao}</span>
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </CardContent>
         </Card>
@@ -994,163 +1153,96 @@ export function PagamentosLoja() {
 
       {/* Credenciais da conta Planner/ONZ da loja — só quando esse gateway está ativo */}
       {viaOnz && (
-        <Card>
-          <CardContent className="p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <CreditCard className="size-4 text-primary" />
-              <span className="font-bold text-sm">Sua conta Planner</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Abra sua conta na Planner e, no portal Finance, vá em <b>Configurações → API QRCODES → Gerar
-              Credenciais</b>. Cole abaixo o que aparecer. Ao salvar, a confirmação automática de pagamento
-              é configurada sozinha — você não precisa fazer mais nada.
-            </p>
-
-            {estado.onz_conta_propria && (
-              <div className="flex items-center justify-between gap-2 rounded-lg bg-success/10 px-3 py-2">
-                <span className="text-xs font-medium text-success flex items-center gap-1.5">
-                  <CheckCircle2 className="size-3.5" /> Conectada — Client ID {estado.onz_client_id_mascarado}
-                </span>
-                <Button type="button" variant="ghost" size="sm" disabled={enviando} onClick={removerOnz}>
+        estado.onz_conta_propria && !editandoCred ? (
+          /* ── CONECTADA: só o resumo. Nada de formulário por cima do que funciona. ── */
+          <Card>
+            <CardContent className="space-y-3 p-5">
+              <div className="flex items-center gap-2">
+                <span className="size-2 rounded-full bg-emerald-600" />
+                <span className="text-sm font-bold">Sua conta Planner</span>
+                <span className="text-xs text-muted-foreground">Conectada</span>
+              </div>
+              <div className="divide-y divide-border rounded-xl border border-border">
+                {estado.onz_client_id
+                  ? <LinhaCredencial rotulo="Client ID" valor={estado.onz_client_id} revelavel />
+                  : <LinhaCredencial rotulo="Client ID" valor={estado.onz_client_id_mascarado || ''} jaMascarado />}
+                <LinhaCredencial rotulo="Client Secret" valor="" nunca />
+                <LinhaCredencial rotulo="Chave Pix" valor={estado.onz_pix_key} />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setEditandoCred(true)}>
+                  Trocar credenciais
+                </Button>
+                <Button type="button" variant="ghost" size="sm" disabled={enviando} onClick={removerOnz}
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive">
                   Remover
                 </Button>
               </div>
-            )}
+            </CardContent>
+          </Card>
+        ) : (
+          /* ── EDITANDO / nunca conectou ── */
+          <Card>
+            <CardContent className="space-y-4 p-5">
+              <div className="flex items-center gap-2">
+                <CreditCard className="size-4 text-primary" />
+                <span className="text-sm font-bold">Sua conta Planner</span>
+              </div>
 
-            <form onSubmit={salvarOnz} className="space-y-3">
-              <div>
-                <Label htmlFor="onz_id">Client ID</Label>
-                <Input id="onz_id" value={onzId} maxLength={120} autoComplete="off"
-                  placeholder={estado.onz_client_id_mascarado || 'Cole o Client ID do portal'}
-                  onChange={e => setOnzId(e.target.value)} className="font-mono text-sm" />
+              <div className="rounded-xl border border-border bg-muted/40 p-3.5">
+                <p className="mb-2.5 text-xs font-bold">Onde pegar as credenciais</p>
+                <ol className="space-y-2">
+                  <Passo n={1}>
+                    Abra sua conta na Planner e entre no portal Finance{' '}
+                    <a href="https://finance.planner.com.br" target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-0.5 font-semibold text-primary hover:underline">
+                      Abrir portal <ExternalLink className="size-3" />
+                    </a>
+                  </Passo>
+                  <Passo n={2}><b>Configurações → API QRCODES → Gerar Credenciais</b></Passo>
+                  <Passo n={3}>Copie e cole abaixo — o secret aparece uma única vez</Passo>
+                </ol>
               </div>
-              <div>
-                <Label htmlFor="onz_secret">Client Secret</Label>
-                <Input id="onz_secret" type="password" value={onzSecret} maxLength={200} autoComplete="off"
-                  placeholder={estado.onz_conta_propria ? '•••••••• (já configurado)' : 'Cole o Client Secret'}
-                  onChange={e => setOnzSecret(e.target.value)} className="font-mono text-sm" />
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  Guardado criptografado. O portal mostra o secret uma única vez — copie antes de fechar a janela.
-                </p>
-              </div>
-              <div>
-                <Label htmlFor="onz_chave">Chave Pix da conta</Label>
-                <Input id="onz_chave" value={onzChave || estado.onz_pix_key} maxLength={80} autoComplete="off"
-                  placeholder="A chave que aparece junto das credenciais"
-                  onChange={e => setOnzChave(e.target.value)} className="font-mono text-sm" />
-              </div>
-              <Button type="submit" size="sm" disabled={enviando || (!onzId.trim() && !onzSecret.trim() && !onzChave.trim())}>
-                <Save className="size-3.5" />
-                {enviando ? 'Salvando…' : 'Conectar conta Planner'}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+
+              <form onSubmit={salvarOnz} className="space-y-3">
+                <div>
+                  <Label htmlFor="onz_id">Client ID</Label>
+                  <Input id="onz_id" value={onzId} maxLength={120} autoComplete="off"
+                    placeholder={estado.onz_client_id_mascarado || 'Cole o Client ID do portal'}
+                    onChange={e => setOnzId(e.target.value)} className="h-[46px] font-mono text-sm" />
+                </div>
+                <div>
+                  <Label htmlFor="onz_secret">Client Secret</Label>
+                  <Input id="onz_secret" type="password" value={onzSecret} maxLength={200} autoComplete="off"
+                    placeholder={estado.onz_conta_propria ? '•••••••• (já configurado)' : 'Cole o Client Secret'}
+                    onChange={e => setOnzSecret(e.target.value)} className="h-[46px] font-mono text-sm" />
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Guardado criptografado — nunca aparece de novo depois de salvar.
+                  </p>
+                </div>
+                <div>
+                  <Label htmlFor="onz_chave">Chave Pix da conta</Label>
+                  <Input id="onz_chave" value={onzChave || estado.onz_pix_key} maxLength={80} autoComplete="off"
+                    placeholder="A chave que aparece junto das credenciais"
+                    onChange={e => setOnzChave(e.target.value)} className="h-[46px] font-mono text-sm" />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="submit" size="sm" disabled={enviando || (!onzId.trim() && !onzSecret.trim() && !onzChave.trim())}>
+                    <Save className="size-3.5" />
+                    {enviando ? 'Salvando…' : 'Conectar e testar'}
+                  </Button>
+                  {estado.onz_conta_propria && (
+                    <Button type="button" variant="outline" size="sm"
+                      onClick={() => { setEditandoCred(false); setOnzId(''); setOnzSecret(''); setOnzChave(''); }}>
+                      Cancelar
+                    </Button>
+                  )}
+                </div>
+              </form>
+            </CardContent>
+          </Card>
+        )
       )}
-
-      {/*
-        RECEBEDOR DO CARTÃO — a conta do Mercado Pago DA LOJA.
-
-        Aparece sempre, independente do gateway de Pix escolhido: Pix e cartão são
-        contas diferentes. A loja pode receber Pix pela Planner/ONZ e cartão pelo
-        Mercado Pago ao mesmo tempo, e o card acima trata só do Pix.
-
-        Sem token próprio o cartão NÃO é oferecido ao cliente — de propósito. O token é
-        o que determina em qual conta o dinheiro cai, e sem ele o pagamento iria parar
-        na conta da plataforma sem ninguém pedir.
-      */}
-      <Card>
-        <CardContent className="space-y-3 p-5">
-          <div className="flex items-center gap-2">
-            <CreditCard className="size-4 text-primary" />
-            <span className="text-sm font-bold">Cartão de crédito online</span>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Conecte sua conta do Mercado Pago para aceitar cartão no cardápio. O cliente
-            paga antes de o pedido sair, e <b>o dinheiro cai direto na sua conta</b> — a
-            plataforma não fica no meio.
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Pegue em <b>Mercado Pago → Seu negócio → Configurações → Gestão e
-            administração → Credenciais</b>. Comece pelas credenciais de <b>teste</b>.
-          </p>
-
-          {/*
-            MODO ANTES DO TOKEN, e começando em TESTE: integração de cartão se homologa
-            antes de valer dinheiro. Em teste o MP dá cartões fictícios e o fluxo inteiro
-            (pagar → voltar → confirmar → avisar o lojista) roda sem mover um centavo.
-            Deixar produção como padrão convidaria o lojista a descobrir um webhook
-            quebrado com dinheiro de cliente real no meio.
-          */}
-          <div className="flex gap-2">
-            {([['teste', 'Teste', FlaskConical], ['producao', 'Produção', Rocket]] as const).map(([v, txt, Icone]) => (
-              <button
-                key={v}
-                type="button"
-                onClick={() => { setMpModo(v); setMpToken(''); }}
-                className={cn('flex flex-1 items-center justify-center gap-2 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors',
-                  mpModo === v ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40')}
-              >
-                <Icone className="size-4" /> {txt}
-              </button>
-            ))}
-          </div>
-          {mpModo === 'teste' ? (
-            <p className="rounded-lg bg-warning/10 px-3 py-2 text-[11px] text-warning">
-              Em teste, use o token <b>TEST-…</b> e os cartões de teste do Mercado Pago. Nenhuma
-              cobrança real acontece — é para validar o fluxo inteiro antes de virar a chave.
-            </p>
-          ) : (
-            <p className="rounded-lg bg-muted px-3 py-2 text-[11px] text-muted-foreground">
-              Em produção, use o token <b>APP_USR-…</b>. A partir daí as cobranças são reais e
-              o dinheiro cai na sua conta.
-            </p>
-          )}
-
-          {estado.cartao_online_ativo ? (
-            <div className="flex items-center justify-between gap-2 rounded-lg bg-success/10 px-3 py-2">
-              <span className="flex items-center gap-1.5 text-xs font-medium text-success">
-                <CheckCircle2 className="size-3.5" />
-                Cartão ativo em {estado.modo === 'teste' ? 'TESTE' : 'produção'} — token{' '}
-                {estado.modo === 'teste' ? estado.token_teste_mascarado : estado.token_producao_mascarado}
-              </span>
-              <Button type="button" variant="ghost" size="sm" disabled={enviando} onClick={removerCartao}>
-                Remover
-              </Button>
-            </div>
-          ) : (
-            <div className="flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-              <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
-              {/* Diz o que o cliente vê hoje, não só que "falta configurar": é a
-                  diferença entre o lojista entender que está perdendo venda ou achar
-                  que é um campo opcional qualquer. */}
-              Sem conta conectada, a opção <b>Cartão online</b> não aparece pro cliente —
-              ele só consegue pagar por Pix ou na entrega.
-            </div>
-          )}
-
-          <form onSubmit={salvarCartao} className="space-y-3">
-            <div>
-              <Label htmlFor="mp_token">
-                Access Token {mpModo === 'teste' ? 'de teste' : 'de produção'}
-              </Label>
-              <Input
-                id="mp_token" type="password" value={mpToken} maxLength={300} autoComplete="off"
-                placeholder={mpModo === 'teste' ? 'TEST-…' : 'APP_USR-…'}
-                onChange={e => setMpToken(e.target.value)}
-                className="font-mono text-sm"
-              />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Guardado criptografado. É a credencial que autoriza cobranças na sua conta —
-                trate como senha e não compartilhe.
-              </p>
-            </div>
-            <Button type="submit" size="sm" disabled={enviando || !mpToken.trim()}>
-              {enviando ? 'Salvando…' : 'Conectar Mercado Pago'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
 
       {/* Configuração do Mercado Pago — só relevante quando é a conta da loja */}
       {!viaOnz && (<>
@@ -1181,12 +1273,49 @@ export function PagamentosLoja() {
               <Rocket className="size-4" /> Produção
             </button>
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Formulário: os dois tokens lado a lado */}
-      <Card>
-        <CardContent className="p-5">
+          {tokenMpDoModo && !editandoCred ? (
+            /* ── CONECTADO: resumo do que está valendo, sem formulário por cima ── */
+            <div className="space-y-3 pt-1">
+              <div className="flex items-center gap-2">
+                <span className="size-2 rounded-full bg-emerald-600" />
+                <span className="text-xs text-muted-foreground">Conectada</span>
+              </div>
+              <div className="divide-y divide-border rounded-xl border border-border">
+                <LinhaCredencial jaMascarado rotulo={`Token de ${modo === 'teste' ? 'teste' : 'produção'}`} valor={tokenMpDoModo} />
+                <LinhaCredencial
+                  jaMascarado
+                  rotulo={`Token de ${modo === 'teste' ? 'produção' : 'teste'}`}
+                  valor={(modo === 'teste' ? estado.token_producao_mascarado : estado.token_teste_mascarado) || '— não salvo —'}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => setEditandoCred(true)}>
+                  Trocar credenciais
+                </Button>
+                <Button type="button" variant="ghost" size="sm" disabled={enviando}
+                  onClick={() => removerToken(modo === 'teste' ? 'token_teste' : 'token_producao')}
+                  className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+                  Remover
+                </Button>
+              </div>
+            </div>
+          ) : (
+          <>
+          <div className="rounded-xl border border-border bg-muted/40 p-3.5">
+            <p className="mb-2.5 text-xs font-bold">Onde pegar as credenciais</p>
+            <ol className="space-y-2">
+              <Passo n={1}>
+                Entre no painel de desenvolvedor do Mercado Pago{' '}
+                <a href="https://www.mercadopago.com.br/developers/panel/app" target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-0.5 font-semibold text-primary hover:underline">
+                  Abrir painel <ExternalLink className="size-3" />
+                </a>
+              </Passo>
+              <Passo n={2}>Sua aplicação → <b>Credenciais de teste</b> ou <b>Credenciais de produção</b></Passo>
+              <Passo n={3}>Copie o <b>Access Token</b> e cole abaixo — não a Public Key</Passo>
+            </ol>
+          </div>
           <form onSubmit={salvarTokens} className="space-y-4">
             <div>
               <Label className="flex items-center gap-1.5"><FlaskConical className="size-3.5" /> Access Token de teste (TEST-…)</Label>
@@ -1240,21 +1369,149 @@ export function PagamentosLoja() {
               )}
             </div>
 
-            <p className="text-[11px] text-muted-foreground flex items-center gap-1 flex-wrap">
-              <a href="https://www.mercadopago.com.br/developers/panel/app" target="_blank" rel="noreferrer"
-                className="inline-flex items-center gap-1 font-semibold text-primary hover:underline">
-                Pegar meu token <ExternalLink className="size-3" />
-              </a>
-            </p>
-
-            <Button type="submit" size="sm" disabled={enviando || (!tokenTeste.trim() && !tokenProducao.trim())}>
-              <Save className="size-3.5" />
-              {enviando ? 'Salvando…' : 'Salvar token(s)'}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" size="sm" disabled={enviando || (!tokenTeste.trim() && !tokenProducao.trim())}>
+                <Save className="size-3.5" />
+                {enviando ? 'Salvando…' : 'Conectar e testar'}
+              </Button>
+              {tokenMpDoModo && (
+                <Button type="button" variant="outline" size="sm"
+                  onClick={() => { setEditandoCred(false); setTokenTeste(''); setTokenProducao(''); }}>
+                  Cancelar
+                </Button>
+              )}
+            </div>
           </form>
+          </>
+          )}
         </CardContent>
       </Card>
       </>)}
+
+      {/*
+        RECEBEDOR DO CARTÃO — a conta do Mercado Pago DA LOJA.
+
+        Aparece sempre, independente do gateway de Pix escolhido: Pix e cartão são
+        contas diferentes. A loja pode receber Pix pela Planner/ONZ e cartão pelo
+        Mercado Pago ao mesmo tempo, e os cards acima tratam só do Pix.
+
+        Sem token próprio o cartão NÃO é oferecido ao cliente — de propósito. O token é
+        o que determina em qual conta o dinheiro cai, e sem ele o pagamento iria parar
+        na conta da plataforma sem ninguém pedir.
+
+        FECHADO POR PADRÃO: cartão é opcional e se configura uma vez. Um formulário
+        aberto embaixo do Pix competia por atenção com a única coisa que a maioria
+        das lojas veio conferir aqui.
+      */}
+      <Card>
+        <CardContent className="p-5">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+              <CreditCard className="size-4 text-primary" />
+            </div>
+            <div className="min-w-[11rem] flex-1">
+              <p className="text-sm font-bold">Cartão de crédito online</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Via Mercado Pago —{' '}
+                {estado.cartao_online_ativo
+                  ? `ativo em ${estado.modo === 'teste' ? 'teste' : 'produção'} (token ${estado.modo === 'teste' ? estado.token_teste_mascarado : estado.token_producao_mascarado})`
+                  : 'não configurado'}
+              </p>
+            </div>
+            <Button type="button" variant="outline" size="sm" className="shrink-0"
+              onClick={() => setCartaoAberto(v => !v)}>
+              {cartaoAberto ? 'Fechar' : 'Configurar'}
+            </Button>
+          </div>
+
+          {!estado.cartao_online_ativo && !cartaoAberto && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+              <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+              {/* Diz o que o cliente vê hoje, não só que "falta configurar": é a
+                  diferença entre o lojista entender que está perdendo venda ou achar
+                  que é um campo opcional qualquer. */}
+              Sem conta conectada, a opção <b>Cartão online</b> não aparece pro cliente —
+              ele só consegue pagar por Pix ou na entrega.
+            </div>
+          )}
+
+          {cartaoAberto && (
+            <div className="mt-4 space-y-3 border-t border-border pt-4">
+              <p className="text-xs text-muted-foreground">
+                O cliente paga antes de o pedido sair, e <b>o dinheiro cai direto na sua
+                conta</b>. Pegue o token em <b>Mercado Pago → Seu negócio → Configurações →
+                Gestão e administração → Credenciais</b>. Comece pelas de <b>teste</b>.
+              </p>
+
+              {/*
+                MODO ANTES DO TOKEN, e começando em TESTE: integração de cartão se homologa
+                antes de valer dinheiro. Em teste o MP dá cartões fictícios e o fluxo inteiro
+                (pagar → voltar → confirmar → avisar o lojista) roda sem mover um centavo.
+                Deixar produção como padrão convidaria o lojista a descobrir um webhook
+                quebrado com dinheiro de cliente real no meio.
+              */}
+              <div className="flex gap-2">
+                {([['teste', 'Teste', FlaskConical], ['producao', 'Produção', Rocket]] as const).map(([v, txt, Icone]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => { setMpModo(v); setMpToken(''); }}
+                    className={cn('flex flex-1 items-center justify-center gap-2 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors',
+                      mpModo === v ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40')}
+                  >
+                    <Icone className="size-4" /> {txt}
+                  </button>
+                ))}
+              </div>
+              {mpModo === 'teste' ? (
+                <p className="rounded-lg bg-warning/10 px-3 py-2 text-[11px] text-warning">
+                  Em teste, use o token <b>TEST-…</b> e os cartões de teste do Mercado Pago. Nenhuma
+                  cobrança real acontece — é para validar o fluxo inteiro antes de virar a chave.
+                </p>
+              ) : (
+                <p className="rounded-lg bg-muted px-3 py-2 text-[11px] text-muted-foreground">
+                  Em produção, use o token <b>APP_USR-…</b>. A partir daí as cobranças são reais e
+                  o dinheiro cai na sua conta.
+                </p>
+              )}
+
+              {estado.cartao_online_ativo && (
+                <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-600/10 px-3 py-2">
+                  <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                    <CheckCircle2 className="size-3.5" />
+                    Cartão ativo em {estado.modo === 'teste' ? 'TESTE' : 'produção'}
+                  </span>
+                  <Button type="button" variant="ghost" size="sm" disabled={enviando} onClick={removerCartao}
+                    className="text-destructive hover:bg-destructive/10 hover:text-destructive">
+                    Remover
+                  </Button>
+                </div>
+              )}
+
+              <form onSubmit={salvarCartao} className="space-y-3">
+                <div>
+                  <Label htmlFor="mp_token">
+                    Access Token {mpModo === 'teste' ? 'de teste' : 'de produção'}
+                  </Label>
+                  <Input
+                    id="mp_token" type="password" value={mpToken} maxLength={300} autoComplete="off"
+                    placeholder={mpModo === 'teste' ? 'TEST-…' : 'APP_USR-…'}
+                    onChange={e => setMpToken(e.target.value)}
+                    className="h-[46px] font-mono text-sm"
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Guardado criptografado — nunca aparece de novo depois de salvar. É a
+                    credencial que autoriza cobranças na sua conta: trate como senha.
+                  </p>
+                </div>
+                <Button type="submit" size="sm" disabled={enviando || !mpToken.trim()}>
+                  {enviando ? 'Salvando…' : 'Conectar Mercado Pago'}
+                </Button>
+              </form>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Info webhook — opcional, o sistema já manda a URL certa em cada pagamento */}
       {ativo && !viaOnz && (

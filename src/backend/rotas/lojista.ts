@@ -24,7 +24,7 @@ import {
   montarInutilizacao, transmitirInutilizacao,
 } from '../sefaz';
 import { criptografar, descriptografar } from '../cripto';
-import { cashInDisponivel, registrarWebhookCashIn } from '../onz';
+import { cashInDisponivel, registrarWebhookCashIn, consultarWebhookCashIn } from '../onz';
 // Sem ciclo: pagamentos.ts não importa lojista.ts.
 import { credenciaisOnzDaLoja } from './pagamentos';
 import { testarCredenciaisOficial } from '../whatsapp';
@@ -975,11 +975,15 @@ router.put('/grupos/:id', async (req, res, next) => {
     const nome = req.body.nome !== undefined ? textoLimpo(req.body.nome, 60) : grupo.nome;
     if (nome.length < 2) throw erroHttp(400, 'Nome do grupo inválido.');
     await db.prepare(
-      'UPDATE grupos_opcoes SET nome = ?, tipo = ?, obrigatorio = ?, max_escolhas = ? WHERE id = ?'
+      'UPDATE grupos_opcoes SET nome = ?, tipo = ?, obrigatorio = ?, max_escolhas = ?, ordem = ? WHERE id = ?'
     ).run(nome,
           req.body.tipo !== undefined ? (req.body.tipo === 'multiplo' ? 'multiplo' : 'unico') : grupo.tipo,
           req.body.obrigatorio !== undefined ? (req.body.obrigatorio ? 1 : 0) : grupo.obrigatorio,
           req.body.max_escolhas !== undefined ? (inteiroPositivo(req.body.max_escolhas) || 0) : grupo.max_escolhas,
+          // A ordem dos grupos é a ordem em que o cliente monta o pedido (tamanho
+          // antes de adicional, borda antes de bebida), então é o lojista quem
+          // define arrastando. `?? grupo.ordem` mantém quem só renomeou no lugar.
+          req.body.ordem !== undefined ? (inteiroPositivo(req.body.ordem) || 0) : grupo.ordem,
           grupo.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -1717,6 +1721,22 @@ router.get('/pagamentos', async (req, res, next) => {
     const gateway = row?.pagamento_gateway === 'onz' ? 'onz' : 'mercadopago';
     const credOnz = await credenciaisOnzDaLoja(loja.id);
     const onzDisponivel = cashInDisponivel(credOnz);
+    /*
+     * "Recebendo desde …" e "último pagamento há …" saem dos PEDIDOS, não de uma
+     * coluna de configuração: não existe registro de quando a credencial foi
+     * colada, e inventar uma data seria pior que não mostrar nenhuma. O primeiro
+     * e o último pagamento aprovado descrevem exatamente o que a frase promete —
+     * desde quando esta loja recebe online, e quando foi a última vez.
+     *
+     * Usa `criado_em` e não `atualizado_em` porque o pedido continua sendo
+     * atualizado depois (aceito, saiu pra entrega), e aí a data deixaria de ser a
+     * do pagamento. Pagamento online acontece no ato do pedido, então o `criado_em`
+     * erra por minutos — o `atualizado_em` erraria por horas.
+     */
+    const marcos = await db.prepare(
+      `SELECT MIN(criado_em) AS primeiro, MAX(criado_em) AS ultimo
+         FROM pedidos WHERE loja_id = ? AND pagamento_status = 'aprovado'`
+    ).get(loja.id) as { primeiro: string | null; ultimo: string | null } | undefined;
     res.json({
       gateway,
       // Pix ONZ está utilizável? (conta da loja ou, na falta, a da plataforma)
@@ -1724,7 +1744,16 @@ router.get('/pagamentos', async (req, res, next) => {
       // A loja tem conta ONZ PRÓPRIA configurada (o dinheiro cai direto nela)?
       onz_conta_propria: !!credOnz,
       onz_client_id_mascarado: mascarar(credOnz?.clientId ?? null),
+      /*
+       * Client ID vai INTEIRO (o secret, não). Ele identifica a aplicação, não
+       * autoriza nada sozinho — é o par com o secret que autentica. A tela mostra
+       * mascarado por padrão e só revela quando o lojista clica no olho, que é
+       * justamente o caso em que ele quer conferir se colou a credencial certa.
+       */
+      onz_client_id: credOnz?.clientId ?? '',
       onz_pix_key: credOnz?.chavePix ?? '',
+      primeiro_pagamento_em: marcos?.primeiro ?? null,
+      ultimo_pagamento_em: marcos?.ultimo ?? null,
       modo,
       ativo: gateway === 'onz' ? onzDisponivel : (modo === 'teste' ? !!tokenTeste : !!tokenProducao),
       token_teste_mascarado: mascarar(tokenTeste),
@@ -1735,6 +1764,76 @@ router.get('/pagamentos', async (req, res, next) => {
        * campo separado de `ativo`, que aceita o gateway de Pix da loja.
        */
       cartao_online_ativo: !!(modo === 'teste' ? tokenTeste : tokenProducao),
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * TESTA AS CREDENCIAIS AO VIVO, contra o gateway de verdade.
+ *
+ * Existe porque salvar credencial não prova nada: token colado errado, token de
+ * outra conta, token revogado e token expirado ficam todos com a mesma cara no
+ * banco. Sem este botão, a primeira notícia de que a credencial não presta é um
+ * cliente na tela de pagamento — e aí a venda já foi perdida.
+ *
+ * Faz uma chamada barata e IDEMPOTENTE (consulta, nunca cobrança) na conta do
+ * lojista, então pode ser apertado à vontade sem gerar cobrança nem lixo.
+ */
+router.post('/pagamentos/testar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const row = await db.prepare(
+      'SELECT mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo, pagamento_gateway FROM lojas WHERE id = ?'
+    ).get(loja.id) as
+      { mercadopago_token_teste: string | null; mercadopago_token_producao: string | null; mercadopago_modo: string; pagamento_gateway: string | null } | undefined;
+    const gateway = row?.pagamento_gateway === 'onz' ? 'onz' : 'mercadopago';
+
+    if (gateway === 'onz') {
+      const cred = await credenciaisOnzDaLoja(loja.id);
+      if (!cred) return res.json({ ok: false, detalhe: 'Nenhuma credencial da Planner salva nesta loja.' });
+      try {
+        // Consulta o webhook registrado: é autenticada (prova que o par
+        // ID+secret vale) e não cria nada na conta.
+        const r = await consultarWebhookCashIn(cred);
+        return res.json({
+          ok: true,
+          detalhe: r.registrado
+            ? 'Conta Planner respondeu e a confirmação automática está registrada.'
+            : 'Conta Planner respondeu, mas a confirmação automática não está registrada — salve as credenciais de novo.',
+        });
+      } catch (e) {
+        return res.json({ ok: false, detalhe: e instanceof Error ? e.message : 'A Planner recusou as credenciais.' });
+      }
+    }
+
+    const modo: 'teste' | 'producao' = row?.mercadopago_modo === 'teste' ? 'teste' : 'producao';
+    let token: string | null = null;
+    try {
+      const cifrado = modo === 'teste' ? row?.mercadopago_token_teste : row?.mercadopago_token_producao;
+      token = cifrado ? descriptografar(cifrado) : null;
+    } catch { token = null; }
+    if (!token) return res.json({ ok: false, detalhe: `Nenhum token de ${modo} salvo nesta loja.` });
+
+    // `/users/me` é a chamada canônica de "esse token vale?" no Mercado Pago:
+    // devolve o dono da conta, não mexe em nada e não tem custo.
+    const resposta = await fetch('https://api.mercadopago.com/users/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!resposta.ok) {
+      return res.json({
+        ok: false,
+        detalhe: resposta.status === 401
+          ? 'O Mercado Pago recusou o token (401). Ele foi revogado, expirou ou foi colado errado.'
+          : `O Mercado Pago respondeu HTTP ${resposta.status}.`,
+      });
+    }
+    const dono = await resposta.json().catch(() => ({})) as { nickname?: string; email?: string; site_id?: string };
+    // Mostrar de QUEM é a conta é o ponto do teste: o erro caro não é "token
+    // inválido", é token válido da conta errada — o dinheiro cairia certinho,
+    // na conta de outra pessoa, sem nenhum erro aparecer.
+    return res.json({
+      ok: true,
+      detalhe: `Conectado em ${modo === 'teste' ? 'TESTE' : 'produção'} na conta ${dono.nickname || dono.email || 'do Mercado Pago'}.`,
     });
   } catch (e) { next(e); }
 });

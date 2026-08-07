@@ -3,10 +3,9 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CheckSquare, ChevronDown, Copy, FileText, Layers, ListPlus, Pencil, Plus, Rows3, Rows4, Search, SlidersHorizontal, Square, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
+import { Check, CheckSquare, ChevronDown, Copy, FileText, GripVertical, Layers, ListPlus, Pencil, Plus, Rows3, Rows4, Search, Square, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Falha } from '@/components/ui/estado';
@@ -68,18 +67,77 @@ const SUGESTOES: Record<string, string[]> = {
   'Bebida':         ['Coca-Cola', 'Coca Zero', 'Guaraná', 'Suco de laranja', 'Água', 'Suco de uva'],
 };
 
-/* Templates prontos para criação rápida de grupos */
-const TEMPLATES: {
+/**
+ * Famílias de produto usadas pra filtrar os modelos.
+ *
+ * As categorias são texto livre por loja ("Bebidas", "Bebidas geladas",
+ * "Refrigerantes"), então não dá pra casar por igualdade — o casamento é por
+ * palavra dentro do nome, que é o que sobrevive à criatividade de cada lojista.
+ */
+type Familia = 'bebida' | 'pizza' | 'lanche' | 'sobremesa' | 'prato';
+
+const FAMILIAS: { chave: Familia; termos: RegExp }[] = [
+  { chave: 'bebida',    termos: /bebida|drink|suco|refri|cerveja|chopp|vinho|caf[eé]|ch[aá]s?\b|[aá]gua|energ[eé]tic/i },
+  { chave: 'pizza',     termos: /pizza|esfi|calzone|brotinho/i },
+  { chave: 'sobremesa', termos: /sobremesa|doce|a[çc]a[íi]|sorvete|milk|gelato|bolo|torta|pudim/i },
+  { chave: 'lanche',    termos: /lanche|burg|hamb[uú]|sandu|hot ?dog|cachorro|x-|bauru|wrap|p[aã]o/i },
+  { chave: 'prato',     termos: /prato|refei[çc]|marmit|executiv|almo[çc]|jantar|churrasc|carne|grelhad|massa|risoto|por[çc][aã]o/i },
+];
+
+/** Família da categoria, ou `null` quando não dá pra afirmar nada. */
+function familiaDaCategoria(categoria: string | null | undefined): Familia | null {
+  const nome = (categoria || '').trim();
+  if (!nome) return null;
+  return FAMILIAS.find(f => f.termos.test(nome))?.chave ?? null;
+}
+
+interface Modelo {
   nome: string; dica: string;
   tipo: 'unico' | 'multiplo'; obrigatorio: boolean; max_escolhas: number;
-}[] = [
-  { nome: 'Adicionais', dica: 'Bacon, queijo extra, molhos…', tipo: 'multiplo', obrigatorio: false, max_escolhas: 0 },
-  { nome: 'Tamanho', dica: 'P, M, G, GG, Família…', tipo: 'unico', obrigatorio: true, max_escolhas: 1 },
-  { nome: 'Borda', dica: 'Catupiry, cheddar, sem borda…', tipo: 'unico', obrigatorio: false, max_escolhas: 1 },
-  { nome: 'Ponto da carne', dica: 'Mal passado, ao ponto…', tipo: 'unico', obrigatorio: true, max_escolhas: 1 },
-  { nome: 'Sabores', dica: 'Chocolate, morango, creme…', tipo: 'unico', obrigatorio: true, max_escolhas: 1 },
-  { nome: 'Bebida', dica: 'Coca, Suco, Água…', tipo: 'unico', obrigatorio: false, max_escolhas: 1 },
+  /** Onde este modelo faz sentido. Vazio = em qualquer categoria. */
+  familias: Familia[];
+}
+
+/* Templates prontos para criação rápida de grupos */
+const TEMPLATES: Modelo[] = [
+  { nome: 'Adicionais', dica: 'Bacon, queijo extra, molhos…', tipo: 'multiplo', obrigatorio: false, max_escolhas: 0, familias: ['lanche', 'pizza', 'prato', 'sobremesa'] },
+  { nome: 'Tamanho', dica: 'P, M, G, GG, Família…', tipo: 'unico', obrigatorio: true, max_escolhas: 1, familias: [] },
+  { nome: 'Borda', dica: 'Catupiry, cheddar, sem borda…', tipo: 'unico', obrigatorio: false, max_escolhas: 1, familias: ['pizza'] },
+  { nome: 'Ponto da carne', dica: 'Mal passado, ao ponto…', tipo: 'unico', obrigatorio: true, max_escolhas: 1, familias: ['lanche', 'prato'] },
+  { nome: 'Sabores', dica: 'Chocolate, morango, creme…', tipo: 'unico', obrigatorio: true, max_escolhas: 1, familias: ['pizza', 'sobremesa', 'bebida'] },
+  { nome: 'Bebida', dica: 'Coca, Suco, Água…', tipo: 'unico', obrigatorio: false, max_escolhas: 1, familias: ['lanche', 'pizza', 'prato'] },
 ];
+
+/**
+ * Modelos que fazem sentido para a categoria do produto.
+ *
+ * Oferecer "Ponto da carne" numa Coca-Cola não é só feio: cada modelo errado é
+ * um clique acidental que vira um grupo esquisito no cardápio do cliente. Quando
+ * a categoria não diz nada (vazia ou nome que não reconhecemos), mostra TUDO —
+ * esconder por palpite seria pior que mostrar demais.
+ */
+function modelosDaCategoria(categoria: string | null | undefined): Modelo[] {
+  const fam = familiaDaCategoria(categoria);
+  if (!fam) return TEMPLATES;
+  return TEMPLATES.filter(t => t.familias.length === 0 || t.familias.includes(fam));
+}
+
+/** "Obrigatório · escolha 1" / "Opcional · até 3" — a regra em palavras do lojista. */
+function rotuloRegra(obrigatorio: boolean, tipo: 'unico' | 'multiplo', maxEscolhas: number): string {
+  if (obrigatorio) return tipo === 'unico' ? 'Obrigatório · escolha 1' : `Obrigatório · até ${maxEscolhas || '∞'}`;
+  if (tipo === 'unico') return 'Opcional · escolha 1';
+  return maxEscolhas > 0 ? `Opcional · até ${maxEscolhas}` : 'Opcional · quantos quiser';
+}
+const regraDoModelo = (t: Modelo) => rotuloRegra(t.obrigatorio, t.tipo, t.max_escolhas);
+const regraDoGrupo = (g: GrupoOpcoes) => rotuloRegra(!!g.obrigatorio, g.tipo, g.max_escolhas);
+
+/** "Bacon +R$ 4 · Queijo extra +R$ 3" — o conteúdo do grupo sem precisar abri-lo. */
+function resumoDosItens(g: GrupoOpcoes): string {
+  if (g.opcoes.length === 0) return 'Nenhum item ainda — clique em "Editar itens"';
+  return g.opcoes
+    .map(o => o.preco_adicional_centavos > 0 ? `${o.nome} +${brl(o.preco_adicional_centavos)}` : o.nome)
+    .join(' · ');
+}
 
 /* ─────────────────────── componente principal ──────────────────────── */
 export function ProdutosLoja() {
@@ -1335,15 +1393,25 @@ function CardProduto({
   );
 }
 
+/**
+ * Editor de complementos — modal centrado.
+ *
+ * Toda mutação continua indo direto pra API (criar grupo, criar opção, alternar
+ * obrigatório...). Isso é intencional e é por isso que o rodapé NÃO diz
+ * "Cancelar": não existe rascunho pra descartar, e um botão que promete desfazer
+ * o que já foi gravado é pior que botão nenhum.
+ */
 function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => void }) {
   const { mostrar } = useToast();
   const confirmar = useConfirm();
   const qc = useQueryClient();
   const queryKey = ['lojista-grupos', produto.id];
   const [grupoFocoId, setGrupoFocoId] = useState<number | null>(null);
-  const [criandoManual, setCriandoManual] = useState(false);
   const [salvandoGrupo, setSalvandoGrupo] = useState(false);
-  const focoRef = useRef<HTMLInputElement | null>(null);
+  /** Qual grupo está com o painel de itens aberto (só um por vez). */
+  const [abertoId, setAbertoId] = useState<number | null>(null);
+  /** Índice sendo arrastado, pra saber o que soltar onde. */
+  const [arrastando, setArrastando] = useState<number | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey,
@@ -1354,7 +1422,8 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
 
   const grupos = data ?? [];
 
-  // Auto-focus no input da opção após criar grupo — aguarda o render do novo card
+  // Ao criar um grupo, abre o painel dele e põe o cursor no campo de item: o
+  // grupo vazio não serve pra nada, e o passo seguinte é sempre o mesmo.
   useEffect(() => {
     if (grupoFocoId === null || grupos.length === 0) return;
     const tentar = () => {
@@ -1365,7 +1434,6 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
         setGrupoFocoId(null);
       }
     };
-    // Tenta imediatamente e depois com micro-delay para garantir que o DOM atualizou
     tentar();
     const t = setTimeout(tentar, 80);
     return () => clearTimeout(t);
@@ -1421,16 +1489,70 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
     }
   }
 
+  /**
+   * Liga/desliga "obrigatório" direto na lista.
+   *
+   * Vem junto o `tipo`: obrigatório com múltipla escolha e sem mínimo é uma
+   * regra que o cardápio não sabe cobrar, então o switch já deixa o grupo em
+   * escolha única — que é o que "obrigatório" quer dizer na prática (escolha 1).
+   */
+  async function alternarObrigatorio(grupo: GrupoOpcoes) {
+    const virando = !grupo.obrigatorio;
+    try {
+      await api('PUT', `/api/lojista/grupos/${grupo.id}`, {
+        nome: grupo.nome,
+        tipo: virando ? 'unico' : grupo.tipo,
+        obrigatorio: virando,
+        max_escolhas: virando ? 1 : grupo.max_escolhas,
+      });
+      await qc.refetchQueries({ queryKey });
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : 'Erro ao mudar a regra do grupo.';
+      mostrar({ tipo: 'erro', titulo: msg });
+    }
+  }
+
+  /**
+   * Solta o grupo arrastado na posição de destino.
+   *
+   * Grava otimista: a lista reordena na hora e as gravações vão atrás. Arrastar
+   * é um gesto contínuo — se a lista só se mexesse depois da resposta do
+   * servidor, o lojista soltaria e veria o item voltar pro lugar antigo por meio
+   * segundo, o que parece bug mesmo quando dá tudo certo.
+   */
+  async function soltarEm(destino: number) {
+    const origem = arrastando;
+    setArrastando(null);
+    if (origem === null || origem === destino) return;
+    const novos = [...grupos];
+    const [movido] = novos.splice(origem, 1);
+    novos.splice(destino, 0, movido);
+    qc.setQueryData(queryKey, novos.map((g, i) => ({ ...g, ordem: i })));
+    try {
+      await Promise.all(novos.map((g, i) =>
+        api('PUT', `/api/lojista/grupos/${g.id}`, { nome: g.nome, ordem: i })));
+      await qc.refetchQueries({ queryKey });
+    } catch {
+      // Falhou a gravação: refaz do servidor pra tela não mentir sobre a ordem
+      // que o cliente vai ver no cardápio.
+      await qc.refetchQueries({ queryKey });
+      mostrar({ tipo: 'erro', titulo: 'Não consegui salvar a nova ordem.' });
+    }
+  }
+
   async function criarGrupoComDados(dados: { nome: string; tipo: 'unico' | 'multiplo'; obrigatorio: boolean; max_escolhas: number }) {
     setSalvandoGrupo(true);
     try {
-      const res = await api<{ grupo_id: number }>('POST', `/api/lojista/produtos/${produto.id}/grupos`, dados);
-      // refetchQueries aguarda o refetch completar, garantindo que 'grupos' estará populado
+      const res = await api<{ grupo_id: number }>('POST', `/api/lojista/produtos/${produto.id}/grupos`, {
+        ...dados,
+        ordem: grupos.length,
+      });
       await qc.refetchQueries({ queryKey });
+      // Abre o painel do grupo recém-criado: grupo vazio não serve pra nada, e o
+      // passo seguinte é sempre adicionar o primeiro item.
+      setAbertoId(res.grupo_id);
       setGrupoFocoId(res.grupo_id);
-      setCriandoManual(false);
       setNovoGrupo(null);
-      mostrar({ tipo: 'sucesso', titulo: `Grupo "${dados.nome}" criado! Adicione as opções abaixo.` });
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao criar grupo. Tente novamente.';
       mostrar({ tipo: 'erro', titulo: msg });
@@ -1521,404 +1643,457 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
     }
   }
 
-  const totalOpcoes = grupos.reduce((s, g) => s + g.opcoes.length, 0);
+  /* Modelos que sobram: os que combinam com a categoria e ainda não foram usados. */
+  const modelos = modelosDaCategoria(produto.categoria)
+    .filter(t => !grupos.some(g => g.nome.toLowerCase() === t.nome.toLowerCase()));
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background overflow-hidden">
-      {/* Header */}
-      <div className="shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="mx-auto flex max-w-2xl items-center gap-3 px-4 py-3.5">
-          <button
-            onClick={onFechar}
-            className="flex size-9 items-center justify-center rounded-xl hover:bg-accent text-muted-foreground transition-colors"
-            title="Voltar aos produtos"
+    <Modal open onOpenChange={aberto => { if (!aberto) onFechar(); }}>
+      <ModalConteudo className="sm:w-[min(880px,calc(100vw-56px))]">
+        {/* ── Header fixo ── */}
+        <div className="flex shrink-0 items-start gap-3 border-b border-border px-7 py-5 max-sm:px-4">
+          <div className="min-w-0 flex-1">
+            <ModalTitulo className="text-[19px] font-extrabold leading-tight">Complementos</ModalTitulo>
+            <ModalDescricao className="mt-0.5 truncate text-[13.5px] text-muted-foreground">
+              {produto.nome}{produto.categoria ? ` · ${produto.categoria}` : ''}
+            </ModalDescricao>
+          </div>
+          <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+            {grupos.length} {grupos.length === 1 ? 'grupo' : 'grupos'}
+          </span>
+          <ModalClose
+            className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent"
+            title="Fechar"
           >
             <X className="size-5" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <h2 className="flex items-center gap-2 font-bold text-base leading-tight truncate">
-              <SlidersHorizontal className="size-4 text-primary shrink-0" />
-              <span className="truncate">{produto.nome}</span>
-            </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {grupos.length === 0
-                ? 'Monte tamanhos, bordas e adicionais'
-                : `${grupos.length} grupo${grupos.length > 1 ? 's' : ''} · ${totalOpcoes} opç${totalOpcoes !== 1 ? 'ões' : 'ão'}`}
-            </p>
-          </div>
-          <Button size="sm" onClick={onFechar} className="shrink-0">
-            <Check className="size-4" /> Concluir
-          </Button>
+          </ModalClose>
         </div>
-      </div>
 
-      {/* Conteúdo */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto max-w-2xl p-4 space-y-3">
-        {(isLoading || salvandoGrupo) && <Skeleton className="h-24 animate-pulse" />}
+        {/* ── Corpo rolável ── */}
+        <div className="flex-1 space-y-6 overflow-y-auto px-7 py-6 max-sm:px-4">
+          {isLoading && <Skeleton className="h-24" />}
 
-        {/* ── Estado vazio com templates ── */}
-        {grupos.length === 0 && !isLoading && !criandoManual && (
-          <div className="space-y-4 py-4">
-            <div className="text-center max-w-md mx-auto">
-              <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 mb-3">
-                <Layers className="size-6 text-primary" />
-              </div>
-              <p className="font-bold text-base">Quais opções este produto tem?</p>
-              <p className="text-sm text-muted-foreground mt-1">
-                Escolha um modelo abaixo — já vem com as configurações certas.
-              </p>
-            </div>
-            <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
-              {TEMPLATES.map(t => (
-                <button
-                  key={t.nome}
-                  type="button"
-                  disabled={salvandoGrupo}
-                  onClick={() => criarGrupoComDados({ nome: t.nome, tipo: t.tipo, obrigatorio: t.obrigatorio, max_escolhas: t.max_escolhas })}
-                  className="group flex flex-col items-start gap-1 rounded-2xl border bg-card p-3.5 text-left shadow-sm hover:border-primary hover:shadow-md transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <div className="flex w-full items-center justify-between">
-                    <span className="font-bold text-sm">{t.nome}</span>
-                    <Plus className="size-4 text-muted-foreground group-hover:text-primary transition-colors" />
-                  </div>
-                  <span className="text-xs text-muted-foreground leading-snug">{t.dica}</span>
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              disabled={salvandoGrupo}
-              onClick={() => { setCriandoManual(true); setNovoGrupo({ nome: '', tipo: 'unico', obrigatorio: false, max_escolhas: '' }); }}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-border py-3 text-sm font-medium text-muted-foreground hover:border-primary hover:text-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Plus className="size-4" /> Criar grupo personalizado
-            </button>
-          </div>
-        )}
-
-        {/* ── Grupos existentes ── */}
-        {grupos.map(grupo => (
-          <Card key={grupo.id} className="overflow-hidden">
-            {/* Cabeçalho do grupo */}
-            {editandoGrupoId === grupo.id && editandoGrupoForm ? (
-              <div className="px-3 py-3 bg-accent/40 border-b space-y-2">
-                <Input
-                  autoFocus
-                  value={editandoGrupoForm.nome}
-                  onChange={e => setEditandoGrupoForm(f => f && ({ ...f, nome: e.target.value }))}
-                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); salvarEdicaoGrupo(); } if (e.key === 'Escape') { setEditandoGrupoId(null); } }}
-                  className="h-8 text-sm font-bold"
-                  placeholder="Nome do grupo"
-                />
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* Tipo */}
-                  <div className="flex rounded-lg overflow-hidden border border-border text-xs font-semibold">
-                    <button type="button" onClick={() => setEditandoGrupoForm(f => f && ({ ...f, tipo: 'unico' }))}
-                      className={cn('px-2.5 py-1 transition-colors', editandoGrupoForm.tipo === 'unico' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-accent')}>
-                      Única escolha
-                    </button>
-                    <button type="button" onClick={() => setEditandoGrupoForm(f => f && ({ ...f, tipo: 'multiplo' }))}
-                      className={cn('px-2.5 py-1 transition-colors border-l border-border', editandoGrupoForm.tipo === 'multiplo' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-accent')}>
-                      Múltipla
-                    </button>
-                  </div>
-                  {/* Obrigatório */}
-                  <button type="button" onClick={() => setEditandoGrupoForm(f => f && ({ ...f, obrigatorio: !f.obrigatorio }))}
-                    className={cn('flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors', editandoGrupoForm.obrigatorio ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-card text-muted-foreground hover:bg-accent')}>
-                    <Check className={cn('size-3', editandoGrupoForm.obrigatorio ? 'opacity-100' : 'opacity-0')} />
-                    Obrigatório
-                  </button>
-                  {/* Máx escolhas (só se múltiplo) */}
-                  {editandoGrupoForm.tipo === 'multiplo' && (
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-muted-foreground">Máx.</span>
-                      <Input
-                        type="number" min="0" placeholder="∞"
-                        value={editandoGrupoForm.max_escolhas}
-                        onChange={e => setEditandoGrupoForm(f => f && ({ ...f, max_escolhas: e.target.value }))}
-                        className="h-7 w-14 text-xs text-center px-1"
-                      />
-                    </div>
-                  )}
-                  {/* Ações */}
-                  <div className="flex gap-1 ml-auto">
-                    <button type="button" onClick={salvarEdicaoGrupo}
-                      className="flex items-center gap-1 rounded-lg bg-primary text-primary-foreground px-2.5 py-1 text-xs font-bold hover:bg-primary/90 transition-colors">
-                      <Check className="size-3" /> Salvar
-                    </button>
-                    <button type="button" onClick={() => setEditandoGrupoId(null)}
-                      className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-semibold text-muted-foreground hover:bg-accent transition-colors">
-                      <X className="size-3" /> Cancelar
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between gap-2 px-4 py-3 bg-accent/40 border-b">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-bold text-sm">{grupo.nome}</span>
-                    {grupo.obrigatorio ? (
-                      <Badge variant="default" className="text-[10px] px-1.5 py-0">Obrigatório</Badge>
+          {/* 1. Grupos já criados */}
+          {grupos.length > 0 && (
+            <div className="space-y-2.5">
+              {grupos.map((grupo, i) => {
+                const aberto = abertoId === grupo.id;
+                const editando = editandoGrupoId === grupo.id && editandoGrupoForm;
+                return (
+                  <div
+                    key={grupo.id}
+                    onDragOver={e => { if (arrastando !== null) e.preventDefault(); }}
+                    onDrop={() => soltarEm(i)}
+                    className={cn('rounded-2xl border border-border bg-card shadow-sm transition-opacity',
+                      arrastando === i && 'opacity-40')}
+                  >
+                    {editando ? (
+                      /* ── Renomear / trocar a regra ── */
+                      <div className="space-y-2 rounded-2xl bg-accent/40 px-4 py-3.5">
+                        <Input
+                          autoFocus
+                          value={editandoGrupoForm.nome}
+                          onChange={e => setEditandoGrupoForm(f => f && ({ ...f, nome: e.target.value }))}
+                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); salvarEdicaoGrupo(); } if (e.key === 'Escape') setEditandoGrupoId(null); }}
+                          className="h-9 text-sm font-bold"
+                          placeholder="Nome do grupo"
+                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex overflow-hidden rounded-lg border border-border text-xs font-semibold">
+                            <button type="button" onClick={() => setEditandoGrupoForm(f => f && ({ ...f, tipo: 'unico' }))}
+                              className={cn('px-2.5 py-1 transition-colors', editandoGrupoForm.tipo === 'unico' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-accent')}>
+                              Única escolha
+                            </button>
+                            <button type="button" onClick={() => setEditandoGrupoForm(f => f && ({ ...f, tipo: 'multiplo' }))}
+                              className={cn('border-l border-border px-2.5 py-1 transition-colors', editandoGrupoForm.tipo === 'multiplo' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-accent')}>
+                              Múltipla
+                            </button>
+                          </div>
+                          <button type="button" onClick={() => setEditandoGrupoForm(f => f && ({ ...f, obrigatorio: !f.obrigatorio }))}
+                            className={cn('flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors', editandoGrupoForm.obrigatorio ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-card text-muted-foreground hover:bg-accent')}>
+                            <Check className={cn('size-3', editandoGrupoForm.obrigatorio ? 'opacity-100' : 'opacity-0')} />
+                            Obrigatório
+                          </button>
+                          {editandoGrupoForm.tipo === 'multiplo' && (
+                            <div className="flex items-center gap-1">
+                              <span className="text-xs text-muted-foreground">Máx.</span>
+                              <Input
+                                type="number" min="0" placeholder="∞"
+                                value={editandoGrupoForm.max_escolhas}
+                                onChange={e => setEditandoGrupoForm(f => f && ({ ...f, max_escolhas: e.target.value }))}
+                                className="h-7 w-14 px-1 text-center text-xs"
+                              />
+                            </div>
+                          )}
+                          <div className="ml-auto flex gap-1">
+                            <button type="button" onClick={salvarEdicaoGrupo}
+                              className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground transition-colors hover:bg-primary/90">
+                              <Check className="size-3" /> Salvar
+                            </button>
+                            <button type="button" onClick={() => setEditandoGrupoId(null)}
+                              className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent">
+                              <X className="size-3" /> Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     ) : (
-                      <Badge variant="secondary" className="text-[10px] px-1.5 py-0">Opcional</Badge>
+                      /* ── Linha do grupo ── */
+                      <div className="flex items-center gap-3 px-3 py-3 max-sm:flex-wrap">
+                        <span
+                          draggable
+                          onDragStart={() => setArrastando(i)}
+                          onDragEnd={() => setArrastando(null)}
+                          title="Arraste para reordenar"
+                          className="shrink-0 cursor-grab px-1 text-muted-foreground/60 active:cursor-grabbing"
+                        >
+                          <GripVertical className="size-4" />
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => setAbertoId(aberto ? null : grupo.id)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <span className="flex flex-wrap items-center gap-2">
+                            <span className="text-[15px] font-bold">{grupo.nome}</span>
+                            <span className={cn('rounded-full px-2 py-0.5 text-[10.5px] font-bold',
+                              grupo.obrigatorio
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-400'
+                                : 'bg-muted text-muted-foreground')}>
+                              {regraDoGrupo(grupo)}
+                            </span>
+                          </span>
+                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                            {resumoDosItens(grupo)}
+                          </span>
+                        </button>
+
+                        <div className="flex shrink-0 items-center gap-1 max-sm:w-full max-sm:justify-end">
+                          {/* Mini-switch: a regra que mais muda é essa, e trocá-la
+                              não deveria custar abrir o editor do grupo. */}
+                          <button
+                            type="button"
+                            role="switch" aria-checked={!!grupo.obrigatorio}
+                            onClick={() => alternarObrigatorio(grupo)}
+                            title="Obrigatório"
+                            className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 transition-colors hover:bg-accent"
+                          >
+                            <span className="text-[11px] font-semibold text-muted-foreground">Obrigatório</span>
+                            <span className={cn('flex h-5 w-[34px] shrink-0 items-center rounded-full p-0.5 transition-colors',
+                              grupo.obrigatorio ? 'bg-primary' : 'bg-muted-foreground/25')}>
+                              <span className={cn('size-4 rounded-full bg-white shadow-sm transition-transform',
+                                grupo.obrigatorio && 'translate-x-[14px]')} />
+                            </span>
+                          </button>
+
+                          <span className="h-5 w-px bg-border" />
+
+                          <button
+                            type="button"
+                            onClick={() => setAbertoId(aberto ? null : grupo.id)}
+                            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                          >
+                            <Pencil className="size-3.5" />
+                            {aberto ? 'Fechar' : 'Editar itens'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => excluirGrupo(grupo.id)}
+                            title="Remover grupo"
+                            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* ── Painel de itens ── */}
+                    {aberto && !editando && (
+                      <div className="border-t border-border">
+                        <div className="flex items-center justify-between gap-2 px-4 pt-3">
+                          <p className="text-[11px] font-extrabold uppercase tracking-[.11em] text-muted-foreground">
+                            Itens deste grupo
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => abrirEdicaoGrupo(grupo)}
+                            className="text-[11px] font-semibold text-primary hover:underline"
+                          >
+                            Editar nome e regra
+                          </button>
+                        </div>
+
+                        {grupo.opcoes.length === 0 && SUGESTOES[grupo.nome] && (
+                          <div className="px-4 pt-3">
+                            <p className="mb-2 text-xs text-muted-foreground">Clique para adicionar:</p>
+                            <div className="flex flex-wrap gap-2">
+                              {SUGESTOES[grupo.nome].map(s => (
+                                <button
+                                  key={s}
+                                  type="button"
+                                  onClick={() => adicionarSugestao(grupo.id, s)}
+                                  className="flex items-center gap-1 rounded-full border border-dashed border-border px-3 py-1.5 text-xs font-semibold transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary active:scale-95"
+                                >
+                                  <Plus className="size-3" />{s}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        <div className={cn('space-y-1 px-3', grupo.opcoes.length > 0 ? 'py-2' : 'pt-2')}>
+                          {grupo.opcoes.map(o => (
+                            editandoOpcaoId === o.id ? (
+                              <div key={o.id} className="flex items-center gap-2 rounded-lg bg-accent/60 px-2 py-1">
+                                <Input
+                                  autoFocus
+                                  value={editandoOpcaoNome}
+                                  onChange={e => setEditandoOpcaoNome(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); atualizarOpcao(o.id); } if (e.key === 'Escape') setEditandoOpcaoId(null); }}
+                                  className="h-8 flex-1 text-sm"
+                                  placeholder="Nome da opção"
+                                />
+                                <div className="relative w-20 shrink-0">
+                                  <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">+R$</span>
+                                  <Input
+                                    type="number" step="0.01" min="0" placeholder="0,00"
+                                    value={editandoOpcaoPreco}
+                                    onChange={e => setEditandoOpcaoPreco(e.target.value)}
+                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); atualizarOpcao(o.id); } }}
+                                    className="h-8 pl-6 text-xs"
+                                  />
+                                </div>
+                                <button onClick={() => atualizarOpcao(o.id)} className="shrink-0 rounded-lg bg-primary p-1.5 text-primary-foreground transition-colors hover:bg-primary/90">
+                                  <Check className="size-3.5" />
+                                </button>
+                                <button onClick={() => setEditandoOpcaoId(null)} className="shrink-0 rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:bg-accent">
+                                  <X className="size-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <div
+                                key={o.id}
+                                className={cn('group flex items-center gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-accent/40', !o.disponivel && 'opacity-45')}
+                              >
+                                <button
+                                  className="flex-1 truncate text-left text-sm font-medium"
+                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); }}
+                                >
+                                  {o.nome}
+                                </button>
+                                {o.preco_adicional_centavos > 0 && (
+                                  <span className="shrink-0 text-xs font-bold text-primary">+ {brl(o.preco_adicional_centavos)}</span>
+                                )}
+                                <Pencil
+                                  className="size-3.5 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60"
+                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); }}
+                                />
+                                <button onClick={() => toggleDisponivel(o)} title={o.disponivel ? 'Desativar' : 'Ativar'} className="shrink-0">
+                                  {o.disponivel ? <ToggleRight className="size-5 text-primary" /> : <ToggleLeft className="size-5 text-muted-foreground" />}
+                                </button>
+                                <button onClick={() => excluirOpcao(o.id)} className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-destructive">
+                                  <Trash2 className="size-3.5" />
+                                </button>
+                              </div>
+                            )
+                          ))}
+                        </div>
+
+                        <div className="border-t border-border/60 px-3 py-3">
+                          <div className="flex items-center gap-2 max-sm:flex-wrap">
+                            <Input
+                              id={`opcao-nome-${grupo.id}`}
+                              placeholder={SUGESTOES[grupo.nome]?.[0] ? `Ex.: ${SUGESTOES[grupo.nome][0]}…` : 'Nome da opção…'}
+                              value={opcaoForm(grupo.id).nome}
+                              onChange={e => setOpcaoForm(grupo.id, 'nome', e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), criarOpcao(grupo.id))}
+                              className="h-10 flex-1 text-sm max-sm:w-full max-sm:flex-none"
+                            />
+                            <div className="relative w-24 shrink-0">
+                              <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">+R$</span>
+                              <Input
+                                type="number" step="0.01" min="0" placeholder="0,00"
+                                value={opcaoForm(grupo.id).preco}
+                                onChange={e => setOpcaoForm(grupo.id, 'preco', e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), criarOpcao(grupo.id))}
+                                className="h-10 pl-7 text-sm"
+                              />
+                            </div>
+                            <Button
+                              type="button"
+                              className="h-10 shrink-0 px-4"
+                              onClick={() => criarOpcao(grupo.id)}
+                              disabled={!opcaoForm(grupo.id).nome.trim()}
+                            >
+                              <Plus className="size-4" /> Adicionar
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
                     )}
                   </div>
-                  <span className="text-[11px] text-muted-foreground">
-                    {grupo.tipo === 'unico' ? 'Cliente escolhe 1' : 'Cliente escolhe vários'}
-                    {grupo.tipo === 'multiplo' && grupo.max_escolhas > 0 && ` · até ${grupo.max_escolhas}`}
-                    {' · '}{grupo.opcoes.length} opç{grupo.opcoes.length !== 1 ? 'ões' : 'ão'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-0.5 shrink-0">
-                  <button
-                    onClick={() => abrirEdicaoGrupo(grupo)}
-                    className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                    title="Editar grupo"
-                  >
-                    <Pencil className="size-3.5" />
-                  </button>
-                  <button
-                    onClick={() => excluirGrupo(grupo.id)}
-                    className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                    title="Remover grupo"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                </div>
-              </div>
-            )}
+                );
+              })}
+            </div>
+          )}
 
-            <CardContent className="p-0">
-              {/* ── Chips de sugestão (só quando vazio e tem sugestões) ── */}
-              {grupo.opcoes.length === 0 && SUGESTOES[grupo.nome] && (
-                <div className="px-4 pt-4 pb-2">
-                  <p className="text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wide">Sugestões — clique para adicionar:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {SUGESTOES[grupo.nome].map(s => (
-                      <button
-                        key={s}
-                        type="button"
-                        onClick={() => adicionarSugestao(grupo.id, s)}
-                        className="flex items-center gap-1 rounded-full border border-dashed border-border px-3 py-1.5 text-xs font-semibold hover:border-primary hover:bg-primary/5 hover:text-primary transition-colors active:scale-95"
-                      >
-                        <Plus className="size-3" />{s}
-                      </button>
-                    ))}
+          {/* 2. Modelos prontos */}
+          {novoGrupo === null && (
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <span className="shrink-0 text-[12px] font-extrabold uppercase tracking-[.11em] text-muted-foreground">
+                  {grupos.length === 0
+                    ? `Modelos prontos${produto.categoria ? ` para ${produto.categoria}` : ''}`
+                    : 'Adicionar mais um grupo'}
+                </span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+
+              {grupos.length === 0 && !isLoading && (
+                <div className="mx-auto max-w-md pb-1 text-center">
+                  <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl bg-primary/10">
+                    <Layers className="size-6 text-primary" />
                   </div>
+                  <p className="text-[19px] font-extrabold">Quais opções este produto tem?</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Comece por um modelo — dá pra ajustar tudo depois.
+                  </p>
                 </div>
               )}
 
-              {/* ── Lista de opções existentes ── */}
-              <div className={cn('px-3 space-y-1', grupo.opcoes.length > 0 ? 'py-2' : 'pt-2')}>
-                {grupo.opcoes.map(o => (
-                  editandoOpcaoId === o.id ? (
-                    /* modo edição inline */
-                    <div key={o.id} className="flex items-center gap-2 px-2 py-1 rounded-lg bg-accent/60">
-                      <Input
-                        autoFocus
-                        value={editandoOpcaoNome}
-                        onChange={e => setEditandoOpcaoNome(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); atualizarOpcao(o.id); } if (e.key === 'Escape') setEditandoOpcaoId(null); }}
-                        className="h-8 text-sm flex-1"
-                        placeholder="Nome da opção"
-                      />
-                      <div className="relative w-20 shrink-0">
-                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">+R$</span>
-                        <Input
-                          type="number" step="0.01" min="0" placeholder="0,00"
-                          value={editandoOpcaoPreco}
-                          onChange={e => setEditandoOpcaoPreco(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); atualizarOpcao(o.id); } }}
-                          className="h-8 text-xs pl-6"
-                        />
-                      </div>
-                      <button onClick={() => atualizarOpcao(o.id)} className="shrink-0 p-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
-                        <Check className="size-3.5" />
-                      </button>
-                      <button onClick={() => setEditandoOpcaoId(null)} className="shrink-0 p-1.5 rounded-lg border border-border hover:bg-accent transition-colors text-muted-foreground">
-                        <X className="size-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    /* modo normal */
-                    <div
-                      key={o.id}
-                      className={cn('group flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-accent/40 transition-colors', !o.disponivel && 'opacity-45')}
-                    >
-                      <button
-                        className="flex-1 text-left text-sm font-medium truncate"
-                        onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); }}
-                      >
-                        {o.nome}
-                      </button>
-                      {o.preco_adicional_centavos > 0 && (
-                        <span className="text-xs font-bold text-primary shrink-0">+ {brl(o.preco_adicional_centavos)}</span>
-                      )}
-                      <Pencil
-                        className="size-3.5 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-60 cursor-pointer transition-opacity"
-                        onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); }}
-                      />
-                      <button onClick={() => toggleDisponivel(o)} title={o.disponivel ? 'Desativar' : 'Ativar'} className="shrink-0">
-                        {o.disponivel ? <ToggleRight className="size-5 text-primary" /> : <ToggleLeft className="size-5 text-muted-foreground" />}
-                      </button>
-                      <button onClick={() => excluirOpcao(o.id)} className="shrink-0 p-1 rounded text-muted-foreground hover:text-destructive transition-colors">
-                        <Trash2 className="size-3.5" />
-                      </button>
-                    </div>
-                  )
+              <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
+                {modelos.map(t => (
+                  <button
+                    key={t.nome}
+                    type="button"
+                    disabled={salvandoGrupo}
+                    onClick={() => criarGrupoComDados({ nome: t.nome, tipo: t.tipo, obrigatorio: t.obrigatorio, max_escolhas: t.max_escolhas })}
+                    className="group flex flex-col gap-1.5 rounded-2xl border border-border bg-card p-3.5 text-left shadow-sm transition-all hover:-translate-y-px hover:border-primary hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <span className="flex w-full items-start justify-between gap-2">
+                      <span className="text-[14.5px] font-bold">{t.nome}</span>
+                      <span className="flex size-[26px] shrink-0 items-center justify-center rounded-full bg-primary/10">
+                        <Plus className="size-3.5 text-primary" />
+                      </span>
+                    </span>
+                    <span className="text-[13px] leading-snug text-muted-foreground">{t.dica}</span>
+                    <span className="mt-0.5 w-fit rounded-full bg-muted px-2 py-0.5 text-[10.5px] font-bold text-muted-foreground">
+                      {regraDoModelo(t)}
+                    </span>
+                  </button>
                 ))}
 
-                {grupo.opcoes.length === 0 && !SUGESTOES[grupo.nome] && (
-                  <p className="text-xs text-muted-foreground text-center py-3 italic">
-                    Nenhuma opção ainda — use o campo abaixo para adicionar
-                  </p>
-                )}
-              </div>
-
-              {/* ── Form de adicionar nova opção ── */}
-              <div className="border-t border-border/60 px-3 py-3">
-                <p className="text-xs font-bold text-muted-foreground mb-2 uppercase tracking-wide">
-                  {grupo.opcoes.length === 0 ? 'Adicione a primeira opção:' : 'Nova opção:'}
-                </p>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id={`opcao-nome-${grupo.id}`}
-                    ref={grupoFocoId === grupo.id ? focoRef : undefined}
-                    placeholder={SUGESTOES[grupo.nome]?.[0] ? `Ex.: ${SUGESTOES[grupo.nome][0]}…` : 'Nome da opção…'}
-                    value={opcaoForm(grupo.id).nome}
-                    onChange={e => setOpcaoForm(grupo.id, 'nome', e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), criarOpcao(grupo.id))}
-                    className="h-10 text-sm flex-1"
-                  />
-                  <div className="relative w-24 shrink-0">
-                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground pointer-events-none">+R$</span>
-                    <Input
-                      type="number" step="0.01" min="0" placeholder="0,00"
-                      value={opcaoForm(grupo.id).preco}
-                      onChange={e => setOpcaoForm(grupo.id, 'preco', e.target.value)}
-                      onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), criarOpcao(grupo.id))}
-                      className="h-10 text-sm pl-7"
-                    />
-                  </div>
-                  <Button
-                    type="button"
-                    className="h-10 px-4 shrink-0"
-                    onClick={() => criarOpcao(grupo.id)}
-                    disabled={!opcaoForm(grupo.id).nome.trim()}
-                  >
-                    <Plus className="size-4" /> Adicionar
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-
-        {/* Botão para adicionar mais grupos após ter ao menos 1 */}
-        {grupos.length > 0 && !criandoManual && novoGrupo === null && (
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            {TEMPLATES.filter(t => !grupos.some(g => g.nome === t.nome)).slice(0, 4).map(t => (
-              <button
-                key={t.nome}
-                type="button"
-                onClick={() => criarGrupoComDados({ nome: t.nome, tipo: t.tipo, obrigatorio: t.obrigatorio, max_escolhas: t.max_escolhas })}
-                className="flex items-center gap-2 rounded-xl border border-dashed border-border hover:border-primary hover:bg-primary/5 px-3 py-2 text-left text-sm transition-all"
-              >
-                <Plus className="size-3.5 text-muted-foreground shrink-0" />
-                <span className="font-medium text-xs">{t.nome}</span>
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => { setCriandoManual(true); setNovoGrupo({ nome: '', tipo: 'multiplo', obrigatorio: false, max_escolhas: '' }); }}
-              className="flex items-center gap-2 rounded-xl border border-dashed border-border hover:border-primary hover:bg-primary/5 px-3 py-2 text-left text-sm transition-all col-span-2"
-            >
-              <Plus className="size-4 text-muted-foreground" />
-              <span className="text-xs font-medium text-muted-foreground">Grupo personalizado…</span>
-            </button>
-          </div>
-        )}
-
-        {/* Formulário de novo grupo manual */}
-        {(criandoManual || novoGrupo !== null) && novoGrupo !== null && (
-          <Card className="border-primary/40">
-            <CardContent className="p-4 space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-sm">Novo grupo personalizado</span>
                 <button
-                  onClick={() => { setCriandoManual(false); setNovoGrupo(null); }}
-                  className="p-1 hover:bg-accent rounded-lg"
+                  type="button"
+                  disabled={salvandoGrupo}
+                  onClick={() => setNovoGrupo({ nome: '', tipo: 'multiplo', obrigatorio: false, max_escolhas: '' })}
+                  className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border p-3.5 text-center text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <X className="size-4" />
+                  <Plus className="size-4" />
+                  <span className="text-[14.5px] font-bold">Criar grupo do zero</span>
+                  <span className="text-[13px] leading-snug">Você define o nome e a regra</span>
                 </button>
               </div>
-              <div>
-                <Label>Nome do grupo *</Label>
-                <Input
-                  autoFocus
-                  placeholder="Ex.: Tamanho, Borda, Adicionais, Ponto da carne…"
-                  value={novoGrupo.nome}
-                  onChange={e => setNovoGrupo(g => g && ({ ...g, nome: e.target.value }))}
-                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), criarGrupoManual())}
-                />
-              </div>
+            </div>
+          )}
 
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex gap-3">
-                  {(['unico', 'multiplo'] as const).map(t => (
-                    <label key={t} className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="radio"
-                        name={`tipo-grupo-${produto.id}`}
-                        checked={novoGrupo.tipo === t}
-                        onChange={() => setNovoGrupo(g => g && ({ ...g, tipo: t }))}
-                        className="accent-primary"
-                      />
-                      <span className="text-sm">{t === 'unico' ? 'Escolha única' : 'Múltipla escolha'}</span>
-                    </label>
-                  ))}
+          {/* Formulário de grupo do zero */}
+          {novoGrupo !== null && (
+            <Card className="border-primary/40">
+              <CardContent className="space-y-4 p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold">Novo grupo</span>
+                  <button onClick={() => setNovoGrupo(null)} className="rounded-lg p-1 hover:bg-accent">
+                    <X className="size-4" />
+                  </button>
                 </div>
-                {novoGrupo.tipo === 'multiplo' && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">Máx.:</span>
-                    <Input
-                      type="number"
-                      min="0"
-                      placeholder="0 = sem limite"
-                      value={novoGrupo.max_escolhas}
-                      onChange={e => setNovoGrupo(g => g && ({ ...g, max_escolhas: e.target.value }))}
-                      className="w-28 h-8 text-sm"
-                    />
+                <div>
+                  <Label>Nome do grupo *</Label>
+                  <Input
+                    autoFocus
+                    placeholder="Ex.: Tamanho, Borda, Adicionais, Ponto da carne…"
+                    value={novoGrupo.nome}
+                    onChange={e => setNovoGrupo(g => g && ({ ...g, nome: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), criarGrupoManual())}
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex gap-3">
+                    {(['unico', 'multiplo'] as const).map(t => (
+                      <label key={t} className="flex cursor-pointer items-center gap-1.5">
+                        <input
+                          type="radio"
+                          name={`tipo-grupo-${produto.id}`}
+                          checked={novoGrupo.tipo === t}
+                          onChange={() => setNovoGrupo(g => g && ({ ...g, tipo: t }))}
+                          className="accent-primary"
+                        />
+                        <span className="text-sm">{t === 'unico' ? 'Escolha única' : 'Múltipla escolha'}</span>
+                      </label>
+                    ))}
                   </div>
-                )}
-              </div>
+                  {novoGrupo.tipo === 'multiplo' && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Máx.:</span>
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="0 = sem limite"
+                        value={novoGrupo.max_escolhas}
+                        onChange={e => setNovoGrupo(g => g && ({ ...g, max_escolhas: e.target.value }))}
+                        className="h-8 w-28 text-sm"
+                      />
+                    </div>
+                  )}
+                </div>
 
-              <label className="flex items-center gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={novoGrupo.obrigatorio}
-                  onChange={e => setNovoGrupo(g => g && ({ ...g, obrigatorio: e.target.checked }))}
-                  className="accent-primary size-4 rounded"
-                />
-                <span className="text-sm">Obrigatório</span>
-                <span className="text-muted-foreground text-xs">(cliente deve selecionar antes de adicionar ao carrinho)</span>
-              </label>
+                <label className="flex cursor-pointer items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={novoGrupo.obrigatorio}
+                    onChange={e => setNovoGrupo(g => g && ({ ...g, obrigatorio: e.target.checked }))}
+                    className="size-4 rounded accent-primary"
+                  />
+                  <span className="text-sm">Obrigatório</span>
+                  <span className="text-xs text-muted-foreground">(cliente deve selecionar antes de adicionar ao carrinho)</span>
+                </label>
 
-              <div className="flex gap-2 pt-1">
-                <Button onClick={criarGrupoManual} disabled={!novoGrupo.nome.trim()} className="flex-1">
-                  <Plus className="size-4" /> Criar grupo
-                </Button>
-                <Button variant="outline" onClick={() => { setCriandoManual(false); setNovoGrupo(null); }}>
-                  Cancelar
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+                <div className="flex gap-2 pt-1">
+                  <Button onClick={criarGrupoManual} disabled={!novoGrupo.nome.trim()} className="flex-1">
+                    <Plus className="size-4" /> Criar grupo
+                  </Button>
+                  <Button variant="outline" onClick={() => setNovoGrupo(null)}>
+                    Cancelar
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
-      </div>
-    </div>
+
+        {/* ── Footer fixo ── */}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-7 py-4 max-sm:px-4">
+          {/*
+            Diz que já está salvo. O rodapé de um modal cheio de campos é lido
+            como "confirme aqui", e sem esta linha o lojista fecharia no X
+            achando que perdeu tudo — ou pior, não fecharia.
+          */}
+          <p className="text-[13px] text-muted-foreground">
+            As mudanças valem só para este produto e são salvas na hora.
+          </p>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" className="h-11" onClick={onFechar}>
+              Fechar
+            </Button>
+            <Button type="button" className="h-11 rounded-[11px]" disabled={grupos.length === 0} onClick={onFechar}>
+              <Check className="size-4" /> Concluir
+            </Button>
+          </div>
+        </div>
+      </ModalConteudo>
+    </Modal>
   );
 }
