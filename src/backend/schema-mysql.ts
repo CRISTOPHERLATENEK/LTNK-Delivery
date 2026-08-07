@@ -751,38 +751,34 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
   /*
    * CHECK de `forma_pagamento` PRECISA SER RECRIADO nos bancos que já existem.
    * `CREATE TABLE IF NOT EXISTS` não toca em tabela existente, então o CHECK antigo
-   * (sem 'cartao_online') continuaria lá e todo pedido de cartão online seria
-   * rejeitado pelo MySQL — erro que só apareceria no primeiro cliente tentando pagar.
+   * (sem 'cartao_online') continuaria valendo e TODO pedido de cartão online seria
+   * recusado pelo banco — erro que só apareceria com um cliente real tentando pagar.
    *
-   * O nome da constraint é gerado pelo MySQL, então tem que ser descoberto no
-   * INFORMATION_SCHEMA antes de derrubar. Envolvido em try: banco onde o CHECK não
-   * existe (versão antiga do MySQL que ignora CHECK) não pode derrubar o boot.
+   * `MODIFY COLUMN` e não `DROP CONSTRAINT`/`DROP CHECK`. Duas tentativas anteriores
+   * falharam e vale registrar por quê:
+   *   - `DROP CHECK` é sintaxe do MySQL 8; este servidor é MariaDB 10.5 e recusa.
+   *   - `DROP CONSTRAINT` é a sintaxe do MariaDB, mas NÃO remove CHECK de COLUNA
+   *     (declarado junto da coluna, como aqui): roda sem erro e não muda nada.
+   * Redefinir a coluna leva a nova cláusula junto, e funciona nos dois bancos.
+   *
+   * Idempotente: só mexe se a cláusula atual não tiver 'cartao_online'.
    */
   try {
     const [checks] = await pool.query(
-      `SELECT cc.CONSTRAINT_NAME AS nome, cc.CHECK_CLAUSE AS clausula
+      `SELECT cc.CHECK_CLAUSE AS clausula
          FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS cc
          JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
            ON tc.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
           AND tc.CONSTRAINT_SCHEMA = cc.CONSTRAINT_SCHEMA
-        WHERE cc.CONSTRAINT_SCHEMA = DATABASE() AND tc.TABLE_NAME = 'pedidos'`,
+        WHERE cc.CONSTRAINT_SCHEMA = DATABASE() AND tc.TABLE_NAME = 'pedidos'
+          AND cc.CHECK_CLAUSE LIKE '%forma_pagamento%'`,
     );
-    for (const c of checks as Array<{ nome: string; clausula: string }>) {
-      if (!c.clausula.includes('forma_pagamento')) continue;
-      if (c.clausula.includes('cartao_online')) continue;  // já migrado
-      /*
-       * MariaDB usa `DROP CONSTRAINT`; MySQL 8 usa `DROP CHECK`. O servidor aqui é
-       * MariaDB e a primeira versão deste código só tinha `DROP CHECK` — falhou em
-       * silêncio (o catch de fora engolia), o CHECK antigo continuou valendo, e todo
-       * pedido de cartão online seria recusado PELO BANCO. Tenta as duas formas.
-       */
-      try {
-        await pool.query(`ALTER TABLE pedidos DROP CONSTRAINT \`${c.nome}\``);
-      } catch {
-        await pool.query(`ALTER TABLE pedidos DROP CHECK \`${c.nome}\``);
-      }
+    const desatualizado = (checks as Array<{ clausula: string }>)
+      .some(c => !c.clausula.includes('cartao_online'));
+    if (desatualizado) {
       await pool.query(
-        "ALTER TABLE pedidos ADD CONSTRAINT chk_forma_pagamento CHECK (forma_pagamento IN ('pix','dinheiro','cartao_entrega','cartao_online'))",
+        "ALTER TABLE pedidos MODIFY forma_pagamento VARCHAR(20) NOT NULL "
+        + "CHECK (forma_pagamento IN ('pix','dinheiro','cartao_entrega','cartao_online'))",
       );
       console.log('[schema] CHECK de forma_pagamento atualizado (cartao_online liberado).');
     }
