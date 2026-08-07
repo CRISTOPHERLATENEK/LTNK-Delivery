@@ -282,7 +282,9 @@ const GRUPOS_CONFIG: { titulo: string; itens: { id: AbaConfig; label: string; ic
   {
     titulo: 'Dinheiro',
     itens: [
-      { id: 'pagamentos', label: 'Pix', icone: CreditCard },
+      // "Pagamentos", não "Pix": a tela cuida de Pix E cartão. Quem procurava
+      // onde configurar cartão não tinha por que clicar num item chamado "Pix".
+      { id: 'pagamentos', label: 'Pagamentos', icone: CreditCard },
       { id: 'fiscal', label: 'Fiscal', icone: FileText },
     ],
   },

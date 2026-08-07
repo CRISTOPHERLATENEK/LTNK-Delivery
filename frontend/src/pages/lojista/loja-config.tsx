@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck, Search, AlertCircle } from 'lucide-react';
+import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck, Search } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
 import { statusAgente, esquecerStatusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
@@ -878,7 +878,6 @@ export function PagamentosLoja() {
    * salvo, não volta pra ser recolado.
    */
   const [editandoCred, setEditandoCred] = useState(false);
-  const [cartaoAberto, setCartaoAberto] = useState(false);
 
   const urlWebhook = `${window.location.origin}/api/pagamentos/webhook/mercadopago`;
 
@@ -977,43 +976,6 @@ export function PagamentosLoja() {
     await testarConexao();
   }
 
-  const [mpToken, setMpToken] = useState('');
-  /*
-   * COMEÇA EM TESTE, não em produção.
-   *
-   * Integração de cartão se homologa antes de valer dinheiro: o primeiro pagamento de
-   * verdade não é lugar de descobrir que o webhook não volta. Em teste o MP dá cartões
-   * fictícios e o fluxo inteiro (pagar → voltar → confirmar → avisar o lojista) roda
-   * sem mover um centavo. Só depois se troca pra produção.
-   */
-  const [mpModo, setMpModo] = useState<'teste' | 'producao'>('teste');
-
-  async function salvarCartao(e: React.FormEvent) {
-    e.preventDefault();
-    const v = mpToken.trim();
-    if (!v) return;
-    await enviar(
-      mpModo === 'teste'
-        ? { mercadopago_token_teste: v, mercadopago_modo: 'teste' }
-        : { mercadopago_token_producao: v, mercadopago_modo: 'producao' },
-      mpModo === 'teste'
-        ? 'Conectado em modo TESTE. Faça um pedido de ponta a ponta antes de virar pra produção.'
-        : 'Mercado Pago conectado em produção — o cartão já aparece pro cliente.',
-    );
-    // Limpa o campo depois de salvar: o valor volta mascarado do servidor, e deixar
-    // o token em claro na tela é convite pra ele ser lido por cima do ombro.
-    setMpToken('');
-    setCartaoAberto(false);
-  }
-
-  function removerCartao() {
-    setMpToken('');
-    enviar(
-      mpModo === 'teste' ? { mercadopago_token_teste: '' } : { mercadopago_token_producao: '' },
-      'Conta do Mercado Pago removida — o cartão deixou de ser oferecido.',
-    );
-  }
-
   function removerOnz() {
     setOnzChave('');
     enviar({ onz_client_id: '', onz_client_secret: '', onz_pix_key: '' }, 'Credenciais da conta Planner removidas.');
@@ -1040,6 +1002,8 @@ export function PagamentosLoja() {
   const tokenMpDoModo = modo === 'teste' ? estado.token_teste_mascarado : estado.token_producao_mascarado;
 
   const nomeGateway = viaOnz ? 'Planner' : 'Mercado Pago';
+  /** Alguma forma de pagamento online está de pé? O banner fala dos dois meios. */
+  const algoAtivo = ativo || estado.cartao_online_ativo;
   /*
    * A linha de baixo do banner conta a HISTÓRIA do recebimento — desde quando
    * entra dinheiro e quando entrou pela última vez. É o que o lojista quer saber
@@ -1062,33 +1026,50 @@ export function PagamentosLoja() {
       </div>
 
       {/* Status atual */}
-      <Card className={ativo ? 'border-emerald-600/25 bg-emerald-50/70 dark:bg-emerald-500/10' : undefined}>
+      <Card className={algoAtivo ? 'border-emerald-600/25 bg-emerald-50/70 dark:bg-emerald-500/10' : undefined}>
         <CardContent className="flex flex-wrap items-center gap-4 p-5">
           <div className={cn('flex size-11 shrink-0 items-center justify-center rounded-2xl',
-            ativo ? 'bg-emerald-600/10' : 'bg-muted')}>
-            {ativo
+            algoAtivo ? 'bg-emerald-600/10' : 'bg-muted')}>
+            {algoAtivo
               ? <CheckCircle2 className="size-5 text-emerald-700 dark:text-emerald-400" />
               : <XCircle className="size-5 text-muted-foreground" />
             }
           </div>
-          <div className="min-w-[12rem] flex-1">
-            <div className="flex flex-wrap items-center gap-2 font-bold">
-              {ativo ? 'Pix online ativo' : 'Pix online inativo'}
-              <Badge variant={ativo ? 'success' : 'secondary'} className="text-[10px]">{nomeGateway}</Badge>
-              {!viaOnz && ativo && modo === 'teste' && (
+          <div className="min-w-[14rem] flex-1">
+            {/*
+              O TÍTULO É O QUE O CLIENTE VÊ NO CARDÁPIO, não "qual credencial
+              está salva". O lojista abre esta tela pra responder "meu cliente
+              consegue pagar online?" — então a resposta vem primeiro, e por
+              meio de pagamento, já que Pix e cartão podem estar em estados
+              diferentes (Pix pela Planner, cartão sem conta conectada).
+            */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-bold">
+              <span className="flex items-center gap-1.5">
+                {ativo ? <CheckCircle2 className="size-3.5 text-emerald-700 dark:text-emerald-400" /> : <XCircle className="size-3.5 text-muted-foreground" />}
+                Pix {ativo ? `· ${nomeGateway}` : 'inativo'}
+              </span>
+              <span className="flex items-center gap-1.5">
+                {estado.cartao_online_ativo ? <CheckCircle2 className="size-3.5 text-emerald-700 dark:text-emerald-400" /> : <XCircle className="size-3.5 text-muted-foreground" />}
+                Cartão {estado.cartao_online_ativo ? '· Mercado Pago' : 'inativo'}
+              </span>
+              {/* O modo vale pra conta do Mercado Pago — que pode estar
+                  cobrindo só o cartão (Pix pela Planner). O aviso tem que
+                  aparecer nesse caso também. */}
+              {modo === 'teste' && (estado.cartao_online_ativo || (ativo && !viaOnz)) && (
                 <Badge variant="warning" className="text-[10px]">Modo teste — pagamentos não são reais</Badge>
               )}
             </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              {linhaHistorico ?? (viaOnz
-                ? 'Conecte sua conta Planner abaixo para aceitar Pix.'
-                : `Configure o token de ${modo === 'teste' ? 'teste' : 'produção'} abaixo para aceitar Pix.`)}
+            <p className="mt-1 text-xs font-normal text-muted-foreground">
+              {linhaHistorico ?? 'Conecte uma conta abaixo para aceitar pagamento online.'}
               {ativo && viaOnz && !estado.onz_conta_propria && (
                 <> — hoje pela conta da plataforma. Conecte a sua abaixo pra receber direto.</>
               )}
+              {!estado.cartao_online_ativo && (
+                <> Sem conta do Mercado Pago, a opção <b>Cartão online</b> não aparece pro cliente.</>
+              )}
             </p>
           </div>
-          {ativo && (
+          {algoAtivo && (
             <Button
               type="button" variant="outline" size="sm" disabled={testando} onClick={testarConexao}
               className="shrink-0 border-emerald-600/40 text-emerald-800 hover:bg-emerald-600/10 dark:text-emerald-400"
@@ -1147,6 +1128,11 @@ export function PagamentosLoja() {
                 );
               })}
             </div>
+            {/* Esta escolha vale SÓ pro Pix. Sem dizer isso, o lojista que
+                escolhe Planner fica achando que perdeu o cartão junto. */}
+            <p className="text-[11px] text-muted-foreground">
+              Isto vale só para o Pix. O <b>cartão de crédito</b> é sempre pelo Mercado Pago, configurado abaixo.
+            </p>
           </CardContent>
         </Card>
       )}
@@ -1244,18 +1230,33 @@ export function PagamentosLoja() {
         )
       )}
 
-      {/* Configuração do Mercado Pago — só relevante quando é a conta da loja */}
-      {!viaOnz && (<>
+      {/*
+        CONTA DO MERCADO PAGO — UM card só, sempre visível.
+
+        Antes eram dois: "Sua conta do Mercado Pago" (Pix) e "Cartão de crédito
+        online". Mas quando o Pix também é pelo MP os dois são a MESMA conta, o
+        MESMO token e o MESMO modo — a tela mostrava o mesmo `****63023370` em
+        dois lugares e tinha DOIS seletores de teste/produção gravando na mesma
+        coluna. Dois controles para uma coisa só é o que confundia.
+
+        A tela agora se organiza por CONTA DE RECEBIMENTO, não por meio de
+        pagamento: a linha "Recebe" diz o que esta conta cobre, e isso muda
+        sozinho conforme o gateway do Pix escolhido acima.
+      */}
       <Card>
         <CardContent className="p-5 space-y-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <CreditCard className="size-4 text-primary" />
             <span className="font-bold text-sm">Sua conta do Mercado Pago</span>
+            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+              Recebe: {viaOnz ? 'cartão' : 'Pix e cartão'}
+            </span>
           </div>
           <p className="text-xs text-muted-foreground">
-            Cada loja usa a própria conta — guarde um token de teste e um de produção lado a lado, e escolha
-            qual dos dois vale agora. Dá pra testar o Pix sem gerar cobrança real, e trocar pra produção sem
-            perder o token de teste.
+            {viaOnz
+              ? 'O Pix desta loja vai pela Planner (card acima). Esta conta é a que recebe os pagamentos no cartão.'
+              : 'Esta conta recebe tanto o Pix quanto o cartão — é o mesmo token para os dois.'}
+            {' '}Guarde um token de teste e um de produção lado a lado e escolha qual vale agora.
           </p>
           <div className="flex overflow-hidden rounded-lg border">
             <button type="button" onClick={() => trocarModo('teste')} disabled={enviando}
@@ -1386,142 +1387,25 @@ export function PagamentosLoja() {
           )}
         </CardContent>
       </Card>
-      </>)}
 
-      {/*
-        RECEBEDOR DO CARTÃO — a conta do Mercado Pago DA LOJA.
-
-        Aparece sempre, independente do gateway de Pix escolhido: Pix e cartão são
-        contas diferentes. A loja pode receber Pix pela Planner/ONZ e cartão pelo
-        Mercado Pago ao mesmo tempo, e os cards acima tratam só do Pix.
-
-        Sem token próprio o cartão NÃO é oferecido ao cliente — de propósito. O token é
-        o que determina em qual conta o dinheiro cai, e sem ele o pagamento iria parar
-        na conta da plataforma sem ninguém pedir.
-
-        FECHADO POR PADRÃO: cartão é opcional e se configura uma vez. Um formulário
-        aberto embaixo do Pix competia por atenção com a única coisa que a maioria
-        das lojas veio conferir aqui.
-      */}
-      <Card>
-        <CardContent className="p-5">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
-              <CreditCard className="size-4 text-primary" />
-            </div>
-            <div className="min-w-[11rem] flex-1">
-              <p className="text-sm font-bold">Cartão de crédito online</p>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                Via Mercado Pago —{' '}
-                {estado.cartao_online_ativo
-                  ? `ativo em ${estado.modo === 'teste' ? 'teste' : 'produção'} (token ${estado.modo === 'teste' ? estado.token_teste_mascarado : estado.token_producao_mascarado})`
-                  : 'não configurado'}
-              </p>
-            </div>
-            <Button type="button" variant="outline" size="sm" className="shrink-0"
-              onClick={() => setCartaoAberto(v => !v)}>
-              {cartaoAberto ? 'Fechar' : 'Configurar'}
-            </Button>
-          </div>
-
-          {!estado.cartao_online_ativo && !cartaoAberto && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
-              <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
-              {/* Diz o que o cliente vê hoje, não só que "falta configurar": é a
-                  diferença entre o lojista entender que está perdendo venda ou achar
-                  que é um campo opcional qualquer. */}
-              Sem conta conectada, a opção <b>Cartão online</b> não aparece pro cliente —
-              ele só consegue pagar por Pix ou na entrega.
-            </div>
-          )}
-
-          {cartaoAberto && (
-            <div className="mt-4 space-y-3 border-t border-border pt-4">
-              <p className="text-xs text-muted-foreground">
-                O cliente paga antes de o pedido sair, e <b>o dinheiro cai direto na sua
-                conta</b>. Pegue o token em <b>Mercado Pago → Seu negócio → Configurações →
-                Gestão e administração → Credenciais</b>. Comece pelas de <b>teste</b>.
-              </p>
-
-              {/*
-                MODO ANTES DO TOKEN, e começando em TESTE: integração de cartão se homologa
-                antes de valer dinheiro. Em teste o MP dá cartões fictícios e o fluxo inteiro
-                (pagar → voltar → confirmar → avisar o lojista) roda sem mover um centavo.
-                Deixar produção como padrão convidaria o lojista a descobrir um webhook
-                quebrado com dinheiro de cliente real no meio.
-              */}
-              <div className="flex gap-2">
-                {([['teste', 'Teste', FlaskConical], ['producao', 'Produção', Rocket]] as const).map(([v, txt, Icone]) => (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => { setMpModo(v); setMpToken(''); }}
-                    className={cn('flex flex-1 items-center justify-center gap-2 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors',
-                      mpModo === v ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40')}
-                  >
-                    <Icone className="size-4" /> {txt}
-                  </button>
-                ))}
-              </div>
-              {mpModo === 'teste' ? (
-                <p className="rounded-lg bg-warning/10 px-3 py-2 text-[11px] text-warning">
-                  Em teste, use o token <b>TEST-…</b> e os cartões de teste do Mercado Pago. Nenhuma
-                  cobrança real acontece — é para validar o fluxo inteiro antes de virar a chave.
-                </p>
-              ) : (
-                <p className="rounded-lg bg-muted px-3 py-2 text-[11px] text-muted-foreground">
-                  Em produção, use o token <b>APP_USR-…</b>. A partir daí as cobranças são reais e
-                  o dinheiro cai na sua conta.
-                </p>
-              )}
-
-              {estado.cartao_online_ativo && (
-                <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-600/10 px-3 py-2">
-                  <span className="flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400">
-                    <CheckCircle2 className="size-3.5" />
-                    Cartão ativo em {estado.modo === 'teste' ? 'TESTE' : 'produção'}
-                  </span>
-                  <Button type="button" variant="ghost" size="sm" disabled={enviando} onClick={removerCartao}
-                    className="text-destructive hover:bg-destructive/10 hover:text-destructive">
-                    Remover
-                  </Button>
-                </div>
-              )}
-
-              <form onSubmit={salvarCartao} className="space-y-3">
-                <div>
-                  <Label htmlFor="mp_token">
-                    Access Token {mpModo === 'teste' ? 'de teste' : 'de produção'}
-                  </Label>
-                  <Input
-                    id="mp_token" type="password" value={mpToken} maxLength={300} autoComplete="off"
-                    placeholder={mpModo === 'teste' ? 'TEST-…' : 'APP_USR-…'}
-                    onChange={e => setMpToken(e.target.value)}
-                    className="h-[46px] font-mono text-sm"
-                  />
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Guardado criptografado — nunca aparece de novo depois de salvar. É a
-                    credencial que autoriza cobranças na sua conta: trate como senha.
-                  </p>
-                </div>
-                <Button type="submit" size="sm" disabled={enviando || !mpToken.trim()}>
-                  {enviando ? 'Salvando…' : 'Conectar Mercado Pago'}
-                </Button>
-              </form>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Info webhook — opcional, o sistema já manda a URL certa em cada pagamento */}
-      {ativo && !viaOnz && (
+      {/* Info webhook — opcional; o sistema já manda a URL certa em cada cobrança */}
+      {tokenMpDoModo && (
         <Card className="border-dashed">
           <CardContent className="p-4 text-xs text-muted-foreground space-y-2">
-            <p className="font-semibold text-foreground text-sm">Confirmação automática do Pix</p>
+            <p className="font-semibold text-foreground text-sm">Confirmação automática de pagamento</p>
+            {/*
+              Deixa de prometer que "não precisa fazer nada". Na homologação do
+              cartão apareceu um pagamento aprovado, com a URL de notificação
+              gravada corretamente dentro do próprio pagamento, que mesmo assim
+              nunca gerou chamada nenhuma. Por isso o sistema confere sozinho a
+              cada 5 min — e por isso vale dizer isso aqui, em vez de dar a
+              entender que tudo depende de uma notificação que pode não vir.
+            */}
             <p>
-              Não precisa fazer nada — o sistema já avisa o Mercado Pago pra onde mandar a confirmação
-              a cada Pix gerado. Se quiser, você também pode adicionar a URL abaixo como webhook geral no
-              painel do Mercado Pago (reforço opcional, não é obrigatório):
+              O sistema avisa o Mercado Pago pra onde mandar a confirmação a cada cobrança, e ainda
+              <b> confere sozinho a cada 5 minutos</b> se algum pagamento foi aprovado sem aviso — então
+              nenhum pedido pago fica preso em "aguardando". Se quiser reforçar, dá pra cadastrar a URL
+              abaixo como webhook no painel do Mercado Pago (opcional):
             </p>
             <div className="flex items-center gap-2">
               <code className="flex-1 block bg-muted px-2 py-1.5 rounded text-[11px] font-mono break-all">

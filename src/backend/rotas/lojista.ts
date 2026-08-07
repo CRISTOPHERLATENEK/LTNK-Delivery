@@ -1788,53 +1788,68 @@ router.post('/pagamentos/testar', async (req, res, next) => {
       { mercadopago_token_teste: string | null; mercadopago_token_producao: string | null; mercadopago_modo: string; pagamento_gateway: string | null } | undefined;
     const gateway = row?.pagamento_gateway === 'onz' ? 'onz' : 'mercadopago';
 
+    const modo: 'teste' | 'producao' = row?.mercadopago_modo === 'teste' ? 'teste' : 'producao';
+    const linhas: string[] = [];
+    let tudoOk = true;
+
+    // ── Conta Planner (só recebe Pix, e só quando é o gateway escolhido) ──
     if (gateway === 'onz') {
       const cred = await credenciaisOnzDaLoja(loja.id);
-      if (!cred) return res.json({ ok: false, detalhe: 'Nenhuma credencial da Planner salva nesta loja.' });
-      try {
-        // Consulta o webhook registrado: é autenticada (prova que o par
-        // ID+secret vale) e não cria nada na conta.
-        const r = await consultarWebhookCashIn(cred);
-        return res.json({
-          ok: true,
-          detalhe: r.registrado
-            ? 'Conta Planner respondeu e a confirmação automática está registrada.'
-            : 'Conta Planner respondeu, mas a confirmação automática não está registrada — salve as credenciais de novo.',
-        });
-      } catch (e) {
-        return res.json({ ok: false, detalhe: e instanceof Error ? e.message : 'A Planner recusou as credenciais.' });
+      if (!cred) {
+        tudoOk = false;
+        linhas.push('Planner: nenhuma credencial salva nesta loja.');
+      } else {
+        try {
+          // Consulta o webhook registrado: é autenticada (prova que o par
+          // ID+secret vale) e não cria nada na conta.
+          const r = await consultarWebhookCashIn(cred);
+          linhas.push(r.registrado
+            ? 'Planner (Pix): conectada, com confirmação automática registrada.'
+            : 'Planner (Pix): conectada, mas sem confirmação automática — salve as credenciais de novo.');
+        } catch (e) {
+          tudoOk = false;
+          linhas.push(`Planner (Pix): ${e instanceof Error ? e.message : 'credenciais recusadas'}.`);
+        }
       }
     }
 
-    const modo: 'teste' | 'producao' = row?.mercadopago_modo === 'teste' ? 'teste' : 'producao';
+    // ── Conta Mercado Pago ──
+    // Quando o gateway do Pix é o próprio MP, é a MESMA conta que recebe os dois
+    // meios — daí o rótulo mudar em vez de existirem dois testes iguais.
+    const recebe = gateway === 'onz' ? 'cartão' : 'Pix e cartão';
     let token: string | null = null;
     try {
       const cifrado = modo === 'teste' ? row?.mercadopago_token_teste : row?.mercadopago_token_producao;
       token = cifrado ? descriptografar(cifrado) : null;
     } catch { token = null; }
-    if (!token) return res.json({ ok: false, detalhe: `Nenhum token de ${modo} salvo nesta loja.` });
 
-    // `/users/me` é a chamada canônica de "esse token vale?" no Mercado Pago:
-    // devolve o dono da conta, não mexe em nada e não tem custo.
-    const resposta = await fetch('https://api.mercadopago.com/users/me', {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (!resposta.ok) {
-      return res.json({
-        ok: false,
-        detalhe: resposta.status === 401
-          ? 'O Mercado Pago recusou o token (401). Ele foi revogado, expirou ou foi colado errado.'
-          : `O Mercado Pago respondeu HTTP ${resposta.status}.`,
+    if (!token) {
+      // Sem token de cartão com Pix pela Planner não é erro: é uma loja que
+      // simplesmente não aceita cartão. Só vira erro quando o MP é o gateway
+      // do Pix e mesmo assim não há credencial.
+      if (gateway === 'onz') linhas.push('Mercado Pago (cartão): não configurado — o cliente não vê a opção de cartão.');
+      else { tudoOk = false; linhas.push(`Mercado Pago: nenhum token de ${modo} salvo.`); }
+    } else {
+      // `/users/me` é a chamada canônica de "esse token vale?" no Mercado Pago:
+      // devolve o dono da conta, não mexe em nada e não tem custo.
+      const resposta = await fetch('https://api.mercadopago.com/users/me', {
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (!resposta.ok) {
+        tudoOk = false;
+        linhas.push(resposta.status === 401
+          ? 'Mercado Pago: token recusado (401) — revogado, expirado ou colado errado.'
+          : `Mercado Pago: respondeu HTTP ${resposta.status}.`);
+      } else {
+        const dono = await resposta.json().catch(() => ({})) as { nickname?: string; email?: string };
+        // Mostrar de QUEM é a conta é o ponto do teste: o erro caro não é "token
+        // inválido", é token válido da conta errada — o dinheiro cairia certinho,
+        // na conta de outra pessoa, sem nenhum erro aparecer.
+        linhas.push(`Mercado Pago (${recebe}): conta ${dono.nickname || dono.email || 'conectada'}, em ${modo === 'teste' ? 'TESTE' : 'produção'}.`);
+      }
     }
-    const dono = await resposta.json().catch(() => ({})) as { nickname?: string; email?: string; site_id?: string };
-    // Mostrar de QUEM é a conta é o ponto do teste: o erro caro não é "token
-    // inválido", é token válido da conta errada — o dinheiro cairia certinho,
-    // na conta de outra pessoa, sem nenhum erro aparecer.
-    return res.json({
-      ok: true,
-      detalhe: `Conectado em ${modo === 'teste' ? 'TESTE' : 'produção'} na conta ${dono.nickname || dono.email || 'do Mercado Pago'}.`,
-    });
+
+    return res.json({ ok: tudoOk, detalhe: linhas.join(' ') });
   } catch (e) { next(e); }
 });
 
@@ -1910,7 +1925,17 @@ router.put('/pagamentos', async (req, res, next) => {
     }
     if (typeof req.body.token_teste === 'string') {
       const v = req.body.token_teste.trim();
-      if (v && !v.startsWith('TEST-')) throw erroHttp(400, 'O token de teste deve começar com TEST-.');
+      /*
+       * ACEITA APP_USR- NO SLOT DE TESTE, de propósito.
+       *
+       * A homologação oficial do Checkout Pro é feita com uma CONTA DE TESTE
+       * vendedora, e o token dela sai na aba "Credenciais de produção" — começa
+       * com APP_USR- mesmo sendo uma conta fictícia. Exigir TEST- aqui bloqueava
+       * justamente o caminho que o Mercado Pago manda seguir.
+       */
+      if (v && !v.startsWith('TEST-') && !v.startsWith('APP_USR-')) {
+        throw erroHttp(400, 'Token inválido: deve começar com TEST- (credencial de teste) ou APP_USR- (conta de teste vendedora).');
+      }
       sets.push('mercadopago_token_teste = ?');
       vals.push(v ? criptografar(v) : null);
     }
