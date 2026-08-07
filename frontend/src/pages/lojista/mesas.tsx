@@ -341,14 +341,34 @@ function CardMesa({
 }) {
   const livre = mesa.status === 'livre';
 
+  /*
+   * CLICAR NA MESA LIVRE ABRE A MESA. Antes o `onClick` do card era
+   * `livre ? undefined : onToggle` — ou seja, na mesa livre o card ENGOLIA o clique.
+   * E como `cursor-pointer` estava aplicado em TODOS os cards, a mesa livre mostrava
+   * o cursor de mão, convidava o clique e não fazia nada: só o botãozinho "Abrir"
+   * funcionava. É o "clico nela mas não funciona" relatado.
+   *
+   * Numa tela de mesas, tocar na mesa é o gesto óbvio pra ocupá-la — obrigar a
+   * acertar um botão de 8px de altura no meio do salão é atrito puro.
+   */
+  const aoClicar = livre ? onAbrir : onToggle;
+
   return (
     <Card
-      className={`cursor-pointer transition-all ${
+      role="button"
+      tabIndex={0}
+      aria-label={livre ? `Abrir mesa ${mesa.numero}` : `Mesa ${mesa.numero}, ver comanda`}
+      // Teclado: o card virou controle, então precisa responder a Enter e Espaço como
+      // um botão. `preventDefault` no Espaço evita a página rolar junto.
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); aoClicar(); }
+      }}
+      className={`cursor-pointer transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
         !livre
           ? expandida ? 'border-primary ring-2 ring-primary/30 bg-primary/5' : 'border-primary/40 bg-primary/5'
-          : 'hover:border-border'
+          : 'hover:border-primary/40 hover:bg-accent/40'
       }`}
-      onClick={livre ? undefined : onToggle}
+      onClick={aoClicar}
     >
       <CardContent className="p-4">
         <div className="flex items-start justify-between">
@@ -374,7 +394,10 @@ function CardMesa({
 
         {livre && (
           <div className="flex gap-2 mt-3">
-            <Button size="sm" className="flex-1 text-xs h-8" onClick={onAbrir}>
+            {/* `stopPropagation` porque o card inteiro agora abre a mesa: sem isso,
+                clicar no botão dispararia `abrirMesa` duas vezes. */}
+            <Button size="sm" className="flex-1 text-xs h-8"
+              onClick={e => { e.stopPropagation(); onAbrir(); }}>
               Abrir
             </Button>
             <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-muted-foreground" onClick={e => { e.stopPropagation(); onExcluir(); }}>
