@@ -1729,6 +1729,12 @@ router.get('/pagamentos', async (req, res, next) => {
       ativo: gateway === 'onz' ? onzDisponivel : (modo === 'teste' ? !!tokenTeste : !!tokenProducao),
       token_teste_mascarado: mascarar(tokenTeste),
       token_producao_mascarado: mascarar(tokenProducao),
+      /*
+       * CARTÃO ONLINE exige conta PRÓPRIA do Mercado Pago — não vale o token da
+       * plataforma, senão o dinheiro do cartão cairia na conta dela. Por isso é um
+       * campo separado de `ativo`, que aceita o gateway de Pix da loja.
+       */
+      cartao_online_ativo: !!(modo === 'teste' ? tokenTeste : tokenProducao),
     });
   } catch (e) { next(e); }
 });
@@ -1756,6 +1762,31 @@ router.put('/pagamentos', async (req, res, next) => {
       vals.push(v ? criptografar(v) : null);
       onzMudou = true;
     }
+    /*
+     * RECEBEDOR DO CARTÃO: token do Mercado Pago DA LOJA.
+     *
+     * Sem ele o cartão não é oferecido (ver `cartaoOnlineAtivo`) — de propósito: o
+     * token é o que determina em qual conta o dinheiro cai, e cair na conta da
+     * plataforma sem ninguém pedir é o pior resultado possível.
+     *
+     * Cifrado no banco, igual às credenciais da ONZ. A tela só recebe de volta uma
+     * máscara; o valor em claro nunca sai daqui.
+     */
+    if (typeof req.body.mercadopago_token_producao === 'string') {
+      const v = req.body.mercadopago_token_producao.trim();
+      sets.push('mercadopago_token_producao = ?');
+      vals.push(v ? criptografar(v) : null);
+    }
+    if (typeof req.body.mercadopago_token_teste === 'string') {
+      const v = req.body.mercadopago_token_teste.trim();
+      sets.push('mercadopago_token_teste = ?');
+      vals.push(v ? criptografar(v) : null);
+    }
+    if (req.body.mercadopago_modo === 'teste' || req.body.mercadopago_modo === 'producao') {
+      sets.push('mercadopago_modo = ?');
+      vals.push(req.body.mercadopago_modo);
+    }
+
     if (typeof req.body.onz_pix_key === 'string') {
       const v = req.body.onz_pix_key.trim();
       // A chave Pix não é segredo (vai no QR Code), então fica em claro.
@@ -1855,6 +1886,12 @@ router.put('/pagamentos', async (req, res, next) => {
       ativo: gateway === 'onz' ? onzDisponivel : (modo === 'teste' ? !!tokenTeste : !!tokenProducao),
       token_teste_mascarado: mascarar(tokenTeste),
       token_producao_mascarado: mascarar(tokenProducao),
+      /*
+       * CARTÃO ONLINE exige conta PRÓPRIA do Mercado Pago — não vale o token da
+       * plataforma, senão o dinheiro do cartão cairia na conta dela. Por isso é um
+       * campo separado de `ativo`, que aceita o gateway de Pix da loja.
+       */
+      cartao_online_ativo: !!(modo === 'teste' ? tokenTeste : tokenProducao),
     });
   } catch (e) { next(e); }
 });

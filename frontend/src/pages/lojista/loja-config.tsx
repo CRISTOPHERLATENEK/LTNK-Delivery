@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck, Search } from 'lucide-react';
+import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck, Search, AlertCircle } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
 import { statusAgente, esquecerStatusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
@@ -781,6 +781,8 @@ interface EstadoPagamentos {
   /** Esta loja tem conta ONZ PRÓPRIA (dinheiro cai direto nela)? */
   onz_conta_propria: boolean;
   onz_client_id_mascarado: string | null;
+  /** Loja tem conta PRÓPRIA de Mercado Pago (recebedor do cartão). */
+  cartao_online_ativo: boolean;
   onz_pix_key: string;
   /** Recado do servidor (ex.: salvou mas não registrou a confirmação automática). */
   aviso?: string;
@@ -860,6 +862,26 @@ export function PagamentosLoja() {
     if (onzChave.trim()) corpo.onz_pix_key = onzChave.trim();
     if (Object.keys(corpo).length === 0) return;
     await enviar(corpo, 'Conta Planner conectada! A confirmação automática de pagamento já está ativa.');
+  }
+
+  const [mpToken, setMpToken] = useState('');
+
+  async function salvarCartao(e: React.FormEvent) {
+    e.preventDefault();
+    const v = mpToken.trim();
+    if (!v) return;
+    await enviar(
+      { mercadopago_token_producao: v, mercadopago_modo: 'producao' },
+      'Mercado Pago conectado! A opção de cartão já aparece pro cliente.',
+    );
+    // Limpa o campo depois de salvar: o valor volta mascarado do servidor, e deixar
+    // o token em claro na tela é convite pra ele ser lido por cima do ombro.
+    setMpToken('');
+  }
+
+  function removerCartao() {
+    setMpToken('');
+    enviar({ mercadopago_token_producao: '' }, 'Conta do Mercado Pago removida — o cartão deixou de ser oferecido.');
   }
 
   function removerOnz() {
@@ -1009,6 +1031,74 @@ export function PagamentosLoja() {
           </CardContent>
         </Card>
       )}
+
+      {/*
+        RECEBEDOR DO CARTÃO — a conta do Mercado Pago DA LOJA.
+
+        Aparece sempre, independente do gateway de Pix escolhido: Pix e cartão são
+        contas diferentes. A loja pode receber Pix pela Planner/ONZ e cartão pelo
+        Mercado Pago ao mesmo tempo, e o card acima trata só do Pix.
+
+        Sem token próprio o cartão NÃO é oferecido ao cliente — de propósito. O token é
+        o que determina em qual conta o dinheiro cai, e sem ele o pagamento iria parar
+        na conta da plataforma sem ninguém pedir.
+      */}
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <div className="flex items-center gap-2">
+            <CreditCard className="size-4 text-primary" />
+            <span className="text-sm font-bold">Cartão de crédito online</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Conecte sua conta do Mercado Pago para aceitar cartão no cardápio. O cliente
+            paga antes de o pedido sair, e <b>o dinheiro cai direto na sua conta</b> — a
+            plataforma não fica no meio.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Pegue em <b>Mercado Pago → Seu negócio → Configurações → Gestão e
+            administração → Credenciais</b> e cole o <b>Access Token de produção</b> abaixo.
+          </p>
+
+          {estado.cartao_online_ativo ? (
+            <div className="flex items-center justify-between gap-2 rounded-lg bg-success/10 px-3 py-2">
+              <span className="flex items-center gap-1.5 text-xs font-medium text-success">
+                <CheckCircle2 className="size-3.5" /> Cartão ativo — token {estado.token_producao_mascarado}
+              </span>
+              <Button type="button" variant="ghost" size="sm" disabled={enviando} onClick={removerCartao}>
+                Remover
+              </Button>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-xs text-muted-foreground">
+              <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+              {/* Diz o que o cliente vê hoje, não só que "falta configurar": é a
+                  diferença entre o lojista entender que está perdendo venda ou achar
+                  que é um campo opcional qualquer. */}
+              Sem conta conectada, a opção <b>Cartão online</b> não aparece pro cliente —
+              ele só consegue pagar por Pix ou na entrega.
+            </div>
+          )}
+
+          <form onSubmit={salvarCartao} className="space-y-3">
+            <div>
+              <Label htmlFor="mp_token">Access Token de produção</Label>
+              <Input
+                id="mp_token" type="password" value={mpToken} maxLength={300} autoComplete="off"
+                placeholder={estado.cartao_online_ativo ? '•••••••• (já configurado)' : 'APP_USR-…'}
+                onChange={e => setMpToken(e.target.value)}
+                className="font-mono text-sm"
+              />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Guardado criptografado. É a credencial que autoriza cobranças na sua conta —
+                trate como senha e não compartilhe.
+              </p>
+            </div>
+            <Button type="submit" size="sm" disabled={enviando || !mpToken.trim()}>
+              {enviando ? 'Salvando…' : 'Conectar Mercado Pago'}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       {/* Configuração do Mercado Pago — só relevante quando é a conta da loja */}
       {!viaOnz && (<>

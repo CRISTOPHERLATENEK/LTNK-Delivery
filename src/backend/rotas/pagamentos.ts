@@ -49,6 +49,41 @@ async function tokenPlataformaMP(): Promise<string | null> {
  * configurou antes dessa tela existir. Só cai no token da plataforma se a loja
  * não tiver configurado nada disso ainda.
  */
+/**
+ * Token DA LOJA, sem cair no da plataforma.
+ *
+ * A diferença importa porque o token decide EM QUAL CONTA O DINHEIRO CAI. Com o
+ * fallback, uma loja que nunca configurou o Mercado Pago recebe pagamento na conta
+ * da PLATAFORMA — e ninguém percebe até a conciliação do mês, quando o lojista
+ * cobra um dinheiro que está em outro CNPJ.
+ *
+ * No Pix o fallback era tolerável (a loja quase sempre usa a própria conta ONZ). No
+ * cartão não há alternativa: é Mercado Pago ou nada, então o fallback silencioso vira
+ * dinheiro no lugar errado.
+ */
+export async function tokenProprioMP(lojaId: number): Promise<string | null> {
+  const row = await db.prepare(
+    'SELECT mercadopago_token, mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo FROM lojas WHERE id = ?'
+  ).get(lojaId) as {
+    mercadopago_token: string | null; mercadopago_token_teste: string | null;
+    mercadopago_token_producao: string | null; mercadopago_modo: string;
+  } | undefined;
+  if (!row) return null;
+  const cifrado = row.mercadopago_modo === 'teste' ? row.mercadopago_token_teste : row.mercadopago_token_producao;
+  if (cifrado) {
+    try { return descriptografar(cifrado); } catch { /* chave trocada/corrompido */ }
+  }
+  if (row.mercadopago_token) {
+    try { return descriptografar(row.mercadopago_token); } catch { /* chave trocada/corrompido */ }
+  }
+  return null;
+}
+
+/** Cartão online só existe com RECEBEDOR PRÓPRIO configurado — ver `tokenProprioMP`. */
+export async function cartaoOnlineAtivo(lojaId: number): Promise<boolean> {
+  return !!(await tokenProprioMP(lojaId));
+}
+
 export async function getTokenMP(lojaId: number): Promise<string | null> {
   const row = await db.prepare(
     'SELECT mercadopago_token, mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo FROM lojas WHERE id = ?'
@@ -236,8 +271,15 @@ export async function criarPreferenciaCartao(
   dadosPagador: DadosPagador,
   opcoes: { notificationUrl?: string; urlRetorno?: string } = {},
 ): Promise<{ preferencia_id: string; url: string }> {
-  const token = await getTokenMP(lojaId);
-  if (!token) throw new Error('Mercado Pago não configurado para esta loja.');
+  /*
+   * `tokenProprioMP` e NÃO `getTokenMP`: sem o token da própria loja, o segundo cairia
+   * no da plataforma e o cartão do cliente pagaria na CONTA ERRADA — silenciosamente,
+   * até alguém conferir o extrato no fim do mês.
+   */
+  const token = await tokenProprioMP(lojaId);
+  if (!token) {
+    throw new Error('Esta loja ainda não conectou uma conta do Mercado Pago para receber por cartão.');
+  }
 
   const corpo: Record<string, unknown> = {
     items: [{

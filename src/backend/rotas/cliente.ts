@@ -14,7 +14,7 @@ import { notificarPedidoWhatsApp } from '../whatsapp';
 import { comissaoPercentualDaLoja } from '../comissao';
 import { geocodificar } from '../geo';
 import { resolverFrete, type EnderecoParaFrete } from '../frete';
-import { criarCobrancaPix, criarPreferenciaCartao, pagamentoOnlineAtivo, conferirPixAgora } from './pagamentos';
+import { criarCobrancaPix, criarPreferenciaCartao, pagamentoOnlineAtivo, cartaoOnlineAtivo, conferirPixAgora } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 
 const router = Router();
@@ -323,6 +323,14 @@ router.post('/pedidos', async (req, res, next) => {
 
     // Pix online exige a integração ativa. Checado só agora, depois de validar
     // loja, endereço e itens — para não mascarar o motivo real da recusa.
+    /*
+     * Cartão exige RECEBEDOR PRÓPRIO da loja; Pix aceita ONZ ou Mercado Pago. Sem
+     * essa distinção, uma loja sem conta de MP receberia cartão na conta da
+     * plataforma (ver `tokenProprioMP`).
+     */
+    if (cartaoOnline && !(await cartaoOnlineAtivo(lojaId))) {
+      throw erroHttp(409, 'Esta loja ainda não aceita cartão online. Escolha Pix ou pagamento na entrega.');
+    }
     if (pagoAntes && !(await pagamentoOnlineAtivo(lojaId))) {
       throw erroHttp(503, 'Pagamento via Pix online indisponível no momento. Escolha pagar na entrega.');
     }
