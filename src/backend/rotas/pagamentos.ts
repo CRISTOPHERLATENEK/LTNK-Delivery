@@ -392,7 +392,23 @@ export async function estornarPagamentoMercadoPago(lojaId: number, pagamentoGate
   if (!token) throw new Error('Mercado Pago não configurado para esta loja.');
   const resposta = await fetch(
     `https://api.mercadopago.com/v1/payments/${encodeURIComponent(pagamentoGatewayId)}/refunds`,
-    { method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' } },
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        /*
+         * OBRIGATÓRIA NO ESTORNO — o Mercado Pago recusa sem ela ("Header
+         * X-Idempotency-Key can't be null"), e a recusa do pedido era abortada
+         * junto (de propósito: melhor não recusar do que recusar sem devolver).
+         *
+         * A chave é o PAGAMENTO, não o instante: se a mesma devolução for
+         * tentada de novo — retry de rede, lojista clicando duas vezes — o MP
+         * devolve o mesmo estorno em vez de mandar o dinheiro duas vezes.
+         */
+        'X-Idempotency-Key': `estorno-pagamento-${pagamentoGatewayId}`,
+      },
+    },
   );
   if (!resposta.ok) {
     const corpo = await resposta.json().catch(() => ({}));
