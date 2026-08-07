@@ -789,6 +789,10 @@ interface EstadoPagamentos {
   /** Datas do 1º e do último pedido pago online — alimentam a linha do banner. */
   primeiro_pagamento_em: string | null;
   ultimo_pagamento_em: string | null;
+  /** Esta loja já colou a assinatura secreta do webhook dela? */
+  webhook_secret_configurado: boolean;
+  /** URL do webhook JÁ com ?t=<banco>&loja=<id> — a nua não identifica a loja. */
+  webhook_url: string;
   /** Recado do servidor (ex.: salvou mas não registrou a confirmação automática). */
   aviso?: string;
   modo: 'teste' | 'producao';
@@ -868,6 +872,7 @@ export function PagamentosLoja() {
   const [mostrarProducao, setMostrarProducao] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [urlWebhookCopiada, setUrlWebhookCopiada] = useState(false);
+  const [webhookSecret, setWebhookSecret] = useState('');
   const [testando, setTestando] = useState(false);
   /*
    * FORMULÁRIO FECHADO POR PADRÃO quando já há credencial conectada.
@@ -885,7 +890,9 @@ export function PagamentosLoja() {
   const [aba, setAba] = useState<'pix' | 'cartao'>('pix');
   const [webhookAberto, setWebhookAberto] = useState(false);
 
-  const urlWebhook = `${window.location.origin}/api/pagamentos/webhook/mercadopago`;
+  // A URL vem PRONTA do servidor, com ?t=<banco>&loja=<id>: só ele sabe o nome
+  // do banco do tenant, e sem esses dois a notificação chega sem dizer de quem é.
+  const urlWebhook = estado?.webhook_url ?? '';
 
   function carregar() {
     api<EstadoPagamentos>('GET', '/api/lojista/pagamentos')
@@ -980,6 +987,22 @@ export function PagamentosLoja() {
     // é aqui que um secret colado errado ainda pode ser corrigido de cabeça
     // quente — daqui a uma semana ninguém lembra mais onde pegou.
     await testarConexao();
+  }
+
+  async function salvarWebhookSecret(e: React.FormEvent) {
+    e.preventDefault();
+    const v = webhookSecret.trim();
+    if (!v) return;
+    if (await enviar({ mercadopago_webhook_secret: v }, 'Assinatura salva — as notificações passam a ser verificadas.')) {
+      // Some da tela assim que salva: volta do servidor só como "configurada",
+      // e segredo em claro na tela é convite pra ser lido por cima do ombro.
+      setWebhookSecret('');
+    }
+  }
+
+  function removerWebhookSecret() {
+    setWebhookSecret('');
+    enviar({ mercadopago_webhook_secret: '' }, 'Assinatura removida.');
   }
 
   function removerOnz() {
@@ -1477,6 +1500,45 @@ export function PagamentosLoja() {
                     {urlWebhookCopiada ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
                   </Button>
                 </div>
+                <p className="text-[11px]">
+                  Essa URL é <b>desta loja</b> — ela já identifica sua conta. Não use a de outro lojista.
+                </p>
+
+                {/*
+                  ASSINATURA POR LOJA. O Mercado Pago emite uma por aplicação, e
+                  cada lojista usa a conta dele — por isso o campo vive aqui, e
+                  não numa variável do servidor. Um segredo global validaria uma
+                  loja e descartaria em silêncio a notificação de todas as
+                  outras: bug que só apareceria com o segundo cliente.
+                */}
+                <form onSubmit={salvarWebhookSecret} className="space-y-2 border-t border-border pt-3">
+                  <Label htmlFor="wh_secret" className="text-xs">
+                    Assinatura secreta {estado.webhook_secret_configurado && (
+                      <span className="ml-1 font-normal text-emerald-700 dark:text-emerald-400">• configurada</span>
+                    )}
+                  </Label>
+                  <p className="text-[11px]">
+                    Aparece no painel do Mercado Pago logo depois de cadastrar a URL acima. Com ela, o
+                    sistema confere que a notificação veio mesmo do Mercado Pago e descarta as forjadas.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      id="wh_secret" type="password" value={webhookSecret} maxLength={200} autoComplete="off"
+                      placeholder={estado.webhook_secret_configurado ? '•••••••• (já configurada)' : 'Cole a assinatura secreta'}
+                      onChange={e => setWebhookSecret(e.target.value)}
+                      className="h-10 flex-1 font-mono text-sm"
+                    />
+                    <Button type="submit" size="sm" className="shrink-0" disabled={enviando || !webhookSecret.trim()}>
+                      Salvar
+                    </Button>
+                    {estado.webhook_secret_configurado && (
+                      <Button type="button" variant="ghost" size="sm" className="shrink-0 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        disabled={enviando} onClick={removerWebhookSecret}>
+                        Remover
+                      </Button>
+                    )}
+                  </div>
+                </form>
               </div>
             )}
           </CardContent>

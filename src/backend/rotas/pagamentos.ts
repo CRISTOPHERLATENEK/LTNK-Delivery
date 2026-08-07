@@ -459,8 +459,28 @@ async function processarWebhookMP(pagamentoId: string, lojaIdDica?: number): Pro
  * confiar em qualquer coisa do corpo da notificação); com o secret, rejeita
  * notificação forjada/sem assinatura válida.
  */
-function assinaturaMpValida(req: import('express').Request, dataId: string): boolean {
-  const secret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+/**
+ * Segredo de assinatura DA LOJA, com o do .env como reserva.
+ *
+ * Por loja porque o Mercado Pago emite a assinatura por APLICAÇÃO, e cada
+ * lojista usa a conta dele: um segredo global validaria a notificação de uma
+ * loja e rejeitaria a de todas as outras.
+ *
+ * O do `.env` continua valendo como reserva pra loja que ainda não colou o
+ * dela — e pra conta da própria plataforma, que não tem loja associada.
+ */
+async function segredoWebhookDaLoja(lojaId?: number): Promise<string | null> {
+  if (lojaId) {
+    try {
+      const row = await db.prepare('SELECT mercadopago_webhook_secret FROM lojas WHERE id = ?')
+        .get(lojaId) as { mercadopago_webhook_secret: string | null } | undefined;
+      if (row?.mercadopago_webhook_secret) return descriptografar(row.mercadopago_webhook_secret);
+    } catch { /* segue pro .env */ }
+  }
+  return process.env.MERCADOPAGO_WEBHOOK_SECRET || null;
+}
+
+function assinaturaMpValida(req: import('express').Request, dataId: string, secret: string | null): boolean {
   if (!secret) return true;
   const cabecalho = req.headers['x-signature'];
   const requestId = req.headers['x-request-id'];
@@ -854,10 +874,6 @@ router.post('/webhook/mercadopago', async (req, res) => {
     // QUERY quando presente (documentação do MP).
     const pagamentoId = (req.query['data.id'] as string | undefined) || (req.body && req.body.data && req.body.data.id);
     if (!pagamentoId) return res.status(200).json({ recebido: true });
-    if (!assinaturaMpValida(req, String(pagamentoId))) {
-      console.warn('[mercadopago] webhook com assinatura inválida, ignorado');
-      return res.status(200).json({ recebido: true }); // 200 pro MP não ficar re-tentando; só não processa
-    }
 
     // SILO (um banco por tenant): a notification_url que gravamos no pagamento
     // traz ?t=<banco> do tenant dono do pedido. Sem isso, o webhook rodaria no
@@ -870,8 +886,27 @@ router.post('/webhook/mercadopago', async (req, res) => {
     // &loja=<id> na notification_url — ver `processarWebhookMP`.
     const lojaDica = Number(req.query.loja) || undefined;
 
-    if (tenant) await comTenant(tenant.db_nome, () => processarWebhookMP(String(pagamentoId), lojaDica));
-    else await processarWebhookMP(String(pagamentoId), lojaDica);
+    /*
+     * A ASSINATURA SÓ PODE SER CONFERIDA DEPOIS DE ENTRAR NO TENANT: o segredo
+     * mora na linha da loja, num dos bancos. Por isso a verificação acontece
+     * aqui dentro, e não na porta de entrada como antes.
+     *
+     * `?loja=` vem da URL e portanto é controlada por quem chama — o que não
+     * enfraquece nada: apontar pra outra loja só troca qual segredo é exigido,
+     * e o conteúdo da notificação continua sendo ignorado (o status é sempre
+     * reconsultado na API do MP dentro de `processarWebhookMP`).
+     */
+    const processar = async () => {
+      const secret = await segredoWebhookDaLoja(lojaDica);
+      if (!assinaturaMpValida(req, String(pagamentoId), secret)) {
+        console.warn(`[mercadopago] webhook com assinatura inválida (loja ${lojaDica ?? '?'}), ignorado`);
+        return; // 200 pro MP não ficar re-tentando; só não processa
+      }
+      await processarWebhookMP(String(pagamentoId), lojaDica);
+    };
+
+    if (tenant) await comTenant(tenant.db_nome, processar);
+    else await processar();
 
     res.status(200).json({ recebido: true });
   } catch {

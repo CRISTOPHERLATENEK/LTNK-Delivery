@@ -1754,6 +1754,19 @@ router.get('/pagamentos', async (req, res, next) => {
       onz_pix_key: credOnz?.chavePix ?? '',
       primeiro_pagamento_em: marcos?.primeiro ?? null,
       ultimo_pagamento_em: marcos?.ultimo ?? null,
+      webhook_secret_configurado: !!(await db.prepare(
+        'SELECT mercadopago_webhook_secret FROM lojas WHERE id = ?'
+      ).get(loja.id) as { mercadopago_webhook_secret: string | null } | undefined)?.mercadopago_webhook_secret,
+      /*
+       * URL DO WEBHOOK **JÁ IDENTIFICADA**: `?t=<banco>&loja=<id>`.
+       *
+       * A tela mostrava a URL nua. Se o lojista cadastrasse aquilo no painel do
+       * Mercado Pago, a notificação chegaria sem dizer de qual tenant nem de
+       * qual loja — e aí a consulta cairia no token da plataforma, que não
+       * enxerga um pagamento feito na conta da loja. Falhava em silêncio.
+       */
+      webhook_url: `${req.protocol}://${req.get('host')}/api/pagamentos/webhook/mercadopago`
+        + `?t=${encodeURIComponent(bancoTenantAtual())}&loja=${loja.id}`,
       modo,
       ativo: gateway === 'onz' ? onzDisponivel : (modo === 'teste' ? !!tokenTeste : !!tokenProducao),
       token_teste_mascarado: mascarar(tokenTeste),
@@ -1894,6 +1907,16 @@ router.put('/pagamentos', async (req, res, next) => {
     if (typeof req.body.mercadopago_token_teste === 'string') {
       const v = req.body.mercadopago_token_teste.trim();
       sets.push('mercadopago_token_teste = ?');
+      vals.push(v ? criptografar(v) : null);
+    }
+    /*
+     * ASSINATURA DO WEBHOOK DESTA LOJA. Por loja porque o Mercado Pago emite uma
+     * por aplicação, e cada lojista usa a conta dele — um segredo global
+     * validaria uma loja e descartaria a notificação de todas as outras.
+     */
+    if (typeof req.body.mercadopago_webhook_secret === 'string') {
+      const v = req.body.mercadopago_webhook_secret.trim();
+      sets.push('mercadopago_webhook_secret = ?');
       vals.push(v ? criptografar(v) : null);
     }
     if (req.body.mercadopago_modo === 'teste' || req.body.mercadopago_modo === 'producao') {

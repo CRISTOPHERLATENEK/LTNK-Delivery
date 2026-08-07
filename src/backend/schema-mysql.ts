@@ -831,6 +831,16 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     ['onz_client_id', 'onz_client_id TEXT'],
     ['onz_client_secret', 'onz_client_secret TEXT'],
     ['onz_pix_key', 'onz_pix_key VARCHAR(80)'],
+    /*
+     * ASSINATURA DO WEBHOOK POR LOJA, não por servidor.
+     *
+     * O Mercado Pago emite a assinatura secreta POR APLICAÇÃO, e cada lojista
+     * usa a conta dele. Uma variável de ambiente única validaria a notificação
+     * de UMA loja e descartaria silenciosamente a de todas as outras — bug que
+     * só apareceria com o segundo cliente, e como "os pedidos demoram 5 minutos
+     * pra aparecer, e só na loja nova".
+     */
+    ['mercadopago_webhook_secret', 'mercadopago_webhook_secret TEXT'],
   ] as const) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
