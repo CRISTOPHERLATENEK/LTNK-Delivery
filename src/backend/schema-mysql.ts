@@ -770,7 +770,17 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     for (const c of checks as Array<{ nome: string; clausula: string }>) {
       if (!c.clausula.includes('forma_pagamento')) continue;
       if (c.clausula.includes('cartao_online')) continue;  // já migrado
-      await pool.query(`ALTER TABLE pedidos DROP CHECK \`${c.nome}\``);
+      /*
+       * MariaDB usa `DROP CONSTRAINT`; MySQL 8 usa `DROP CHECK`. O servidor aqui é
+       * MariaDB e a primeira versão deste código só tinha `DROP CHECK` — falhou em
+       * silêncio (o catch de fora engolia), o CHECK antigo continuou valendo, e todo
+       * pedido de cartão online seria recusado PELO BANCO. Tenta as duas formas.
+       */
+      try {
+        await pool.query(`ALTER TABLE pedidos DROP CONSTRAINT \`${c.nome}\``);
+      } catch {
+        await pool.query(`ALTER TABLE pedidos DROP CHECK \`${c.nome}\``);
+      }
       await pool.query(
         "ALTER TABLE pedidos ADD CONSTRAINT chk_forma_pagamento CHECK (forma_pagamento IN ('pix','dinheiro','cartao_entrega','cartao_online'))",
       );
