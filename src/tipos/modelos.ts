@@ -16,7 +16,10 @@ export type StatusPedido =
   | 'pendente' | 'aceito' | 'preparando' | 'pronto'
   | 'em_entrega' | 'entregue' | 'cancelado' | 'recusado';
 
-export type FormaPagamento = 'pix' | 'dinheiro' | 'cartao_entrega';
+// `cartao_online` faltava aqui desde que a forma foi criada: o banco aceitava
+// (o CHECK da tabela lista as quatro) e o TypeScript não, então qualquer
+// comparação com ela virava "sem sobreposição" e passava batido.
+export type FormaPagamento = 'pix' | 'dinheiro' | 'cartao_entrega' | 'cartao_online';
 
 export type StatusPagamento = 'na_entrega' | 'aguardando' | 'aprovado' | 'recusado';
 

@@ -791,6 +791,8 @@ interface EstadoPagamentos {
   ultimo_pagamento_em: string | null;
   /** Esta loja já colou a assinatura secreta do webhook dela? */
   webhook_secret_configurado: boolean;
+  /** Public key da loja — vai pro navegador montar o formulário de cartão. */
+  public_key: string;
   /** URL do webhook JÁ com ?t=<banco>&loja=<id> — a nua não identifica a loja. */
   webhook_url: string;
   /** Recado do servidor (ex.: salvou mas não registrou a confirmação automática). */
@@ -873,6 +875,7 @@ export function PagamentosLoja() {
   const [enviando, setEnviando] = useState(false);
   const [urlWebhookCopiada, setUrlWebhookCopiada] = useState(false);
   const [webhookSecret, setWebhookSecret] = useState('');
+  const [publicKey, setPublicKey] = useState('');
   const [testando, setTestando] = useState(false);
   /*
    * FORMULÁRIO FECHADO POR PADRÃO quando já há credencial conectada.
@@ -957,6 +960,7 @@ export function PagamentosLoja() {
     const corpo: Record<string, string> = {};
     if (tokenTeste.trim()) corpo.token_teste = tokenTeste.trim();
     if (tokenProducao.trim()) corpo.token_producao = tokenProducao.trim();
+    if (publicKey.trim() && publicKey.trim() !== estado?.public_key) corpo.mercadopago_public_key = publicKey.trim();
     if (Object.keys(corpo).length === 0) return;
     if (!(await enviar(corpo, 'Token salvo!'))) return;
     setEditandoCred(false);
@@ -1441,8 +1445,34 @@ export function PagamentosLoja() {
                   </p>
                 </div>
 
+                {/*
+                  PUBLIC KEY: é ela que monta o formulário de cartão DENTRO da
+                  loja. Sem ela o cartão não aparece pro cliente, mesmo com o
+                  Access Token salvo — por isso o campo fica aqui do lado, e não
+                  escondido em outro canto.
+
+                  Não é senha: vai pro navegador de todo mundo e dá pra ler no
+                  código da página. Por isso aparece em texto normal, sem olho de
+                  revelar e sem o aviso de "trate como senha".
+                */}
+                <div>
+                  <Label htmlFor="mp_pk" className="flex items-center gap-1.5">
+                    <CreditCard className="size-3.5" /> Public Key
+                  </Label>
+                  <Input
+                    id="mp_pk" value={publicKey || estado.public_key} maxLength={120} autoComplete="off"
+                    placeholder="APP_USR-… (fica ao lado do Access Token, no painel)"
+                    onChange={e => setPublicKey(e.target.value)}
+                    className="mt-1 h-[46px] font-mono text-sm"
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    É o que permite o cliente digitar o cartão <b>sem sair da sua loja</b>. Não é segredo —
+                    ela é feita pra ficar visível no navegador.
+                  </p>
+                </div>
+
                 <div className="flex flex-wrap gap-2">
-                  <Button type="submit" size="sm" disabled={enviando || (!tokenTeste.trim() && !tokenProducao.trim())}>
+                  <Button type="submit" size="sm" disabled={enviando || (!tokenTeste.trim() && !tokenProducao.trim() && !publicKey.trim())}>
                     <Save className="size-3.5" />
                     {enviando ? 'Salvando…' : 'Conectar e testar'}
                   </Button>

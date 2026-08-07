@@ -713,6 +713,97 @@ export async function conferirPixAgora(pedidoId: number): Promise<boolean> {
 }
 
 /**
+ * Public key da loja — a credencial que o NAVEGADOR usa pra montar o formulário
+ * de cartão. Pública por definição; não é segredo e não autoriza cobrança.
+ */
+export async function publicKeyMP(lojaId: number): Promise<string | null> {
+  const row = await db.prepare('SELECT mercadopago_public_key FROM lojas WHERE id = ?')
+    .get(lojaId) as { mercadopago_public_key: string | null } | undefined;
+  return row?.mercadopago_public_key || null;
+}
+
+export interface DadosCartaoBrick {
+  token: string;
+  payment_method_id: string;
+  issuer_id?: string;
+  installments?: number;
+  payer?: { email?: string; identification?: { type?: string; number?: string } };
+}
+
+/**
+ * COBRA O CARTÃO na conta da loja, a partir do token gerado no navegador.
+ *
+ * É o caminho do Checkout Bricks: o cliente digita o cartão em campos servidos
+ * pelo próprio Mercado Pago (iframes), o SDK devolve um TOKEN de uso único, e é
+ * esse token que chega aqui. O número do cartão nunca passa por este servidor —
+ * é o que mantém o escopo de PCI no mesmo nível do redirecionamento (SAQ A),
+ * com a diferença de o cliente não sair da loja.
+ *
+ * IDEMPOTÊNCIA É OBRIGATÓRIA AQUI, mais do que na preferência: ali um retry
+ * duplicava uma intenção de pagamento; aqui duplicaria uma COBRANÇA. Duplo
+ * clique, rede instável ou retry do navegador cobrariam o cliente duas vezes.
+ * A chave é o pedido, então a segunda chamada devolve o mesmo pagamento.
+ */
+export async function criarPagamentoCartao(
+  lojaId: number,
+  pedido: Pedido,
+  dados: DadosCartaoBrick,
+  opcoes: { notificationUrl?: string; emailPadrao?: string } = {},
+): Promise<{ id: string; status: string; status_detail: string }> {
+  const token = await getTokenMP(lojaId);
+  if (!token) throw new Error('Mercado Pago não configurado para esta loja.');
+
+  const corpo: Record<string, unknown> = {
+    // O valor vem do PEDIDO, nunca do que o navegador mandou: quem digita o
+    // cartão não pode escolher quanto vai pagar.
+    transaction_amount: pedido.total_centavos / 100,
+    token: dados.token,
+    payment_method_id: dados.payment_method_id,
+    installments: dados.installments || 1,
+    ...(dados.issuer_id ? { issuer_id: dados.issuer_id } : {}),
+    description: `Pedido #${pedido.id}`,
+    external_reference: String(pedido.id),
+    payer: {
+      email: dados.payer?.email || opcoes.emailPadrao,
+      ...(dados.payer?.identification?.number
+        ? { identification: dados.payer.identification }
+        : {}),
+    },
+    ...(opcoes.notificationUrl ? { notification_url: opcoes.notificationUrl } : {}),
+  };
+
+  const resposta = await fetch('https://api.mercadopago.com/v1/payments', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'X-Idempotency-Key': `pagamento-pedido-${pedido.id}`,
+    },
+    body: JSON.stringify(corpo),
+  });
+
+  const d = await resposta.json().catch(() => ({})) as {
+    id?: number | string; status?: string; status_detail?: string; message?: string;
+  };
+  if (!resposta.ok || !d.id) {
+    throw new Error(d.message || `Mercado Pago recusou a cobrança (HTTP ${resposta.status}).`);
+  }
+  return { id: String(d.id), status: d.status || '', status_detail: d.status_detail || '' };
+}
+
+/**
+ * Aplica no pedido o resultado de um pagamento de cartão recém-criado.
+ *
+ * Reaproveita `processarWebhookMP` de propósito: ele reconsulta o pagamento na
+ * API antes de gravar qualquer coisa e é idempotente, então webhook, conferência
+ * na tela, reconciliação e esta chamada convergem no mesmo lugar — sem quatro
+ * versões da regra de "quando um pedido vira pago".
+ */
+export async function aplicarResultadoCartao(pagamentoId: string, lojaId: number): Promise<void> {
+  await processarWebhookMP(pagamentoId, lojaId);
+}
+
+/**
  * Pergunta ao Mercado Pago se o CARTÃO do pedido já foi pago, sem esperar o webhook.
  *
  * POR QUE EXISTE: o webhook do MP não é garantido. Homologando o cartão a gente

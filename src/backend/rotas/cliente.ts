@@ -14,7 +14,7 @@ import { notificarPedidoWhatsApp } from '../whatsapp';
 import { comissaoPercentualDaLoja } from '../comissao';
 import { geocodificar } from '../geo';
 import { resolverFrete, type EnderecoParaFrete } from '../frete';
-import { criarCobrancaPix, criarPreferenciaCartao, pagamentoOnlineAtivo, cartaoOnlineAtivo, conferirPagamentoAgora } from './pagamentos';
+import { criarCobrancaPix, pagamentoOnlineAtivo, cartaoOnlineAtivo, conferirPagamentoAgora, publicKeyMP, criarPagamentoCartao, aplicarResultadoCartao } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 
 const router = Router();
@@ -432,24 +432,33 @@ router.post('/pedidos', async (req, res, next) => {
      */
     if (cartaoOnline) {
       try {
-        const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as Pedido;
         const base = `${req.protocol}://${req.get('host')}`;
-        // `&loja=` além de `?t=`: no Checkout Pro o id do pagamento só existe depois
-        // que o cliente paga, então o webhook não tem como descobrir a loja pelo
-        // pedido — e sem a loja certa, usa o token errado. Ver `processarWebhookMP`.
-        const notifUrl = `${base}/api/pagamentos/webhook/mercadopago`
-          + `?t=${encodeURIComponent(bancoTenantAtual())}&loja=${lojaId}`;
-        const checkout = await criarPreferenciaCartao(lojaId, pedido, { email: req.usuario!.email }, {
-          notificationUrl: notifUrl,
-          urlRetorno: `${base}/pedido/${pedidoId}`,
-        });
+        /*
+         * NÃO CRIA MAIS PREFERÊNCIA NEM REDIRECIONA.
+         *
+         * O cartão agora é digitado dentro da própria loja, em campos servidos
+         * pelo Mercado Pago (Checkout Bricks). Aqui a gente só devolve a public
+         * key pra tela montar o formulário — a cobrança acontece depois, em
+         * `/pedidos/:id/pagar-cartao`, quando o SDK já transformou o cartão num
+         * token de uso único.
+         *
+         * O pedido nasce ANTES do pagamento (igual era antes): é ele que fixa o
+         * valor a cobrar. Cliente que abandona o formulário deixa um pedido em
+         * "aguardando", que é o mesmo caso já coberto pela reconciliação.
+         */
+        const publicKey = await publicKeyMP(lojaId);
+        if (!publicKey) throw new Error('Loja sem public key do Mercado Pago cadastrada.');
         await db.prepare(
           "UPDATE pedidos SET pagamento_gateway = 'mercadopago' WHERE id = ?"
         ).run(pedidoId);
         notificarPedidoWhatsApp(pedidoId, base).catch(() => { /* best-effort */ });
-        return res.status(201).json({ pedido_id: pedidoId, total_centavos: total, checkout });
+        return res.status(201).json({
+          pedido_id: pedidoId,
+          total_centavos: total,
+          cartao: { public_key: publicKey, total_centavos: total },
+        });
       } catch (e) {
-        console.error(`[Cartão] Falha ao criar checkout do pedido #${pedidoId} (loja ${lojaId}):`, e);
+        console.error(`[Cartão] Falha ao preparar pagamento do pedido #${pedidoId} (loja ${lojaId}):`, e);
         // Mesmo desfazer do Pix: pedido sem cobrança é lixo que trava estoque e
         // consome uso de cupom.
         await comTransacao(async (tx) => {
@@ -579,6 +588,62 @@ async function conferirPagamentoDoDono(req: Request, res: Response) {
   }
   res.json({ pago });
 }
+
+/**
+ * COBRA O CARTÃO do pedido com o token gerado pelo formulário embutido.
+ *
+ * O corpo traz só o que o SDK do Mercado Pago devolveu — o token de uso único e
+ * os dados do meio escolhido. O NÚMERO DO CARTÃO NUNCA CHEGA AQUI: ele é
+ * digitado em campos servidos pelo próprio MP, e o servidor só vê o token.
+ *
+ * O VALOR NÃO VEM DO NAVEGADOR. É lido do pedido, no servidor. Aceitar valor do
+ * cliente aqui deixaria qualquer um cobrar de si mesmo o quanto quisesse.
+ */
+router.post('/pedidos/:id/pagar-cartao', async (req, res, next) => {
+  try {
+    const pedido = await db.prepare(
+      'SELECT * FROM pedidos WHERE id = ? AND cliente_id = ?'
+    ).get(req.params.id, req.usuario!.id) as Pedido | undefined;
+    if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
+    if (pedido.pagamento_status === 'aprovado') return res.json({ status: 'approved' });
+    if (pedido.forma_pagamento !== 'cartao_online') throw erroHttp(409, 'Este pedido não é de cartão online.');
+
+    const token = typeof req.body.token === 'string' ? req.body.token : '';
+    const metodo = typeof req.body.payment_method_id === 'string' ? req.body.payment_method_id : '';
+    if (!token || !metodo) throw erroHttp(400, 'Dados do cartão incompletos.');
+
+    const base = `${req.protocol}://${req.get('host')}`;
+    const notifUrl = `${base}/api/pagamentos/webhook/mercadopago`
+      + `?t=${encodeURIComponent(bancoTenantAtual())}&loja=${pedido.loja_id}`;
+
+    let cobranca;
+    try {
+      cobranca = await criarPagamentoCartao(pedido.loja_id, pedido, {
+        token,
+        payment_method_id: metodo,
+        issuer_id: typeof req.body.issuer_id === 'string' ? req.body.issuer_id : undefined,
+        installments: inteiroPositivo(req.body.installments) || 1,
+        payer: req.body.payer,
+      }, { notificationUrl: notifUrl, emailPadrao: req.usuario!.email });
+    } catch (e) {
+      // Recusa do gateway não é erro de servidor: o cliente precisa poder tentar
+      // outro cartão sem o pedido virar lixo.
+      throw erroHttp(402, (e as Error).message);
+    }
+
+    // Grava pelo MESMO caminho do webhook — idempotente, e avisa o lojista uma
+    // vez só, venha a confirmação por aqui ou pela notificação do MP.
+    await aplicarResultadoCartao(cobranca.id, pedido.loja_id);
+
+    const depois = await db.prepare('SELECT pagamento_status FROM pedidos WHERE id = ?')
+      .get(pedido.id) as { pagamento_status: string } | undefined;
+    res.json({
+      status: cobranca.status,
+      status_detail: cobranca.status_detail,
+      pagamento_status: depois?.pagamento_status ?? 'aguardando',
+    });
+  } catch (err) { next(err); }
+});
 
 router.post('/pedidos/:id/conferir-pagamento', async (req, res, next) => {
   try { await conferirPagamentoDoDono(req, res); } catch (err) { next(err); }

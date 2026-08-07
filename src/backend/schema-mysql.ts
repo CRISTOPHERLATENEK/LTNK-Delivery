@@ -841,6 +841,16 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * pra aparecer, e só na loja nova".
      */
     ['mercadopago_webhook_secret', 'mercadopago_webhook_secret TEXT'],
+    /*
+     * PUBLIC KEY guardada EM CLARO, ao contrário do access token.
+     *
+     * Ela é pública por definição: vai pro navegador do cliente pra montar o
+     * formulário de cartão, e qualquer um que abra o cardápio consegue lê-la no
+     * código da página. Cifrar daria falsa sensação de segredo e só atrapalharia
+     * a leitura de quem viesse depois. Quem autoriza cobrança é o access token,
+     * esse sim cifrado.
+     */
+    ['mercadopago_public_key', 'mercadopago_public_key VARCHAR(120)'],
   ] as const) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS

@@ -76,6 +76,23 @@ app.use(express.json({ limit: '200kb' }));
  * img-src aceita `https:` de propósito: logo, capa e imagem do hero podem
  * apontar pra URL externa escolhida pelo lojista (não dá pra listar).
  */
+/*
+ * CHECKOUT BRICKS do Mercado Pago: o formulário de cartão roda DENTRO da loja,
+ * mas os campos sensíveis vêm em iframes servidos pelo próprio MP — é isso que
+ * mantém o número do cartão fora deste servidor. Em troca, a CSP precisa deixar
+ * o SDK carregar, abrir os iframes e falar com a API deles.
+ *
+ * Afrouxamento consciente e ESTREITO: são domínios nominais do Mercado Pago,
+ * não curinga. A alternativa era manter o cliente saindo do site pra pagar.
+ */
+const ORIGENS_MERCADOPAGO = [
+  'https://sdk.mercadopago.com',      // o SDK v2
+  'https://www.mercadopago.com',      // iframes dos campos seguros
+  'https://www.mercadopago.com.br',
+  'https://api.mercadopago.com',      // tokenização do cartão
+  'https://api.mercadolibre.com',     // usada pelo SDK em algumas rotas
+  'https://events.mercadopago.com',   // telemetria/antifraude do SDK
+];
 const ORIGENS_ANALYTICS = [
   'https://www.googletagmanager.com',   // GA4 + GTM
   'https://connect.facebook.net',       // Meta Pixel
@@ -87,14 +104,14 @@ const CSP_BASE = [
   "base-uri 'self'",
   "object-src 'none'",
   "form-action 'self'",
-  "frame-src 'self'",
+  `frame-src 'self' ${ORIGENS_MERCADOPAGO.join(' ')}`,
   "worker-src 'self'",                  // service worker do PWA (push)
   "manifest-src 'self'",
   "img-src 'self' data: blob: https:",  // QR em base64, uploads, imagem externa da loja
   "media-src 'self' blob:",
   "font-src 'self' data: https://fonts.gstatic.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  `script-src 'self' 'unsafe-inline' ${ORIGENS_ANALYTICS.join(' ')}`,
+  `script-src 'self' 'unsafe-inline' ${[...ORIGENS_ANALYTICS, ...ORIGENS_MERCADOPAGO].join(' ')}`,
   [
     "connect-src 'self'",
     'https://viacep.com.br',              // busca de CEP no checkout
@@ -119,6 +136,7 @@ const CSP_BASE = [
     'http://localhost:9110',
     'http://127.0.0.1:9110',
     ...ORIGENS_ANALYTICS,
+    ...ORIGENS_MERCADOPAGO,
     'https://*.google-analytics.com',
     'https://*.analytics.google.com',
     'https://*.facebook.com',

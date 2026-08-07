@@ -1754,6 +1754,8 @@ router.get('/pagamentos', async (req, res, next) => {
       onz_pix_key: credOnz?.chavePix ?? '',
       primeiro_pagamento_em: marcos?.primeiro ?? null,
       ultimo_pagamento_em: marcos?.ultimo ?? null,
+      public_key: (await db.prepare('SELECT mercadopago_public_key FROM lojas WHERE id = ?')
+        .get(loja.id) as { mercadopago_public_key: string | null } | undefined)?.mercadopago_public_key || '',
       webhook_secret_configurado: !!(await db.prepare(
         'SELECT mercadopago_webhook_secret FROM lojas WHERE id = ?'
       ).get(loja.id) as { mercadopago_webhook_secret: string | null } | undefined)?.mercadopago_webhook_secret,
@@ -1914,6 +1916,16 @@ router.put('/pagamentos', async (req, res, next) => {
      * por aplicação, e cada lojista usa a conta dele — um segredo global
      * validaria uma loja e descartaria a notificação de todas as outras.
      */
+    // PUBLIC KEY em claro: ela vai pro navegador de todo cliente montar o
+    // formulário de cartão. Cifrar daria falsa sensação de segredo.
+    if (typeof req.body.mercadopago_public_key === 'string') {
+      const v = req.body.mercadopago_public_key.trim();
+      if (v && !v.startsWith('APP_USR-') && !v.startsWith('TEST-')) {
+        throw erroHttp(400, 'Public key inválida: ela começa com APP_USR- ou TEST-.');
+      }
+      sets.push('mercadopago_public_key = ?');
+      vals.push(v || null);
+    }
     if (typeof req.body.mercadopago_webhook_secret === 'string') {
       const v = req.body.mercadopago_webhook_secret.trim();
       sets.push('mercadopago_webhook_secret = ?');

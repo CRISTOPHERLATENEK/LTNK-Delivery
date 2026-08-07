@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 import { PagamentoConfirmado } from './pagamento-confirmado';
+import { CartaoBrick } from '@/components/cartao-brick';
 import type { Endereco, FormaPagamento } from '@/types';
 
 export function PaginaCarrinho() {
@@ -33,6 +34,9 @@ export function PaginaCarrinho() {
   // Pix fica AQUI (não dentro do Checkout) pra sobreviver ao carrinho ser
   // esvaziado assim que o pedido é criado — senão a tela do QR desmontaria.
   const [pix, setPix] = useState<(PixData & { pedidoId: number }) | null>(null);
+  // Cartão fica AQUI pelo mesmo motivo do Pix: o carrinho é esvaziado assim que
+  // o pedido nasce, e o formulário não pode desmontar junto.
+  const [cartao, setCartao] = useState<{ pedidoId: number; public_key: string; total_centavos: number } | null>(null);
   // Pix aprovado: mostra a comemoração antes de ir pro acompanhamento. Guarda o
   // total porque o carrinho é esvaziado ao criar o pedido.
   const [confirmado, setConfirmado] = useState<{ pedidoId: number; total: number } | null>(null);
@@ -75,6 +79,24 @@ export function PaginaCarrinho() {
         totalCentavos={confirmado.total}
         onContinuar={() => concluirPedido(confirmado.pedidoId)}
       />
+    );
+  }
+
+  if (cartao) {
+    return (
+      <div className="space-y-4 pb-4">
+        <Card>
+          <CardContent className="p-5">
+            <CartaoBrick
+              pedidoId={cartao.pedidoId}
+              publicKey={cartao.public_key}
+              totalCentavos={cartao.total_centavos}
+              onAprovado={() => setConfirmado({ pedidoId: cartao.pedidoId, total: cartao.total_centavos })}
+              onCancelar={() => navigate(`/pedido/${cartao.pedidoId}`)}
+            />
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
@@ -226,6 +248,7 @@ export function PaginaCarrinho() {
           onFreteChange={setFreteEfetivo}
           onPedido={concluirPedido}
           onPix={dados => { limparCarrinho(); setPix(dados); }}
+          onCartao={dados => { limparCarrinho(); setCartao(dados); }}
           onPedidoCriadoSemNavegar={limparCarrinho}
         />
       )}
@@ -456,12 +479,13 @@ function PixPagamento({
 }
 
 function Checkout({
-  subtotal: _subtotal, total, cupomCodigo, onPedido, onPix, onPedidoCriadoSemNavegar,
+  subtotal: _subtotal, total, cupomCodigo, onPedido, onPix, onCartao, onPedidoCriadoSemNavegar,
   zonas, fretePadrao, bloqueado, onFreteChange,
 }: {
   subtotal: number; total: number; cupomCodigo?: string;
   onPedido: (id: number) => void;
   onPix: (dados: PixData & { pedidoId: number }) => void;
+  onCartao: (dados: { pedidoId: number; public_key: string; total_centavos: number }) => void;
   /** Esvazia o carrinho sem trocar de tela — usado antes de sair pro checkout. */
   onPedidoCriadoSemNavegar?: () => void;
   zonas: { bairro: string; taxa_centavos: number }[];
@@ -511,7 +535,10 @@ function Checkout({
         const r = await api<{ endereco: Endereco }>('POST', '/api/cliente/enderecos', novo);
         idFinal = r.endereco.id;
       }
-      const r = await api<{ pedido_id: number; pix?: PixData; checkout?: { url: string } }>('POST', '/api/cliente/pedidos', {
+      const r = await api<{
+        pedido_id: number; pix?: PixData;
+        cartao?: { public_key: string; total_centavos: number };
+      }>('POST', '/api/cliente/pedidos', {
         loja_id: carrinho.loja_id,
         itens: carrinho.itens.map(i => ({ produto_id: i.produto_id, quantidade: i.quantidade, opcoes: i.opcoes })),
         endereco_id: idFinal,
@@ -521,16 +548,16 @@ function Checkout({
         cupom_codigo: cupomCodigo,
       });
       /*
-       * Cartão online: sai do site pro Checkout Pro do Mercado Pago. `replace` e não
-       * `href`: com `href`, o botão "voltar" do navegador traria o cliente de volta
-       * ao carrinho com o pedido JÁ CRIADO, e ele tentaria finalizar de novo.
+       * Cartão: o formulário abre AQUI, sem sair da loja.
        *
-       * O carrinho é esvaziado ANTES de sair — o pedido existe no servidor, e voltar
-       * (por qualquer caminho) com os itens ainda no carrinho leva a pedido duplicado.
+       * O carrinho é esvaziado assim que o pedido nasce — ele já existe no
+       * servidor, e deixar os itens ali permitiria finalizar de novo e gerar um
+       * pedido duplicado. Se o cliente desistir do cartão, o pedido fica em
+       * "aguardando pagamento" e ele acompanha por /pedido/:id, igual ao Pix.
        */
-      if (r.checkout?.url) {
+      if (r.cartao) {
         onPedidoCriadoSemNavegar?.();
-        window.location.replace(r.checkout.url);
+        onCartao({ pedidoId: r.pedido_id, ...r.cartao });
         return;
       }
       // Pix online: abre a tela do QR (o pai já esvazia o carrinho). Senão, conclui.
