@@ -1010,11 +1010,19 @@ export function PagamentosLoja() {
    * ao abrir esta tela; "credencial configurada" ele já vê pelo card verde.
    * Sem nenhum pagamento ainda, dizer isso é mais útil que uma data inventada.
    */
+  /*
+   * NÃO NOMEIA A CONTA aqui, e isso foi um bug real: a frase dizia "recebendo na
+   * sua conta Planner" usando o gateway do PIX, mas as datas vêm de TODOS os
+   * pedidos pagos — inclusive os do cartão, que caem no Mercado Pago. Uma loja
+   * com Pix na Planner e cartão no MP via "conta Planner" numa linha que estava
+   * contando pagamentos de cartão. Quem recebe o quê já está nos cards abaixo,
+   * com o selo "Recebe:"; aqui basta desde quando entra dinheiro.
+   */
   const linhaHistorico = !ativo
     ? null
     : estado.ultimo_pagamento_em
-      ? `Recebendo na sua conta ${nomeGateway}${estado.primeiro_pagamento_em ? ` desde ${dataLocal(estado.primeiro_pagamento_em)}` : ''} · último pagamento ${tempoRelativo(estado.ultimo_pagamento_em)}`
-      : `Recebendo na sua conta ${nomeGateway} — nenhum pagamento online ainda.`;
+      ? `Recebendo pagamentos online${estado.primeiro_pagamento_em ? ` desde ${dataLocal(estado.primeiro_pagamento_em)}` : ''} · último ${tempoRelativo(estado.ultimo_pagamento_em)}`
+      : 'Tudo pronto — nenhum pagamento online ainda.';
 
   return (
     <div className="space-y-4">
