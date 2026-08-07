@@ -781,7 +781,7 @@ interface EstadoPagamentos {
   /** Esta loja tem conta ONZ PRÓPRIA (dinheiro cai direto nela)? */
   onz_conta_propria: boolean;
   onz_client_id_mascarado: string | null;
-  /** Loja tem conta PRÓPRIA de Mercado Pago (recebedor do cartão). */
+  /** Loja tem conta PRÓPRIA de Mercado Pago no modo ATIVO (recebedor do cartão). */
   cartao_online_ativo: boolean;
   onz_pix_key: string;
   /** Recado do servidor (ex.: salvou mas não registrou a confirmação automática). */
@@ -865,14 +865,27 @@ export function PagamentosLoja() {
   }
 
   const [mpToken, setMpToken] = useState('');
+  /*
+   * COMEÇA EM TESTE, não em produção.
+   *
+   * Integração de cartão se homologa antes de valer dinheiro: o primeiro pagamento de
+   * verdade não é lugar de descobrir que o webhook não volta. Em teste o MP dá cartões
+   * fictícios e o fluxo inteiro (pagar → voltar → confirmar → avisar o lojista) roda
+   * sem mover um centavo. Só depois se troca pra produção.
+   */
+  const [mpModo, setMpModo] = useState<'teste' | 'producao'>('teste');
 
   async function salvarCartao(e: React.FormEvent) {
     e.preventDefault();
     const v = mpToken.trim();
     if (!v) return;
     await enviar(
-      { mercadopago_token_producao: v, mercadopago_modo: 'producao' },
-      'Mercado Pago conectado! A opção de cartão já aparece pro cliente.',
+      mpModo === 'teste'
+        ? { mercadopago_token_teste: v, mercadopago_modo: 'teste' }
+        : { mercadopago_token_producao: v, mercadopago_modo: 'producao' },
+      mpModo === 'teste'
+        ? 'Conectado em modo TESTE. Faça um pedido de ponta a ponta antes de virar pra produção.'
+        : 'Mercado Pago conectado em produção — o cartão já aparece pro cliente.',
     );
     // Limpa o campo depois de salvar: o valor volta mascarado do servidor, e deixar
     // o token em claro na tela é convite pra ele ser lido por cima do ombro.
@@ -881,7 +894,10 @@ export function PagamentosLoja() {
 
   function removerCartao() {
     setMpToken('');
-    enviar({ mercadopago_token_producao: '' }, 'Conta do Mercado Pago removida — o cartão deixou de ser oferecido.');
+    enviar(
+      mpModo === 'teste' ? { mercadopago_token_teste: '' } : { mercadopago_token_producao: '' },
+      'Conta do Mercado Pago removida — o cartão deixou de ser oferecido.',
+    );
   }
 
   function removerOnz() {
@@ -1056,13 +1072,47 @@ export function PagamentosLoja() {
           </p>
           <p className="text-xs text-muted-foreground">
             Pegue em <b>Mercado Pago → Seu negócio → Configurações → Gestão e
-            administração → Credenciais</b> e cole o <b>Access Token de produção</b> abaixo.
+            administração → Credenciais</b>. Comece pelas credenciais de <b>teste</b>.
           </p>
+
+          {/*
+            MODO ANTES DO TOKEN, e começando em TESTE: integração de cartão se homologa
+            antes de valer dinheiro. Em teste o MP dá cartões fictícios e o fluxo inteiro
+            (pagar → voltar → confirmar → avisar o lojista) roda sem mover um centavo.
+            Deixar produção como padrão convidaria o lojista a descobrir um webhook
+            quebrado com dinheiro de cliente real no meio.
+          */}
+          <div className="flex gap-2">
+            {([['teste', 'Teste', FlaskConical], ['producao', 'Produção', Rocket]] as const).map(([v, txt, Icone]) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => { setMpModo(v); setMpToken(''); }}
+                className={cn('flex flex-1 items-center justify-center gap-2 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors',
+                  mpModo === v ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40')}
+              >
+                <Icone className="size-4" /> {txt}
+              </button>
+            ))}
+          </div>
+          {mpModo === 'teste' ? (
+            <p className="rounded-lg bg-warning/10 px-3 py-2 text-[11px] text-warning">
+              Em teste, use o token <b>TEST-…</b> e os cartões de teste do Mercado Pago. Nenhuma
+              cobrança real acontece — é para validar o fluxo inteiro antes de virar a chave.
+            </p>
+          ) : (
+            <p className="rounded-lg bg-muted px-3 py-2 text-[11px] text-muted-foreground">
+              Em produção, use o token <b>APP_USR-…</b>. A partir daí as cobranças são reais e
+              o dinheiro cai na sua conta.
+            </p>
+          )}
 
           {estado.cartao_online_ativo ? (
             <div className="flex items-center justify-between gap-2 rounded-lg bg-success/10 px-3 py-2">
               <span className="flex items-center gap-1.5 text-xs font-medium text-success">
-                <CheckCircle2 className="size-3.5" /> Cartão ativo — token {estado.token_producao_mascarado}
+                <CheckCircle2 className="size-3.5" />
+                Cartão ativo em {estado.modo === 'teste' ? 'TESTE' : 'produção'} — token{' '}
+                {estado.modo === 'teste' ? estado.token_teste_mascarado : estado.token_producao_mascarado}
               </span>
               <Button type="button" variant="ghost" size="sm" disabled={enviando} onClick={removerCartao}>
                 Remover
@@ -1081,10 +1131,12 @@ export function PagamentosLoja() {
 
           <form onSubmit={salvarCartao} className="space-y-3">
             <div>
-              <Label htmlFor="mp_token">Access Token de produção</Label>
+              <Label htmlFor="mp_token">
+                Access Token {mpModo === 'teste' ? 'de teste' : 'de produção'}
+              </Label>
               <Input
                 id="mp_token" type="password" value={mpToken} maxLength={300} autoComplete="off"
-                placeholder={estado.cartao_online_ativo ? '•••••••• (já configurado)' : 'APP_USR-…'}
+                placeholder={mpModo === 'teste' ? 'TEST-…' : 'APP_USR-…'}
                 onChange={e => setMpToken(e.target.value)}
                 className="font-mono text-sm"
               />

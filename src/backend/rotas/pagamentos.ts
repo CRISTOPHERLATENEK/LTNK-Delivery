@@ -62,6 +62,11 @@ async function tokenPlataformaMP(): Promise<string | null> {
  * dinheiro no lugar errado.
  */
 export async function tokenProprioMP(lojaId: number): Promise<string | null> {
+  return (await credenciaisProprias(lojaId))?.token ?? null;
+}
+
+/** Token da loja + o MODO em que ele foi emitido (teste ou produção). */
+async function credenciaisProprias(lojaId: number): Promise<{ token: string; modo: 'teste' | 'producao' } | null> {
   const row = await db.prepare(
     'SELECT mercadopago_token, mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo FROM lojas WHERE id = ?'
   ).get(lojaId) as {
@@ -69,12 +74,13 @@ export async function tokenProprioMP(lojaId: number): Promise<string | null> {
     mercadopago_token_producao: string | null; mercadopago_modo: string;
   } | undefined;
   if (!row) return null;
-  const cifrado = row.mercadopago_modo === 'teste' ? row.mercadopago_token_teste : row.mercadopago_token_producao;
+  const modo: 'teste' | 'producao' = row.mercadopago_modo === 'teste' ? 'teste' : 'producao';
+  const cifrado = modo === 'teste' ? row.mercadopago_token_teste : row.mercadopago_token_producao;
   if (cifrado) {
-    try { return descriptografar(cifrado); } catch { /* chave trocada/corrompido */ }
+    try { return { token: descriptografar(cifrado), modo }; } catch { /* chave trocada/corrompido */ }
   }
   if (row.mercadopago_token) {
-    try { return descriptografar(row.mercadopago_token); } catch { /* chave trocada/corrompido */ }
+    try { return { token: descriptografar(row.mercadopago_token), modo }; } catch { /* chave trocada/corrompido */ }
   }
   return null;
 }
@@ -276,10 +282,11 @@ export async function criarPreferenciaCartao(
    * no da plataforma e o cartão do cliente pagaria na CONTA ERRADA — silenciosamente,
    * até alguém conferir o extrato no fim do mês.
    */
-  const token = await tokenProprioMP(lojaId);
-  if (!token) {
+  const cred = await credenciaisProprias(lojaId);
+  if (!cred) {
     throw new Error('Esta loja ainda não conectou uma conta do Mercado Pago para receber por cartão.');
   }
+  const token = cred.token;
 
   const corpo: Record<string, unknown> = {
     items: [{
@@ -331,11 +338,18 @@ export async function criarPreferenciaCartao(
   }
   const dados = await resposta.json() as { id: string; init_point?: string; sandbox_init_point?: string };
   /*
-   * Em modo TESTE o MP devolve `sandbox_init_point`; mandar o cliente pro
-   * `init_point` de produção com credencial de teste dá erro na cara dele. Prefere
-   * o de produção e cai no sandbox quando é o que existe.
+   * A URL SEGUE O MODO DA CREDENCIAL, e isso não é detalhe: o MP devolve as DUAS
+   * (`init_point` e `sandbox_init_point`) na mesma resposta. Mandar quem está em
+   * homologação pro `init_point` de produção abre uma tela pedindo cartão de verdade
+   * com credencial de teste — erro na cara do cliente, e no teste de homologação
+   * parece que "a integração não funciona".
+   *
+   * A primeira versão deste código preferia produção sempre. Está errado: quem manda
+   * é o modo em que o token foi emitido.
    */
-  const url = dados.init_point || dados.sandbox_init_point;
+  const url = cred.modo === 'teste'
+    ? (dados.sandbox_init_point || dados.init_point)
+    : (dados.init_point || dados.sandbox_init_point);
   if (!url) throw new Error('Mercado Pago não devolveu a URL do checkout.');
   return { preferencia_id: dados.id, url };
 }
