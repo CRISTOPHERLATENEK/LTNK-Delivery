@@ -85,25 +85,28 @@ app.use(express.json({ limit: '200kb' }));
  * Afrouxamento consciente e ESTREITO: são domínios nominais do Mercado Pago,
  * não curinga. A alternativa era manter o cliente saindo do site pra pagar.
  */
+/*
+ * CURINGA NOS DOMÍNIOS DO MERCADO PAGO, e não uma lista nominal.
+ *
+ * A lista nominal foi tentada primeiro e virou caça ao tesouro: cada bloqueio
+ * escondia o próximo, e a documentação não cita nenhum deles. Só rodando é que
+ * apareceram `http2.mlstatic.com` (componente e traduções), `www.mercadolibre.com`
+ * (fingerprint de antifraude), `secure-fields.mercadopago.com` (os campos do
+ * cartão) e `api-static.mercadopago.com`. Não há motivo pra crer que a lista
+ * acabou — e cada domínio faltando quebra o pagamento em produção.
+ *
+ * O QUE ISSO CUSTA, com honestidade: um curinga é mais fraco que nomes exatos.
+ * O que ele libera, porém, é infraestrutura do MESMO fornecedor a quem já
+ * entregamos a tokenização do cartão — se ele estiver comprometido, ter listado
+ * três subdomínios em vez de todos não salvaria ninguém. O curinga não vale pra
+ * mais ninguém: só estes dois domínios, ambos do Mercado Pago/Livre.
+ */
 const ORIGENS_MERCADOPAGO = [
-  'https://sdk.mercadopago.com',      // o SDK v2
-  'https://www.mercadopago.com',      // iframes dos campos seguros
-  'https://www.mercadopago.com.br',
-  'https://api.mercadopago.com',      // tokenização do cartão
-  'https://api.mercadolibre.com',     // usada pelo SDK em algumas rotas
-  'https://events.mercadopago.com',   // telemetria do SDK
-  /*
-   * Os dois abaixo NÃO estão na documentação — saíram do console do navegador
-   * com a integração rodando. O SDK carrega o componente do formulário e as
-   * traduções de um CDN separado, e roda o fingerprint de antifraude num
-   * domínio do Mercado Livre.
-   *
-   * O fingerprint não é opcional na prática: bloqueado, o antifraude do MP
-   * perde o sinal e a taxa de aprovação cai — o pagamento passa a ser recusado
-   * sem que nada apareça quebrado na tela.
-   */
-  'https://http2.mlstatic.com',       // componente do brick + i18n
+  'https://*.mercadopago.com',        // sdk, api, secure-fields, api-static, events…
+  'https://*.mercadopago.com.br',
+  'https://*.mlstatic.com',           // CDN do componente do brick e das traduções
   'https://www.mercadolibre.com',     // fingerprint de antifraude (connect e frame)
+  'https://api.mercadolibre.com',
 ];
 const ORIGENS_ANALYTICS = [
   'https://www.googletagmanager.com',   // GA4 + GTM
