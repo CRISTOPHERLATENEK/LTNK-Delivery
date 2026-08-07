@@ -226,6 +226,7 @@ export function PaginaCarrinho() {
           onFreteChange={setFreteEfetivo}
           onPedido={concluirPedido}
           onPix={dados => { limparCarrinho(); setPix(dados); }}
+          onPedidoCriadoSemNavegar={limparCarrinho}
         />
       )}
     </div>
@@ -311,10 +312,17 @@ const PAGAMENTOS: { id: FormaPagamento; label: string; icon: React.ReactNode; de
     desc: 'Pague na entrega',
   },
   {
-    id: 'cartao_entrega',
-    label: 'Cartão',
+    id: 'cartao_online',
+    label: 'Cartão online',
     icon: <CreditCard className="size-5" />,
-    desc: 'Débito ou crédito',
+    desc: 'Pague agora com crédito',
+  },
+  {
+    id: 'cartao_entrega',
+    label: 'Cartão na entrega',
+    icon: <CreditCard className="size-5" />,
+    // Antes dizia só "Débito ou crédito", que não distinguia de pagar online.
+    desc: 'Maquininha na porta',
   },
 ];
 
@@ -448,12 +456,14 @@ function PixPagamento({
 }
 
 function Checkout({
-  subtotal: _subtotal, total, cupomCodigo, onPedido, onPix,
+  subtotal: _subtotal, total, cupomCodigo, onPedido, onPix, onPedidoCriadoSemNavegar,
   zonas, fretePadrao, bloqueado, onFreteChange,
 }: {
   subtotal: number; total: number; cupomCodigo?: string;
   onPedido: (id: number) => void;
   onPix: (dados: PixData & { pedidoId: number }) => void;
+  /** Esvazia o carrinho sem trocar de tela — usado antes de sair pro checkout. */
+  onPedidoCriadoSemNavegar?: () => void;
   zonas: { bairro: string; taxa_centavos: number }[];
   fretePadrao: number;
   bloqueado: boolean;
@@ -501,7 +511,7 @@ function Checkout({
         const r = await api<{ endereco: Endereco }>('POST', '/api/cliente/enderecos', novo);
         idFinal = r.endereco.id;
       }
-      const r = await api<{ pedido_id: number; pix?: PixData }>('POST', '/api/cliente/pedidos', {
+      const r = await api<{ pedido_id: number; pix?: PixData; checkout?: { url: string } }>('POST', '/api/cliente/pedidos', {
         loja_id: carrinho.loja_id,
         itens: carrinho.itens.map(i => ({ produto_id: i.produto_id, quantidade: i.quantidade, opcoes: i.opcoes })),
         endereco_id: idFinal,
@@ -510,6 +520,19 @@ function Checkout({
         observacoes: obs,
         cupom_codigo: cupomCodigo,
       });
+      /*
+       * Cartão online: sai do site pro Checkout Pro do Mercado Pago. `replace` e não
+       * `href`: com `href`, o botão "voltar" do navegador traria o cliente de volta
+       * ao carrinho com o pedido JÁ CRIADO, e ele tentaria finalizar de novo.
+       *
+       * O carrinho é esvaziado ANTES de sair — o pedido existe no servidor, e voltar
+       * (por qualquer caminho) com os itens ainda no carrinho leva a pedido duplicado.
+       */
+      if (r.checkout?.url) {
+        onPedidoCriadoSemNavegar?.();
+        window.location.replace(r.checkout.url);
+        return;
+      }
       // Pix online: abre a tela do QR (o pai já esvazia o carrinho). Senão, conclui.
       if (r.pix) onPix({ pedidoId: r.pedido_id, ...r.pix });
       else onPedido(r.pedido_id);

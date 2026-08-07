@@ -758,10 +758,18 @@ function imprimirPedidoPainel(p: PedidoComItens, config?: { largura?: '80' | '58
   const fonte = largura === '58' ? 11 : 12.5;
   const escapar = (s: string) => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] || c));
   const fmt = (c: number) => `R$ ${(c / 100).toFixed(2).replace('.', ',')}`;
+  /*
+   * "Cartão na entrega" NÃO PODE SER O FALLBACK. Com `cartao_online`, o cupom que vai
+   * junto com a comida diria pro entregador cobrar de novo um pedido JÁ PAGO — o tipo
+   * de erro que vira discussão na porta do cliente. Cada forma tem seu texto, e o
+   * caso desconhecido sai neutro.
+   */
   const pagto =
-    p.forma_pagamento === 'pix' ? 'Pix'
+    p.forma_pagamento === 'pix' ? 'Pix (pago online)'
+    : p.forma_pagamento === 'cartao_online' ? 'Cartão (pago online)'
     : p.forma_pagamento === 'dinheiro' ? `Dinheiro${p.troco_para_centavos ? ` / troco ${fmt(p.troco_para_centavos)}` : ''}`
-    : 'Cartão na entrega';
+    : p.forma_pagamento === 'cartao_entrega' ? 'Cartão na entrega — COBRAR'
+    : 'A combinar';
   const itensHtml = (p.itens || []).map(i => {
     const obs = (i as { opcoes_texto?: string }).opcoes_texto;
     return `<div class="row"><span class="nome">${i.quantidade}× ${escapar(i.nome_produto)}</span><span class="val">${fmt(i.preco_unit_centavos * i.quantidade)}</span></div>`
@@ -1102,6 +1110,7 @@ function CardPedidoLojista({ pedido, aoAtualizar }: { pedido: PedidoComItens; ao
               {pedido.forma_pagamento === 'pix' && 'Pix'}
               {pedido.forma_pagamento === 'dinheiro' && 'Dinheiro'}
               {pedido.forma_pagamento === 'cartao_entrega' && 'Cartão na entrega'}
+              {pedido.forma_pagamento === 'cartao_online' && 'Cartão (pago)'}
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">

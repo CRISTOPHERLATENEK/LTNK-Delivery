@@ -230,7 +230,7 @@ const TABELAS: string[] = [
                         CHECK (status IN ('pendente','aceito','preparando','pronto',
                                           'em_entrega','entregue','cancelado','recusado')),
   endereco_entrega      TEXT NOT NULL,
-  forma_pagamento       VARCHAR(20) NOT NULL CHECK (forma_pagamento IN ('pix','dinheiro','cartao_entrega')),
+  forma_pagamento       VARCHAR(20) NOT NULL CHECK (forma_pagamento IN ('pix','dinheiro','cartao_entrega','cartao_online')),
   troco_para_centavos   INT,
   observacoes           TEXT NOT NULL,
   subtotal_centavos     INT NOT NULL,
@@ -748,6 +748,38 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
    * já rodou a versão anterior ficaria sem as colunas e toda consulta ao caixa
    * daria "Unknown column" — exatamente o erro que já apareceu neste projeto.
    */
+  /*
+   * CHECK de `forma_pagamento` PRECISA SER RECRIADO nos bancos que já existem.
+   * `CREATE TABLE IF NOT EXISTS` não toca em tabela existente, então o CHECK antigo
+   * (sem 'cartao_online') continuaria lá e todo pedido de cartão online seria
+   * rejeitado pelo MySQL — erro que só apareceria no primeiro cliente tentando pagar.
+   *
+   * O nome da constraint é gerado pelo MySQL, então tem que ser descoberto no
+   * INFORMATION_SCHEMA antes de derrubar. Envolvido em try: banco onde o CHECK não
+   * existe (versão antiga do MySQL que ignora CHECK) não pode derrubar o boot.
+   */
+  try {
+    const [checks] = await pool.query(
+      `SELECT cc.CONSTRAINT_NAME AS nome, cc.CHECK_CLAUSE AS clausula
+         FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS cc
+         JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+           ON tc.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
+          AND tc.CONSTRAINT_SCHEMA = cc.CONSTRAINT_SCHEMA
+        WHERE cc.CONSTRAINT_SCHEMA = DATABASE() AND tc.TABLE_NAME = 'pedidos'`,
+    );
+    for (const c of checks as Array<{ nome: string; clausula: string }>) {
+      if (!c.clausula.includes('forma_pagamento')) continue;
+      if (c.clausula.includes('cartao_online')) continue;  // já migrado
+      await pool.query(`ALTER TABLE pedidos DROP CHECK \`${c.nome}\``);
+      await pool.query(
+        "ALTER TABLE pedidos ADD CONSTRAINT chk_forma_pagamento CHECK (forma_pagamento IN ('pix','dinheiro','cartao_entrega','cartao_online'))",
+      );
+      console.log('[schema] CHECK de forma_pagamento atualizado (cartao_online liberado).');
+    }
+  } catch (e) {
+    console.warn('[schema] não deu pra atualizar o CHECK de forma_pagamento:', (e as Error).message);
+  }
+
   for (const [tabela, coluna, ddl] of [
     ['caixa_movimentos', 'cancelado_em',  "cancelado_em VARCHAR(32) NOT NULL DEFAULT ''"],
     ['caixa_movimentos', 'cancelado_por', "cancelado_por VARCHAR(120) NOT NULL DEFAULT ''"],

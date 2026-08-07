@@ -83,7 +83,8 @@ const LABEL: Record<Periodo, string> = {
  * "Últimos 30 dias" nunca bate com nenhum dos dois.
  */
 const NOME_PAGAMENTO: Record<string, string> = {
-  pix: 'Pix', dinheiro: 'Dinheiro', cartao_entrega: 'Cartão na entrega',
+  pix: 'Pix', dinheiro: 'Dinheiro',
+  cartao_entrega: 'Cartão na entrega', cartao_online: 'Cartão online',
 };
 
 /** Canal de venda. `app` é o delivery do próprio cardápio. */

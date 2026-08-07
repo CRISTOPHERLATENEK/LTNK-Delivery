@@ -6,7 +6,13 @@ export type StatusPedido =
   | 'pendente' | 'aceito' | 'preparando' | 'pronto'
   | 'em_entrega' | 'entregue' | 'cancelado' | 'recusado';
 
-export type FormaPagamento = 'pix' | 'dinheiro' | 'cartao_entrega';
+/**
+ * `cartao_entrega` = maquininha na porta (o entregador cobra).
+ * `cartao_online`  = pago antes, no Checkout Pro do Mercado Pago.
+ * São formas SEPARADAS porque, pro lojista, uma já entrou na conta e a outra ainda
+ * precisa ser cobrada — misturar as duas num campo só esconde essa diferença.
+ */
+export type FormaPagamento = 'pix' | 'dinheiro' | 'cartao_entrega' | 'cartao_online';
 
 export type StatusLoja = 'pendente' | 'aprovada' | 'suspensa';
 

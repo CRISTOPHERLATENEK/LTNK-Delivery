@@ -205,6 +205,100 @@ export async function criarPagamentoMercadoPago(lojaId: number, pedido: Pedido, 
 }
 
 /**
+ * CARTÃO ONLINE via CHECKOUT PRO (preferência + redirecionamento).
+ *
+ * POR QUE CHECKOUT PRO E NÃO CHECKOUT TRANSPARENTE (formulário de cartão na nossa
+ * página) — três motivos concretos, na ordem em que pesam:
+ *
+ * 1. DADOS DE CARTÃO NUNCA PASSAM POR AQUI. No transparente, o número do cartão é
+ *    digitado numa página nossa; mesmo com a tokenização feita pelo SDK do MP, o
+ *    escopo de PCI sobe (SAQ A-EP) e passa a incluir este servidor. Com o Pro, o
+ *    cartão é digitado no domínio do Mercado Pago.
+ *
+ * 2. NÃO PRECISA DE CREDENCIAL NOVA. O transparente exige a PUBLIC KEY da loja, que
+ *    não guardamos hoje — cada lojista teria que colar mais um segredo. O Pro usa o
+ *    mesmo access token que o Pix já usa.
+ *
+ * 3. NÃO MEXE NA CSP. O SDK do MP exigiria abrir `script-src` (e mais origens pro
+ *    iframe e o fingerprint de antifraude) numa CSP que este projeto mantém fechada
+ *    de propósito. Redirecionamento de navegação não precisa de nada disso.
+ *
+ * O PREÇO: o cliente sai do site da loja durante o pagamento. Num delivery isso é
+ * aceitável — a tela do Mercado Pago é reconhecida e passa confiança pra digitar
+ * cartão, que é justamente o momento em que confiança importa.
+ *
+ * O Pix continua com o fluxo PRÓPRIO (QR na nossa tela): ali sair do site seria
+ * perda pura, porque o QR não precisa de ambiente seguro de terceiro.
+ */
+export async function criarPreferenciaCartao(
+  lojaId: number,
+  pedido: Pedido,
+  dadosPagador: DadosPagador,
+  opcoes: { notificationUrl?: string; urlRetorno?: string } = {},
+): Promise<{ preferencia_id: string; url: string }> {
+  const token = await getTokenMP(lojaId);
+  if (!token) throw new Error('Mercado Pago não configurado para esta loja.');
+
+  const corpo: Record<string, unknown> = {
+    items: [{
+      title: `Pedido #${pedido.id}`,
+      quantity: 1,
+      currency_id: 'BRL',
+      unit_price: pedido.total_centavos / 100,
+    }],
+    payer: { email: dadosPagador.email },
+    // `external_reference` é o que amarra a notificação ao pedido: o id do
+    // pagamento só existe depois que o cliente paga, então é por aqui que o
+    // webhook encontra o pedido (ver `processarWebhookMP`).
+    external_reference: String(pedido.id),
+    /*
+     * SÓ CARTÃO nesta preferência. Boleto num delivery não faz sentido (o pedido
+     * sairia antes de o dinheiro cair, ou o cliente esperaria três dias pelo
+     * lanche), e Pix já tem fluxo próprio com QR na nossa tela — deixá-lo aqui
+     * duplicaria o caminho e confundiria quem escolheu "cartão".
+     */
+    payment_methods: {
+      excluded_payment_types: [{ id: 'ticket' }, { id: 'bank_transfer' }, { id: 'atm' }],
+    },
+    ...(opcoes.notificationUrl ? { notification_url: opcoes.notificationUrl } : {}),
+    ...(opcoes.urlRetorno
+      ? {
+          back_urls: { success: opcoes.urlRetorno, pending: opcoes.urlRetorno, failure: opcoes.urlRetorno },
+          // Volta sozinho pro acompanhamento do pedido quando aprovado, sem o
+          // cliente precisar achar o botão "voltar ao site".
+          auto_return: 'approved',
+        }
+      : {}),
+  };
+
+  const resposta = await fetch('https://api.mercadopago.com/checkout/preferences', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      // Mesmo pedido reenviado (duplo clique, retry de rede) devolve a MESMA
+      // preferência em vez de criar uma cobrança nova.
+      'X-Idempotency-Key': `pref-pedido-${pedido.id}`,
+    },
+    body: JSON.stringify(corpo),
+  });
+
+  if (!resposta.ok) {
+    const erro = await resposta.json().catch(() => ({})) as { message?: string };
+    throw new Error(erro.message || `Mercado Pago recusou criar o checkout (HTTP ${resposta.status}).`);
+  }
+  const dados = await resposta.json() as { id: string; init_point?: string; sandbox_init_point?: string };
+  /*
+   * Em modo TESTE o MP devolve `sandbox_init_point`; mandar o cliente pro
+   * `init_point` de produção com credencial de teste dá erro na cara dele. Prefere
+   * o de produção e cai no sandbox quando é o que existe.
+   */
+  const url = dados.init_point || dados.sandbox_init_point;
+  if (!url) throw new Error('Mercado Pago não devolveu a URL do checkout.');
+  return { preferencia_id: dados.id, url };
+}
+
+/**
  * Estorna um pagamento Pix aprovado NO GATEWAY QUE O PROCESSOU — ponto único
  * de despacho, espelhando `criarCobrancaPix`.
  *
@@ -250,12 +344,23 @@ export async function estornarPagamentoMercadoPago(lojaId: number, pagamentoGate
   }
 }
 
-async function processarWebhookMP(pagamentoId: string): Promise<void> {
-  // Descobre qual loja gerou esse pagamento para usar o token certo.
+async function processarWebhookMP(pagamentoId: string, lojaIdDica?: number): Promise<void> {
+  /*
+   * Descobre qual loja gerou o pagamento pra usar o token certo.
+   *
+   * `lojaIdDica` vem da `notification_url` (&loja=<id>) e É NECESSÁRIA no cartão:
+   * no Checkout Pro o id do pagamento só existe DEPOIS que o cliente paga, então na
+   * primeira notificação não há `pagamento_gateway_id` gravado e a busca abaixo não
+   * acha nada. Sem a dica, cairia no token da PLATAFORMA — que não enxerga um
+   * pagamento feito na conta da loja: a consulta falharia em silêncio e o pedido
+   * nunca seria confirmado. No Pix isso não aparecia porque lá o id é gravado no
+   * momento da criação da cobrança.
+   */
   const pedidoRow = await db.prepare(
     'SELECT loja_id FROM pedidos WHERE pagamento_gateway_id = ?'
   ).get(pagamentoId) as { loja_id: number } | undefined;
-  const token = pedidoRow ? await getTokenMP(pedidoRow.loja_id) : await tokenPlataformaMP();
+  const lojaId = pedidoRow?.loja_id ?? lojaIdDica;
+  const token = lojaId ? await getTokenMP(lojaId) : await tokenPlataformaMP();
   if (!token) return;
 
   const resposta = await fetch(`https://api.mercadopago.com/v1/payments/${encodeURIComponent(pagamentoId)}`, {
@@ -581,9 +686,11 @@ router.post('/webhook/mercadopago', async (req, res) => {
     // arbitrário a mando de quem chamou o webhook).
     const t = typeof req.query.t === 'string' ? req.query.t : '';
     const tenant = t ? await tenantPorDbNome(t) : undefined;
+    // &loja=<id> na notification_url — ver `processarWebhookMP`.
+    const lojaDica = Number(req.query.loja) || undefined;
 
-    if (tenant) await comTenant(tenant.db_nome, () => processarWebhookMP(String(pagamentoId)));
-    else await processarWebhookMP(String(pagamentoId));
+    if (tenant) await comTenant(tenant.db_nome, () => processarWebhookMP(String(pagamentoId), lojaDica));
+    else await processarWebhookMP(String(pagamentoId), lojaDica);
 
     res.status(200).json({ recebido: true });
   } catch {

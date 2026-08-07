@@ -14,7 +14,7 @@ import { notificarPedidoWhatsApp } from '../whatsapp';
 import { comissaoPercentualDaLoja } from '../comissao';
 import { geocodificar } from '../geo';
 import { resolverFrete, type EnderecoParaFrete } from '../frete';
-import { criarCobrancaPix, pagamentoOnlineAtivo, conferirPixAgora } from './pagamentos';
+import { criarCobrancaPix, criarPreferenciaCartao, pagamentoOnlineAtivo, conferirPixAgora } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 
 const router = Router();
@@ -261,14 +261,23 @@ router.post('/pedidos', async (req, res, next) => {
 
     if (!lojaId) throw erroHttp(400, 'Loja inválida.');
     if (itens.length === 0) throw erroHttp(400, 'O carrinho está vazio.');
-    if (!['pix', 'dinheiro', 'cartao_entrega'].includes(formaPagamento)) {
-      throw erroHttp(400, 'Escolha a forma de pagamento: Pix, dinheiro ou cartão na entrega.');
+    if (!['pix', 'dinheiro', 'cartao_entrega', 'cartao_online'].includes(formaPagamento)) {
+      throw erroHttp(400, 'Escolha uma forma de pagamento válida.');
     }
     // 'pix' = Pix online (gera cobrança no Mercado Pago). A disponibilidade da
     // integração só é checada mais abaixo, DEPOIS de validar loja, endereço e
     // itens — assim o cliente recebe a mensagem correta (loja fechada, item
     // inválido) em vez de "Pix indisponível" mascarando o motivo real.
     const pixOnline = formaPagamento === 'pix';
+    /*
+     * Cartão ONLINE (Checkout Pro) — pago antes de sair, como o Pix. Diferente de
+     * `cartao_entrega`, que é a maquininha na porta do cliente: para o lojista as
+     * duas coisas são operações distintas (uma já entrou na conta, a outra o
+     * entregador precisa cobrar), e por isso são formas de pagamento separadas em
+     * vez de um campo "pago/não pago" em cima da mesma.
+     */
+    const cartaoOnline = formaPagamento === 'cartao_online';
+    const pagoAntes = pixOnline || cartaoOnline;
 
     const loja = await db.prepare('SELECT * FROM lojas WHERE id = ?').get(lojaId) as Loja | undefined;
     if (!loja || loja.status_aprovacao !== 'aprovada') throw erroHttp(404, 'Loja não encontrada.');
@@ -314,7 +323,7 @@ router.post('/pedidos', async (req, res, next) => {
 
     // Pix online exige a integração ativa. Checado só agora, depois de validar
     // loja, endereço e itens — para não mascarar o motivo real da recusa.
-    if (pixOnline && !(await pagamentoOnlineAtivo(lojaId))) {
+    if (pagoAntes && !(await pagamentoOnlineAtivo(lojaId))) {
       throw erroHttp(503, 'Pagamento via Pix online indisponível no momento. Escolha pagar na entrega.');
     }
 
@@ -370,7 +379,7 @@ router.post('/pedidos', async (req, res, next) => {
       ).run(req.usuario!.id, lojaId, formatarEndereco(endereco),
             (endereco as any).lat ?? null, (endereco as any).lon ?? null, formaPagamento,
             trocoPara, observacoes, subtotal, taxaEntrega, descontoCupom, cupom?.codigo || '',
-            total, comissaoPct, comissao, pixOnline ? 'aguardando' : 'na_entrega', agora, agora);
+            total, comissaoPct, comissao, pagoAntes ? 'aguardando' : 'na_entrega', agora, agora);
 
       const novoPedidoId = Number(info.lastInsertRowid);
 
@@ -407,6 +416,49 @@ router.post('/pedidos', async (req, res, next) => {
     // Pix online: gera a cobrança no Mercado Pago e devolve o QR. O lojista só
     // é avisado quando o pagamento for aprovado (pelo webhook). Se a cobrança
     // falhar, desfaz o pedido pra não deixar lixo.
+    /*
+     * CARTÃO ONLINE: cria a preferência do Checkout Pro e devolve a URL pra onde o
+     * cliente é redirecionado. Fica ANTES do bloco do Pix porque compartilha só o
+     * desfazer-em-caso-de-falha, não o resto — o Pix devolve QR pra tela, o cartão
+     * devolve endereço pra sair.
+     */
+    if (cartaoOnline) {
+      try {
+        const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as Pedido;
+        const base = `${req.protocol}://${req.get('host')}`;
+        // `&loja=` além de `?t=`: no Checkout Pro o id do pagamento só existe depois
+        // que o cliente paga, então o webhook não tem como descobrir a loja pelo
+        // pedido — e sem a loja certa, usa o token errado. Ver `processarWebhookMP`.
+        const notifUrl = `${base}/api/pagamentos/webhook/mercadopago`
+          + `?t=${encodeURIComponent(bancoTenantAtual())}&loja=${lojaId}`;
+        const checkout = await criarPreferenciaCartao(lojaId, pedido, { email: req.usuario!.email }, {
+          notificationUrl: notifUrl,
+          urlRetorno: `${base}/pedido/${pedidoId}`,
+        });
+        await db.prepare(
+          "UPDATE pedidos SET pagamento_gateway = 'mercadopago' WHERE id = ?"
+        ).run(pedidoId);
+        notificarPedidoWhatsApp(pedidoId, base).catch(() => { /* best-effort */ });
+        return res.status(201).json({ pedido_id: pedidoId, total_centavos: total, checkout });
+      } catch (e) {
+        console.error(`[Cartão] Falha ao criar checkout do pedido #${pedidoId} (loja ${lojaId}):`, e);
+        // Mesmo desfazer do Pix: pedido sem cobrança é lixo que trava estoque e
+        // consome uso de cupom.
+        await comTransacao(async (tx) => {
+          if (cupom) await tx.prepare('UPDATE cupons SET usos_count = GREATEST(usos_count - 1, 0) WHERE id = ?').run(cupom.id);
+          for (const [produtoId, qtd] of qtdPorProduto) {
+            await tx.prepare(
+              'UPDATE produtos SET estoque = estoque + ? WHERE id = ? AND controla_estoque = 1'
+            ).run(qtd, produtoId);
+          }
+          await tx.prepare('DELETE FROM itens_pedido WHERE pedido_id = ?').run(pedidoId);
+          await tx.prepare('DELETE FROM historico_status WHERE pedido_id = ?').run(pedidoId);
+          await tx.prepare('DELETE FROM pedidos WHERE id = ?').run(pedidoId);
+        });
+        throw erroHttp(502, 'Não foi possível abrir o pagamento com cartão agora. Tente de novo ou escolha pagar na entrega.');
+      }
+    }
+
     if (pixOnline) {
       try {
         const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as Pedido;

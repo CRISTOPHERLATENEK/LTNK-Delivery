@@ -2040,6 +2040,9 @@ function assinarSeTiver(loja: any, xml: string): { xml: string; assinado: boolea
 
 const TIPO_PAG_NFCE: Record<string, 'dinheiro' | 'pix' | 'cartao'> = {
   dinheiro: 'dinheiro', pix: 'pix', cartao: 'cartao', cartao_entrega: 'cartao',
+  // Sem esta linha, pedido pago no cartão online cairia no default do mapa
+  // ('dinheiro') e a NFC-e sairia com a forma de pagamento errada.
+  cartao_online: 'cartao',
 };
 
 /** Dados estruturados do DANFE (para impressão no cliente). */

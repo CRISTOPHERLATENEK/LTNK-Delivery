@@ -46,10 +46,18 @@ const STATUS_ATIVOS = ['pendente', 'aceito', 'preparando', 'pronto', 'em_entrega
 /* ─── utilitário de impressão ─── */
 function imprimirPedido(p: PedidoComItens) {
   const fmt = (c: number) => `R$ ${(c / 100).toFixed(2).replace('.', ',')}`;
+  /*
+   * "Cartão na entrega" NÃO PODE SER O FALLBACK. Com `cartao_online`, o cupom que vai
+   * junto com a comida diria pro entregador cobrar de novo um pedido JÁ PAGO — o tipo
+   * de erro que vira discussão na porta do cliente. Cada forma tem seu texto, e o
+   * caso desconhecido sai neutro.
+   */
   const pagto =
-    p.forma_pagamento === 'pix' ? 'Pix'
+    p.forma_pagamento === 'pix' ? 'Pix (pago online)'
+    : p.forma_pagamento === 'cartao_online' ? 'Cartão (pago online)'
     : p.forma_pagamento === 'dinheiro' ? `Dinheiro${p.troco_para_centavos ? ` / troco ${fmt(p.troco_para_centavos)}` : ''}`
-    : 'Cartão na entrega';
+    : p.forma_pagamento === 'cartao_entrega' ? 'Cartão na entrega — COBRAR'
+    : 'A combinar';
   // Via `abrirEImprimir` (iframe oculto) e não `window.open`: popup same-origin
   // compartilha o event loop desta aba, então o print() dele travava o painel
   // inteiro até alguém fechar o diálogo — que ainda podia abrir atrás da janela.
@@ -493,8 +501,10 @@ function CardPedidoDash({
               <span className="font-medium text-foreground/70">{tempoRelativo(p.criado_em)}</span>
               {' · '}
               {p.forma_pagamento === 'pix' ? 'Pix'
+                : p.forma_pagamento === 'cartao_online' ? 'Cartão (pago)'
                 : p.forma_pagamento === 'dinheiro' ? 'Dinheiro'
-                : 'Cartão na entrega'}
+                : p.forma_pagamento === 'cartao_entrega' ? 'Cartão na entrega'
+                : p.forma_pagamento}
             </div>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
