@@ -21,7 +21,7 @@ import lojistaRoutes from './rotas/lojista';
 import entregadorRoutes from './rotas/entregador';
 import cozinhaRoutes from './rotas/cozinha';
 import adminRoutes from './rotas/admin';
-import pagamentosRoutes, { reconciliarPagamentosOnz } from './rotas/pagamentos';
+import pagamentosRoutes, { reconciliarPagamentosOnz, reconciliarCartoesMP } from './rotas/pagamentos';
 import { aquecerTokens } from './onz';
 import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
@@ -466,6 +466,28 @@ async function reconciliarPixOnz(): Promise<void> {
 }
 
 /**
+ * Reconciliação do CARTÃO (Mercado Pago) em todos os tenants.
+ *
+ * Existe pelo mesmo motivo da do Pix, e por um caso observado: um pagamento
+ * `approved`, com a `notification_url` gravada corretamente dentro do próprio
+ * pagamento, que nunca gerou chamada nenhuma ao servidor. Sem esta varredura o
+ * pedido fica pago e invisível — o cliente pagou e a loja nunca vê.
+ */
+async function reconciliarCartaoMP(): Promise<void> {
+  for (const tenant of await listarTenants()) {
+    if (!tenant.ativo) continue;
+    try {
+      const r = await comTenant(tenant.db_nome, () => reconciliarCartoesMP());
+      if (r.confirmados > 0) {
+        console.log(`[mercadopago] reconciliação (${tenant.slug}): ${r.conferidos} pendentes → ${r.confirmados} confirmados.`);
+      }
+    } catch (e) {
+      console.error(`[mercadopago] reconciliação falhou no tenant ${tenant.slug}:`, e);
+    }
+  }
+}
+
+/**
  * Aplica o schema (e as migrações idempotentes dentro dele) em TODOS os tenants
  * ativos, no boot.
  *
@@ -538,6 +560,10 @@ const PORT = Number(process.env.PORT) || 3000;
   // ONZ pendente, a função sai na primeira consulta (custo desprezível).
   reconciliarPixOnz().catch(e => console.error('[onz] reconciliação falhou:', e));
   setInterval(() => { reconciliarPixOnz().catch(e => console.error('[onz] reconciliação falhou:', e)); }, 5 * 60_000);
+  // Mesmo ciclo do Pix: 5 min é curto o bastante pro lojista não perder a
+  // venda e longo o bastante pra não martelar a API do Mercado Pago.
+  reconciliarCartaoMP().catch(e => console.error('[mercadopago] reconciliação falhou:', e));
+  setInterval(() => { reconciliarCartaoMP().catch(e => console.error('[mercadopago] reconciliação falhou:', e)); }, 5 * 60_000);
 
   // Mantém quente o token da ONZ (vale só 5 min): sem isso, quase todo pedido
   // pagava ~1s de autenticação antes de mostrar o QR, com o cliente esperando.

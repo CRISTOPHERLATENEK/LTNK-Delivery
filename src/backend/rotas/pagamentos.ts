@@ -751,6 +751,63 @@ export async function conferirCartaoAgora(pedidoId: number): Promise<boolean> {
 }
 
 /**
+ * Varre pedidos de CARTÃO presos em "aguardando" e confirma os que já foram pagos.
+ *
+ * POR QUE NÃO BASTA A CONFERÊNCIA NA TELA: `conferirCartaoAgora` só roda quando
+ * alguém abre a página do pedido. Se o cliente pagar e fechar o navegador — ou
+ * simplesmente não voltar — ninguém pergunta ao Mercado Pago, e o pedido pago
+ * fica invisível pro lojista pra sempre. O resgate não pode depender de uma tela
+ * estar aberta; é o mesmo raciocínio da reconciliação do Pix, que já existia.
+ *
+ * NÃO CANCELA NADA por conta própria, diferente da versão do Pix. Lá a cobrança
+ * some do PSP e isso é estado terminal — dá pra afirmar "expirou". Aqui um
+ * pedido sem pagamento nenhum é indistinguível de "o cliente ainda está com o
+ * checkout aberto numa aba", e cancelar por baixo dele seria pior que deixar
+ * pendente.
+ */
+export async function reconciliarCartoesMP(horasParaTras = 48): Promise<{ conferidos: number; confirmados: number }> {
+  const limite = new Date(Date.now() - horasParaTras * 3600_000).toISOString();
+  const pendentes = await db.prepare(
+    `SELECT id, loja_id FROM pedidos
+      WHERE forma_pagamento = 'cartao_online' AND pagamento_status = 'aguardando'
+        AND criado_em >= ?
+      ORDER BY id DESC LIMIT 200`
+  ).all(limite) as Array<{ id: number; loja_id: number }>;
+  if (pendentes.length === 0) return { conferidos: 0, confirmados: 0 };
+
+  // Um token por loja, não por pedido: várias pendências da mesma loja são o
+  // caso comum, e decifrar o mesmo segredo em looping é desperdício.
+  const tokenPorLoja = new Map<number, string | null>();
+  let confirmados = 0;
+
+  for (const p of pendentes) {
+    try {
+      if (!tokenPorLoja.has(p.loja_id)) tokenPorLoja.set(p.loja_id, await getTokenMP(p.loja_id));
+      const token = tokenPorLoja.get(p.loja_id);
+      if (!token) continue;
+
+      const r = await fetch(
+        `https://api.mercadopago.com/v1/payments/search?external_reference=${encodeURIComponent(String(p.id))}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!r.ok) continue;
+      const dados = await r.json() as { results?: Array<{ id: number | string; status: string }> };
+      const aprovado = (dados.results ?? []).find(x => x.status === 'approved');
+      if (!aprovado) continue;
+
+      // Mesmo caminho do webhook: idempotente, e avisa o lojista uma vez só.
+      await processarWebhookMP(String(aprovado.id), p.loja_id);
+      const depois = await db.prepare('SELECT pagamento_status FROM pedidos WHERE id = ?')
+        .get(p.id) as { pagamento_status: string } | undefined;
+      if (depois?.pagamento_status === 'aprovado') confirmados++;
+    } catch (e) {
+      console.error(`[mercadopago] reconciliação do pedido ${p.id} falhou:`, (e as Error).message);
+    }
+  }
+  return { conferidos: pendentes.length, confirmados };
+}
+
+/**
  * Confere o pagamento online do pedido, seja qual for o gateway.
  *
  * Cada conferência sai fora sozinha quando o gateway não é o dela, então chamar
