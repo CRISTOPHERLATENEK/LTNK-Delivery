@@ -63,9 +63,35 @@ export function PaginaPedido() {
   const [chatAberto, setChatAberto] = useState(false);
   const [detalhesAbertos, setDetalhesAbertos] = useState(false);
 
+  /*
+   * AGUARDANDO PAGAMENTO: pergunta ativamente ao gateway antes de ler o status.
+   *
+   * É pra cá que o cliente volta depois de pagar com cartão no Mercado Pago, e o
+   * webhook que deveria confirmar não é garantido — homologando o cartão a gente
+   * viu um pagamento aprovado que nunca gerou notificação nenhuma. Sem esta
+   * pergunta, o pedido ficava "aguardando pagamento" para sempre: o cliente
+   * pagou e a loja nunca via o pedido.
+   *
+   * Só roda enquanto o pagamento está pendente — o servidor ignora o resto e
+   * ainda tem freio de 2,5s, então o polling de 4s não vira martelada na API.
+   */
+  /*
+   * Ref, não estado: `queryFn` é criada uma vez e leria um valor congelado se
+   * dependesse de estado. A ref é lida no instante da chamada, então acompanha o
+   * pedido saindo de "aguardando" sem re-criar a query. Começa `true` porque na
+   * primeira carga ainda não sabemos o status — e é justamente a primeira carga
+   * que acontece quando o cliente volta do checkout do cartão.
+   */
+  const pendenteRef = useRef(true);
+
   const consulta = useQuery({
     queryKey: ['pedido', id],
-    queryFn: () => api<Resposta>('GET', `/api/cliente/pedidos/${id}`),
+    queryFn: async () => {
+      if (pendenteRef.current) {
+        try { await api('POST', `/api/cliente/pedidos/${id}/conferir-pagamento`); } catch { /* segue: o status é lido de qualquer forma */ }
+      }
+      return api<Resposta>('GET', `/api/cliente/pedidos/${id}`);
+    },
     enabled: !!id,
     refetchInterval: data => {
       const status = (data as any)?.pedido?.status;
@@ -73,6 +99,9 @@ export function PaginaPedido() {
       return 4000;
     },
   });
+
+  pendenteRef.current = consulta.data === undefined
+    || consulta.data.pedido?.pagamento_status === 'aguardando';
 
   // A página de acompanhamento adota a cor da marca da LOJA daquele pedido —
   // assim o rastreio "fala a mesma língua" visual do storefront onde o cliente

@@ -693,6 +693,74 @@ export async function conferirPixAgora(pedidoId: number): Promise<boolean> {
 }
 
 /**
+ * Pergunta ao Mercado Pago se o CARTÃO do pedido já foi pago, sem esperar o webhook.
+ *
+ * POR QUE EXISTE: o webhook do MP não é garantido. Homologando o cartão a gente
+ * viu um pagamento `approved` cuja `notification_url` estava gravada certa no
+ * pagamento e que MESMO ASSIM nunca foi notificado — nenhuma chamada chegou ao
+ * servidor. Sem esta conferência o pedido fica em "aguardando pagamento" para
+ * sempre: o cliente pagou e a loja nunca vê o pedido. É a pior falha do fluxo
+ * inteiro, e depender de uma única entrega HTTP pra evitá-la é ingenuidade.
+ *
+ * O Pix já tinha esse resgate (`conferirPixAgora`); o cartão ficou de fora
+ * porque se assumiu que "o Mercado Pago tem o webhook dele". Tem, e ele falha.
+ *
+ * SÓ AGE EM APROVAÇÃO. Recusa fica por conta do webhook de propósito: um pedido
+ * marcado `recusado` sai do estado "aguardando" e nunca mais é conferido aqui —
+ * então marcar recusa cedo demais fecharia a porta pra uma segunda tentativa do
+ * cliente que ainda estivesse em curso.
+ */
+export async function conferirCartaoAgora(pedidoId: number): Promise<boolean> {
+  const pedido = await db.prepare(
+    'SELECT id, loja_id, pagamento_status, pagamento_gateway FROM pedidos WHERE id = ?'
+  ).get(pedidoId) as {
+    id: number; loja_id: number; pagamento_status: string; pagamento_gateway: string | null;
+  } | undefined;
+  if (!pedido) return false;
+  if (pedido.pagamento_status === 'aprovado') return true;
+  if (pedido.pagamento_gateway !== 'mercadopago' || pedido.pagamento_status !== 'aguardando') return false;
+
+  const agora = Date.now();
+  const ultima = ultimaConferencia.get(pedidoId) ?? 0;
+  if (agora - ultima < INTERVALO_MIN_CONFERENCIA) return false; // freio anti-abuso
+  ultimaConferencia.set(pedidoId, agora);
+
+  const token = await getTokenMP(pedido.loja_id);
+  if (!token) return false;
+
+  /*
+   * Busca por `external_reference` (o id do pedido) porque no Checkout Pro o id
+   * do pagamento só nasce depois que o cliente paga — antes disso não temos nada
+   * pra consultar diretamente. É a mesma chave que o webhook usa pra reencontrar
+   * o pedido, então os dois caminhos convergem no mesmo pagamento.
+   */
+  const resposta = await fetch(
+    `https://api.mercadopago.com/v1/payments/search?external_reference=${encodeURIComponent(String(pedidoId))}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!resposta.ok) return false;
+  const dados = await resposta.json() as { results?: Array<{ id: number | string; status: string }> };
+  const aprovado = (dados.results ?? []).find(p => p.status === 'approved');
+  if (!aprovado) return false;
+
+  // Mesmo caminho do webhook: idempotente, e avisa o lojista uma vez só.
+  await processarWebhookMP(String(aprovado.id), pedido.loja_id);
+  const depois = await db.prepare('SELECT pagamento_status FROM pedidos WHERE id = ?')
+    .get(pedidoId) as { pagamento_status: string } | undefined;
+  return depois?.pagamento_status === 'aprovado';
+}
+
+/**
+ * Confere o pagamento online do pedido, seja qual for o gateway.
+ *
+ * Cada conferência sai fora sozinha quando o gateway não é o dela, então chamar
+ * as duas é barato e evita que a tela precise saber por onde o pedido foi pago.
+ */
+export async function conferirPagamentoAgora(pedidoId: number): Promise<boolean> {
+  return (await conferirPixAgora(pedidoId)) || (await conferirCartaoAgora(pedidoId));
+}
+
+/**
  * Webhook de Pix recebido da ONZ (cash-in), no padrão Bacen: o corpo traz
  * `{ pix: [{ txid, valor, endToEndId, ... }] }`.
  *

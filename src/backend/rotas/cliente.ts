@@ -3,7 +3,7 @@
  * acompanhamento, cancelamento e "pedir de novo".
  * REGRA CRÍTICA: preços recalculados no servidor a partir do banco.
  */
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
 import { autenticar, exigirPerfil } from '../auth';
@@ -14,7 +14,7 @@ import { notificarPedidoWhatsApp } from '../whatsapp';
 import { comissaoPercentualDaLoja } from '../comissao';
 import { geocodificar } from '../geo';
 import { resolverFrete, type EnderecoParaFrete } from '../frete';
-import { criarCobrancaPix, criarPreferenciaCartao, pagamentoOnlineAtivo, cartaoOnlineAtivo, conferirPixAgora } from './pagamentos';
+import { criarCobrancaPix, criarPreferenciaCartao, pagamentoOnlineAtivo, cartaoOnlineAtivo, conferirPagamentoAgora } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 
 const router = Router();
@@ -567,19 +567,29 @@ router.post('/frete', async (req, res, next) => {
  *
  * Só o dono do pedido consulta. O freio anti-abuso está em conferirPixAgora().
  */
+async function conferirPagamentoDoDono(req: Request, res: Response) {
+  const meu = await db.prepare('SELECT id FROM pedidos WHERE id = ? AND cliente_id = ?')
+    .get(req.params.id, req.usuario!.id) as { id: number } | undefined;
+  if (!meu) throw erroHttp(404, 'Pedido não encontrado.');
+  // Falha ao falar com o PSP não é erro do cliente: responde "ainda não" e
+  // deixa o polling seguir (o webhook/reconciliação continuam de pé).
+  let pago = false;
+  try { pago = await conferirPagamentoAgora(meu.id); } catch (e) {
+    console.error(`[pagamentos] conferência do pedido ${meu.id} falhou:`, (e as Error).message);
+  }
+  res.json({ pago });
+}
+
+router.post('/pedidos/:id/conferir-pagamento', async (req, res, next) => {
+  try { await conferirPagamentoDoDono(req, res); } catch (err) { next(err); }
+});
+
+/**
+ * Nome antigo, quando só o Pix tinha conferência ativa. Continua valendo porque
+ * a tela do QR ainda chama por aqui, e agora faz a mesma coisa que o novo.
+ */
 router.post('/pedidos/:id/conferir-pix', async (req, res, next) => {
-  try {
-    const meu = await db.prepare('SELECT id FROM pedidos WHERE id = ? AND cliente_id = ?')
-      .get(req.params.id, req.usuario!.id) as { id: number } | undefined;
-    if (!meu) throw erroHttp(404, 'Pedido não encontrado.');
-    // Falha ao falar com o PSP não é erro do cliente: responde "ainda não" e
-    // deixa o polling seguir (o webhook/reconciliação continuam de pé).
-    let pago = false;
-    try { pago = await conferirPixAgora(meu.id); } catch (e) {
-      console.error(`[onz] conferência do pedido ${meu.id} falhou:`, (e as Error).message);
-    }
-    res.json({ pago });
-  } catch (err) { next(err); }
+  try { await conferirPagamentoDoDono(req, res); } catch (err) { next(err); }
 });
 
 router.get('/pedidos/:id', async (req, res, next) => {
