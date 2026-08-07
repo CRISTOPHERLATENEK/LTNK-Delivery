@@ -3,13 +3,11 @@
  * dedicadas (lojista, entregador, admin).
  */
 import { useEffect, Suspense } from 'react';
-import { Routes, Route, Link, Navigate, Outlet, useLocation } from 'react-router-dom';
-import { Home, ShoppingBag, Receipt, User, ChevronRight } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Home, ShoppingBag, Receipt, User } from 'lucide-react';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { useCarrinho, totalItensCarrinho } from '@/lib/carrinho';
-import { rotaInicioCliente, corLojaAtual, ehPreview } from '@/lib/loja-atual';
-import { api, sessaoUsuario } from '@/lib/api';
+import { rotaInicioCliente, corLojaAtual } from '@/lib/loja-atual';
 import { useTema } from '@/lib/tema';
 // Área do CLIENTE fica no bundle principal: é a rota que todo visitante abre
 // (cardápio, carrinho, checkout) — atrasá-la com um chunk extra só pioraria.
@@ -57,57 +55,18 @@ function CarregandoPainel() {
   );
 }
 
-const STATUS_ATIVOS = ['pendente', 'aceito', 'preparando', 'pronto', 'em_entrega'];
-const STATUS_EMOJI: Record<string, string> = {
-  pendente: '⏳', aceito: '✅', preparando: '👨‍🍳', pronto: '📦', em_entrega: '🛵',
-};
-const STATUS_LABEL: Record<string, string> = {
-  pendente: 'Aguardando a loja', aceito: 'Pedido aceito!', preparando: 'Sendo preparado…',
-  pronto: 'Pronto para entrega', em_entrega: 'Saiu para entrega! 🛵',
-};
-
-function BannerPedidoAtivo() {
-  const usuario = sessaoUsuario();
-  const location = useLocation();
-
-  const consulta = useQuery({
-    queryKey: ['pedidos-ativos-banner'],
-    queryFn: () => api<{ pedidos: { id: number; status: string; loja_nome: string }[] }>(
-      'GET', '/api/cliente/pedidos'
-    ).then(r => r.pedidos),
-    /*
-     * FORA DO PREVIEW DO EDITOR VISUAL. O preview é a vitrine REAL num iframe
-     * (`/:id?preview=1`, ver PhonePreview), então este banner montava lá dentro e
-     * ficava batendo em /api/cliente/pedidos a cada 8 segundos enquanto o lojista
-     * mexia nas cores. Pior: o iframe é same-origin e lê a MESMA sessão, então a
-     * chamada saía com o token do lojista — pedido de cliente que não existe
-     * naquele contexto, poluindo o console de quem está editando o layout.
-     *
-     * O banner também não faz sentido visual ali: ele é um aviso flutuante pro
-     * cliente voltar ao pedido dele, não parte do cardápio que se está desenhando.
-     */
-    enabled: !!usuario && !ehPreview(),
-    refetchInterval: 8000,
-  });
-
-  const ativo = consulta.data?.find(p => STATUS_ATIVOS.includes(p.status));
-  if (!ativo || location.pathname === `/pedido/${ativo.id}`) return null;
-
-  return (
-    <Link
-      to={`/pedido/${ativo.id}`}
-      className="lg:hidden fixed bottom-[72px] inset-x-3 z-40 flex items-center gap-3 rounded-2xl bg-primary px-4 py-3 shadow-lg shadow-primary/30 text-primary-foreground"
-    >
-      <span className="text-xl shrink-0">{STATUS_EMOJI[ativo.status] ?? '📋'}</span>
-      <div className="flex-1 min-w-0">
-        <div className="text-xs font-bold opacity-80 truncate">{ativo.loja_nome}</div>
-        <div className="text-sm font-extrabold truncate">{STATUS_LABEL[ativo.status] ?? 'Pedido em andamento'}</div>
-      </div>
-      <ChevronRight className="size-5 shrink-0 opacity-80" />
-    </Link>
-  );
-}
-
+/*
+ * BANNER FLUTUANTE DE PEDIDO ATIVO — REMOVIDO.
+ *
+ * Ele ficava fixo no rodapé com 'Aguardando a loja' e um link pro pedido. Só se
+ * escondia na própria tela do pedido, então aparecia POR CIMA do checkout — na
+ * hora de digitar o cartão, que é o pior momento possível pra tapar a tela.
+ *
+ * E o caminho que ele oferecia já existe duas vezes: depois de pagar, o app leva
+ * sozinho pro acompanhamento, e a aba 'Pedidos' está sempre ali na barra de
+ * baixo. Era um terceiro atalho pro mesmo lugar, cobrindo conteúdo e consultando
+ * /api/cliente/pedidos a cada 8 segundos em toda navegação do cliente.
+ */
 // Páginas que não sabem a cor da loja em si (não buscam a loja pra isso) —
 // reaplicam a última cor vista em loja.tsx/pedido.tsx em vez de cair na cor
 // padrão da plataforma. loja.tsx e pedido.tsx já cuidam da própria cor com
@@ -142,7 +101,6 @@ export function ClienteLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
       <AppLayout itens={itens}>{children}</AppLayout>
-      <BannerPedidoAtivo />
     </>
   );
 }
