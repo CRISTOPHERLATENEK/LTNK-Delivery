@@ -91,7 +91,19 @@ const ORIGENS_MERCADOPAGO = [
   'https://www.mercadopago.com.br',
   'https://api.mercadopago.com',      // tokenização do cartão
   'https://api.mercadolibre.com',     // usada pelo SDK em algumas rotas
-  'https://events.mercadopago.com',   // telemetria/antifraude do SDK
+  'https://events.mercadopago.com',   // telemetria do SDK
+  /*
+   * Os dois abaixo NÃO estão na documentação — saíram do console do navegador
+   * com a integração rodando. O SDK carrega o componente do formulário e as
+   * traduções de um CDN separado, e roda o fingerprint de antifraude num
+   * domínio do Mercado Livre.
+   *
+   * O fingerprint não é opcional na prática: bloqueado, o antifraude do MP
+   * perde o sinal e a taxa de aprovação cai — o pagamento passa a ser recusado
+   * sem que nada apareça quebrado na tela.
+   */
+  'https://http2.mlstatic.com',       // componente do brick + i18n
+  'https://www.mercadolibre.com',     // fingerprint de antifraude (connect e frame)
 ];
 const ORIGENS_ANALYTICS = [
   'https://www.googletagmanager.com',   // GA4 + GTM
