@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck, Search, AlertCircle, ChevronDown } from 'lucide-react';
+import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck, Search, AlertCircle, ChevronDown, X } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
 import { statusAgente, esquecerStatusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, encerrarSessao } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
@@ -1911,6 +1912,230 @@ export function SegurancaLoja() {
           </form>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+/* ─────────────────── Usuários da loja (equipe do painel) ─────────────────── */
+
+interface UsuarioLoja {
+  id: number; nome: string; email: string;
+  bloqueado: number; criado_em: string; dono: boolean;
+}
+
+/**
+ * Equipe com acesso ao painel.
+ *
+ * O PROBLEMA QUE ISTO RESOLVE: existia um login por loja, então caixa, gerente e
+ * balconista dividiam a mesma senha. Ninguém sabia quem fez o quê, e tirar o
+ * acesso de quem saiu obrigava a trocar a senha de todo mundo.
+ */
+export function UsuariosLoja() {
+  const { mostrar } = useToast();
+  const confirmar = useConfirm();
+  const [estado, setEstado] = useState<{ sou_dono: boolean; meu_id: number; usuarios: UsuarioLoja[] } | null>(null);
+  const [enviando, setEnviando] = useState(false);
+  const [criando, setCriando] = useState(false);
+  const [form, setForm] = useState({ nome: '', email: '', senha: '' });
+  /** Id de quem está com o campo de nova senha aberto. */
+  const [trocandoSenha, setTrocandoSenha] = useState<number | null>(null);
+  const [senhaNova, setSenhaNova] = useState('');
+
+  function carregar() {
+    api<{ sou_dono: boolean; meu_id: number; usuarios: UsuarioLoja[] }>('GET', '/api/lojista/usuarios')
+      .then(setEstado)
+      .catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar os usuários.' }));
+  }
+  useEffect(() => { carregar(); }, []);
+
+  async function criar(e: React.FormEvent) {
+    e.preventDefault();
+    setEnviando(true);
+    try {
+      await api('POST', '/api/lojista/usuarios', form);
+      mostrar({ tipo: 'sucesso', titulo: `${form.nome} já pode entrar no painel.` });
+      setForm({ nome: '', email: '', senha: '' });
+      setCriando(false);
+      carregar();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setEnviando(false); }
+  }
+
+  async function alternarBloqueio(u: UsuarioLoja) {
+    try {
+      await api('PUT', `/api/lojista/usuarios/${u.id}`, { bloqueado: !u.bloqueado });
+      carregar();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+
+  async function salvarSenha(u: UsuarioLoja) {
+    if (senhaNova.length < 6) {
+      mostrar({ tipo: 'erro', titulo: 'A senha precisa ter pelo menos 6 caracteres.' });
+      return;
+    }
+    try {
+      await api('PUT', `/api/lojista/usuarios/${u.id}`, { senha: senhaNova });
+      mostrar({ tipo: 'sucesso', titulo: `Senha de ${u.nome} trocada.` });
+      setTrocandoSenha(null);
+      setSenhaNova('');
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+
+  async function remover(u: UsuarioLoja) {
+    const ok = await confirmar({
+      titulo: `Remover ${u.nome}?`,
+      descricao: 'A conta é apagada e a pessoa perde o acesso na hora. Não dá pra desfazer.',
+      confirmar: 'Remover', destrutivo: true,
+    });
+    if (!ok) return;
+    try {
+      await api('DELETE', `/api/lojista/usuarios/${u.id}`);
+      carregar();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+
+  if (!estado) return <Skeleton className="h-48" />;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-bold">Usuários</h2>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          Quem pode entrar no painel desta loja.
+        </p>
+      </div>
+
+      {/*
+        DIZ O QUE O ACESSO É, em vez de deixar descobrir depois. Hoje não existe
+        nível de permissão: quem entra vê tudo. Deixar isso implícito faria o
+        lojista criar um login pro balconista achando que criou acesso limitado —
+        e descobrir o contrário no dia em que alguém mexesse no preço.
+      */}
+      <div className="flex items-start gap-2 rounded-xl border border-amber-300/60 bg-amber-50/70 px-3.5 py-3 dark:border-amber-500/30 dark:bg-amber-500/10">
+        <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400" />
+        <p className="text-xs text-amber-900 dark:text-amber-300">
+          <b>Todo usuário criado aqui vê o painel inteiro</b> — pedidos, produtos, preços e relatórios.
+          Ainda não existe acesso limitado por área. Só <b>você</b>, como dono, pode criar e remover
+          usuários.
+        </p>
+      </div>
+
+      <Card>
+        <CardContent className="p-5">
+          <div className="divide-y divide-border">
+            {estado.usuarios.map(u => (
+              <div key={u.id} className="py-3 first:pt-0 last:pb-0">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                    {u.nome.trim().slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="flex flex-wrap items-center gap-1.5 text-sm font-semibold">
+                      {u.nome}
+                      {u.dono && (
+                        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">dono</span>
+                      )}
+                      {u.id === estado.meu_id && (
+                        <span className="text-[11px] font-normal text-muted-foreground">(você)</span>
+                      )}
+                      {!!u.bloqueado && (
+                        <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-bold text-destructive">bloqueado</span>
+                      )}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                  </div>
+
+                  {/* O dono não tem ações: bloquear ou remover a única conta que
+                      administra as outras deixaria a loja sem saída. */}
+                  {estado.sou_dono && !u.dono && (
+                    <div className="flex shrink-0 gap-1">
+                      <Button type="button" variant="ghost" size="sm"
+                        onClick={() => { setTrocandoSenha(trocandoSenha === u.id ? null : u.id); setSenhaNova(''); }}>
+                        Trocar senha
+                      </Button>
+                      <Button type="button" variant="ghost" size="sm" onClick={() => alternarBloqueio(u)}>
+                        {u.bloqueado ? 'Desbloquear' : 'Bloquear'}
+                      </Button>
+                      <Button type="button" variant="ghost" size="icon" title="Remover"
+                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        onClick={() => remover(u)}>
+                        <Trash2 className="size-4" />
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                {trocandoSenha === u.id && (
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-12">
+                    <Input
+                      type="password" autoFocus value={senhaNova} maxLength={72}
+                      placeholder="Nova senha (mín. 6)" autoComplete="new-password"
+                      onChange={e => setSenhaNova(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); salvarSenha(u); } }}
+                      className="h-9 w-56 text-sm"
+                    />
+                    <Button type="button" size="sm" onClick={() => salvarSenha(u)}>Salvar</Button>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setTrocandoSenha(null)}>Cancelar</Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {estado.sou_dono && (
+        criando ? (
+          <Card className="border-primary/40">
+            <CardContent className="p-5">
+              <form onSubmit={criar} className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-bold">Novo usuário</span>
+                  <button type="button" onClick={() => setCriando(false)} className="rounded-lg p-1 hover:bg-accent">
+                    <X className="size-4" />
+                  </button>
+                </div>
+                <div>
+                  <Label htmlFor="u_nome">Nome</Label>
+                  <Input id="u_nome" autoFocus value={form.nome} maxLength={120}
+                    placeholder="Ex.: Maria (caixa)"
+                    onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
+                </div>
+                <div>
+                  <Label htmlFor="u_email">E-mail (será o login)</Label>
+                  <Input id="u_email" type="email" value={form.email} maxLength={200} autoComplete="off"
+                    placeholder="maria@exemplo.com"
+                    onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
+                </div>
+                <div>
+                  <Label htmlFor="u_senha">Senha inicial</Label>
+                  <Input id="u_senha" type="password" value={form.senha} maxLength={72} autoComplete="new-password"
+                    placeholder="Mínimo 6 caracteres"
+                    onChange={e => setForm(f => ({ ...f, senha: e.target.value }))} />
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Combine com a pessoa e peça pra ela trocar depois, em Conta.
+                  </p>
+                </div>
+                <Button type="submit" size="sm" disabled={enviando}>
+                  <Plus className="size-3.5" />
+                  {enviando ? 'Criando…' : 'Criar usuário'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        ) : (
+          <Button type="button" variant="outline" className="w-full" onClick={() => setCriando(true)}>
+            <Plus className="size-4" /> Adicionar usuário
+          </Button>
+        )
+      )}
     </div>
   );
 }

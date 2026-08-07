@@ -36,7 +36,7 @@ import { suportaPush, ativarPush } from '@/lib/push';
 import { despacharImpressao, imprimirComandasProducao } from '@/lib/impressao';
 import type { BlocoImpressao } from '@/lib/agente';
 import { ProdutosLoja } from './produtos';
-import { LojaConfiguracao, HorarioLoja, ZonasEntrega, PagamentosLoja, ImpressaoLoja, EntregadoresLoja, SegurancaLoja } from './loja-config';
+import { LojaConfiguracao, HorarioLoja, ZonasEntrega, PagamentosLoja, ImpressaoLoja, EntregadoresLoja, SegurancaLoja, UsuariosLoja } from './loja-config';
 import { VisualLoja } from './visual';
 import { FiscalLoja } from './fiscal';
 import { CategoriasLoja } from './categorias';
@@ -255,7 +255,7 @@ export function PainelLojista() {
    Cupons, Clientes e Avaliações agora vivem na aba "Mais" (operação). ── */
 type AbaConfig =
   | 'loja' | 'horario' | 'entrega' | 'entregadores' | 'visual'
-  | 'banners' | 'pagamentos' | 'impressao' | 'fiscal' | 'whatsapp' | 'seguranca';
+  | 'banners' | 'pagamentos' | 'impressao' | 'fiscal' | 'whatsapp' | 'seguranca' | 'usuarios';
 
 /**
  * Agrupadas por TAREFA, não pela ordem em que foram construídas: eram 11 abas
@@ -294,6 +294,10 @@ const GRUPOS_CONFIG: { titulo: string; itens: { id: AbaConfig; label: string; ic
       { id: 'visual', label: 'Visual', icone: Palette },
       { id: 'banners', label: 'Banners', icone: Image },
       { id: 'whatsapp', label: 'WhatsApp', icone: MessageCircle },
+      // Ao lado de Segurança: quem entra no painel é assunto de acesso, não de
+      // operação. Fica logo antes dela porque criar usuário vem antes de
+      // proteger o login deles.
+      { id: 'usuarios', label: 'Usuários', icone: Users },
       { id: 'seguranca', label: 'Segurança', icone: ShieldCheck },
     ],
   },
@@ -314,6 +318,7 @@ function ConfiguracoesLoja() {
       {aba === 'impressao' && <ImpressaoLoja />}
       {aba === 'visual' && <VisualLoja />}
       {aba === 'banners' && <BannersLoja />}
+      {aba === 'usuarios' && <UsuariosLoja />}
       {aba === 'seguranca' && <SegurancaLoja />}
     </>
   );

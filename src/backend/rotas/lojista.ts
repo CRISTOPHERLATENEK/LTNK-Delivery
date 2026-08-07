@@ -60,11 +60,42 @@ const uploadCert = multer({ storage: multer.memoryStorage(), limits: { fileSize:
 const router = Router();
 router.use(autenticar, exigirPerfil('lojista'));
 
+/**
+ * A loja de quem está pedindo — pelo DONO ou pelo VÍNCULO.
+ *
+ * `lojas.usuario_id` é o dono, e por muito tempo foi o único jeito de alguém
+ * enxergar uma loja: um login por estabelecimento. Na prática a loja tem caixa,
+ * gerente e balconista, e todos acabavam usando a mesma senha — sem saber quem
+ * fez o quê, e sem poder cortar o acesso de quem saiu sem trocar a senha de
+ * todo mundo.
+ *
+ * `usuarios.loja_id` passa a valer como segundo caminho: um usuário criado pelo
+ * dono aponta pra loja dele e usa o painel normalmente. O dono continua sendo
+ * `lojas.usuario_id` — é ele quem administra os outros (ver `/usuarios`).
+ */
 async function minhaLoja(req: Request, obrigatoria = true): Promise<Loja> {
-  const loja = await db.prepare('SELECT * FROM lojas WHERE usuario_id = ?')
+  let loja = await db.prepare('SELECT * FROM lojas WHERE usuario_id = ?')
     .get(req.usuario!.id) as Loja | undefined;
+  if (!loja) {
+    const vinculo = await db.prepare('SELECT loja_id FROM usuarios WHERE id = ?')
+      .get(req.usuario!.id) as { loja_id: number | null } | undefined;
+    if (vinculo?.loja_id) {
+      loja = await db.prepare('SELECT * FROM lojas WHERE id = ?').get(vinculo.loja_id) as Loja | undefined;
+    }
+  }
   if (!loja && obrigatoria) throw erroHttp(404, 'Você ainda não cadastrou sua loja.');
   return loja as Loja;
+}
+
+/** É o DONO da loja? Só ele administra os usuários. */
+function ehDonoDaLoja(req: Request, loja: Loja): boolean {
+  return (loja as unknown as { usuario_id: number }).usuario_id === req.usuario!.id;
+}
+
+async function exigirDono(req: Request, loja: Loja): Promise<void> {
+  if (!ehDonoDaLoja(req, loja)) {
+    throw erroHttp(403, 'Só o dono da loja pode gerenciar os usuários.');
+  }
 }
 
 async function meuProduto(loja: Loja, produtoId: number | string): Promise<Produto> {
@@ -1473,6 +1504,128 @@ router.get('/entregadores/cadastro', async (req, res, next) => {
        WHERE perfil = 'entregador' AND loja_id = ? ORDER BY nome`
     ).all(loja.id);
     res.json({ entregadores });
+  } catch (e) { next(e); }
+});
+
+/* ─────────────────── Usuários da loja (equipe do painel) ─────────────────── */
+
+/**
+ * Quem tem acesso ao painel desta loja: o dono e os usuários que ele criou.
+ *
+ * TODOS TÊM O MESMO ACESSO hoje — não existe nível de permissão. O que muda é
+ * quem PODE ADMINISTRAR: só o dono cria e remove gente. Isso é dito na tela, pra
+ * ninguém achar que criou um "usuário limitado".
+ */
+router.get('/usuarios', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const donoId = (loja as unknown as { usuario_id: number }).usuario_id;
+    const linhas = await db.prepare(
+      `SELECT id, nome, email, bloqueado, criado_em FROM usuarios
+        WHERE perfil = 'lojista' AND (id = ? OR loja_id = ?)
+        ORDER BY id`
+    ).all(donoId, loja.id) as Array<{ id: number; nome: string; email: string; bloqueado: number; criado_em: string }>;
+    res.json({
+      sou_dono: ehDonoDaLoja(req, loja),
+      meu_id: req.usuario!.id,
+      usuarios: linhas.map(u => ({ ...u, dono: u.id === donoId })),
+    });
+  } catch (e) { next(e); }
+});
+
+/** Cria um usuário do painel para esta loja. Só o dono. */
+router.post('/usuarios', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    await exigirDono(req, loja);
+
+    const nome = textoLimpo(req.body.nome, 120);
+    const email = textoLimpo(req.body.email, 200).toLowerCase();
+    const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
+    if (nome.length < 2) throw erroHttp(400, 'Informe o nome da pessoa.');
+    if (!emailValido(email)) throw erroHttp(400, 'Informe um e-mail válido (será o login).');
+    if (senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
+
+    // Checado antes do INSERT pra dar a mensagem do campo certo, em vez de
+    // deixar o índice único estourar como erro genérico (mesmo motivo do
+    // cadastro de entregador acima).
+    const jaExiste = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
+    if (jaExiste) throw erroHttp(409, 'Já existe uma conta com este e-mail.');
+
+    const info = await db.prepare(
+      `INSERT INTO usuarios (nome, email, senha_hash, perfil, loja_id, criado_em)
+       VALUES (?, ?, ?, 'lojista', ?, ?)`
+    ).run(nome, email, bcrypt.hashSync(senha, 10), loja.id, agoraUTC());
+    res.status(201).json({ id: Number(info.lastInsertRowid), nome, email, bloqueado: 0, dono: false });
+  } catch (e) { next(e); }
+});
+
+/** Bloqueia/desbloqueia, renomeia ou troca a senha de um usuário. Só o dono. */
+router.put('/usuarios/:id', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    await exigirDono(req, loja);
+    const donoId = (loja as unknown as { usuario_id: number }).usuario_id;
+    const alvoId = Number(req.params.id);
+
+    /*
+     * O DONO NÃO PODE SER BLOQUEADO, nem por ele mesmo. É a única conta que
+     * administra as outras — bloqueá-la deixaria a loja sem ninguém capaz de
+     * desbloquear, e o conserto passaria por suporte mexendo no banco.
+     */
+    if (alvoId === donoId) throw erroHttp(409, 'A conta do dono não pode ser bloqueada nem renomeada por aqui.');
+
+    const alvo = await db.prepare(
+      "SELECT id FROM usuarios WHERE id = ? AND perfil = 'lojista' AND loja_id = ?"
+    ).get(alvoId, loja.id) as { id: number } | undefined;
+    if (!alvo) throw erroHttp(404, 'Usuário não encontrado nesta loja.');
+
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+    if (typeof req.body.nome === 'string') {
+      const nome = textoLimpo(req.body.nome, 120);
+      if (nome.length < 2) throw erroHttp(400, 'Nome inválido.');
+      sets.push('nome = ?'); vals.push(nome);
+    }
+    if (typeof req.body.senha === 'string' && req.body.senha) {
+      if (req.body.senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
+      sets.push('senha_hash = ?'); vals.push(bcrypt.hashSync(req.body.senha, 10));
+    }
+    if (req.body.bloqueado !== undefined) {
+      sets.push('bloqueado = ?'); vals.push(req.body.bloqueado ? 1 : 0);
+    }
+    if (sets.length === 0) throw erroHttp(400, 'Nada para alterar.');
+    await db.prepare(`UPDATE usuarios SET ${sets.join(', ')} WHERE id = ?`).run(...vals, alvo.id);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/** Remove um usuário do painel. Só o dono, e nunca a si mesmo nem o dono. */
+router.delete('/usuarios/:id', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    await exigirDono(req, loja);
+    const donoId = (loja as unknown as { usuario_id: number }).usuario_id;
+    const alvoId = Number(req.params.id);
+    if (alvoId === donoId) throw erroHttp(409, 'A conta do dono não pode ser removida.');
+
+    const alvo = await db.prepare(
+      "SELECT id FROM usuarios WHERE id = ? AND perfil = 'lojista' AND loja_id = ?"
+    ).get(alvoId, loja.id) as { id: number } | undefined;
+    if (!alvo) throw erroHttp(404, 'Usuário não encontrado nesta loja.');
+
+    /*
+     * APAGA a conta, e não só o vínculo: o e-mail é único no sistema inteiro, e
+     * deixar a linha órfã impediria a pessoa de voltar depois com o mesmo
+     * e-mail — inclusive como cliente da própria loja.
+     */
+    await comTransacao(async (tx) => {
+      // As inscrições de push apontam pro usuário; sem apagá-las antes, o
+      // DELETE da conta esbarra na chave estrangeira.
+      await tx.prepare('DELETE FROM push_inscricoes WHERE usuario_id = ?').run(alvo.id);
+      await tx.prepare('DELETE FROM usuarios WHERE id = ?').run(alvo.id);
+    });
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
