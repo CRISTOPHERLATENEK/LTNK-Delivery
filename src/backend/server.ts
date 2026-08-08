@@ -21,7 +21,7 @@ import lojistaRoutes from './rotas/lojista';
 import entregadorRoutes from './rotas/entregador';
 import cozinhaRoutes from './rotas/cozinha';
 import adminRoutes from './rotas/admin';
-import pagamentosRoutes, { reconciliarPagamentosOnz, reconciliarCartoesMP } from './rotas/pagamentos';
+import pagamentosRoutes, { reconciliarPagamentosOnz, reconciliarCartoesMP, cancelarCartoesAbandonados } from './rotas/pagamentos';
 import { aquecerTokens } from './onz';
 import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
@@ -75,15 +75,6 @@ app.use(express.json({ limit: '200kb' }));
  *
  * img-src aceita `https:` de propósito: logo, capa e imagem do hero podem
  * apontar pra URL externa escolhida pelo lojista (não dá pra listar).
- */
-/*
- * CHECKOUT BRICKS do Mercado Pago: o formulário de cartão roda DENTRO da loja,
- * mas os campos sensíveis vêm em iframes servidos pelo próprio MP — é isso que
- * mantém o número do cartão fora deste servidor. Em troca, a CSP precisa deixar
- * o SDK carregar, abrir os iframes e falar com a API deles.
- *
- * Afrouxamento consciente e ESTREITO: são domínios nominais do Mercado Pago,
- * não curinga. A alternativa era manter o cliente saindo do site pra pagar.
  */
 /*
  * CURINGA NOS DOMÍNIOS DO MERCADO PAGO, e não uma lista nominal.
@@ -513,6 +504,15 @@ async function reconciliarCartaoMP(): Promise<void> {
       const r = await comTenant(tenant.db_nome, () => reconciliarCartoesMP());
       if (r.confirmados > 0) {
         console.log(`[mercadopago] reconciliação (${tenant.slug}): ${r.conferidos} pendentes → ${r.confirmados} confirmados.`);
+      }
+      /*
+       * Depois de confirmar quem pagou, cancela quem abandonou — nesta ordem,
+       * senão um pagamento aprovado com notificação atrasada seria cancelado
+       * pelo relógio antes de alguém perguntar ao Mercado Pago.
+       */
+      const ab = await comTenant(tenant.db_nome, () => cancelarCartoesAbandonados());
+      if (ab.cancelados > 0) {
+        console.log(`[mercadopago] ${ab.cancelados} pedido(s) de cartão abandonados cancelados em ${tenant.slug} (estoque e cupom devolvidos).`);
       }
     } catch (e) {
       console.error(`[mercadopago] reconciliação falhou no tenant ${tenant.slug}:`, e);

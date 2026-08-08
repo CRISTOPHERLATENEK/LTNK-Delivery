@@ -861,6 +861,38 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
   }
 
   /*
+   * CHAVE DE IDEMPOTÊNCIA do checkout: o navegador gera uma por tentativa e a
+   * repete em qualquer reenvio. O ÍNDICE ÚNICO é o que garante de verdade —
+   * checar antes de inserir não resolve corrida, e duplo clique no celular é
+   * exatamente uma corrida.
+   *
+   * Coluna gerada + UNIQUE (mesmo truque do CPF/telefone): string vazia vira
+   * NULL, e NULLs não conflitam — pedidos antigos e chamadas sem chave
+   * continuam passando.
+   */
+  for (const [coluna, ddl] of [
+    ['chave_idem', 'chave_idem VARCHAR(64)'],
+    ['chave_idem_unica', "chave_idem_unica VARCHAR(64) GENERATED ALWAYS AS (NULLIF(chave_idem, '')) VIRTUAL"],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pedidos' AND COLUMN_NAME = ?
+        LIMIT 1`, [coluna],
+    ) as any;
+    if (existe.length === 0) await pool.query(`ALTER TABLE pedidos ADD COLUMN ${ddl}`);
+  }
+  {
+    const [idx] = await pool.query(
+      `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pedidos' AND INDEX_NAME = 'idx_pedidos_idem'
+        LIMIT 1`,
+    ) as any;
+    if (idx.length === 0) {
+      await pool.query('ALTER TABLE pedidos ADD UNIQUE KEY idx_pedidos_idem (chave_idem_unica)');
+    }
+  }
+
+  /*
    * PERMISSÕES POR ÁREA do usuário do painel (JSON com as chaves das áreas).
    * NULL = acesso total, pra não trancar quem já usava o sistema antes do
    * recurso existir. Usuário novo nasce com a lista explícita.

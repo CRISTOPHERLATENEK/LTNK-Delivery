@@ -527,7 +527,19 @@ function Checkout({
     onFreteChange(zona ? zona.taxa_centavos : fretePadrao);
   }, [bairroSelecionado, zonas, fretePadrao, onFreteChange]);
 
+  /*
+   * Uma chave por TENTATIVA de checkout, criada no primeiro clique e reusada em
+   * qualquer reenvio. Se o servidor já criou o pedido e a resposta se perdeu no
+   * caminho, o reenvio devolve o MESMO pedido em vez de criar outro.
+   *
+   * Só é zerada quando o pedido conclui — assim falha de rede seguida de nova
+   * tentativa continua sendo a mesma tentativa, e um segundo pedido de propósito
+   * (o cliente pedindo de novo) ganha chave nova.
+   */
+  const chaveIdemRef = useRef<string>('');
+
   async function finalizar() {
+    if (!chaveIdemRef.current) chaveIdemRef.current = crypto.randomUUID();
     setEnviando(true);
     try {
       let idFinal = enderecoId;
@@ -546,7 +558,9 @@ function Checkout({
         troco_para: pagamento === 'dinheiro' && troco ? troco : undefined,
         observacoes: obs,
         cupom_codigo: cupomCodigo,
+        chave_idem: chaveIdemRef.current,
       });
+      chaveIdemRef.current = ''; // pedido criado: a próxima compra é outra tentativa
       /*
        * Cartão: o formulário abre AQUI, sem sair da loja.
        *

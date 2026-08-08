@@ -390,6 +390,25 @@ router.post('/pedidos', async (req, res, next) => {
     // Comissão incide sobre o valor líquido (subtotal já com o desconto do cupom).
     const comissao = Math.round(subtotalComDesconto * comissaoPct / 100);
 
+    /*
+     * IDEMPOTÊNCIA DO CHECKOUT.
+     *
+     * O botão desabilita na tela, mas isso não cobre retry de rede nem toque
+     * duplo no celular — e cada duplicata baixa estoque e queima cupom de novo.
+     * O navegador manda a MESMA chave em qualquer reenvio da mesma tentativa;
+     * quem garante é o índice único, porque checar antes de inserir não resolve
+     * corrida (e duplo clique é exatamente uma corrida).
+     */
+    const chaveIdem = textoLimpo(req.body.chave_idem, 64);
+    if (chaveIdem) {
+      const jaFeito = await db.prepare(
+        'SELECT id, total_centavos FROM pedidos WHERE chave_idem = ? AND cliente_id = ?'
+      ).get(chaveIdem, req.usuario!.id) as { id: number; total_centavos: number } | undefined;
+      // Mesma resposta do 1º envio: pra quem chamou, é como se tivesse dado certo
+      // agora — que é a única leitura que não confunde o cliente.
+      if (jaFeito) return res.status(201).json({ pedido_id: jaFeito.id, total_centavos: jaFeito.total_centavos });
+    }
+
     const agora = agoraUTC();
     const pedidoId = await comTransacao(async (tx) => {
       const info = await tx.prepare(
@@ -401,7 +420,7 @@ router.post('/pedidos', async (req, res, next) => {
       ).run(req.usuario!.id, lojaId, formatarEndereco(endereco),
             (endereco as any).lat ?? null, (endereco as any).lon ?? null, formaPagamento,
             trocoPara, observacoes, subtotal, taxaEntrega, descontoCupom, cupom?.codigo || '',
-            total, comissaoPct, comissao, pagoAntes ? 'aguardando' : 'na_entrega', agora, agora);
+            total, comissaoPct, comissao, pagoAntes ? 'aguardando' : 'na_entrega', chaveIdem, agora, agora);
 
       const novoPedidoId = Number(info.lastInsertRowid);
 

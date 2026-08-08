@@ -3,7 +3,7 @@
  */
 import { Router } from 'express';
 import crypto from 'crypto';
-import db, { abrirPool, comTenant } from '../db-mysql';
+import db, { abrirPool, comTenant, comTransacao } from '../db-mysql';
 import { agoraUTC } from '../util';
 import { notificarLojistaNovoPedido } from '../notificacoes';
 import { descriptografar } from '../cripto';
@@ -932,6 +932,85 @@ export async function reconciliarCartoesMP(horasParaTras = 48): Promise<{ confer
     }
   }
   return { conferidos: pendentes.length, confirmados };
+}
+
+/**
+ * Minutos que um pedido de cartão pode ficar "aguardando" antes de ser cancelado.
+ *
+ * 30 é folgado de propósito: cobre quem abriu o formulário, foi buscar o cartão
+ * e voltou. Curto demais cancelaria pedido de cliente que está pagando.
+ */
+const MINUTOS_ABANDONO_CARTAO = 30;
+
+/**
+ * Cancela pedido de CARTÃO abandonado, devolvendo estoque e uso de cupom.
+ *
+ * POR QUE ISTO É NECESSÁRIO: o pedido nasce ANTES do pagamento, e no mesmo
+ * instante já baixa estoque e queima um uso do cupom. Quem desiste no formulário
+ * do cartão deixa isso preso pra sempre — a última unidade fica reservada pra um
+ * pedido que não existe, e o próximo cliente vê "esgotado". Foram 20 pedidos
+ * nessa situação numa única tarde de testes.
+ *
+ * O Pix já tinha equivalente (a cobrança expira no PSP e a reconciliação
+ * cancela); o cartão não tinha prazo nenhum.
+ *
+ * SÓ CANCELA DEPOIS DE PERGUNTAR AO MERCADO PAGO. Cancelar por tempo, sozinho,
+ * mataria o pedido de quem pagou e cuja confirmação estava só atrasada — que é
+ * exatamente a falha que a reconciliação existe pra cobrir.
+ */
+export async function cancelarCartoesAbandonados(): Promise<{ cancelados: number }> {
+  const limite = new Date(Date.now() - MINUTOS_ABANDONO_CARTAO * 60_000).toISOString();
+  const velhos = await db.prepare(
+    `SELECT id, loja_id FROM pedidos
+      WHERE forma_pagamento = 'cartao_online' AND pagamento_status = 'aguardando'
+        AND status = 'pendente' AND criado_em < ?
+      ORDER BY id LIMIT 100`
+  ).all(limite) as Array<{ id: number; loja_id: number }>;
+  if (velhos.length === 0) return { cancelados: 0 };
+
+  let cancelados = 0;
+  for (const p of velhos) {
+    try {
+      // Última chance: se pagou e a notificação se perdeu, isto confirma em vez
+      // de cancelar. Só segue pro cancelamento quem realmente não pagou.
+      if (await conferirCartaoAgora(p.id)) continue;
+
+      /*
+       * DEVOLVE ANTES, CANCELA DEPOIS. Se a devolução falhar, o pedido continua
+       * pendente e a próxima varredura tenta de novo — o contrário deixaria o
+       * pedido cancelado com o estoque preso, que é o estado que ninguém vê.
+       */
+      await comTransacao(async (tx) => {
+        const itens = await tx.prepare(
+          'SELECT produto_id, quantidade FROM itens_pedido WHERE pedido_id = ?'
+        ).all(p.id) as Array<{ produto_id: number | null; quantidade: number }>;
+        for (const it of itens) {
+          if (!it.produto_id) continue;
+          await tx.prepare(
+            'UPDATE produtos SET estoque = estoque + ? WHERE id = ? AND controla_estoque = 1'
+          ).run(it.quantidade, it.produto_id);
+        }
+        const ped = await tx.prepare('SELECT cupom_codigo, loja_id FROM pedidos WHERE id = ?')
+          .get(p.id) as { cupom_codigo: string; loja_id: number } | undefined;
+        if (ped?.cupom_codigo) {
+          await tx.prepare(
+            'UPDATE cupons SET usos_count = GREATEST(usos_count - 1, 0) WHERE loja_id = ? AND codigo = ?'
+          ).run(ped.loja_id, ped.cupom_codigo);
+        }
+        await tx.prepare("UPDATE pedidos SET pagamento_status = 'recusado' WHERE id = ?").run(p.id);
+      });
+
+      // Pela máquina de estados, como manda a casa: valida a transição, registra
+      // na linha do tempo e notifica — nunca por UPDATE de status na mão.
+      await transicionarStatus(p.id, 'cancelado', {
+        camposExtras: { motivo_recusa: 'Pagamento com cartão não concluído.' },
+      });
+      cancelados++;
+    } catch (e) {
+      console.error(`[cartao] falha ao cancelar pedido abandonado ${p.id}:`, (e as Error).message);
+    }
+  }
+  return { cancelados };
 }
 
 /**
