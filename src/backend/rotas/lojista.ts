@@ -1097,6 +1097,19 @@ router.get('/produtos/:id/grupos', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/*
+ * PIZZA: o papel do grupo e como ele soma.
+ *
+ * Valores fechados, e o que não for reconhecido vira o padrão inofensivo
+ * (sem papel, somando) — corpo malformado não pode virar regra de preço.
+ */
+function papelValido(v: unknown): string {
+  return v === 'tamanho' || v === 'sabores' ? v : '';
+}
+function modoPrecoValido(v: unknown): string {
+  return v === 'maior' ? 'maior' : 'somar';
+}
+
 router.post('/produtos/:id/grupos', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
@@ -1107,12 +1120,13 @@ router.post('/produtos/:id/grupos', async (req, res, next) => {
     if (nome.length < 2) throw erroHttp(400, 'Informe o nome do grupo (ex.: Tamanho, Borda, Adicionais).');
 
     const info = await db.prepare(
-      `INSERT INTO grupos_opcoes (produto_id, nome, tipo, obrigatorio, max_escolhas, ordem)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO grupos_opcoes (produto_id, nome, tipo, obrigatorio, max_escolhas, ordem, papel, modo_preco)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(produto.id, nome, tipo,
           req.body.obrigatorio ? 1 : 0,
           inteiroPositivo(req.body.max_escolhas) || 0,
-          inteiroPositivo(req.body.ordem) || 0);
+          inteiroPositivo(req.body.ordem) || 0,
+          papelValido(req.body.papel), modoPrecoValido(req.body.modo_preco));
     res.status(201).json({ grupo_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
@@ -1124,7 +1138,8 @@ router.put('/grupos/:id', async (req, res, next) => {
     const nome = req.body.nome !== undefined ? textoLimpo(req.body.nome, 60) : grupo.nome;
     if (nome.length < 2) throw erroHttp(400, 'Nome do grupo inválido.');
     await db.prepare(
-      'UPDATE grupos_opcoes SET nome = ?, tipo = ?, obrigatorio = ?, max_escolhas = ?, ordem = ? WHERE id = ?'
+      `UPDATE grupos_opcoes SET nome = ?, tipo = ?, obrigatorio = ?, max_escolhas = ?, ordem = ?,
+              papel = ?, modo_preco = ? WHERE id = ?`
     ).run(nome,
           req.body.tipo !== undefined ? (req.body.tipo === 'multiplo' ? 'multiplo' : 'unico') : grupo.tipo,
           req.body.obrigatorio !== undefined ? (req.body.obrigatorio ? 1 : 0) : grupo.obrigatorio,
@@ -1133,6 +1148,8 @@ router.put('/grupos/:id', async (req, res, next) => {
           // antes de adicional, borda antes de bebida), então é o lojista quem
           // define arrastando. `?? grupo.ordem` mantém quem só renomeou no lugar.
           req.body.ordem !== undefined ? (inteiroPositivo(req.body.ordem) || 0) : grupo.ordem,
+          req.body.papel !== undefined ? papelValido(req.body.papel) : ((grupo as unknown as { papel?: string }).papel ?? ''),
+          req.body.modo_preco !== undefined ? modoPrecoValido(req.body.modo_preco) : ((grupo as unknown as { modo_preco?: string }).modo_preco ?? 'somar'),
           grupo.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -1160,9 +1177,10 @@ router.post('/grupos/:id/opcoes', async (req, res, next) => {
     if (precoAdicional === null || precoAdicional < 0) throw erroHttp(400, 'Preço adicional inválido.');
 
     const info = await db.prepare(
-      `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem)
-       VALUES (?, ?, ?, 1, ?)`
-    ).run(grupo.id, nome, precoAdicional, inteiroPositivo(req.body.ordem) || 0);
+      `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores)
+       VALUES (?, ?, ?, 1, ?, ?)`
+    ).run(grupo.id, nome, precoAdicional, inteiroPositivo(req.body.ordem) || 0,
+          inteiroPositivo(req.body.sabores) || 0);
     res.status(201).json({ opcao_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
@@ -1179,9 +1197,13 @@ router.put('/opcoes/:id', async (req, res, next) => {
       if (v === null || v < 0) throw erroHttp(400, 'Preço adicional inválido.');
       precoAdicional = v;
     }
-    await db.prepare('UPDATE opcoes_itens SET nome = ?, preco_adicional_centavos = ?, disponivel = ? WHERE id = ?')
+    await db.prepare('UPDATE opcoes_itens SET nome = ?, preco_adicional_centavos = ?, disponivel = ?, sabores = ? WHERE id = ?')
       .run(nome, precoAdicional,
            req.body.disponivel !== undefined ? (req.body.disponivel ? 1 : 0) : opcao.disponivel,
+           // Quantos sabores esta opção libera (só nas opções de tamanho).
+           req.body.sabores !== undefined
+             ? (inteiroPositivo(req.body.sabores) || 0)
+             : ((opcao as unknown as { sabores?: number }).sabores ?? 0),
            opcao.id);
     res.json({ ok: true });
   } catch (e) { next(e); }

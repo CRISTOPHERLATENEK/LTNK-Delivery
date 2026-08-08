@@ -367,6 +367,8 @@ export interface OpcaoItem {
   id: number;
   nome: string;
   preco_adicional_centavos: number;
+  /** Quantos sabores esta opção libera — só nas opções do grupo de tamanho. */
+  sabores?: number;
 }
 
 export interface GrupoOpcoes {
@@ -375,6 +377,10 @@ export interface GrupoOpcoes {
   tipo: TipoGrupoOpcao;
   obrigatorio: 0 | 1;
   max_escolhas: number;
+  /** 'tamanho' define quantos sabores; 'sabores' herda esse limite. */
+  papel?: string;
+  /** 'maior' cobra só o acréscimo mais caro do grupo (pizza). */
+  modo_preco?: string;
   opcoes: OpcaoItem[];
 }
 

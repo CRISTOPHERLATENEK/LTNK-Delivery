@@ -14,6 +14,7 @@ import { notificarPedidoWhatsApp } from '../whatsapp';
 import { comissaoPercentualDaLoja } from '../comissao';
 import { geocodificar } from '../geo';
 import { resolverFrete, type EnderecoParaFrete } from '../frete';
+import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo } from '../opcoes-preco';
 import { criarCobrancaPix, pagamentoOnlineAtivo, cartaoOnlineAtivo, conferirPagamentoAgora, publicKeyMP, criarPagamentoCartao, aplicarResultadoCartao } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 
@@ -214,6 +215,12 @@ async function validarOpcoesDoItem(produto: Produto, opcoesEscolhidas: number[] 
   const partesTexto: string[] = [];
   const idsReconhecidos = new Set<number>();
 
+  /*
+   * DUAS PASSADAS, e a primeira existe por causa da pizza: o limite do grupo de
+   * sabores vem do TAMANHO escolhido, e o grupo de tamanho pode estar depois na
+   * ordem. Validar em uma passada só faria o limite depender de quem veio antes.
+   */
+  const carregados: Array<{ grupo: GrupoOpcao; escolhidas: OpcaoItem[] }> = [];
   for (const grupo of grupos) {
     const opcoesDoGrupo = await db.prepare(
       'SELECT * FROM opcoes_itens WHERE grupo_id = ? AND disponivel = 1'
@@ -221,7 +228,12 @@ async function validarOpcoesDoItem(produto: Produto, opcoesEscolhidas: number[] 
     if (opcoesDoGrupo.length === 0) continue;
     const escolhidas = opcoesDoGrupo.filter(o => ids.includes(o.id));
     for (const o of escolhidas) idsReconhecidos.add(o.id);
+    carregados.push({ grupo, escolhidas });
+  }
 
+  const saboresPermitidos = saboresLiberados(carregados);
+
+  for (const { grupo, escolhidas } of carregados) {
     if (grupo.tipo === 'unico') {
       if (grupo.obrigatorio && escolhidas.length !== 1) {
         throw erroHttp(400, `Escolha uma opção em "${grupo.nome}" para o item "${produto.nome}".`);
@@ -233,13 +245,15 @@ async function validarOpcoesDoItem(produto: Produto, opcoesEscolhidas: number[] 
       if (grupo.obrigatorio && escolhidas.length === 0) {
         throw erroHttp(400, `Escolha ao menos uma opção em "${grupo.nome}" para o item "${produto.nome}".`);
       }
-      if (grupo.max_escolhas > 0 && escolhidas.length > grupo.max_escolhas) {
-        throw erroHttp(400, `"${grupo.nome}" permite no máximo ${grupo.max_escolhas} escolha(s) no item "${produto.nome}".`);
+      const max = maxEscolhasEfetivo(grupo, saboresPermitidos);
+      if (max > 0 && escolhidas.length > max) {
+        throw erroHttp(400, `"${grupo.nome}" permite no máximo ${max} escolha(s) no item "${produto.nome}".`);
       }
     }
 
+    // `precoDoGrupo` decide entre somar e cobrar o maior — ver opcoes-preco.ts.
+    precoUnit += precoDoGrupo(grupo, escolhidas);
     for (const opcao of escolhidas) {
-      precoUnit += opcao.preco_adicional_centavos;
       partesTexto.push(`${grupo.nome}: ${opcao.nome}`);
     }
   }

@@ -865,6 +865,41 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
    * NULL = acesso total, pra não trancar quem já usava o sistema antes do
    * recurso existir. Usuário novo nasce com a lista explícita.
    */
+  /*
+   * PIZZA: o grupo diz QUE PAPEL cumpre e COMO soma.
+   *
+   * `papel = 'tamanho'`  → as opções dele liberam N sabores (coluna `sabores`)
+   * `papel = 'sabores'`  → o limite vem do tamanho escolhido, não do max_escolhas
+   * `modo_preco = 'maior'` → conta só o MAIOR acréscimo do grupo, não a soma
+   *
+   * Sem isso, pizza de 3 sabores somava os três acréscimos: um preço que
+   * pizzaria nenhuma pratica, aparecendo no carrinho do cliente.
+   */
+  for (const [coluna, ddl] of [
+    ['papel', "papel VARCHAR(10) NOT NULL DEFAULT ''"],
+    ['modo_preco', "modo_preco VARCHAR(10) NOT NULL DEFAULT 'somar'"],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'grupos_opcoes' AND COLUMN_NAME = ?
+        LIMIT 1`, [coluna],
+    ) as any;
+    if (existe.length === 0) await pool.query(`ALTER TABLE grupos_opcoes ADD COLUMN ${ddl}`);
+  }
+
+  // Quantos sabores esta opção libera. Só faz sentido nas opções do grupo de
+  // tamanho; 0 = não define nada (o padrão de toda opção que não é tamanho).
+  for (const [coluna, ddl] of [
+    ['sabores', 'sabores INT NOT NULL DEFAULT 0'],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'opcoes_itens' AND COLUMN_NAME = ?
+        LIMIT 1`, [coluna],
+    ) as any;
+    if (existe.length === 0) await pool.query(`ALTER TABLE opcoes_itens ADD COLUMN ${ddl}`);
+  }
+
   for (const [coluna, ddl] of [
     ['permissoes', 'permissoes TEXT'],
   ] as const) {

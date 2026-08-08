@@ -42,6 +42,8 @@ interface OpcaoItem {
   grupo_id: number;
   nome: string;
   preco_adicional_centavos: number;
+  /** Quantos sabores esta opção libera (só no grupo de tamanho). */
+  sabores?: number;
   disponivel: number;
   ordem: number;
 }
@@ -50,6 +52,10 @@ interface GrupoOpcoes {
   id: number;
   produto_id: number;
   nome: string;
+  /** 'tamanho' libera N sabores; 'sabores' herda esse limite. */
+  papel?: string;
+  /** 'maior' cobra só o acréscimo mais caro do grupo. */
+  modo_preco?: string;
   tipo: 'unico' | 'multiplo';
   obrigatorio: number;
   max_escolhas: number;
@@ -1439,7 +1445,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
     return () => clearTimeout(t);
   }, [grupos, grupoFocoId]);
 
-  type FormGrupo = { nome: string; tipo: 'unico' | 'multiplo'; obrigatorio: boolean; max_escolhas: string };
+  type FormGrupo = { nome: string; tipo: 'unico' | 'multiplo'; obrigatorio: boolean; max_escolhas: string; papel: string };
   const [novoGrupo, setNovoGrupo] = useState<FormGrupo | null>(null);
   const [novasOpcoes, setNovasOpcoes] = useState<Record<number, { nome: string; preco: string }>>({});
   const [editandoGrupoId, setEditandoGrupoId] = useState<number | null>(null);
@@ -1462,6 +1468,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
       tipo: grupo.tipo,
       obrigatorio: !!grupo.obrigatorio,
       max_escolhas: grupo.max_escolhas > 0 ? String(grupo.max_escolhas) : '',
+      papel: grupo.papel || '',
     });
   }
 
@@ -1479,6 +1486,14 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
         max_escolhas: editandoGrupoForm.tipo === 'multiplo'
           ? (Number(editandoGrupoForm.max_escolhas) || 0)
           : 1,
+        papel: editandoGrupoForm.papel,
+        /*
+         * O grupo de sabores JÁ NASCE cobrando o maior, sem uma segunda
+         * caixinha pro lojista marcar. 'Sabores' e 'cobra o mais caro' são a
+         * mesma decisão no mundo real — separar em dois controles só criaria a
+         * chance de configurar metade e a pizza sair somando.
+         */
+        modo_preco: editandoGrupoForm.papel === 'sabores' ? 'maior' : 'somar',
       });
       await qc.refetchQueries({ queryKey });
       setEditandoGrupoId(null);
@@ -1623,6 +1638,17 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
     }
   }
 
+  /** Grava quantos sabores a opção de tamanho libera. */
+  async function definirSabores(opcao: OpcaoItem, sabores: number) {
+    try {
+      await api('PUT', `/api/lojista/opcoes/${opcao.id}`, { sabores });
+      await qc.refetchQueries({ queryKey });
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : 'Erro ao salvar.';
+      mostrar({ tipo: 'erro', titulo: msg });
+    }
+  }
+
   async function excluirOpcao(opcaoId: number) {
     try {
       await api('DELETE', `/api/lojista/opcoes/${opcaoId}`);
@@ -1714,7 +1740,23 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                             <Check className={cn('size-3', editandoGrupoForm.obrigatorio ? 'opacity-100' : 'opacity-0')} />
                             Obrigatório
                           </button>
-                          {editandoGrupoForm.tipo === 'multiplo' && (
+                          {/*
+                            PAPEL NA PIZZA. Sem isto, o grupo de sabores usaria
+                            um limite fixo (a P aceitaria os mesmos 3 sabores da
+                            G) e somaria o preço dos três em vez de cobrar o
+                            mais caro.
+                          */}
+                          <select
+                            value={editandoGrupoForm.papel}
+                            onChange={e => setEditandoGrupoForm(f => f && ({ ...f, papel: e.target.value }))}
+                            className="h-7 rounded-lg border border-border bg-card px-1.5 text-xs font-semibold text-muted-foreground"
+                            title="Papel deste grupo numa pizza"
+                          >
+                            <option value="">Grupo comum</option>
+                            <option value="tamanho">Tamanho (define nº de sabores)</option>
+                            <option value="sabores">Sabores (cobra o mais caro)</option>
+                          </select>
+                          {editandoGrupoForm.tipo === 'multiplo' && editandoGrupoForm.papel !== 'sabores' && (
                             <div className="flex items-center gap-1">
                               <span className="text-xs text-muted-foreground">Máx.</span>
                               <Input
@@ -1988,7 +2030,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                 <button
                   type="button"
                   disabled={salvandoGrupo}
-                  onClick={() => setNovoGrupo({ nome: '', tipo: 'multiplo', obrigatorio: false, max_escolhas: '' })}
+                  onClick={() => setNovoGrupo({ nome: '', tipo: 'multiplo', obrigatorio: false, max_escolhas: '', papel: '' })}
                   className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border p-3.5 text-center text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Plus className="size-4" />

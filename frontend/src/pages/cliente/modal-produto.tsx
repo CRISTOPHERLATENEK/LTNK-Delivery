@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils';
 import { adicionarAoCarrinho, vooCarrinho } from '@/lib/carrinho';
 import { useToast } from '@/components/ui/toast';
 import type { GrupoOpcoes, Loja, OpcaoItem, Produto } from '@/types';
+import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo } from '@/lib/opcoes-preco';
 
 interface Props {
   produto: Produto;
@@ -63,12 +64,36 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
     return { precoUnit: preco, opcoesTexto: partes.join(' · '), opcoesIds: ids, faltando: faltandoLocal };
   }, [escolhidas, grupos, precoBase]);
 
+  /** Sabores liberados pelo tamanho escolhido — 0 quando ninguém definiu. */
+  const saboresPermitidos = useMemo(() => saboresLiberados(
+    grupos.map(g => ({
+      grupo: g,
+      escolhidas: (escolhidas[g.id] || [])
+        .map(id => g.opcoes.find(o => o.id === id))
+        .filter((o): o is OpcaoItem => !!o),
+    })),
+  ), [escolhidas, grupos]);
+
   function alternar(grupo: GrupoOpcoes, opcao: OpcaoItem) {
     setEscolhidas(antigo => {
       const atual = antigo[grupo.id] || [];
-      if (grupo.tipo === 'unico') return { ...antigo, [grupo.id]: [opcao.id] };
+      if (grupo.tipo === 'unico') {
+        /*
+         * Trocar de TAMANHO pode reduzir o limite de sabores (da G pra P, de 3
+         * pra 1). Sem limpar, o cliente ficaria com 3 sabores numa pizza que só
+         * aceita 1 — e o servidor recusaria o pedido no final, depois de ele já
+         * ter montado tudo.
+         */
+        if (grupo.papel === 'tamanho') {
+          const limpo = { ...antigo, [grupo.id]: [opcao.id] };
+          for (const g of grupos) if (g.papel === 'sabores') limpo[g.id] = [];
+          return limpo;
+        }
+        return { ...antigo, [grupo.id]: [opcao.id] };
+      }
       if (atual.includes(opcao.id)) return { ...antigo, [grupo.id]: atual.filter(i => i !== opcao.id) };
-      if (grupo.max_escolhas > 0 && atual.length >= grupo.max_escolhas) return antigo;
+      const max = maxEscolhasEfetivo(grupo, saboresPermitidos);
+      if (max > 0 && atual.length >= max) return antigo;
       return { ...antigo, [grupo.id]: [...atual, opcao.id] };
     });
   }
@@ -182,6 +207,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
               grupo={g}
               escolhidas={escolhidas[g.id] || []}
               onAlternar={opcao => alternar(g, opcao)}
+              saboresPermitidos={saboresPermitidos}
             />
           ))}
           <div className="h-4" />
@@ -239,22 +265,29 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
 }
 
 function GrupoOpcao({
-  grupo, escolhidas, onAlternar,
+  grupo, escolhidas, onAlternar, saboresPermitidos,
 }: {
   grupo: GrupoOpcoes;
   escolhidas: number[];
+  /** Vem do tamanho escolhido; muda o limite deste grupo se ele for de sabores. */
+  saboresPermitidos: number;
   onAlternar: (opcao: OpcaoItem) => void;
 }) {
+  const maxEfetivo = maxEscolhasEfetivo(grupo, saboresPermitidos);
   const obrigatorioPendente = grupo.obrigatorio && escolhidas.length === 0;
   const concluido = grupo.obrigatorio && escolhidas.length > 0;
 
   let hint = '';
   if (grupo.tipo === 'unico') {
     hint = 'Escolha 1';
-  } else if (grupo.max_escolhas > 0) {
+  } else if (grupo.papel === 'sabores' && saboresPermitidos === 0) {
+    // Ainda não escolheu o tamanho: dizer 'até 3' aqui seria chute, e escolher
+    // sabor antes do tamanho só levaria a ter que refazer.
+    hint = 'Escolha o tamanho primeiro';
+  } else if (maxEfetivo > 0) {
     hint = escolhidas.length > 0
-      ? `${escolhidas.length}/${grupo.max_escolhas} escolhidos`
-      : `Até ${grupo.max_escolhas}`;
+      ? `${escolhidas.length}/${maxEfetivo} escolhidos`
+      : `Até ${maxEfetivo}`;
   } else {
     hint = escolhidas.length > 0
       ? `${escolhidas.length} escolhido${escolhidas.length > 1 ? 's' : ''}`
