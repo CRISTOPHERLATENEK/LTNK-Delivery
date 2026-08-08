@@ -1921,6 +1921,13 @@ export function SegurancaLoja() {
 interface UsuarioLoja {
   id: number; nome: string; email: string;
   bloqueado: number; criado_em: string; dono: boolean;
+  permissoes: string[];
+}
+interface AreaPainel { chave: string; rotulo: string; }
+
+/** Marca/desmarca uma área numa lista de permissões. */
+function alternarArea(lista: string[], chave: string): string[] {
+  return lista.includes(chave) ? lista.filter(c => c !== chave) : [...lista, chave];
 }
 
 /**
@@ -1933,16 +1940,25 @@ interface UsuarioLoja {
 export function UsuariosLoja() {
   const { mostrar } = useToast();
   const confirmar = useConfirm();
-  const [estado, setEstado] = useState<{ sou_dono: boolean; meu_id: number; usuarios: UsuarioLoja[] } | null>(null);
+  const [estado, setEstado] = useState<{ sou_dono: boolean; meu_id: number; areas: AreaPainel[]; usuarios: UsuarioLoja[] } | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [criando, setCriando] = useState(false);
   const [form, setForm] = useState({ nome: '', email: '', senha: '' });
+  /*
+   * NASCE SÓ COM 'pedidos', não com tudo marcado. Quem cria um usuário está
+   * quase sempre criando um ajudante — o padrão tem que ser o menor acesso que
+   * ainda serve, e não o maior. Marcar o resto é um clique; descobrir que o
+   * balconista viu o relatório de faturamento não tem desfazer.
+   */
+  const [permsNovo, setPermsNovo] = useState<string[]>(['pedidos']);
+  /** Id de quem está com as permissões abertas pra editar. */
+  const [editandoPerms, setEditandoPerms] = useState<number | null>(null);
   /** Id de quem está com o campo de nova senha aberto. */
   const [trocandoSenha, setTrocandoSenha] = useState<number | null>(null);
   const [senhaNova, setSenhaNova] = useState('');
 
   function carregar() {
-    api<{ sou_dono: boolean; meu_id: number; usuarios: UsuarioLoja[] }>('GET', '/api/lojista/usuarios')
+    api<{ sou_dono: boolean; meu_id: number; areas: AreaPainel[]; usuarios: UsuarioLoja[] }>('GET', '/api/lojista/usuarios')
       .then(setEstado)
       .catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar os usuários.' }));
   }
@@ -1952,9 +1968,10 @@ export function UsuariosLoja() {
     e.preventDefault();
     setEnviando(true);
     try {
-      await api('POST', '/api/lojista/usuarios', form);
+      await api('POST', '/api/lojista/usuarios', { ...form, permissoes: permsNovo });
       mostrar({ tipo: 'sucesso', titulo: `${form.nome} já pode entrar no painel.` });
       setForm({ nome: '', email: '', senha: '' });
+      setPermsNovo(['pedidos']);
       setCriando(false);
       carregar();
     } catch (err) {
@@ -1983,6 +2000,16 @@ export function UsuariosLoja() {
       setSenhaNova('');
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+
+  async function salvarPermissoes(u: UsuarioLoja, permissoes: string[]) {
+    try {
+      await api('PUT', `/api/lojista/usuarios/${u.id}`, { permissoes });
+      setEstado(e => e && ({ ...e, usuarios: e.usuarios.map(x => x.id === u.id ? { ...x, permissoes } : x) }));
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+      carregar(); // desfaz o otimismo se o servidor recusou
     }
   }
 
@@ -2021,9 +2048,9 @@ export function UsuariosLoja() {
       <div className="flex items-start gap-2 rounded-xl border border-amber-300/60 bg-amber-50/70 px-3.5 py-3 dark:border-amber-500/30 dark:bg-amber-500/10">
         <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400" />
         <p className="text-xs text-amber-900 dark:text-amber-300">
-          <b>Todo usuário criado aqui vê o painel inteiro</b> — pedidos, produtos, preços e relatórios.
-          Ainda não existe acesso limitado por área. Só <b>você</b>, como dono, pode criar e remover
-          usuários.
+          Você marca <b>quais áreas cada pessoa acessa</b>. O bloqueio vale também na API, não é só o
+          menu sumindo. Só <b>você</b>, como dono, cria, remove e muda permissões — a sua conta tem
+          acesso a tudo e não pode ser bloqueada.
         </p>
       </div>
 
@@ -2050,12 +2077,25 @@ export function UsuariosLoja() {
                       )}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                    {!u.dono && (
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                        {u.permissoes.length === estado.areas.length
+                          ? 'Acesso a tudo'
+                          : u.permissoes.length === 0
+                            ? 'Sem acesso a nenhuma área'
+                            : estado.areas.filter(a => u.permissoes.includes(a.chave)).map(a => a.rotulo.split(' (')[0]).join(' · ')}
+                      </p>
+                    )}
                   </div>
 
                   {/* O dono não tem ações: bloquear ou remover a única conta que
                       administra as outras deixaria a loja sem saída. */}
                   {estado.sou_dono && !u.dono && (
                     <div className="flex shrink-0 gap-1">
+                      <Button type="button" variant="ghost" size="sm"
+                        onClick={() => setEditandoPerms(editandoPerms === u.id ? null : u.id)}>
+                        Permissões
+                      </Button>
                       <Button type="button" variant="ghost" size="sm"
                         onClick={() => { setTrocandoSenha(trocandoSenha === u.id ? null : u.id); setSenhaNova(''); }}>
                         Trocar senha
@@ -2071,6 +2111,30 @@ export function UsuariosLoja() {
                     </div>
                   )}
                 </div>
+
+                {editandoPerms === u.id && (
+                  <div className="mt-2.5 rounded-xl border border-border bg-muted/30 p-3 sm:ml-12">
+                    <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                      Áreas que {u.nome} acessa
+                    </p>
+                    <div className="grid gap-1.5 sm:grid-cols-2">
+                      {estado.areas.map(a => (
+                        <label key={a.chave} className="flex cursor-pointer items-center gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="size-4 shrink-0 rounded accent-primary"
+                            checked={u.permissoes.includes(a.chave)}
+                            onChange={() => salvarPermissoes(u, alternarArea(u.permissoes, a.chave))}
+                          />
+                          <span>{a.rotulo}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      Salva a cada clique. Quem já estiver logado perde o acesso na próxima ação.
+                    </p>
+                  </div>
+                )}
 
                 {trocandoSenha === u.id && (
                   <div className="mt-2.5 flex flex-wrap items-center gap-2 pl-12">
@@ -2123,6 +2187,25 @@ export function UsuariosLoja() {
                     Combine com a pessoa e peça pra ela trocar depois, em Conta.
                   </p>
                 </div>
+                <div className="rounded-xl border border-border bg-muted/30 p-3">
+                  <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                    Áreas que esta pessoa acessa
+                  </p>
+                  <div className="grid gap-1.5 sm:grid-cols-2">
+                    {estado.areas.map(a => (
+                      <label key={a.chave} className="flex cursor-pointer items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          className="size-4 shrink-0 rounded accent-primary"
+                          checked={permsNovo.includes(a.chave)}
+                          onChange={() => setPermsNovo(p => alternarArea(p, a.chave))}
+                        />
+                        <span>{a.rotulo}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
                 <Button type="submit" size="sm" disabled={enviando}>
                   <Plus className="size-3.5" />
                   {enviando ? 'Criando…' : 'Criar usuário'}

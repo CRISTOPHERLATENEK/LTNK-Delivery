@@ -860,6 +860,22 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     if (existe.length === 0) await pool.query(`ALTER TABLE lojas ADD COLUMN ${ddl}`);
   }
 
+  /*
+   * PERMISSÕES POR ÁREA do usuário do painel (JSON com as chaves das áreas).
+   * NULL = acesso total, pra não trancar quem já usava o sistema antes do
+   * recurso existir. Usuário novo nasce com a lista explícita.
+   */
+  for (const [coluna, ddl] of [
+    ['permissoes', 'permissoes TEXT'],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'usuarios' AND COLUMN_NAME = ?
+        LIMIT 1`, [coluna],
+    ) as any;
+    if (existe.length === 0) await pool.query(`ALTER TABLE usuarios ADD COLUMN ${ddl}`);
+  }
+
   // Zonas de entrega por ÁREA desenhada no mapa (antes só existia por bairro).
   for (const [coluna, ddl] of [
     ['nome', 'nome VARCHAR(80)'],

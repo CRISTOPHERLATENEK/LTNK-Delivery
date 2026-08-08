@@ -80,12 +80,20 @@ export function PainelLojista() {
   // Config da loja (largura da bobina, auto-impressão) para o auto-print.
   const lojaQ = useQuery({
     queryKey: ['minha-loja-cfg'],
-    queryFn: () => api<{ loja: Record<string, unknown> }>('GET', '/api/lojista/loja').then(r => r.loja),
+    queryFn: () => api<{ loja: Record<string, unknown>; permissoes?: string[] }>('GET', '/api/lojista/loja'),
     enabled: ehLojista,
     staleTime: 60000,
   });
+  /*
+   * Áreas que este usuário pode abrir. Enquanto a resposta não chega, assume
+   * TUDO liberado: esconder por padrão faria o menu piscar itens sumindo e
+   * voltando a cada F5. Quem manda de verdade é o servidor, que bloqueia a
+   * requisição — o menu aqui é conveniência, não cadeado.
+   */
+  const permissoes = lojaQ.data?.permissoes ?? null;
+  const podeVer = (area: string) => permissoes === null || permissoes.includes(area);
   const lojaRef = useRef<Record<string, unknown> | null>(null);
-  lojaRef.current = lojaQ.data ?? null;
+  lojaRef.current = lojaQ.data?.loja ?? null;
 
   // Aplica a cor da marca da loja em TODO o painel do lojista (não só na aba de
   // aparência) — senão, ao dar F5, o painel voltava pro vermelho padrão.
@@ -95,8 +103,8 @@ export function PainelLojista() {
   // assim que isso acontece (mesma corrida existe na página pública da loja).
   const { aplicarCorPrimaria, marca } = useTema();
   useEffect(() => {
-    const cor = lojaQ.data?.cor_marca as string | undefined;
-    const corSecundaria = lojaQ.data?.cor_secundaria as string | undefined;
+    const cor = lojaQ.data?.loja?.cor_marca as string | undefined;
+    const corSecundaria = lojaQ.data?.loja?.cor_secundaria as string | undefined;
     if (cor) aplicarCorPrimaria(cor, corSecundaria);
   }, [lojaQ.data, aplicarCorPrimaria, marca]);
 
@@ -154,13 +162,14 @@ export function PainelLojista() {
     badge: pendentes > 0 ? <NavBadge valor={pendentes} /> : undefined,
   };
 
+  // Barra de baixo do CELULAR — mesma regra de permissão da sidebar.
   const itensNav = [
-    { rota: '/lojista', icone: Home, rotulo: 'Início', fim: true },
-    itemPedidos,
-    { rota: '/lojista/vendas', icone: ShoppingCart, rotulo: 'Vendas' },
-    { rota: '/lojista/produtos', icone: Box, rotulo: 'Produtos' },
-    { rota: '/lojista/mais', icone: LayoutGrid, rotulo: 'Mais' },
-  ];
+    { rota: '/lojista', icone: Home, rotulo: 'Início', fim: true, area: null },
+    { ...itemPedidos, area: 'pedidos' },
+    { rota: '/lojista/vendas', icone: ShoppingCart, rotulo: 'Vendas', area: 'vendas' },
+    { rota: '/lojista/produtos', icone: Box, rotulo: 'Produtos', area: 'produtos' },
+    { rota: '/lojista/mais', icone: LayoutGrid, rotulo: 'Mais', area: null },
+  ].filter(i => !i.area || podeVer(i.area));
 
   const gruposNav = [
     {
@@ -183,7 +192,7 @@ export function PainelLojista() {
     },
     {
       titulo: 'Análise',
-      itens: [{ rota: '/lojista/relatorios', icone: BarChart3, rotulo: 'Relatórios' }],
+      itens: [{ rota: '/lojista/relatorios', icone: BarChart3, rotulo: 'Relatórios', area: 'relatorios' }],
     },
     {
       titulo: 'Configuração',

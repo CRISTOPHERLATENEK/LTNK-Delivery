@@ -60,6 +60,106 @@ const uploadCert = multer({ storage: multer.memoryStorage(), limits: { fileSize:
 const router = Router();
 router.use(autenticar, exigirPerfil('lojista'));
 
+/* ───────────────────── Permissão por área do painel ───────────────────── */
+
+/**
+ * Áreas do painel. A chave vai gravada no usuário; o rótulo é o que o dono lê
+ * na hora de marcar as caixinhas.
+ */
+export const AREAS_PAINEL = [
+  { chave: 'pedidos', rotulo: 'Pedidos' },
+  { chave: 'vendas', rotulo: 'Vendas (balcão, mesas e comandas)' },
+  { chave: 'caixa', rotulo: 'Caixa (abertura, sangria e fechamento)' },
+  { chave: 'produtos', rotulo: 'Produtos e categorias' },
+  { chave: 'cupons', rotulo: 'Cupons' },
+  { chave: 'clientes', rotulo: 'Clientes' },
+  { chave: 'avaliacoes', rotulo: 'Avaliações' },
+  { chave: 'relatorios', rotulo: 'Relatórios' },
+  { chave: 'fiscal', rotulo: 'Fiscal (NFC-e)' },
+  { chave: 'config', rotulo: 'Configurações da loja' },
+] as const;
+
+/** Prefixo da rota → área. O que não estiver aqui cai em `config`. */
+const AREA_POR_PREFIXO: Record<string, string> = {
+  pedidos: 'pedidos',
+  balcao: 'vendas', mesas: 'vendas', comandas: 'vendas',
+  'comandas-historico': 'vendas', 'itens-comanda': 'vendas',
+  caixa: 'caixa',
+  produtos: 'produtos', grupos: 'produtos', opcoes: 'produtos', categorias: 'produtos',
+  cupons: 'cupons',
+  clientes: 'clientes',
+  avaliacoes: 'avaliacoes',
+  relatorios: 'relatorios',
+  nfce: 'fiscal', fiscal: 'fiscal',
+};
+
+/**
+ * Leituras que TODO usuário da loja precisa, seja qual for a permissão.
+ *
+ * `GET /loja` é chamada por praticamente toda tela (nome da loja, se está
+ * aberta, cor da marca). Sem esta exceção, quem não tem `config` não conseguiria
+ * nem abrir o painel — o cabeçalho quebraria antes de qualquer área carregar.
+ * As outras duas são listas de apoio (categorias em filtros, setores na
+ * impressão), sem informação sensível.
+ */
+const LEITURAS_LIVRES = new Set(['loja', 'categorias', 'setores']);
+
+/** Área exigida por uma requisição. */
+export function areaDaRota(metodo: string, caminho: string): string {
+  const prefixo = caminho.split('?')[0].split('/').filter(Boolean)[0] ?? '';
+  if (metodo === 'GET' && LEITURAS_LIVRES.has(prefixo)) return 'livre';
+  /*
+   * O QUE NÃO ESTÁ NO MAPA CAI EM `config`, e isso é de propósito: rota nova
+   * nasce restrita ao dono em vez de nascer aberta a todo mundo. O contrário
+   * — liberar por omissão — transformaria cada rota esquecida num vazamento
+   * silencioso de permissão.
+   */
+  return AREA_POR_PREFIXO[prefixo] ?? 'config';
+}
+
+/** Permissões gravadas no usuário; `null` = ainda não configurado. */
+function lerPermissoes(json: string | null): string[] | null {
+  if (!json) return null;
+  try {
+    const v = JSON.parse(json);
+    return Array.isArray(v) ? v.filter(x => typeof x === 'string') : null;
+  } catch { return null; }
+}
+
+/**
+ * Bloqueia no SERVIDOR o que o usuário não pode acessar.
+ *
+ * Esconder item de menu não é permissão: basta digitar a URL, ou chamar a API
+ * direto. A verificação tem que morar aqui, onde o dado sai.
+ */
+router.use(async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req, false);
+    if (!loja) return next(); // ainda não cadastrou loja: o resto trata
+
+    // O dono tem tudo, sempre — e é ele quem distribui o resto.
+    if (ehDonoDaLoja(req, loja)) return next();
+
+    const area = areaDaRota(req.method, req.path);
+    if (area === 'livre') return next();
+
+    const row = await db.prepare('SELECT permissoes FROM usuarios WHERE id = ?')
+      .get(req.usuario!.id) as { permissoes: string | null } | undefined;
+    const permitidas = lerPermissoes(row?.permissoes ?? null);
+
+    /*
+     * SEM PERMISSÃO GRAVADA = ACESSO TOTAL, e isso é compatibilidade, não
+     * descuido: os usuários criados antes deste recurso não têm a coluna
+     * preenchida, e trancá-los de repente derrubaria quem já estava
+     * trabalhando. Todo usuário novo nasce com a lista explícita.
+     */
+    if (permitidas === null) return next();
+    if (permitidas.includes(area)) return next();
+
+    throw erroHttp(403, 'Seu acesso não inclui esta área. Fale com o dono da loja.');
+  } catch (e) { next(e); }
+});
+
 /**
  * A loja de quem está pedindo — pelo DONO ou pelo VÍNCULO.
  *
@@ -116,7 +216,25 @@ router.get('/loja', async (req, res, next) => {
     // ela não tem domínio próprio configurado (SILO: sem isso, o iframe cairia
     // no tenant errado só pelo Host da aba).
     const tenant = await tenantPorDbNome(bancoTenantAtual());
-    res.json({ loja, tenant_slug: tenant?.slug ?? null });
+    /*
+     * As permissões vêm JUNTO da loja porque esta é a chamada que todo painel
+     * faz ao abrir — assim o menu já monta sabendo o que esconder, sem uma
+     * segunda requisição e sem piscar itens que a pessoa não pode abrir.
+     *
+     * Isto é só pra ESCONDER. O bloqueio de verdade está no middleware, que
+     * roda em toda requisição — menu escondido não protege nada sozinho.
+     */
+    const dono = ehDonoDaLoja(req, loja);
+    const row = await db.prepare('SELECT permissoes FROM usuarios WHERE id = ?')
+      .get(req.usuario!.id) as { permissoes: string | null } | undefined;
+    res.json({
+      loja,
+      tenant_slug: tenant?.slug ?? null,
+      sou_dono: dono,
+      permissoes: dono
+        ? AREAS_PAINEL.map(a => a.chave)
+        : (lerPermissoes(row?.permissoes ?? null) ?? AREAS_PAINEL.map(a => a.chave)),
+    });
   } catch (e) { next(e); }
 });
 
@@ -1521,17 +1639,33 @@ router.get('/usuarios', async (req, res, next) => {
     const loja = await minhaLoja(req);
     const donoId = (loja as unknown as { usuario_id: number }).usuario_id;
     const linhas = await db.prepare(
-      `SELECT id, nome, email, bloqueado, criado_em FROM usuarios
+      `SELECT id, nome, email, bloqueado, criado_em, permissoes FROM usuarios
         WHERE perfil = 'lojista' AND (id = ? OR loja_id = ?)
         ORDER BY id`
-    ).all(donoId, loja.id) as Array<{ id: number; nome: string; email: string; bloqueado: number; criado_em: string }>;
+    ).all(donoId, loja.id) as Array<{ id: number; nome: string; email: string; bloqueado: number; criado_em: string; permissoes: string | null }>;
     res.json({
       sou_dono: ehDonoDaLoja(req, loja),
       meu_id: req.usuario!.id,
-      usuarios: linhas.map(u => ({ ...u, dono: u.id === donoId })),
+      areas: AREAS_PAINEL,
+      usuarios: linhas.map(u => ({
+        ...u,
+        dono: u.id === donoId,
+        // `null` vira lista cheia na tela: acesso total é o que ele tem de fato
+        // (ver a compatibilidade no middleware), e mostrar caixas vazias mentiria.
+        permissoes: u.id === donoId
+          ? AREAS_PAINEL.map(a => a.chave)
+          : (lerPermissoes(u.permissoes) ?? AREAS_PAINEL.map(a => a.chave)),
+      })),
     });
   } catch (e) { next(e); }
 });
+
+/** Só aceita chaves de área que existem — lixo no corpo não vira permissão. */
+function permissoesValidas(bruto: unknown): string[] | undefined {
+  if (!Array.isArray(bruto)) return undefined;
+  const validas = new Set(AREAS_PAINEL.map(a => a.chave as string));
+  return [...new Set(bruto.filter(x => typeof x === 'string' && validas.has(x)))] as string[];
+}
 
 /** Cria um usuário do painel para esta loja. Só o dono. */
 router.post('/usuarios', async (req, res, next) => {
@@ -1552,11 +1686,17 @@ router.post('/usuarios', async (req, res, next) => {
     const jaExiste = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email);
     if (jaExiste) throw erroHttp(409, 'Já existe uma conta com este e-mail.');
 
+    /*
+     * Usuário NOVO nasce com a lista explícita, mesmo que venha vazia. É o que
+     * separa 'ainda não configurado' (NULL, acesso total por compatibilidade)
+     * de 'configurado sem nenhuma área' — que tem que bloquear de verdade.
+     */
+    const permissoes = permissoesValidas(req.body.permissoes) ?? [];
     const info = await db.prepare(
-      `INSERT INTO usuarios (nome, email, senha_hash, perfil, loja_id, criado_em)
-       VALUES (?, ?, ?, 'lojista', ?, ?)`
-    ).run(nome, email, bcrypt.hashSync(senha, 10), loja.id, agoraUTC());
-    res.status(201).json({ id: Number(info.lastInsertRowid), nome, email, bloqueado: 0, dono: false });
+      `INSERT INTO usuarios (nome, email, senha_hash, perfil, loja_id, permissoes, criado_em)
+       VALUES (?, ?, ?, 'lojista', ?, ?, ?)`
+    ).run(nome, email, bcrypt.hashSync(senha, 10), loja.id, JSON.stringify(permissoes), agoraUTC());
+    res.status(201).json({ id: Number(info.lastInsertRowid), nome, email, bloqueado: 0, dono: false, permissoes });
   } catch (e) { next(e); }
 });
 
@@ -1594,6 +1734,8 @@ router.put('/usuarios/:id', async (req, res, next) => {
     if (req.body.bloqueado !== undefined) {
       sets.push('bloqueado = ?'); vals.push(req.body.bloqueado ? 1 : 0);
     }
+    const permissoes = permissoesValidas(req.body.permissoes);
+    if (permissoes) { sets.push('permissoes = ?'); vals.push(JSON.stringify(permissoes)); }
     if (sets.length === 0) throw erroHttp(400, 'Nada para alterar.');
     await db.prepare(`UPDATE usuarios SET ${sets.join(', ')} WHERE id = ?`).run(...vals, alvo.id);
     res.json({ ok: true });
