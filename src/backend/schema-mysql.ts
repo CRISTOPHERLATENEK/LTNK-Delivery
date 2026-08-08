@@ -861,6 +861,23 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
   }
 
   /*
+   * TIPO REAL do pagamento, como o gateway devolveu (credit_card, debit_card,
+   * account_money...). Sem isto a NFC-e declarava CRÉDITO pra todo cartão,
+   * inclusive débito — e a SEFAZ autoriza normalmente, porque 03 é um código
+   * válido. O dado sempre veio do Mercado Pago; a gente é que descartava.
+   */
+  for (const [coluna, ddl] of [
+    ['pagamento_tipo', "pagamento_tipo VARCHAR(20) NOT NULL DEFAULT ''"],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pedidos' AND COLUMN_NAME = ?
+        LIMIT 1`, [coluna],
+    ) as any;
+    if (existe.length === 0) await pool.query(`ALTER TABLE pedidos ADD COLUMN ${ddl}`);
+  }
+
+  /*
    * CHAVE DE IDEMPOTÊNCIA do checkout: o navegador gera uma por tentativa e a
    * repete em qualquer reenvio. O ÍNDICE ÚNICO é o que garante de verdade —
    * checar antes de inserir não resolve corrida, e duplo clique no celular é

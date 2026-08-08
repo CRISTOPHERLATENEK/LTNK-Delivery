@@ -19,6 +19,7 @@ import { validarCertificado, lerCertificadoPfx, assinarXmlNfce, assinarPorTag, t
 import QRCode from 'qrcode';
 import { montarXmlNfce, urlQrCode, CODIGO_UF, type EmitenteNfce, type VendaNfce } from '../nfce';
 import { codigoProdutoNfce } from '../codigo-produto';
+import { tipoPagamentoNfce } from '../tipo-pagamento-nfce';
 import {
   transmitirNfce, montarEventoCancelamento, transmitirCancelamento,
   montarInutilizacao, transmitirInutilizacao,
@@ -2551,12 +2552,12 @@ function assinarSeTiver(loja: any, xml: string): { xml: string; assinado: boolea
   }
 }
 
-const TIPO_PAG_NFCE: Record<string, 'dinheiro' | 'pix' | 'cartao'> = {
-  dinheiro: 'dinheiro', pix: 'pix', cartao: 'cartao', cartao_entrega: 'cartao',
-  // Sem esta linha, pedido pago no cartão online cairia no default do mapa
-  // ('dinheiro') e a NFC-e sairia com a forma de pagamento errada.
-  cartao_online: 'cartao',
-};
+/*
+ * O MAPA VIROU FUNÇÃO: era um balde só chamado 'cartao', que saía sempre como
+ * tPag 03 (crédito). Débito era declarado como crédito na nota, sem erro nenhum
+ * aparecer — a SEFAZ autoriza, porque 03 é código válido. Ver
+ * `tipo-pagamento-nfce.ts`.
+ */
 
 /** Dados estruturados do DANFE (para impressão no cliente). */
 function montarDanfeDados(emit: EmitenteNfce, venda: VendaNfce) {
@@ -2648,7 +2649,11 @@ async function vendaDoPedido(loja: any, pedido: any, numero: number): Promise<Ve
     numero,
     dataEmissao: new Date(),
     itens: itensNfce,
-    pagamentos: [{ tipo: TIPO_PAG_NFCE[pedido.forma_pagamento] || 'dinheiro', valorCentavos: totalProdutos - desconto }],
+    pagamentos: [{
+      // `pagamento_tipo` é o que o gateway devolveu (credit_card, debit_card…).
+      tipo: tipoPagamentoNfce(pedido.forma_pagamento, (pedido as unknown as { pagamento_tipo?: string }).pagamento_tipo).tipo,
+      valorCentavos: totalProdutos - desconto,
+    }],
     totalCentavos: totalProdutos,
     descontoCentavos: desconto,
   };

@@ -439,7 +439,9 @@ async function processarWebhookMP(pagamentoId: string, lojaIdDica?: number): Pro
     headers: { 'Authorization': `Bearer ${token}` },
   });
   if (!resposta.ok) return;
-  const pagamento = await resposta.json() as { status: string; external_reference: string };
+  const pagamento = await resposta.json() as {
+    status: string; external_reference: string; payment_type_id?: string;
+  };
 
   const pedidoId = Number(pagamento.external_reference);
   const aprovado = pagamento.status === 'approved';

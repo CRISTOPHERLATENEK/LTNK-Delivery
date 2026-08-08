@@ -50,7 +50,7 @@ export interface VendaNfce {
   numero: number;
   dataEmissao: Date;
   itens: ItemNfce[];
-  pagamentos: Array<{ tipo: 'dinheiro' | 'pix' | 'cartao'; valorCentavos: number }>;
+  pagamentos: Array<{ tipo: 'dinheiro' | 'pix' | 'cartao_credito' | 'cartao_debito' | 'outros'; valorCentavos: number }>;
   totalCentavos: number;        // BRUTO — soma dos produtos (vira <vProd>)
   descontoCentavos?: number;    // desconto/cupom do pedido (vira <vDesc>); vNF = total - desconto
 }
@@ -154,7 +154,14 @@ export function urlQrCode(uf: string, chave: string, tpAmb: number, cscId: strin
 
 const esc = (s: string) => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] || c));
 const reais = (centavos: number) => (centavos / 100).toFixed(2);
-const TPAG: Record<string, string> = { dinheiro: '01', cartao: '03', pix: '17' };
+/*
+ * tPag da NFC-e. 03 = crédito, 04 = DÉBITO — eram o mesmo balde 'cartao' até
+ * aqui, e todo débito saía declarado como crédito sem erro nenhum aparecer.
+ * 99 = outros (saldo de carteira digital), e o leiaute exige `xPag` junto.
+ */
+const TPAG: Record<string, string> = {
+  dinheiro: '01', cartao_credito: '03', cartao_debito: '04', pix: '17', outros: '99',
+};
 
 /** Grupo de ICMS do Simples Nacional conforme o CSOSN (leiaute 4.00). */
 function grupoIcmsSN(item: ItemNfce): string {
@@ -259,7 +266,9 @@ export function montarXmlNfce(emit: EmitenteNfce, venda: VendaNfce): { xml: stri
      */
     const EXIGE_CARD = ['03', '04', '17', '20'];
     const card = EXIGE_CARD.includes(tPag) ? '<card><tpIntegra>2</tpIntegra></card>' : '';
-    return `<detPag><tPag>${tPag}</tPag><vPag>${reais(p.valorCentavos)}</vPag>${card}</detPag>`;
+    // tPag 99 sem xPag é rejeitado: o leiaute exige a descrição de 'outros'.
+    const xPag = tPag === '99' ? '<xPag>Carteira digital</xPag>' : '';
+    return `<detPag><tPag>${tPag}</tPag>${xPag}<vPag>${reais(p.valorCentavos)}</vPag>${card}</detPag>`;
   }).join('');
 
   const infNFe =
