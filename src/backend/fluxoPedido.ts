@@ -8,6 +8,23 @@ import { agoraUTC, erroHttp } from './util';
 import { registrarEvento, notificarEntregadoresCorridaDisponivel } from './notificacoes';
 import { Pedido, StatusPedido } from '../tipos/modelos';
 
+/**
+ * Endereço público da loja, pra montar o link de acompanhamento.
+ *
+ * Prefere o domínio próprio do lojista: é o que o cliente reconhece, e é o
+ * único que funciona se a loja não usa o endereço padrão da plataforma. Cai no
+ * URL_PUBLICA do ambiente quando não há domínio configurado, e devolve `null`
+ * se não houver nenhum dos dois — sem link é melhor que link quebrado.
+ */
+async function urlPublicaDaLoja(lojaId: number): Promise<string | null> {
+  try {
+    const l = await db.prepare('SELECT dominio_personalizado FROM lojas WHERE id = ?')
+      .get(lojaId) as { dominio_personalizado: string | null } | undefined;
+    if (l?.dominio_personalizado) return `https://${l.dominio_personalizado}`;
+  } catch { /* segue pro ambiente */ }
+  return process.env.URL_PUBLICA || null;
+}
+
 export const TRANSICOES: Record<StatusPedido, StatusPedido[]> = {
   pendente:   ['aceito', 'recusado', 'cancelado'],
   aceito:     ['preparando'],
@@ -87,6 +104,29 @@ export async function transicionarStatus(
         'UPDATE produtos SET estoque = estoque + ? WHERE id = ? AND controla_estoque = 1'
       ).run(it.quantidade, it.produto_id);
     }
+  }
+
+  /*
+   * AVISO NO WHATSAPP a cada troca de status.
+   *
+   * Aqui porque `transicionarStatus` é o ponto único por onde TODO status passa
+   * — o mesmo motivo já registrado logo abaixo pro pool de entregadores. Em
+   * qualquer outro lugar, algum caminho ficaria de fora.
+   *
+   * Até aqui o WhatsApp mandava a confirmação e sumia: o cliente ficava sem
+   * notícia justamente entre 'confirmado' e a comida na porta, que é quando ele
+   * fica ansioso. O push cobre quem tem o app; o WhatsApp alcança quem fechou.
+   *
+   * Best-effort: falha de mensagem não pode derrubar a transição do pedido.
+   */
+  {
+    // Sem domínio configurado a mensagem vai MESMO ASSIM, só sem o link:
+    // 'saiu para entrega' é útil por si só, e calar por falta de link seria
+    // trocar um aviso incompleto por nenhum.
+    const base = await urlPublicaDaLoja(pedido.loja_id);
+    const { avisarStatusWhatsApp } = await import('./whatsapp');
+    avisarStatusWhatsApp(pedidoId, novoStatus, base ?? '')
+      .catch(e => console.warn('[WhatsApp] aviso de status falhou:', e));
   }
 
   const eventoFila = EVENTOS_NOTIFICAVEIS[novoStatus];

@@ -123,30 +123,152 @@ const ROTULO_PAGAMENTO: Record<string, string> = {
   pix: 'Pix',
   dinheiro: 'Dinheiro',
   cartao_entrega: 'Cartão na entrega',
+  cartao_online: 'Cartão (pago online)',
 };
 
-/** Monta o texto livre da confirmação (só usado no método não-oficial — o oficial usa template fixo da Meta). */
+/**
+ * Confirmação do pedido no WhatsApp.
+ *
+ * O QUE MUDOU E POR QUÊ: a mensagem antiga listava só `1x Pizza Gigante` e o
+ * total. Some com os quatro sabores, a borda e o refrigerante — que é
+ * exatamente o que o cliente confere numa pizzaria. O dado já estava no banco
+ * (`itens_pedido.opcoes_texto`); a consulta é que não buscava.
+ *
+ * O ENDEREÇO também entra, e não é enfeite: é lendo essa mensagem que a pessoa
+ * percebe que digitou o número errado, enquanto ainda dá tempo de avisar.
+ *
+ * Só vale pro método NÃO-OFICIAL (texto livre). O oficial passa por template
+ * aprovado na Meta, que não aceita corpo variável desse tamanho.
+ */
 async function montarTextoConfirmacao(pedido: {
   id: number; cliente_nome: string; total_centavos: number; forma_pagamento: string;
 }, lojaNome: string, baseUrl: string): Promise<string> {
   const itens = await db.prepare(
-    'SELECT nome_produto, quantidade FROM itens_pedido WHERE pedido_id = ? ORDER BY id'
-  ).all(pedido.id) as { nome_produto: string; quantidade: number }[];
+    'SELECT nome_produto, quantidade, preco_unit_centavos, opcoes_texto FROM itens_pedido WHERE pedido_id = ? ORDER BY id'
+  ).all(pedido.id) as {
+    nome_produto: string; quantidade: number; preco_unit_centavos: number; opcoes_texto: string | null;
+  }[];
 
-  const listaItens = itens.map(i => `${i.quantidade}x ${i.nome_produto}`).join('\n');
+  /*
+   * COLUNAS QUALIFICADAS (`p.` / `l.`) — não é preciosismo: `taxa_entrega_centavos`
+   * existe nas DUAS tabelas, e sem o prefixo o MySQL recusa a query inteira por
+   * ambiguidade. Como esta consulta monta a confirmação de todo pedido, o erro
+   * derrubaria o WhatsApp da loja inteira.
+   */
+  const extra = await db.prepare(
+    `SELECT p.subtotal_centavos, p.taxa_entrega_centavos, p.desconto_centavos, p.cupom_codigo,
+            p.troco_para_centavos, p.observacoes, p.endereco_entrega, l.tempo_estimado_min
+       FROM pedidos p JOIN lojas l ON l.id = p.loja_id WHERE p.id = ?`
+  ).get(pedido.id) as {
+    subtotal_centavos: number; taxa_entrega_centavos: number; desconto_centavos: number;
+    cupom_codigo: string; troco_para_centavos: number | null; observacoes: string;
+    endereco_entrega: string; tempo_estimado_min: number;
+  } | undefined;
+
+  const linhas: string[] = [
+    `Olá, ${pedido.cliente_nome}! Seu pedido *#${pedido.id}* na *${lojaNome}* foi confirmado. 🎉`,
+    '',
+    '*SEU PEDIDO*',
+  ];
+
+  for (const i of itens) {
+    linhas.push(`${i.quantidade}x ${i.nome_produto} — ${brl(i.preco_unit_centavos * i.quantidade)}`);
+    /*
+     * As opções entram INDENTADAS, uma por linha. Num combo de pizza são os
+     * quatro sabores, a borda e o refrigerante — a parte que o cliente lê pra
+     * conferir se pediu certo. Numa linha só, viram um borrão.
+     */
+    if (i.opcoes_texto) {
+      for (const op of i.opcoes_texto.split('·').map(t => t.trim()).filter(Boolean)) {
+        linhas.push(`   • ${op}`);
+      }
+    }
+  }
+
+  if (extra?.observacoes) {
+    linhas.push('', `*Observação:* ${extra.observacoes}`);
+  }
+
+  linhas.push('', '- - - - - - - - - - - - - - -');
+  if (extra) {
+    linhas.push(`Subtotal: ${brl(extra.subtotal_centavos)}`);
+    if (extra.desconto_centavos > 0) {
+      linhas.push(`Desconto${extra.cupom_codigo ? ` (${extra.cupom_codigo})` : ''}: -${brl(extra.desconto_centavos)}`);
+    }
+    linhas.push(`Entrega: ${extra.taxa_entrega_centavos === 0 ? 'Grátis' : brl(extra.taxa_entrega_centavos)}`);
+  }
+  linhas.push(`*TOTAL: ${brl(pedido.total_centavos)}*`);
+
   const pagamento = ROTULO_PAGAMENTO[pedido.forma_pagamento] || pedido.forma_pagamento;
-  const link = `${baseUrl.replace(/\/+$/, '')}/pedido/${pedido.id}`;
+  linhas.push('', `*Pagamento:* ${pagamento}`);
+  // Troco só faz sentido em dinheiro, e é a informação que o entregador precisa
+  // levar separada — dizer aqui evita a ligação de "tem troco pra quanto?".
+  if (pedido.forma_pagamento === 'dinheiro' && extra?.troco_para_centavos) {
+    linhas.push(`Troco para ${brl(extra.troco_para_centavos)}`);
+  }
 
-  return [
-    `Olá, ${pedido.cliente_nome}! Seu pedido #${pedido.id} na ${lojaNome} foi confirmado.`,
-    '',
-    listaItens,
-    '',
-    `Total: ${brl(pedido.total_centavos)}`,
-    `Pagamento: ${pagamento}`,
-    '',
-    `Acompanhe seu pedido: ${link}`,
-  ].join('\n');
+  if (extra?.endereco_entrega) {
+    linhas.push('', '*ENTREGA*', extra.endereco_entrega);
+    if (extra.tempo_estimado_min) linhas.push(`Tempo estimado: ~${extra.tempo_estimado_min} min`);
+  }
+
+  const link = `${baseUrl.replace(/\/+$/, '')}/pedido/${pedido.id}`;
+  linhas.push('', `Acompanhe em tempo real: ${link}`);
+  return linhas.join('\n');
+}
+
+/**
+ * Avisa o cliente numa troca de status (saiu para entrega, entregue).
+ *
+ * POR QUE EXISTE: até aqui o WhatsApp mandava só a confirmação e sumia. O
+ * cliente ficava sem notícia justamente na parte em que fica ansioso — entre
+ * "confirmado" e a comida na porta. O push cobre quem tem o app aberto; o
+ * WhatsApp alcança quem fechou.
+ *
+ * Best-effort de propósito: falha aqui não pode derrubar a transição de status
+ * do pedido, que é o que realmente importa.
+ */
+export async function avisarStatusWhatsApp(pedidoId: number, status: string, baseUrl: string): Promise<void> {
+  const MENSAGENS: Record<string, (nome: string) => string> = {
+    em_entrega: n => `🛵 Seu pedido saiu para entrega, ${n}! Já já chega aí.`,
+    entregue: n => `✅ Pedido entregue, ${n}. Obrigado pela preferência! 😄`,
+    pronto: n => `📦 Seu pedido está pronto, ${n}!`,
+  };
+  const montar = MENSAGENS[status];
+  if (!montar) return;
+
+  try {
+    const pedido = await db.prepare(
+      `SELECT p.id, p.loja_id, c.nome AS cliente_nome, c.telefone AS cliente_telefone
+         FROM pedidos p JOIN usuarios c ON c.id = p.cliente_id
+        WHERE p.id = ?`
+    ).get(pedidoId) as { id: number; loja_id: number; cliente_nome: string; cliente_telefone: string } | undefined;
+    if (!pedido?.cliente_telefone) return;
+
+    const loja = await db.prepare('SELECT * FROM lojas WHERE id = ?').get(pedido.loja_id) as any;
+    // Mesma chave de consentimento da confirmação: quem desligou o aviso de
+    // pedido não passa a receber aviso de status pela porta dos fundos.
+    if (!loja?.whatsapp_enviar_confirmacao) return;
+    /*
+     * SÓ NO MÉTODO NÃO-OFICIAL. O oficial exige template aprovado na Meta por
+     * tipo de mensagem, e mandar texto livre fora da janela de 24h seria
+     * recusado — ou pior, marcaria o número como spam.
+     */
+    if (loja.whatsapp_metodo_ativo !== 'nao_oficial') return;
+
+    const primeiroNome = String(pedido.cliente_nome || '').trim().split(/\s+/)[0] || 'tudo bem';
+    // Sem domínio configurado a mensagem vai igual, só sem o link — "saiu para
+    // entrega" é útil por si só, e calar por falta de link seria trocar um aviso
+    // incompleto por nenhum.
+    const link = baseUrl ? `${baseUrl.replace(/\/+$/, '')}/pedido/${pedido.id}` : '';
+    const texto = link
+      ? `${montar(primeiroNome)}\n\nAcompanhe: ${link}`
+      : montar(primeiroNome);
+    const r = await enviarTextoNaoOficial(pedido.cliente_telefone, texto);
+    if (!r.ok) console.warn(`[WhatsApp] Falha ao avisar status ${status} do pedido #${pedido.id}: ${r.erro}`);
+  } catch (e) {
+    console.warn('[WhatsApp] Erro inesperado ao avisar status:', e);
+  }
 }
 
 export async function notificarPedidoWhatsApp(pedidoId: number, baseUrl: string): Promise<void> {
