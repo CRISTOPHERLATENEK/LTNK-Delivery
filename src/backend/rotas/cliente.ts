@@ -486,8 +486,9 @@ router.post('/pedidos', async (req, res, next) => {
         `INSERT INTO pedidos (cliente_id, loja_id, status, endereco_entrega, entrega_lat, entrega_lon, forma_pagamento,
                               troco_para_centavos, observacoes, subtotal_centavos,
                               taxa_entrega_centavos, desconto_centavos, cupom_codigo, total_centavos,
-                              comissao_percentual, comissao_centavos, pagamento_status, criado_em, atualizado_em)
-         VALUES (?, ?, 'pendente', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                              comissao_percentual, comissao_centavos, pagamento_status, chave_idem,
+                              criado_em, atualizado_em)
+         VALUES (?, ?, 'pendente', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(req.usuario!.id, lojaId, formatarEndereco(endereco),
             (endereco as any).lat ?? null, (endereco as any).lon ?? null, formaPagamento,
             trocoPara, observacoes, subtotal, taxaEntrega, descontoCupom, cupom?.codigo || '',
