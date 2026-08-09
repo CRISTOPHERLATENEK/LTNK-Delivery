@@ -517,6 +517,176 @@ export function HorarioLoja() {
 
 interface Zona { id: number; bairro: string; taxa_centavos: number; }
 
+/**
+ * Resumo do que está valendo + teste de endereço.
+ *
+ * O PROBLEMA QUE ISTO RESOLVE: a tela tinha três blocos (taxa padrão, taxa por
+ * bairro, áreas no mapa) e nenhum respondia a pergunta que o lojista tem —
+ * "quem eu atendo, e por quanto?". Pior, davam respostas que pareciam se
+ * contradizer: "nenhuma zona cadastrada, todos pagam a taxa padrão" logo acima
+ * de "pedidos fora das áreas são recusados".
+ *
+ * As duas frases estavam certas e falavam de coisas diferentes. Juntas, sem
+ * hierarquia, viravam ruído.
+ */
+function ResumoEntrega({
+  taxaPadrao, qtdZonas, qtdAreas,
+}: { taxaPadrao: number; qtdZonas: number; qtdAreas: number }) {
+  const { mostrar } = useToast();
+  const [endereco, setEndereco] = useState('');
+  const [testando, setTestando] = useState(false);
+  const [resultado, setResultado] = useState<{
+    atende: boolean; taxa_centavos: number | null; fonte: string | null;
+    zona: string; localizado: boolean; bairro_usado: string;
+  } | null>(null);
+
+  async function testar(e: React.FormEvent) {
+    e.preventDefault();
+    if (endereco.trim().length < 5) return;
+    setTestando(true);
+    setResultado(null);
+    try {
+      setResultado(await api('POST', '/api/lojista/frete/testar', { endereco: endereco.trim() }));
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setTestando(false); }
+  }
+
+  const soAreas = qtdAreas > 0;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-bold">Entrega</h2>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          Onde você entrega e quanto cobra por isso.
+        </p>
+      </div>
+
+      {/* ── O que está valendo agora ── */}
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <p className="text-[11px] font-extrabold uppercase tracking-[.11em] text-muted-foreground">
+            O que está valendo agora
+          </p>
+
+          <div className="flex items-start gap-2.5">
+            <Bike className="mt-0.5 size-4 shrink-0 text-primary" />
+            <p className="text-sm">
+              {soAreas ? (
+                <>Você atende <b>somente dentro das {qtdAreas === 1 ? 'áreas desenhadas' : `${qtdAreas} áreas desenhadas`}</b> no mapa. Endereço fora delas é recusado no checkout.</>
+              ) : (
+                <>Você atende <b>qualquer endereço</b>. Nenhuma área foi desenhada, então nada é recusado por localização.</>
+              )}
+            </p>
+          </div>
+
+          <div className="flex items-start gap-2.5">
+            <MapPin className="mt-0.5 size-4 shrink-0 text-primary" />
+            <p className="text-sm">
+              {qtdZonas > 0
+                ? <>{qtdZonas} bairro{qtdZonas > 1 ? 's' : ''} com taxa própria. O resto paga a taxa padrão de <b>{brl(taxaPadrao)}</b>.</>
+                : <>Nenhum bairro com taxa própria — todo mundo paga a taxa padrão de <b>{brl(taxaPadrao)}</b>.</>}
+            </p>
+          </div>
+
+          {/*
+            TAXA PADRÃO ZERADA é quase sempre esquecimento, não decisão: o campo
+            nasce em 0 e a tela nunca disse o que isso significa. Frete grátis
+            pra todo endereço que não caiu numa regra é dinheiro saindo em
+            silêncio — daí o aviso, e não só o número.
+          */}
+          {taxaPadrao === 0 && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-amber-300/60 bg-amber-50/70 px-3 py-2.5 dark:border-amber-500/30 dark:bg-amber-500/10">
+              <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-700 dark:text-amber-400" />
+              <p className="text-xs text-amber-900 dark:text-amber-300">
+                A taxa padrão está em <b>R$ 0,00</b>: quem não cair numa área nem num bairro cadastrado
+                ganha <b>frete grátis</b>. Se não for de propósito, ajuste em <b>Dados da loja</b>.
+              </p>
+            </div>
+          )}
+
+          {/*
+            A ORDEM DE PRECEDÊNCIA estava escondida numa frase no meio de um
+            parágrafo. É a regra que decide o dinheiro — vira lista numerada.
+          */}
+          <div className="rounded-xl border border-border bg-muted/40 px-3.5 py-3">
+            <p className="mb-1.5 text-xs font-bold">Qual taxa vale, em ordem</p>
+            <ol className="space-y-1 text-xs text-muted-foreground">
+              <li><b>1.</b> Caiu dentro de uma área do mapa → taxa daquela área</li>
+              <li><b>2.</b> Senão, o bairro tem taxa própria → taxa do bairro</li>
+              <li><b>3.</b> Senão → taxa padrão ({brl(taxaPadrao)})</li>
+            </ol>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Testar um endereço ── */}
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <div className="flex items-center gap-2">
+            <Search className="size-4 text-primary" />
+            <span className="text-sm font-bold">Testar um endereço</span>
+          </div>
+          {/*
+            Roda o MESMO código do checkout (resolverFrete). Simulação por
+            caminho paralelo mente justamente quando mais importa.
+          */}
+          <p className="text-xs text-muted-foreground">
+            Descubra se um cliente consegue pedir e qual taxa ele veria — sem precisar fazer um
+            pedido de mentira. Usa exatamente a mesma regra do checkout.
+          </p>
+          <form onSubmit={testar} className="flex flex-wrap items-center gap-2">
+            <Input
+              value={endereco}
+              onChange={e => setEndereco(e.target.value)}
+              placeholder="Rua Rio do Braço, 207, Jardim Sofia"
+              maxLength={200}
+              className="h-10 min-w-[14rem] flex-1"
+            />
+            <Button type="submit" size="sm" className="h-10 shrink-0" disabled={testando || endereco.trim().length < 5}>
+              {testando ? 'Testando…' : 'Testar'}
+            </Button>
+          </form>
+
+          {resultado && (
+            <div className={cn('space-y-1.5 rounded-xl border px-3.5 py-3',
+              resultado.atende
+                ? 'border-emerald-600/25 bg-emerald-50/70 dark:bg-emerald-500/10'
+                : 'border-destructive/30 bg-destructive/5')}>
+              <p className="flex items-center gap-2 text-sm font-bold">
+                {resultado.atende
+                  ? <><CheckCircle2 className="size-4 text-emerald-700 dark:text-emerald-400" /> Atende — taxa de {brl(resultado.taxa_centavos || 0)}</>
+                  : <><XCircle className="size-4 text-destructive" /> Não atende esse endereço</>}
+              </p>
+              {resultado.atende && (
+                <p className="text-xs text-muted-foreground">
+                  {resultado.fonte === 'area' && <>Caiu na área <b>{resultado.zona}</b>.</>}
+                  {resultado.fonte === 'bairro' && <>Pelo bairro <b>{resultado.zona}</b>.</>}
+                  {resultado.fonte === 'padrao' && <>Nenhuma regra específica — taxa padrão.</>}
+                </p>
+              )}
+              {/*
+                Sem coordenada, a checagem por ÁREA nem chega a rodar. Dizer só
+                "atende" seria mentir por omissão: o teste foi parcial.
+              */}
+              {!resultado.localizado && (
+                <p className="flex items-start gap-1.5 text-xs text-amber-800 dark:text-amber-400">
+                  <AlertCircle className="mt-0.5 size-3.5 shrink-0" />
+                  Não consegui localizar esse endereço no mapa, então as <b>áreas não foram
+                  verificadas</b> — o resultado acima considerou só o bairro
+                  {resultado.bairro_usado ? <> (<b>{resultado.bairro_usado}</b>)</> : null}. Tente
+                  com rua, número e bairro.
+                </p>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export function ZonasEntrega() {
   const { mostrar } = useToast();
   const [zonas, setZonas] = useState<Zona[]>([]);
@@ -616,7 +786,7 @@ export function ZonasEntrega() {
         <CardContent className="p-3">
           {zonas.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-6">
-              Nenhuma zona cadastrada. Todos os bairros pagam a taxa padrão ({brl(taxaPadrao)}).
+              Nenhum bairro com taxa própria — o resto das regras continua valendo (veja o resumo acima).
             </p>
           ) : (
             <div className="divide-y divide-border/60">

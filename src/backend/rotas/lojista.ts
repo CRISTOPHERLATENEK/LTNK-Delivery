@@ -31,6 +31,7 @@ import { credenciaisOnzDaLoja } from './pagamentos';
 import { testarCredenciaisOficial } from '../whatsapp';
 import { wbapiConfigurado, statusSessaoPlataforma } from '../whatsapp-nao-oficial';
 import { geocodificarTexto, buscarLocais } from '../geo';
+import { resolverFrete } from '../frete';
 import { somarVendas, montarResumo, diferencaDeCaixa, classificarDiferenca, somarMovimentos, tempoAberto } from '../caixa';
 import { resolverPeriodo, rotuloPeriodo, periodoAnterior, variacaoPercentual, type NomePeriodo } from '../periodo';
 import { classificarCurvaAbc, resumirClassesAbc } from '../curva-abc';
@@ -726,6 +727,52 @@ router.get('/buscar-local', async (req, res, next) => {
     res.json({ locais: await buscarLocais(q) });
   } catch (e) { next(e); }
 });
+
+/**
+ * SIMULA um endereço: atende? por quanto? e por qual regra?
+ *
+ * É a pergunta prática número um de quem configura entrega — "o cliente da rua
+ * tal consegue pedir?" — e até aqui só dava pra responder fazendo um pedido de
+ * mentira pelo cardápio. Pior: quando alguém reclamava que não conseguia pedir,
+ * o lojista não tinha como reproduzir.
+ *
+ * Usa `resolverFrete`, o MESMO código do checkout. Simulação que roda por um
+ * caminho paralelo mente exatamente quando mais importa — a resposta aqui é a
+ * que o cliente vai receber, ou não vale nada.
+ */
+router.post('/frete/testar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const texto = textoLimpo(req.body.endereco, 200);
+    if (texto.length < 5) throw erroHttp(400, 'Escreva um endereço com rua, número e bairro.');
+
+    const coord = await geocodificarTexto(texto);
+    const bairro = textoLimpo(req.body.bairro, 80) || extrairBairro(texto);
+
+    const frete = await resolverFrete(
+      loja.id,
+      { bairro, lat: coord?.lat, lon: coord?.lon },
+      loja.taxa_entrega_centavos,
+    );
+
+    res.json({
+      atende: !!frete,
+      taxa_centavos: frete?.taxaCentavos ?? null,
+      fonte: frete?.fonte ?? null,
+      zona: frete?.zona ?? '',
+      // Sem coordenada, a decisão por ÁREA nem chega a ser avaliada — e o
+      // lojista precisa saber que o teste foi parcial, não que "está tudo certo".
+      localizado: !!coord,
+      bairro_usado: bairro,
+    });
+  } catch (e) { next(e); }
+});
+
+/** Último trecho depois da vírgula costuma ser o bairro no texto que o lojista digita. */
+function extrairBairro(texto: string): string {
+  const partes = texto.split(',').map(p => p.trim()).filter(Boolean);
+  return partes.length >= 2 ? partes[partes.length - 1] : '';
+}
 
 router.get('/areas', async (req, res, next) => {
   try {
