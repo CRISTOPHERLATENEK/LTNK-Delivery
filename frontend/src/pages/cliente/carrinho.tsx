@@ -628,6 +628,45 @@ function Checkout({
 
   return (
     <div className="space-y-4">
+      {/*
+        LOGO DEPOIS DOS ITENS, e não dentro de 'Forma de pagamento'.
+
+        O campo morava embaixo das opções de pagamento, o que dizia ao cliente
+        que a observação era SOBRE O PAGAMENTO. Ela é sobre o pedido — e chega
+        tanto na cozinha quanto no entregador.
+
+        Sem número de passo de propósito: 1 e 2 são obrigatórios, e numerar isto
+        faria parecer que falta preencher pra concluir.
+      */}
+      <Card>
+        <CardContent className="p-5">
+          <Label htmlFor="obs">Alguma observação? (opcional)</Label>
+          <Textarea
+            id="obs"
+            value={obs}
+            onChange={e => setObs(e.target.value)}
+            maxLength={300}
+            /*
+              O exemplo antigo era 'sem cebola, interfone quebrado' — e mandava
+              o cliente pro campo errado: referência de entrega já tem lugar
+              próprio no endereço. Aqui os exemplos são só de preparo.
+            */
+            /*
+              O exemplo CITA O ITEM porque a caixa é uma só pro pedido inteiro:
+              com dois lanches na sacola, 'sem cebola' sozinho deixa a cozinha
+              adivinhando em qual. Ensinar pelo exemplo é mais barato que um
+              campo por item, e resolve o mesmo caso.
+            */
+            placeholder="Ex.: a pizza calabresa sem cebola, o lanche bem passado…"
+            rows={2}
+          />
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            A loja e o entregador veem isso. Ponto de referência da entrega vai no
+            <b> endereço</b>, no campo Referência.
+          </p>
+        </CardContent>
+      </Card>
+
       {/* Endereço */}
       <Card>
         <CardContent className="p-5 space-y-3">
@@ -717,45 +756,6 @@ function Checkout({
               />
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/*
-        CARD PRÓPRIO, e não dentro de 'Forma de pagamento'.
-
-        O campo morava embaixo das opções de pagamento, o que dizia ao cliente
-        que a observação era SOBRE O PAGAMENTO. Ela é sobre o pedido — e chega
-        tanto na cozinha quanto no entregador.
-
-        Sem número de passo de propósito: 1 e 2 são obrigatórios, e numerar isto
-        faria parecer que falta preencher pra concluir.
-      */}
-      <Card>
-        <CardContent className="p-5">
-          <Label htmlFor="obs">Alguma observação? (opcional)</Label>
-          <Textarea
-            id="obs"
-            value={obs}
-            onChange={e => setObs(e.target.value)}
-            maxLength={300}
-            /*
-              O exemplo antigo era 'sem cebola, interfone quebrado' — e mandava
-              o cliente pro campo errado: referência de entrega já tem lugar
-              próprio no endereço. Aqui os exemplos são só de preparo.
-            */
-            /*
-              O exemplo CITA O ITEM porque a caixa é uma só pro pedido inteiro:
-              com dois lanches na sacola, 'sem cebola' sozinho deixa a cozinha
-              adivinhando em qual. Ensinar pelo exemplo é mais barato que um
-              campo por item, e resolve o mesmo caso.
-            */
-            placeholder="Ex.: a pizza calabresa sem cebola, o lanche bem passado…"
-            rows={2}
-          />
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            A loja e o entregador veem isso. Ponto de referência da entrega vai no
-            <b> endereço</b>, no campo Referência.
-          </p>
         </CardContent>
       </Card>
 
