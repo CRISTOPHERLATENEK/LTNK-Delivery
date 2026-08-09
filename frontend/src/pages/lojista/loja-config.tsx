@@ -695,6 +695,8 @@ export function ZonasEntrega() {
   const [taxa, setTaxa] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [taxaPadrao, setTaxaPadrao] = useState(0);
+  /** Só a CONTAGEM: o resumo precisa saber se existe área; o mapa cuida do resto. */
+  const [qtdAreas, setQtdAreas] = useState(0);
 
   function carregar() {
     api<{ zonas: Zona[] }>('GET', '/api/lojista/zonas')
@@ -706,6 +708,9 @@ export function ZonasEntrega() {
     carregar();
     api<{ loja: Loja }>('GET', '/api/lojista/loja')
       .then(r => setTaxaPadrao(r.loja.taxa_entrega_centavos))
+      .catch(() => { });
+    api<{ areas: unknown[] }>('GET', '/api/lojista/areas')
+      .then(r => setQtdAreas(r.areas.length))
       .catch(() => { });
   }, []);
 
@@ -736,15 +741,17 @@ export function ZonasEntrega() {
 
   return (
     <div className="space-y-4">
+      <ResumoEntrega taxaPadrao={taxaPadrao} qtdZonas={zonas.length} qtdAreas={qtdAreas} />
+
       <Card>
         <CardContent className="p-5">
-          <div className="flex items-center gap-2 mb-1">
+          <div className="mb-1 flex items-center gap-2">
             <Bike className="size-5 text-primary" />
-            <span className="font-bold">Taxa de entrega por bairro</span>
+            <span className="font-bold">Taxa por bairro</span>
           </div>
           <p className="text-xs text-muted-foreground">
-            Cobre frete diferente conforme o bairro do cliente. Bairros sem zona cadastrada
-            pagam a taxa padrão ({brl(taxaPadrao)}).
+            Frete diferente conforme o bairro do cliente. Vale quando o endereço não cai em
+            nenhuma área do mapa.
           </p>
         </CardContent>
       </Card>
