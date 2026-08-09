@@ -172,6 +172,77 @@ async function validarCupom(lojaId: number, codigoRaw: string, subtotal: number)
 }
 
 /** Pré-validação do cupom no checkout (mostra o desconto antes de fechar). */
+/**
+ * Confere o carrinho ANTES do cliente preencher o checkout.
+ *
+ * As validações do pedido sempre existiram e estão certas — o problema é QUANDO
+ * elas falam. Item pausado, produto esgotado ou preço alterado só apareciam no
+ * clique final, depois de escolher endereço, forma de pagamento e digitar o
+ * cartão. O cliente montava tudo e levava um não na última tela.
+ *
+ * Aqui a mesma verdade chega no começo, e por ITEM, pra tela poder marcar qual
+ * é o problema em vez de só bloquear o botão.
+ *
+ * NÃO SUBSTITUI a validação da criação do pedido: entre abrir o checkout e
+ * finalizar, o estoque pode acabar. É aviso antecipado, não autorização.
+ */
+router.post('/carrinho/conferir', async (req, res, next) => {
+  try {
+    const lojaId = inteiroPositivo(req.body.loja_id);
+    const itens = Array.isArray(req.body.itens) ? req.body.itens : [];
+    if (!lojaId) throw erroHttp(400, 'Loja inválida.');
+
+    const loja = await db.prepare('SELECT * FROM lojas WHERE id = ?').get(lojaId) as Loja | undefined;
+    const problemas: Array<{ produto_id: number; motivo: string; preco_novo_centavos?: number }> = [];
+
+    if (!loja || loja.status_aprovacao !== 'aprovada') {
+      return res.json({ ok: false, loja_fechada: true, motivo_loja: 'Esta loja não está mais disponível.', problemas });
+    }
+    if (!loja.aberta) {
+      return res.json({ ok: false, loja_fechada: true, motivo_loja: 'A loja fechou enquanto você montava o pedido.', problemas });
+    }
+
+    for (const it of itens) {
+      const produtoId = inteiroPositivo(it?.produto_id);
+      const quantidade = inteiroPositivo(it?.quantidade) || 0;
+      if (!produtoId) continue;
+      const p = await db.prepare('SELECT * FROM produtos WHERE id = ? AND loja_id = ?')
+        .get(produtoId, lojaId) as Produto | undefined;
+
+      if (!p || (p as unknown as { excluido?: number }).excluido) {
+        problemas.push({ produto_id: produtoId, motivo: 'saiu do cardápio' });
+        continue;
+      }
+      if (!p.disponivel) {
+        problemas.push({ produto_id: produtoId, motivo: 'está pausado no momento' });
+        continue;
+      }
+      const controla = (p as unknown as { controla_estoque?: number }).controla_estoque;
+      const estoque = (p as unknown as { estoque?: number }).estoque ?? 0;
+      if (controla && estoque < quantidade) {
+        problemas.push({
+          produto_id: produtoId,
+          motivo: estoque <= 0 ? 'esgotou' : `só restam ${estoque}`,
+        });
+        continue;
+      }
+      /*
+       * PREÇO MUDADO é aviso, não bloqueio: o pedido sai pelo preço do banco de
+       * qualquer forma (o servidor recalcula). O que não pode é o cliente
+       * descobrir isso só no total final — daí avisar aqui, com o valor novo.
+       */
+      const precoAtual = (p.preco_promocional_centavos && p.preco_promocional_centavos > 0)
+        ? p.preco_promocional_centavos : p.preco_centavos;
+      const precoNaTela = inteiroPositivo(it?.preco_centavos);
+      if (precoNaTela && precoNaTela !== precoAtual) {
+        problemas.push({ produto_id: produtoId, motivo: 'mudou de preço', preco_novo_centavos: precoAtual });
+      }
+    }
+
+    res.json({ ok: problemas.length === 0, loja_fechada: false, problemas });
+  } catch (err) { next(err); }
+});
+
 router.post('/cupons/validar', async (req, res, next) => {
   try {
     const lojaId = inteiroPositivo(req.body.loja_id);

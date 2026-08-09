@@ -552,10 +552,34 @@ function EntregaAtiva() {
     }
   }
 
-  async function confirmar(id: number) {
+  /**
+   * Confirma a entrega e, no cartão, pergunta se foi crédito ou débito.
+   *
+   * A NFC-e precisa distinguir (tPag 03 x 04) e o sistema não conversa com a
+   * maquininha — até aqui TODO cartão na entrega saía declarado como crédito na
+   * nota, sem erro nenhum aparecer. Você é a única pessoa que vê qual botão foi
+   * apertado, e este é o único momento em que o pedido está na sua mão.
+   *
+   * A pergunta NÃO BLOQUEIA: quem cancelar o diálogo confirma a entrega do
+   * mesmo jeito, e a nota sai como crédito, igual antes. Prender o entregador na
+   * porta do cliente por um campo fiscal seria pior que uma nota imprecisa.
+   */
+  async function confirmar(id: number, formaPagamento?: string) {
     if (!(await pedirConfirmacao({ titulo: 'Confirmar entrega?', descricao: 'Confirme que o pedido foi entregue ao cliente.', confirmar: 'Confirmar entrega' }))) return;
+
+    let tipoCartao: string | undefined;
+    if (formaPagamento === 'cartao_entrega') {
+      const foiCredito = await pedirConfirmacao({
+        titulo: 'Foi crédito ou débito?',
+        descricao: 'Isso vai na nota fiscal do pedido. Se não souber, pode fechar — a nota sai como crédito.',
+        confirmar: 'Crédito',
+        cancelar: 'Débito',
+      });
+      tipoCartao = foiCredito ? 'credit_card' : 'debit_card';
+    }
+
     try {
-      await api('POST', `/api/entregador/corridas/${id}/entregar`);
+      await api('POST', `/api/entregador/corridas/${id}/entregar`, tipoCartao ? { tipo_cartao: tipoCartao } : undefined);
       mostrar({ tipo: 'sucesso', titulo: 'Entrega confirmada! Bom trabalho.' });
       consulta.refetch();
     } catch (e) {
@@ -862,7 +886,7 @@ function EntregaAtiva() {
               <Bell className="size-4" />
               {avisou ? 'Cliente já avisado ✓' : avisando ? 'Avisando…' : 'Avisar que estou chegando'}
             </Button>
-            <Button variant="success" size="xl" className="flex-1 rounded-2xl h-14 text-base font-bold" onClick={() => confirmar(p.id)}>
+            <Button variant="success" size="xl" className="flex-1 rounded-2xl h-14 text-base font-bold" onClick={() => confirmar(p.id, p.forma_pagamento)}>
               <CheckCircle2 className="size-5" /> Confirmar entrega realizada
             </Button>
           </div>

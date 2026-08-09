@@ -186,6 +186,27 @@ router.post('/corridas/:id/entregar', async (req, res, next) => {
     await db.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
       .run(req.params.id, 'entregue', agora);
     await registrarEvento(Number(req.params.id), 'entregue');
+
+    /*
+     * CRÉDITO OU DÉBITO da maquininha, informado por quem estava lá.
+     *
+     * A NFC-e precisa distinguir (tPag 03 x 04) e o sistema não conversa com a
+     * máquina — até aqui todo cartão na entrega saía declarado como crédito. O
+     * entregador é o único que vê qual botão foi apertado, e este é o único
+     * momento em que ele está com o pedido na mão.
+     *
+     * OPCIONAL de propósito: não informar mantém o comportamento de antes
+     * (crédito). Travar a confirmação de entrega por um campo fiscal deixaria o
+     * entregador parado na porta do cliente.
+     *
+     * Gravado ANTES de emitir a nota, senão a emissão leria o valor velho.
+     */
+    const tipoCartao = req.body?.tipo_cartao;
+    if (tipoCartao === 'credit_card' || tipoCartao === 'debit_card') {
+      await db.prepare(
+        "UPDATE pedidos SET pagamento_tipo = ? WHERE id = ? AND forma_pagamento = 'cartao_entrega'"
+      ).run(tipoCartao, req.params.id);
+    }
     // Auto-emite a NFC-e da venda entregue (se a loja tiver NFC-e ativa + certificado).
     // Fire-and-forget: não bloqueia nem falha a confirmação de entrega.
     emitirNfcePedido(Number(req.params.id)).catch(() => { /* nota fica registrada com o erro */ });

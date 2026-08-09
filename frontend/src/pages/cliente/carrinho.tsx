@@ -68,6 +68,35 @@ export function PaginaCarrinho() {
   const total = subtotal - desconto + taxaEntrega;
   const abaixoMinimo = minimoPedido > 0 && subtotal < minimoPedido;
 
+  /*
+   * CONFERE O CARRINHO AO ABRIR, e não só no clique final.
+   *
+   * As validações do servidor sempre existiram e estão certas — o problema era
+   * QUANDO elas falavam: o cliente escolhia endereço, forma de pagamento e
+   * digitava o cartão pra só então descobrir que um item tinha esgotado.
+   *
+   * Isto NÃO substitui a validação da criação do pedido: entre abrir e
+   * finalizar, o estoque ainda pode acabar. É aviso antecipado, não permissão.
+   */
+  const conferencia = useQuery({
+    queryKey: ['carrinho-conferir', carrinho?.loja_id, carrinho?.itens.length],
+    queryFn: () => api<{
+      ok: boolean; loja_fechada: boolean; motivo_loja?: string;
+      problemas: { produto_id: number; motivo: string; preco_novo_centavos?: number }[];
+    }>('POST', '/api/cliente/carrinho/conferir', {
+      loja_id: carrinho!.loja_id,
+      itens: carrinho!.itens.map(i => ({
+        produto_id: i.produto_id, quantidade: i.quantidade, preco_centavos: i.preco_centavos,
+      })),
+    }),
+    enabled: !!carrinho?.itens.length && !!usuario,
+    // Sem cache: a graça é justamente refletir o estoque de agora.
+    staleTime: 0,
+  });
+  const problemasPorProduto = new Map(
+    (conferencia.data?.problemas ?? []).map(p => [p.produto_id, p]),
+  );
+
   // Pedido Pix criado: o carrinho já foi esvaziado; mostra o QR pra pagar.
   // Se cancelar/fechar, vai pro acompanhamento do pedido (que fica aguardando).
   // Comemoração do Pix aprovado — vem ANTES do `if (pix)` porque o QR já não
@@ -156,6 +185,19 @@ export function PaginaCarrinho() {
                       <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{item.opcoes_texto}</div>
                     )}
                     <div className="text-xs text-muted-foreground mt-1">{brl(item.preco_centavos)} cada</div>
+                    {/* Marca O ITEM com problema, em vez de só travar o botão
+                        lá embaixo sem dizer qual é. */}
+                    {problemasPorProduto.get(item.produto_id) && (
+                      <div className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-800 dark:bg-amber-500/10 dark:text-amber-400">
+                        <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                        <span>
+                          Este item {problemasPorProduto.get(item.produto_id)!.motivo}
+                          {problemasPorProduto.get(item.produto_id)!.preco_novo_centavos !== undefined && (
+                            <> — agora {brl(problemasPorProduto.get(item.produto_id)!.preco_novo_centavos!)}</>
+                          )}.
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <div className="flex flex-col items-end gap-2 shrink-0">
                     <div className="font-bold tabular-nums">{brl(item.preco_centavos * item.quantidade)}</div>
