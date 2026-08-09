@@ -743,7 +743,13 @@ function Checkout({
               o cliente pro campo errado: referência de entrega já tem lugar
               próprio no endereço. Aqui os exemplos são só de preparo.
             */
-            placeholder="Ex.: sem cebola, ponto da carne, capricha no molho…"
+            /*
+              O exemplo CITA O ITEM porque a caixa é uma só pro pedido inteiro:
+              com dois lanches na sacola, 'sem cebola' sozinho deixa a cozinha
+              adivinhando em qual. Ensinar pelo exemplo é mais barato que um
+              campo por item, e resolve o mesmo caso.
+            */
+            placeholder="Ex.: a pizza calabresa sem cebola, o lanche bem passado…"
             rows={2}
           />
           <p className="mt-1.5 text-[11px] text-muted-foreground">
