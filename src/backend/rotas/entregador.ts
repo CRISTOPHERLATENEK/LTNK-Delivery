@@ -162,6 +162,23 @@ router.post('/corridas/:id/chegando', async (req, res, next) => {
       tag: `chegando-${pedido.id}`,
     });
 
+    /*
+     * TAMBÉM NO WHATSAPP, e não só push.
+     *
+     * Esta é a mensagem mais útil de todas: é ela que faz o cliente descer,
+     * achar a chave, prender o cachorro. Push só alcança quem instalou o app e
+     * deixou a notificação ligada — que é a minoria. WhatsApp chega em todo
+     * mundo que deu o número.
+     *
+     * Best-effort: falhar aqui não pode fazer o entregador achar que não avisou.
+     */
+    {
+      const base = `${req.protocol}://${req.get('host')}`;
+      const { avisarStatusWhatsApp } = await import('../whatsapp');
+      avisarStatusWhatsApp(pedido.id, 'chegando', base)
+        .catch(e => console.warn('[WhatsApp] aviso de chegada falhou:', e));
+    }
+
     res.json({ ok: true, mensagem: 'Cliente avisado!' });
   } catch (e) { next(e); }
 });

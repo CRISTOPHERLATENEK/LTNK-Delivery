@@ -233,6 +233,13 @@ export async function avisarStatusWhatsApp(pedidoId: number, status: string, bas
     em_entrega: n => `🛵 Seu pedido saiu para entrega, ${n}! Já já chega aí.`,
     entregue: n => `✅ Pedido entregue, ${n}. Obrigado pela preferência! 😄`,
     pronto: n => `📦 Seu pedido está pronto, ${n}!`,
+    /*
+     * "Estou chegando" não é status do pedido — é o entregador apertando o botão
+     * quando dobra a esquina. É a mensagem mais útil da lista: é ela que faz o
+     * cliente descer, achar a chave, prender o cachorro. Até aqui ia só por
+     * push, que só alcança quem tem o app instalado e com notificação ligada.
+     */
+    chegando: n => `🛵 O entregador está chegando, ${n}! Fique atento.`,
   };
   const montar = MENSAGENS[status];
   if (!montar) return;
