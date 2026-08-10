@@ -3,15 +3,14 @@ import { lerRepasse2FA, destinoRepasse2FA } from '../../lib/repasse-2fa';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
-  Store, Users, ShoppingBag, TrendingUp, AlertCircle,
-  Crown, ArrowRight, Image, Palette, Shield, Clock,
+  Store, ShoppingBag, TrendingUp, AlertCircle,
+  Crown, ArrowRight, Shield, Clock,
   Mail, Lock, Eye, EyeOff, ScrollText, Wallet,
 } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { ContaDeOutroPerfil } from '@/components/conta-outro-perfil';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario, ehSuperAdmin, salvarSessao } from '@/lib/api';
@@ -64,25 +63,23 @@ function Dashboard() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
-      {/* Greeting hero */}
-      <div className="rounded-2xl bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900 p-6 text-white relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary via-transparent to-transparent" />
-        <div className="relative">
-          <div className="flex items-center gap-2 mb-1">
-            {superAdmin
-              ? <Crown className="size-5 text-amber-400" />
-              : <Shield className="size-5 text-primary" />}
-            <Badge variant={superAdmin ? 'warning' : 'info'} className="text-[10px]">
-              {superAdmin ? 'SUPER ADMIN' : 'OPERACIONAL'}
-            </Badge>
-          </div>
-          <h1 className="text-2xl font-extrabold">Olá, {u?.nome?.split(' ')[0] ?? 'Admin'} 👋</h1>
-          <p className="text-zinc-400 text-sm mt-1">
-            {superAdmin
-              ? 'Você tem controle total da plataforma.'
-              : 'Você pode aprovar lojas, ver pedidos e gerenciar banners.'}
-          </p>
-        </div>
+      {/*
+        HEADER SIMPLES no lugar do hero gradiente.
+
+        O bloco escuro ocupava a primeira dobra inteira pra dizer "Olá" e repetir
+        o papel que já está na sidebar. Numa tela de operação o topo é o espaço
+        mais caro — quem abre o painel quer ver número, não saudação.
+      */}
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <h1 className="flex flex-wrap items-center gap-2 text-xl font-bold">
+          Olá, {u?.nome?.split(' ')[0] ?? 'Admin'}
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
+            {superAdmin ? 'Super Admin' : 'Operacional'}
+          </span>
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
+        </p>
       </div>
 
       {/* Alerta lojas pendentes */}
@@ -104,25 +101,25 @@ function Dashboard() {
           titulo="Pedidos hoje"
           valor={consulta.isLoading ? '…' : String(d?.pedidos_hoje ?? 0)}
           icone={<ShoppingBag className="size-5" />}
-          cor="bg-blue-500/10 text-blue-600"
+          cor="bg-primary/10 text-primary"
         />
         <KpiCard
           titulo="Faturamento hoje"
           valor={consulta.isLoading ? '…' : brl(d?.faturamento_hoje_centavos ?? 0)}
           icone={<TrendingUp className="size-5" />}
-          cor="bg-emerald-500/10 text-emerald-600"
+          cor="bg-primary/10 text-primary"
         />
         <KpiCard
           titulo="Comissão gerada"
           valor={consulta.isLoading ? '…' : brl(d?.comissao_hoje_centavos ?? 0)}
           icone={<Crown className="size-5" />}
-          cor="bg-amber-500/10 text-amber-600"
+          cor="bg-primary/10 text-primary"
         />
         <KpiCard
           titulo="Em andamento"
           valor={consulta.isLoading ? '…' : String(d?.pedidos_em_andamento ?? 0)}
           icone={<Clock className="size-5" />}
-          cor="bg-purple-500/10 text-purple-600"
+          cor="bg-primary/10 text-primary"
         />
       </div>
 
@@ -180,69 +177,13 @@ function Dashboard() {
         />
       </div>
 
-      {/* Acesso rápido */}
-      <div>
-        <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground mb-3">Acesso rápido</h2>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <AcaoCard
-            icone={<Store className="size-5" />}
-            titulo="Gerenciar lojas"
-            descricao="Aprovar, suspender ou reativar lojas da plataforma."
-            rota="/painel-admin/lojas"
-            cor="bg-blue-500"
-          />
-          <AcaoCard
-            icone={<ShoppingBag className="size-5" />}
-            titulo="Todos os pedidos"
-            descricao="Filtrar por loja, status e período."
-            rota="/painel-admin/pedidos"
-            cor="bg-purple-500"
-          />
-          <AcaoCard
-            icone={<Image className="size-5" />}
-            titulo="Banners"
-            descricao="Gerenciar carrossel da home da plataforma."
-            rota="/painel-admin/banners"
-            cor="bg-pink-500"
-          />
-          {superAdmin && (
-            <>
-              <AcaoCard
-                icone={<Users className="size-5" />}
-                titulo="Lojistas"
-                descricao="Ver clientes, pedidos e faturamento de cada lojista."
-                rota="/painel-admin/lojistas"
-                cor="bg-emerald-500"
-                destaque
-              />
-              <AcaoCard
-                icone={<TrendingUp className="size-5" />}
-                titulo="Comissão e repasses"
-                descricao="Configurar % da plataforma e gerar relatório financeiro."
-                rota="/painel-admin/repasses"
-                cor="bg-amber-500"
-                destaque
-              />
-              <AcaoCard
-                icone={<Palette className="size-5" />}
-                titulo="Marca da plataforma"
-                descricao="Nome, logo e cor — white label do app inteiro."
-                rota="/painel-admin/marca"
-                cor="bg-rose-500"
-                destaque
-              />
-              <AcaoCard
-                icone={<Shield className="size-5" />}
-                titulo="Gerenciar admins"
-                descricao="Criar e remover admins operacionais."
-                rota="/painel-admin/admins"
-                cor="bg-zinc-600"
-                destaque
-              />
-            </>
-          )}
-        </div>
-      </div>
+      {/*
+        "ACESSO RÁPIDO" REMOVIDO: eram sete cards repetindo, um a um, itens que
+        já estão na sidebar — dois caminhos pro mesmo lugar, e o de baixo
+        exigindo rolar a página. O único atalho que se justificava era o de loja
+        pendente, e esse já existe acima como alerta âmbar, que só aparece
+        quando há pendência de verdade.
+      */}
 
       {/* Total usuários */}
       {d && (
@@ -356,30 +297,6 @@ function LojaStatus({ titulo, valor, cor, bg }: { titulo: string; valor: string;
   );
 }
 
-function AcaoCard({ icone, titulo, descricao, rota, cor, destaque }: {
-  icone: React.ReactNode; titulo: string; descricao: string;
-  rota: string; cor: string; destaque?: boolean;
-}) {
-  return (
-    <Link to={rota} className="block group">
-      <Card className={cn(
-        'h-full transition-all hover:shadow-md hover:-translate-y-0.5',
-        destaque && 'border-primary/20',
-      )}>
-        <CardContent className="p-5 flex items-start gap-4">
-          <div className={cn('flex size-10 items-center justify-center rounded-xl shrink-0 text-white shadow-sm', cor)}>
-            {icone}
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="font-bold text-sm">{titulo}</div>
-            <div className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{descricao}</div>
-          </div>
-          <ArrowRight className="size-4 text-muted-foreground/40 shrink-0 mt-0.5 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
-        </CardContent>
-      </Card>
-    </Link>
-  );
-}
 
 function LoginAdmin() {
   const [email, setEmail] = useState('');
