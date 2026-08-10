@@ -34,6 +34,8 @@ const TelaEntregador = lazySeguro(() => import('@/pages/entregador').then(m => (
 const PainelCozinha = lazySeguro(() => import('@/pages/cozinha/painel').then(m => ({ default: m.PainelCozinha })));
 const TelaAdmin = lazySeguro(() => import('@/pages/admin').then(m => ({ default: m.TelaAdmin })));
 const TelaMarca = lazySeguro(() => import('@/pages/admin/marca').then(m => ({ default: m.TelaMarca })));
+const TelaLanding = lazySeguro(() => import('@/pages/admin/marca/landing').then(m => ({ default: m.TelaLanding })));
+const TelaConfiguracoes = lazySeguro(() => import('@/pages/admin/configuracoes').then(m => ({ default: m.TelaConfiguracoes })));
 const TelaAdmins = lazySeguro(() => import('@/pages/admin/admins').then(m => ({ default: m.TelaAdmins })));
 const TelaLojistas = lazySeguro(() => import('@/pages/admin/lojistas').then(m => ({ default: m.TelaLojistas })));
 const TelaLojas = lazySeguro(() => import('@/pages/admin/lojas').then(m => ({ default: m.TelaLojas })));
@@ -160,6 +162,8 @@ export default function App() {
           página já tem seu próprio AdminLayout com sidebar. */}
       <Route element={<SoDominioMaster />}>
         <Route path="/painel-admin/marca"    element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaMarca /></Guard>} />
+        <Route path="/painel-admin/marca/landing" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaLanding /></Guard>} />
+        <Route path="/painel-admin/configuracoes" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaConfiguracoes /></Guard>} />
         <Route path="/painel-admin/admins"   element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaAdmins /></Guard>} />
         <Route path="/painel-admin/clientes" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaTenants /></Guard>} />
         <Route path="/painel-admin/assinaturas" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaAssinaturas /></Guard>} />

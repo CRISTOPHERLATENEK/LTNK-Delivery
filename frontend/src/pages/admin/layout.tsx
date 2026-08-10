@@ -7,7 +7,7 @@ import { NavLink, Link } from 'react-router-dom';
 import {
   LayoutDashboard, Store, Users, ShoppingBag, TrendingUp,
   Image, Palette, Shield, Crown, LogOut, Menu, X, ChevronRight, Radio, Bike, Building2, History,
-  CreditCard, UserCog,
+  CreditCard, UserCog, LayoutTemplate, Settings,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
@@ -55,7 +55,9 @@ const ITENS: NavItem[] = [
   { rota: '/painel-admin/lojistas',     icone: Users,           label: 'Lojistas',    somenteSuper: true, divisorDepois: true },
 
   { rota: '/painel-admin/repasses',     icone: TrendingUp,      label: 'Repasses',  somenteSuper: true },
-  { rota: '/painel-admin/marca',        icone: Palette,         label: 'Marca',     somenteSuper: true },
+  { rota: '/painel-admin/marca',        icone: Palette,         label: 'Marca',        somenteSuper: true },
+  { rota: '/painel-admin/marca/landing', icone: LayoutTemplate, label: 'Landing page', somenteSuper: true },
+  { rota: '/painel-admin/configuracoes', icone: Settings,      label: 'Configurações', somenteSuper: true },
   { rota: '/painel-admin/admins',       icone: Shield,          label: 'Admins',    somenteSuper: true },
   { rota: '/painel-admin/auditoria',    icone: History,         label: 'Auditoria', somenteSuper: true },
 ];
