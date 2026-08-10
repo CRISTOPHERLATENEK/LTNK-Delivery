@@ -515,7 +515,7 @@ export function HorarioLoja() {
 
 /* ───────────────────────── Zonas de entrega ───────────────────────── */
 
-interface Zona { id: number; bairro: string; taxa_centavos: number; }
+interface Zona { id: number; bairro: string; taxa_centavos: number; tempo_min?: number; }
 
 /**
  * Resumo do que está valendo + teste de endereço.
@@ -697,6 +697,11 @@ export function ZonasEntrega() {
   const [taxaPadrao, setTaxaPadrao] = useState(0);
   /** Só a CONTAGEM: o resumo precisa saber se existe área; o mapa cuida do resto. */
   const [qtdAreas, setQtdAreas] = useState(0);
+  /** Tempo padrão da loja — vira placeholder do campo por bairro. */  const [taxaPadraoTempo, setTaxaPadraoTempo] = useState(40);
+  const [tempoZona, setTempoZona] = useState('');
+  /** Distância e sugestão do bairro digitado — o número que ninguém tem de cabeça. */
+  const [sugestao, setSugestao] = useState<{ km: number; sugestao_centavos: number; explicacao: string } | null>(null);
+  const [sugerindo, setSugerindo] = useState(false);
 
   function carregar() {
     api<{ zonas: Zona[] }>('GET', '/api/lojista/zonas')
@@ -707,19 +712,43 @@ export function ZonasEntrega() {
   useEffect(() => {
     carregar();
     api<{ loja: Loja }>('GET', '/api/lojista/loja')
-      .then(r => setTaxaPadrao(r.loja.taxa_entrega_centavos))
+      .then(r => { setTaxaPadrao(r.loja.taxa_entrega_centavos); setTaxaPadraoTempo(r.loja.tempo_estimado_min || 40); })
       .catch(() => { });
     api<{ areas: unknown[] }>('GET', '/api/lojista/areas')
       .then(r => setQtdAreas(r.areas.length))
       .catch(() => { });
   }, []);
 
+  /*
+   * Mede a distância assim que o lojista termina de digitar o bairro. Não é
+   * automático no preço: preenche a sugestão e ele decide — quem cobra sabe do
+   * combustível e do concorrente, o sistema só sabe a distância.
+   */
+  async function sugerir() {
+    if (bairro.trim().length < 2) return;
+    setSugerindo(true);
+    setSugestao(null);
+    try {
+      const r = await api<{ ok: boolean; km?: number; sugestao_centavos?: number; explicacao?: string }>(
+        'POST', '/api/lojista/frete/sugerir', { bairro: bairro.trim() });
+      if (r.ok && r.km !== undefined) {
+        setSugestao({ km: r.km, sugestao_centavos: r.sugestao_centavos!, explicacao: r.explicacao! });
+      }
+    } catch { /* sugestão é conveniência: falhar aqui não atrapalha o cadastro */ }
+    finally { setSugerindo(false); }
+  }
+
   async function adicionar() {
     if (!bairro.trim()) return;
     setEnviando(true);
     try {
-      await api('POST', '/api/lojista/zonas', { bairro: bairro.trim(), taxa: taxa === '' ? 0 : Number(taxa) });
-      setBairro(''); setTaxa('');
+      await api('POST', '/api/lojista/zonas', {
+        bairro: bairro.trim(),
+        taxa: taxa === '' ? 0 : Number(taxa),
+        // 0 = usa o tempo padrão da loja.
+        tempo_min: tempoZona === '' ? 0 : Number(tempoZona),
+      });
+      setBairro(''); setTaxa(''); setTempoZona(''); setSugestao(null);
       carregar();
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
@@ -767,6 +796,7 @@ export function ZonasEntrega() {
                 placeholder="Nome do bairro"
                 value={bairro}
                 onChange={e => setBairro(e.target.value)}
+                onBlur={sugerir}
                 onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), adicionar())}
                 className="h-10 pl-8"
               />
@@ -781,10 +811,46 @@ export function ZonasEntrega() {
                 className="h-10 pl-7 text-sm"
               />
             </div>
+            {/* Tempo DESTE bairro. Vazio = usa o padrão da loja — não é o mesmo
+                que zero, e por isso o placeholder mostra o padrão. */}
+            <div className="relative w-24 shrink-0">
+              <Input
+                type="number" min="0" placeholder={`${taxaPadraoTempo} min`}
+                value={tempoZona}
+                onChange={e => setTempoZona(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), adicionar())}
+                className="h-10 pr-8 text-sm"
+                title="Tempo de entrega deste bairro"
+              />
+              <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">min</span>
+            </div>
             <Button className="h-10 shrink-0" onClick={adicionar} disabled={enviando || !bairro.trim()}>
               <Plus className="size-4" />
             </Button>
           </div>
+
+          {sugerindo && (
+            <p className="mt-2 text-xs text-muted-foreground">Medindo a distância…</p>
+          )}
+          {/*
+            A DISTÂNCIA é o que o sistema sabe; o preço é palpite fundamentado.
+            Por isso a conta aparece por extenso — sugestão sem mostrar a conta
+            vira número mágico, e ninguém decide preço confiando em número mágico.
+          */}
+          {sugestao && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/40 px-3 py-2">
+              <MapPin className="size-3.5 shrink-0 text-primary" />
+              <span className="text-xs">
+                <b>{String(sugestao.km).replace('.', ',')} km</b> em linha reta da loja.
+                {' '}Sugestão: <b>{brl(sugestao.sugestao_centavos)}</b>
+              </span>
+              <span className="text-[11px] text-muted-foreground">({sugestao.explicacao})</span>
+              <Button type="button" size="sm" variant="outline" className="ml-auto h-7 shrink-0"
+                onClick={() => setTaxa(String(sugestao.sugestao_centavos / 100))}>
+                Usar
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -800,7 +866,14 @@ export function ZonasEntrega() {
               {zonas.map(z => (
                 <div key={z.id} className="flex items-center gap-3 py-2.5 px-1">
                   <MapPin className="size-4 text-muted-foreground shrink-0" />
-                  <span className="flex-1 text-sm font-medium truncate">{z.bairro}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{z.bairro}</span>
+                    {/* Só mostra quando a zona define o próprio tempo — repetir
+                        o padrão da loja em toda linha viraria ruído. */}
+                    {!!z.tempo_min && (
+                      <span className="text-[11px] text-muted-foreground">~{z.tempo_min} min</span>
+                    )}
+                  </span>
                   <span className="text-sm font-bold tabular-nums shrink-0">
                     {z.taxa_centavos === 0 ? <span className="text-success">grátis</span> : brl(z.taxa_centavos)}
                   </span>

@@ -32,6 +32,8 @@ import { testarCredenciaisOficial } from '../whatsapp';
 import { wbapiConfigurado, statusSessaoPlataforma } from '../whatsapp-nao-oficial';
 import { geocodificarTexto, buscarLocais } from '../geo';
 import { resolverFrete } from '../frete';
+import { distanciaKm } from '../geometria';
+import { sugerirFreteCentavos, explicarSugestao } from '../sugestao-frete';
 import { somarVendas, montarResumo, diferencaDeCaixa, classificarDiferenca, somarMovimentos, tempoAberto } from '../caixa';
 import { resolverPeriodo, rotuloPeriodo, periodoAnterior, variacaoPercentual, type NomePeriodo } from '../periodo';
 import { classificarCurvaAbc, resumirClassesAbc } from '../curva-abc';
@@ -662,8 +664,8 @@ router.post('/zonas', async (req, res, next) => {
       throw erroHttp(409, 'Esse bairro já tem uma taxa cadastrada.');
     }
     const info = await db.prepare(
-      'INSERT INTO zonas_entrega (loja_id, bairro, taxa_centavos, criado_em) VALUES (?, ?, ?, ?)'
-    ).run(loja.id, bairro, taxa, agoraUTC());
+      'INSERT INTO zonas_entrega (loja_id, bairro, taxa_centavos, tempo_min, criado_em) VALUES (?, ?, ?, ?, ?)'
+    ).run(loja.id, bairro, taxa, inteiroPositivo(req.body.tempo_min) || 0, agoraUTC());
     res.status(201).json({ zona_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
@@ -740,6 +742,41 @@ router.get('/buscar-local', async (req, res, next) => {
  * caminho paralelo mente exatamente quando mais importa — a resposta aqui é a
  * que o cliente vai receber, ou não vale nada.
  */
+/**
+ * Distância até um bairro + sugestão de taxa.
+ *
+ * O VALOR AQUI É A DISTÂNCIA: é o número que ninguém tem de cabeça ao cadastrar
+ * um bairro, e é o que separa 'chuto R$ 8' de 'são 5,2 km'. O preço vem junto
+ * como ponto de partida editável — quem cobra é o lojista, que sabe do
+ * combustível e do que o concorrente pratica.
+ */
+router.post('/frete/sugerir', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const bairro = textoLimpo(req.body.bairro, 80);
+    if (bairro.length < 2) throw erroHttp(400, 'Informe o bairro.');
+    if (loja.lat == null || loja.lon == null) {
+      // Sem a loja no mapa não há de onde medir. Dizer isso é melhor que
+      // devolver uma distância inventada a partir de um ponto qualquer.
+      return res.json({ ok: false, motivo: 'sem_loja' });
+    }
+
+    // Junta cidade/UF da loja: 'Centro' sozinho existe em toda cidade do país.
+    const cid = (loja as unknown as { nfce_municipio?: string; nfce_uf?: string });
+    const alvo = await geocodificarTexto(`${bairro}, ${cid.nfce_municipio || ''} ${cid.nfce_uf || ''}`.trim())
+      ?? await geocodificarTexto(bairro);
+    if (!alvo) return res.json({ ok: false, motivo: 'nao_localizado' });
+
+    const km = distanciaKm([loja.lat as number, loja.lon as number], [alvo.lat, alvo.lon]);
+    res.json({
+      ok: true,
+      km: Math.round(km * 10) / 10,
+      sugestao_centavos: sugerirFreteCentavos(km),
+      explicacao: explicarSugestao(km),
+    });
+  } catch (e) { next(e); }
+});
+
 router.post('/frete/testar', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
@@ -804,9 +841,10 @@ router.post('/areas', async (req, res, next) => {
     const poligono = poligonoValido(req.body.poligono);
     if (!poligono) throw erroHttp(400, 'Desenhe a área no mapa com pelo menos 3 pontos.');
     const info = await db.prepare(
-      `INSERT INTO zonas_entrega (loja_id, bairro, taxa_centavos, nome, poligono_json, criado_em)
-       VALUES (?, '', ?, ?, ?, ?)`
-    ).run(loja.id, taxa, nome, JSON.stringify(poligono), agoraUTC());
+      `INSERT INTO zonas_entrega (loja_id, bairro, taxa_centavos, tempo_min, nome, poligono_json, criado_em)
+       VALUES (?, '', ?, ?, ?, ?, ?)`
+       // tempo_min 0 = a área não define e vale o tempo padrão da loja.
+    ).run(loja.id, taxa, inteiroPositivo(req.body.tempo_min) || 0, nome, JSON.stringify(poligono), agoraUTC());
     res.status(201).json({ area_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });

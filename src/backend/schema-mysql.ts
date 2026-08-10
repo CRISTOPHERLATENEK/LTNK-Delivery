@@ -861,6 +861,29 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
   }
 
   /*
+   * TEMPO ESTIMADO por zona/área, e a FOTO dele no pedido.
+   *
+   * Era um número só da loja (40 min) pra todo mundo: quem mora a 1 km e quem
+   * mora a 8 km viam a mesma previsão. Agora cada área pode ter o seu, e 0
+   * significa 'usa o da loja'.
+   *
+   * No PEDIDO fica uma cópia: a contagem regressiva na tela do cliente não pode
+   * mudar porque o lojista ajustou o padrão depois — a promessa foi feita na
+   * hora do pedido.
+   */
+  for (const [tabela, coluna, ddl] of [
+    ['zonas_entrega', 'tempo_min', 'tempo_min INT NOT NULL DEFAULT 0'],
+    ['pedidos', 'tempo_estimado_min', 'tempo_estimado_min INT NOT NULL DEFAULT 0'],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+        LIMIT 1`, [tabela, coluna],
+    ) as any;
+    if (existe.length === 0) await pool.query(`ALTER TABLE ${tabela} ADD COLUMN ${ddl}`);
+  }
+
+  /*
    * TIPO REAL do pagamento, como o gateway devolveu (credit_card, debit_card,
    * account_money...). Sem isto a NFC-e declarava CRÉDITO pra todo cartão,
    * inclusive débito — e a SEFAZ autoriza normalmente, porque 03 é um código

@@ -440,6 +440,13 @@ router.post('/pedidos', async (req, res, next) => {
       throw erroHttp(400, 'Esta loja não entrega no endereço escolhido. Escolha outro endereço ou retire no local.');
     }
     const taxaEntrega = frete.taxaCentavos;
+    /*
+     * FOTO do tempo estimado no pedido. A zona manda; sem zona, o padrão da
+     * loja. Guardado aqui e não lido depois porque a contagem regressiva na tela
+     * do cliente não pode mudar se o lojista ajustar o padrão amanhã — a
+     * promessa foi feita agora.
+     */
+    const tempoEstimado = frete.tempoMin || loja.tempo_estimado_min || 40;
 
     // Cupom (opcional): valida no servidor e desconta do subtotal.
     const cupom = req.body.cupom_codigo
@@ -486,13 +493,13 @@ router.post('/pedidos', async (req, res, next) => {
         `INSERT INTO pedidos (cliente_id, loja_id, status, endereco_entrega, entrega_lat, entrega_lon, forma_pagamento,
                               troco_para_centavos, observacoes, subtotal_centavos,
                               taxa_entrega_centavos, desconto_centavos, cupom_codigo, total_centavos,
-                              comissao_percentual, comissao_centavos, pagamento_status, chave_idem,
+                              comissao_percentual, comissao_centavos, pagamento_status, chave_idem, tempo_estimado_min,
                               criado_em, atualizado_em)
-         VALUES (?, ?, 'pendente', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, 'pendente', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(req.usuario!.id, lojaId, formatarEndereco(endereco),
             (endereco as any).lat ?? null, (endereco as any).lon ?? null, formaPagamento,
             trocoPara, observacoes, subtotal, taxaEntrega, descontoCupom, cupom?.codigo || '',
-            total, comissaoPct, comissao, pagoAntes ? 'aguardando' : 'na_entrega', chaveIdem, agora, agora);
+            total, comissaoPct, comissao, pagoAntes ? 'aguardando' : 'na_entrega', chaveIdem, tempoEstimado, agora, agora);
 
       const novoPedidoId = Number(info.lastInsertRowid);
 
@@ -765,7 +772,14 @@ router.post('/pedidos/:id/conferir-pix', async (req, res, next) => {
 router.get('/pedidos/:id', async (req, res, next) => {
   try {
     const pedido = await db.prepare(
-      `SELECT p.*, l.nome AS loja_nome, l.tempo_estimado_min,
+      /*
+       * A FOTO DO PEDIDO VENCE o padrão da loja. `p.*` já traz
+       * `p.tempo_estimado_min`, e a coluna de mesmo nome vinda de `lojas`
+       * sobrescreveria em silêncio — o alias abaixo é o que garante a ordem,
+       * com o padrão da loja só como reserva pra pedidos antigos (0).
+       */
+      `SELECT p.*, l.nome AS loja_nome,
+              COALESCE(NULLIF(p.tempo_estimado_min, 0), l.tempo_estimado_min) AS tempo_estimado_min,
               l.cor_marca AS loja_cor_marca, l.cor_secundaria AS loja_cor_secundaria,
               u.nome AS entregador_nome, u.telefone AS entregador_telefone,
               u.nota_media AS entregador_nota_media, u.nota_qtd AS entregador_nota_qtd,

@@ -28,12 +28,19 @@ export interface ResultadoFrete {
   fonte: 'area' | 'bairro' | 'padrao';
   /** Rótulo da zona que decidiu (nome da área ou bairro). Vazio na taxa padrão. */
   zona: string;
+  /**
+   * Tempo estimado DESTA zona, em minutos. 0 = a zona não definiu e vale o da
+   * loja. Existe porque um número só pra cidade inteira dava a mesma previsão
+   * pra quem mora a 1 km e pra quem mora a 8 km.
+   */
+  tempoMin: number;
 }
 
 interface LinhaZona {
   id: number;
   bairro: string;
   taxa_centavos: number;
+  tempo_min: number;
   nome: string | null;
   poligono_json: string | null;
 }
@@ -55,7 +62,7 @@ export async function resolverFrete(
   taxaPadraoCentavos: number,
 ): Promise<ResultadoFrete | null> {
   const zonas = await db.prepare(
-    'SELECT id, bairro, taxa_centavos, nome, poligono_json FROM zonas_entrega WHERE loja_id = ?'
+    'SELECT id, bairro, taxa_centavos, tempo_min, nome, poligono_json FROM zonas_entrega WHERE loja_id = ?'
   ).all(lojaId) as LinhaZona[];
 
   const areas = zonas.filter(z => !!z.poligono_json);
@@ -69,7 +76,7 @@ export async function resolverFrete(
       try { pontos = poligonoValido(JSON.parse(z.poligono_json as string)); } catch { pontos = null; }
       if (!pontos) continue; // zona corrompida não bloqueia nem cobra
       if (pontoDentroDoPoligono(ponto, pontos)) {
-        return { taxaCentavos: z.taxa_centavos, fonte: 'area', zona: z.nome || 'Área de entrega' };
+        return { taxaCentavos: z.taxa_centavos, fonte: 'area', zona: z.nome || 'Área de entrega', tempoMin: z.tempo_min || 0 };
       }
     }
   }
@@ -80,7 +87,7 @@ export async function resolverFrete(
   if (bairroCliente) {
     const porBairro = zonas.find(z => !z.poligono_json && normalizarBairro(z.bairro) === bairroCliente);
     if (porBairro) {
-      return { taxaCentavos: porBairro.taxa_centavos, fonte: 'bairro', zona: porBairro.bairro };
+      return { taxaCentavos: porBairro.taxa_centavos, fonte: 'bairro', zona: porBairro.bairro, tempoMin: porBairro.tempo_min || 0 };
     }
   }
 
@@ -89,5 +96,6 @@ export async function resolverFrete(
   //    recusar seria punir o cliente por uma falha nossa de geocodificação.
   if (areas.length > 0 && temCoordenada) return null;
 
-  return { taxaCentavos: taxaPadraoCentavos, fonte: 'padrao', zona: '' };
+  // tempoMin 0 = nenhuma zona decidiu; quem chama usa o tempo padrão da loja.
+  return { taxaCentavos: taxaPadraoCentavos, fonte: 'padrao', zona: '', tempoMin: 0 };
 }
