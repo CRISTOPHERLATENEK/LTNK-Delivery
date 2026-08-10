@@ -57,9 +57,124 @@ async function registrarAuditoria(
   } catch { /* log é best-effort */ }
 }
 
-router.get('/dashboard', async (_req, res, next) => {
+/**
+ * Roda a MESMA consulta no banco de cada cliente e junta tudo, marcando de qual
+ * cliente veio cada linha.
+ *
+ * Os dados de operação (pedidos, entregadores, lojistas) moram no banco de cada
+ * cliente — o banco central só guarda o cadastro da plataforma. Sem isso, o
+ * painel do dono da plataforma mostrava zero pedidos e faturamento R$ 0,00
+ * enquanto os clientes vendiam normalmente; a tela de Lojas já agregava, e era
+ * a única, o que deixava o painel se contradizendo.
+ *
+ * Devolve `null` quando não é o caso de agregar (admin operacional, ou já
+ * dentro de um cliente) — aí o chamador segue com a consulta local de sempre.
+ *
+ * Um cliente com banco fora do ar não derruba a tela inteira: aquele cliente
+ * entra como lista vazia e os outros aparecem.
+ */
+async function agregarClientes<T extends Record<string, unknown>>(
+  req: import('express').Request,
+  consulta: () => Promise<unknown>,
+): Promise<Array<T & { tenant_id: number; tenant_nome: string; tenant_slug: string }> | null> {
+  if (!ehMaster(bancoTenantAtual()) || !req.usuario?.super_admin) return null;
+  const tenants = await listarTenants();
+  const listas = await Promise.all(tenants.map(async (t) => {
+    try {
+      const linhas = await comTenant(t.db_nome, consulta) as T[];
+      return linhas.map(l => ({ ...l, tenant_id: t.id, tenant_nome: t.nome, tenant_slug: t.slug }));
+    } catch { return []; }
+  }));
+  return listas.flat();
+}
+
+router.get('/dashboard', async (req, res, next) => {
   try {
     const hoje = new Date().toISOString().slice(0, 10);
+
+    /*
+     * No painel master os números são a SOMA de todos os clientes.
+     *
+     * Cada bloco vira uma consulta que roda em cada banco e é somada aqui —
+     * `serie_vendas` e `top_lojas` precisam ser agrupados de novo depois de
+     * juntos, senão o mesmo dia apareceria uma vez por cliente.
+     */
+    const agregado = await agregarClientes(req, async () => [{
+      pedidos_hoje: await db.prepare(
+        `SELECT COUNT(*) AS qtd, COALESCE(SUM(total_centavos), 0) AS faturamento
+           FROM pedidos WHERE criado_em >= ? AND status NOT IN ('cancelado','recusado')`
+      ).get(hoje + 'T00:00:00.000Z'),
+      comissao_hoje: await db.prepare(
+        `SELECT COALESCE(SUM(comissao_centavos), 0) AS comissao
+           FROM pedidos WHERE criado_em >= ? AND status = 'entregue'`
+      ).get(hoje + 'T00:00:00.000Z'),
+      lojas: await db.prepare(
+        `SELECT
+           SUM(CASE WHEN status_aprovacao = 'aprovada' THEN 1 ELSE 0 END) AS ativas,
+           SUM(CASE WHEN status_aprovacao = 'pendente' THEN 1 ELSE 0 END) AS pendentes,
+           SUM(CASE WHEN status_aprovacao = 'suspensa' THEN 1 ELSE 0 END) AS suspensas
+         FROM lojas`
+      ).get(),
+      usuarios: await db.prepare('SELECT COUNT(*) AS total FROM usuarios').get(),
+      em_andamento: await db.prepare(
+        `SELECT COUNT(*) AS qtd FROM pedidos
+          WHERE status IN ('pendente','aceito','preparando','pronto','em_entrega')`
+      ).get(),
+      serie: await db.prepare(
+        `SELECT SUBSTRING(criado_em, 1, 10) AS dia, COUNT(*) AS pedidos,
+                COALESCE(SUM(total_centavos), 0) AS total
+           FROM pedidos
+          WHERE criado_em >= ? AND status NOT IN ('cancelado','recusado')
+          GROUP BY dia`
+      ).all(new Date(Date.now() - 13 * 864e5).toISOString().slice(0, 10) + 'T00:00:00.000Z'),
+      top: await db.prepare(
+        `SELECT l.id, l.nome, COUNT(p.id) AS pedidos,
+                COALESCE(SUM(p.total_centavos), 0) AS total_centavos
+           FROM lojas l JOIN pedidos p ON p.loja_id = l.id AND p.status = 'entregue'
+          GROUP BY l.id, l.nome`
+      ).all(),
+    }]);
+
+    if (agregado) {
+      const n = (v: unknown) => Number(v) || 0;
+      const soma = (f: (b: any) => unknown) => agregado.reduce((s, b) => s + n(f(b)), 0);
+
+      const porDiaAg = new Map<string, { pedidos: number; total: number }>();
+      for (const b of agregado as any[]) {
+        for (const d of b.serie as Array<{ dia: string; pedidos: number; total: number }>) {
+          const at = porDiaAg.get(d.dia) ?? { pedidos: 0, total: 0 };
+          porDiaAg.set(d.dia, { pedidos: at.pedidos + n(d.pedidos), total: at.total + n(d.total) });
+        }
+      }
+      const serie: Array<{ dia: string; pedidos: number; total_centavos: number }> = [];
+      for (let i = 13; i >= 0; i--) {
+        const dia = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10);
+        const b = porDiaAg.get(dia);
+        serie.push({ dia, pedidos: b?.pedidos ?? 0, total_centavos: b?.total ?? 0 });
+      }
+
+      // Loja de clientes diferentes pode ter o MESMO id — a chave do top é
+      // cliente+loja, senão duas lojas viravam uma só na soma.
+      const top = (agregado as any[])
+        .flatMap(b => (b.top as any[]).map(l => ({ ...l, tenant_nome: b.tenant_nome })))
+        .map(l => ({ ...l, pedidos: n(l.pedidos), total_centavos: n(l.total_centavos) }))
+        .sort((a, b) => b.total_centavos - a.total_centavos)
+        .slice(0, 5);
+
+      res.json({
+        pedidos_hoje: soma(b => b.pedidos_hoje?.qtd),
+        faturamento_hoje_centavos: soma(b => b.pedidos_hoje?.faturamento),
+        comissao_hoje_centavos: soma(b => b.comissao_hoje?.comissao),
+        pedidos_em_andamento: soma(b => b.em_andamento?.qtd),
+        lojas_ativas: soma(b => b.lojas?.ativas),
+        lojas_pendentes: soma(b => b.lojas?.pendentes),
+        lojas_suspensas: soma(b => b.lojas?.suspensas),
+        total_usuarios: soma(b => b.usuarios?.total),
+        serie_vendas: serie,
+        top_lojas: top,
+      });
+      return;
+    }
 
     type Resumo = { qtd: number; faturamento: number };
     const pedidosHoje = await db.prepare(
@@ -149,6 +264,23 @@ async function comTenantDaLoja(req: import('express').Request, _res: import('exp
   } catch (e) { next(e); }
 }
 router.use('/lojas', comTenantDaLoja);
+/*
+ * Mesma coisa pro detalhe de um pedido: a lista do painel master vem de vários
+ * clientes e o id 77 existe em mais de um deles — sem o `tenant_id` junto, o
+ * drawer abriria o pedido 77 do cliente errado.
+ */
+router.use('/pedidos', comTenantDaLoja);
+/* Idem pros clientes e pedidos de UM lojista, abertos no drawer. */
+router.use('/lojistas', comTenantDaLoja);
+/*
+ * E pras ações sobre um usuário — este é o mais perigoso da lista.
+ *
+ * Entregadores e clientes agora vêm de vários clientes da plataforma, e o id 5
+ * existe em todos eles. Sem trocar de banco, "bloquear o entregador 5" acertaria
+ * o usuário 5 do banco central: pessoa errada, banco errado, e o entregador que
+ * se queria bloquear continuaria trabalhando.
+ */
+router.use('/usuarios', comTenantDaLoja);
 
 /**
  * Lista lojas. Chamado do painel MASTER por um super admin, agrega as lojas
@@ -369,21 +501,44 @@ router.get('/lojas/:id/vendas', async (req, res, next) => {
 
 // ----- Pedidos (todos, com filtros) ----------------------------------------
 
+/** Monta a consulta da lista/CSV a partir dos filtros da tela. */
+function consultaPedidos(req: import('express').Request, limite: number) {
+  let sql = `SELECT p.*, l.nome AS loja_nome, c.nome AS cliente_nome, e.nome AS entregador_nome
+               FROM pedidos p
+               JOIN lojas l ON l.id = p.loja_id
+               JOIN usuarios c ON c.id = p.cliente_id
+               LEFT JOIN usuarios e ON e.id = p.entregador_id
+              WHERE 1 = 1`;
+  const params: (string | number)[] = [];
+  if (req.query.loja_id) { sql += ' AND p.loja_id = ?'; params.push(String(req.query.loja_id)); }
+  if (req.query.status)  { sql += ' AND p.status = ?'; params.push(textoLimpo(req.query.status, 20)); }
+  if (req.query.de)      { sql += ' AND p.criado_em >= ?'; params.push(textoLimpo(req.query.de, 10) + 'T00:00:00.000Z'); }
+  if (req.query.ate)     { sql += ' AND p.criado_em <= ?'; params.push(textoLimpo(req.query.ate, 10) + 'T23:59:59.999Z'); }
+  sql += ' ORDER BY p.id DESC';
+  if (limite) sql += ` LIMIT ${limite}`;
+  return { sql, params };
+}
+
 router.get('/pedidos', async (req, res, next) => {
   try {
-    let sql = `SELECT p.*, l.nome AS loja_nome, c.nome AS cliente_nome, e.nome AS entregador_nome
-                 FROM pedidos p
-                 JOIN lojas l ON l.id = p.loja_id
-                 JOIN usuarios c ON c.id = p.cliente_id
-                 LEFT JOIN usuarios e ON e.id = p.entregador_id
-                WHERE 1 = 1`;
-    const params: (string | number)[] = [];
-    if (req.query.loja_id) { sql += ' AND p.loja_id = ?'; params.push(String(req.query.loja_id)); }
-    if (req.query.status)  { sql += ' AND p.status = ?'; params.push(textoLimpo(req.query.status, 20)); }
-    if (req.query.de)      { sql += ' AND p.criado_em >= ?'; params.push(textoLimpo(req.query.de, 10) + 'T00:00:00.000Z'); }
-    if (req.query.ate)     { sql += ' AND p.criado_em <= ?'; params.push(textoLimpo(req.query.ate, 10) + 'T23:59:59.999Z'); }
-    sql += ' ORDER BY p.id DESC LIMIT 500';
-
+    /*
+     * O teto de 500 é por CLIENTE, não do total: cortar 500 no fim da soma
+     * esconderia clientes inteiros — os do fim da fila nunca apareceriam.
+     * Depois de juntos, ordena pela data (o id só é comparável dentro de um
+     * mesmo cliente) e corta em 500.
+     */
+    const agregado = await agregarClientes(req, async () => {
+      const { sql, params } = consultaPedidos(req, 500);
+      return db.prepare(sql).all(...params);
+    });
+    if (agregado) {
+      const pedidos = agregado
+        .sort((a: any, b: any) => String(b.criado_em).localeCompare(String(a.criado_em)))
+        .slice(0, 500);
+      res.json({ pedidos });
+      return;
+    }
+    const { sql, params } = consultaPedidos(req, 500);
     res.json({ pedidos: await db.prepare(sql).all(...params) });
   } catch (e) { next(e); }
 });
@@ -399,30 +554,28 @@ router.get('/pedidos', async (req, res, next) => {
  */
 router.get('/pedidos/csv', async (req, res, next) => {
   try {
-    let sql = `SELECT p.id, p.status, p.forma_pagamento, p.criado_em,
-                      p.subtotal_centavos, p.taxa_entrega_centavos, p.total_centavos,
-                      p.comissao_centavos, p.endereco_entrega,
-                      l.nome AS loja_nome, c.nome AS cliente_nome, e.nome AS entregador_nome
-                 FROM pedidos p
-                 JOIN lojas l ON l.id = p.loja_id
-                 JOIN usuarios c ON c.id = p.cliente_id
-                 LEFT JOIN usuarios e ON e.id = p.entregador_id
-                WHERE 1 = 1`;
-    const params: (string | number)[] = [];
-    if (req.query.loja_id) { sql += ' AND p.loja_id = ?'; params.push(String(req.query.loja_id)); }
-    if (req.query.status)  { sql += ' AND p.status = ?'; params.push(textoLimpo(req.query.status, 20)); }
-    if (req.query.de)      { sql += ' AND p.criado_em >= ?'; params.push(textoLimpo(req.query.de, 10) + 'T00:00:00.000Z'); }
-    if (req.query.ate)     { sql += ' AND p.criado_em <= ?'; params.push(textoLimpo(req.query.ate, 10) + 'T23:59:59.999Z'); }
-    sql += ' ORDER BY p.id DESC';
+    // Sem limite: exportar é justamente o caso em que se quer o período
+    // inteiro, e quem exporta já escolheu as datas.
+    const rodar = async () => {
+      const { sql, params } = consultaPedidos(req, 0);
+      return db.prepare(sql).all(...params);
+    };
+    const agregado = await agregarClientes(req, rodar);
+    const linhas = (agregado
+      ? agregado.sort((a: any, b: any) => String(b.criado_em).localeCompare(String(a.criado_em)))
+      : await rodar()) as Array<Record<string, unknown>>;
 
-    const linhas = await db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
     const reais = (c: unknown) => ((Number(c) || 0) / 100).toFixed(2).replace('.', ',');
     const esc = (s: unknown) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+    // A coluna do cliente só existe quando a exportação junta vários — dentro
+    // de um cliente só, seria uma coluna repetindo o mesmo nome em toda linha.
     const cabecalho = [
+      ...(agregado ? ['Cliente da plataforma'] : []),
       'Pedido', 'Data', 'Status', 'Loja', 'Cliente', 'Entregador', 'Pagamento',
       'Subtotal (R$)', 'Entrega (R$)', 'Total (R$)', 'Comissao (R$)', 'Endereco',
     ];
     const corpo = linhas.map(p => [
+      ...(agregado ? [esc(p.tenant_nome)] : []),
       p.id,
       esc(p.criado_em),
       esc(p.status),
@@ -768,23 +921,35 @@ router.put('/comissao', exigirSuperAdmin, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.get('/repasses', async (req, res, next) => {
-  try {
-    let sql = `SELECT l.id AS loja_id, l.nome AS loja_nome,
+/** Consulta de repasses por loja — a lista e o CSV usam a mesma. */
+function consultaRepasses(req: import('express').Request) {
+  let sql = `SELECT l.id AS loja_id, l.nome AS loja_nome,
                       COUNT(p.id) AS pedidos,
                       COALESCE(SUM(p.total_centavos), 0)    AS faturamento_centavos,
                       COALESCE(SUM(p.comissao_centavos), 0) AS comissao_centavos,
                       COALESCE(SUM(p.total_centavos - p.comissao_centavos), 0) AS repasse_centavos
                  FROM lojas l
-                 LEFT JOIN pedidos p ON p.loja_id = l.id AND p.status = 'entregue'`;
-    const params: string[] = [];
-    const filtros: string[] = [];
-    if (req.query.de)  { filtros.push('p.criado_em >= ?'); params.push(textoLimpo(req.query.de, 10) + 'T00:00:00.000Z'); }
-    if (req.query.ate) { filtros.push('p.criado_em <= ?'); params.push(textoLimpo(req.query.ate, 10) + 'T23:59:59.999Z'); }
-    if (filtros.length) sql += ' AND ' + filtros.join(' AND ');
-    sql += ' GROUP BY l.id, l.nome ORDER BY faturamento_centavos DESC';
+               LEFT JOIN pedidos p ON p.loja_id = l.id AND p.status = 'entregue'`;
+  const params: string[] = [];
+  const filtros: string[] = [];
+  if (req.query.de)  { filtros.push('p.criado_em >= ?'); params.push(textoLimpo(req.query.de, 10) + 'T00:00:00.000Z'); }
+  if (req.query.ate) { filtros.push('p.criado_em <= ?'); params.push(textoLimpo(req.query.ate, 10) + 'T23:59:59.999Z'); }
+  if (filtros.length) sql += ' AND ' + filtros.join(' AND ');
+  sql += ' GROUP BY l.id, l.nome ORDER BY faturamento_centavos DESC';
+  return { sql, params };
+}
 
-    res.json({ repasses: await db.prepare(sql).all(...params) });
+router.get('/repasses', async (req, res, next) => {
+  try {
+    const rodar = async () => {
+      const { sql, params } = consultaRepasses(req);
+      return db.prepare(sql).all(...params);
+    };
+    const agregado = await agregarClientes(req, rodar);
+    const repasses = agregado
+      ? agregado.sort((a: any, b: any) => Number(b.faturamento_centavos) - Number(a.faturamento_centavos))
+      : await rodar();
+    res.json({ repasses });
   } catch (e) { next(e); }
 });
 
@@ -1045,29 +1210,27 @@ router.put('/lojas/:id/fiscal/produtos/:prodId', exigirSuperAdmin, async (req, r
 /** Exporta os repasses do período em CSV (abre direto no Excel/Sheets). */
 router.get('/repasses/csv', async (req, res, next) => {
   try {
-    let sql = `SELECT l.nome AS loja_nome,
-                      COUNT(p.id) AS pedidos,
-                      COALESCE(SUM(p.total_centavos), 0)    AS faturamento_centavos,
-                      COALESCE(SUM(p.comissao_centavos), 0) AS comissao_centavos,
-                      COALESCE(SUM(p.total_centavos - p.comissao_centavos), 0) AS repasse_centavos
-                 FROM lojas l
-                 LEFT JOIN pedidos p ON p.loja_id = l.id AND p.status = 'entregue'`;
-    const params: string[] = [];
-    const filtros: string[] = [];
-    if (req.query.de)  { filtros.push('p.criado_em >= ?'); params.push(textoLimpo(req.query.de, 10) + 'T00:00:00.000Z'); }
-    if (req.query.ate) { filtros.push('p.criado_em <= ?'); params.push(textoLimpo(req.query.ate, 10) + 'T23:59:59.999Z'); }
-    if (filtros.length) sql += ' AND ' + filtros.join(' AND ');
-    sql += ' GROUP BY l.id, l.nome ORDER BY faturamento_centavos DESC';
-
-    const linhas = await db.prepare(sql).all(...params) as Array<{
-      loja_nome: string; pedidos: number; faturamento_centavos: number; comissao_centavos: number; repasse_centavos: number;
-    }>;
-    const reais = (c: number) => (c / 100).toFixed(2).replace('.', ',');
-    const esc = (s: string) => `"${String(s).replace(/"/g, '""')}"`;
-    const cabecalho = ['Loja', 'Pedidos', 'Faturamento (R$)', 'Comissao (R$)', 'Repasse (R$)'];
-    const corpo = linhas.map(l =>
-      [esc(l.loja_nome), l.pedidos, esc(reais(l.faturamento_centavos)), esc(reais(l.comissao_centavos)), esc(reais(l.repasse_centavos))].join(';'),
-    );
+    const rodar = async () => {
+      const { sql, params } = consultaRepasses(req);
+      return db.prepare(sql).all(...params);
+    };
+    const agregado = await agregarClientes(req, rodar);
+    const linhas = (agregado
+      ? agregado.sort((a: any, b: any) => Number(b.faturamento_centavos) - Number(a.faturamento_centavos))
+      : await rodar()) as Array<{
+        loja_nome: string; pedidos: number; faturamento_centavos: number;
+        comissao_centavos: number; repasse_centavos: number; tenant_nome?: string;
+      }>;
+    const reais = (c: number) => (Number(c) / 100).toFixed(2).replace('.', ',');
+    const esc = (s: unknown) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+    const cabecalho = [
+      ...(agregado ? ['Cliente da plataforma'] : []),
+      'Loja', 'Pedidos', 'Faturamento (R$)', 'Comissao (R$)', 'Repasse (R$)',
+    ];
+    const corpo = linhas.map(l => [
+      ...(agregado ? [esc(l.tenant_nome)] : []),
+      esc(l.loja_nome), l.pedidos, esc(reais(l.faturamento_centavos)), esc(reais(l.comissao_centavos)), esc(reais(l.repasse_centavos)),
+    ].join(';'));
     const csv = '﻿' + [cabecalho.join(';'), ...corpo].join('\r\n');
 
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -1079,9 +1242,9 @@ router.get('/repasses/csv', async (req, res, next) => {
 // ----- Entregadores (visão da plataforma) ----------------------------------
 
 /** Lista entregadores com métricas de entregas concluídas. */
-router.get('/entregadores', async (_req, res, next) => {
+router.get('/entregadores', async (req, res, next) => {
   try {
-    const entregadores = await db.prepare(
+    const rodar = async () => db.prepare(
       `SELECT u.id, u.nome, u.email, u.telefone, u.bloqueado, u.criado_em,
               COALESCE(e.entregas, 0) AS entregas,
               COALESCE(e.ativas, 0)   AS ativas
@@ -1095,15 +1258,19 @@ router.get('/entregadores', async (_req, res, next) => {
         WHERE u.perfil = 'entregador'
         ORDER BY u.nome`
     ).all();
+    const agregado = await agregarClientes(req, rodar);
+    const entregadores = agregado
+      ? agregado.sort((a: any, b: any) => String(a.nome).localeCompare(String(b.nome), 'pt-BR'))
+      : await rodar();
     res.json({ entregadores });
   } catch (e) { next(e); }
 });
 
 // ----- Monitor ao vivo (pedidos em andamento de todas as lojas) ------------
 
-router.get('/monitor', async (_req, res, next) => {
+router.get('/monitor', async (req, res, next) => {
   try {
-    const pedidos = await db.prepare(
+    const rodar = async () => db.prepare(
       `SELECT p.id, p.status, p.total_centavos, p.criado_em, p.origem,
               l.nome AS loja_nome,
               c.nome AS cliente_nome,
@@ -1116,6 +1283,12 @@ router.get('/monitor', async (_req, res, next) => {
           AND p.origem = 'app'
         ORDER BY p.criado_em ASC`
     ).all();
+    // Mais antigo primeiro — a coluna é uma fila de espera, e o que está
+    // parado há mais tempo é o que precisa de atenção.
+    const agregado = await agregarClientes(req, rodar);
+    const pedidos = agregado
+      ? agregado.sort((a: any, b: any) => String(a.criado_em).localeCompare(String(b.criado_em)))
+      : await rodar();
     res.json({ pedidos });
   } catch (e) { next(e); }
 });
@@ -1484,9 +1657,9 @@ router.get('/backup', exigirSuperAdmin, async (req, res, next) => {
 
 // ----- Lojistas (visão drill-down do super admin) --------------------------
 
-router.get('/lojistas', async (_req, res, next) => {
+router.get('/lojistas', async (req, res, next) => {
   try {
-    const lojistas = await db.prepare(`
+    const rodar = async () => db.prepare(`
       SELECT l.id, l.nome AS loja_nome, l.status_aprovacao, l.aberta,
              l.logo_url, l.categoria, l.criado_em AS loja_criada_em,
              u.id AS usuario_id, u.nome AS dono_nome, u.email AS dono_email, u.telefone AS dono_telefone,
@@ -1497,6 +1670,10 @@ router.get('/lojistas', async (_req, res, next) => {
         FROM lojas l
         JOIN usuarios u ON u.id = l.usuario_id
        ORDER BY l.criado_em DESC`).all();
+    const agregado = await agregarClientes(req, rodar);
+    const lojistas = agregado
+      ? agregado.sort((a: any, b: any) => String(b.loja_criada_em).localeCompare(String(a.loja_criada_em)))
+      : await rodar();
     res.json({ lojistas });
   } catch (e) { next(e); }
 });

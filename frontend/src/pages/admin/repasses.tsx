@@ -19,6 +19,9 @@ interface Repasse {
   faturamento_centavos: number;
   comissao_centavos: number;
   repasse_centavos: number;
+  /** Presentes só na lista agregada do painel master (loja_id se repete entre clientes). */
+  tenant_id?: number;
+  tenant_nome?: string;
 }
 
 export function TelaRepasses() {
@@ -205,11 +208,16 @@ export function TelaRepasses() {
 
         <div className="space-y-2">
           {repasses.map(r => (
-            <Card key={r.loja_id} className="hover:shadow-sm transition-shadow">
+            <Card key={`${r.tenant_id ?? 0}-${r.loja_id}`} className="hover:shadow-sm transition-shadow">
               <CardContent className="p-4">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex-1 min-w-0">
-                    <div className="font-semibold">{r.loja_nome}</div>
+                    <div className="flex flex-wrap items-center gap-1.5 font-semibold">
+                      {r.loja_nome}
+                      {r.tenant_nome && (
+                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">{r.tenant_nome}</span>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground mt-0.5">
                       {r.pedidos} pedido{r.pedidos !== 1 ? 's' : ''} entregues
                     </div>

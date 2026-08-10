@@ -25,6 +25,9 @@ interface Entregador {
   entregas: number;
   ativas: number;
   criado_em: string;
+  /** Presente só na lista agregada do painel master. */
+  tenant_id?: number;
+  tenant_nome?: string;
 }
 
 type Situacao = 'disponiveis' | 'em_rota' | 'bloqueados';
@@ -52,7 +55,9 @@ export function TelaEntregadores() {
     const acao = e.bloqueado ? 'desbloquear' : 'bloquear';
     if (!(await confirmar({ titulo: `${acao[0].toUpperCase() + acao.slice(1)} ${e.nome}?`, confirmar: acao[0].toUpperCase() + acao.slice(1), destrutivo: !e.bloqueado }))) return;
     try {
-      await api('POST', `/api/admin/usuarios/${e.id}/bloquear-desbloquear`);
+      // `tenant_id` junto: o id do entregador se repete entre clientes, e sem
+      // ele o bloqueio cairia no usuário de mesmo id do banco central.
+      await api('POST', `/api/admin/usuarios/${e.id}/bloquear-desbloquear${e.tenant_id ? `?tenant_id=${e.tenant_id}` : ''}`);
       mostrar({ tipo: 'sucesso', titulo: `Entregador ${e.bloqueado ? 'desbloqueado' : 'bloqueado'}.` });
       consulta.refetch();
     } catch (err) {
@@ -156,7 +161,7 @@ export function TelaEntregadores() {
 
         <div className="space-y-2">
           {filtrados.map(e => (
-            <Card key={e.id} className={e.bloqueado ? 'opacity-60' : ''}>
+            <Card key={`${e.tenant_id ?? 0}-${e.id}`} className={e.bloqueado ? 'opacity-60' : ''}>
               <CardContent className="p-4 flex items-center gap-4 flex-wrap">
                 <div className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary font-bold shrink-0">
                   {(e.nome || '?').charAt(0).toUpperCase()}
@@ -164,6 +169,9 @@ export function TelaEntregadores() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold">{e.nome}</span>
+                    {e.tenant_nome && (
+                      <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">{e.tenant_nome}</span>
+                    )}
                     {e.bloqueado
                       ? <Badge variant="danger">Bloqueado</Badge>
                       : e.ativas > 0

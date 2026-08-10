@@ -21,6 +21,9 @@ interface PedidoMonitor {
   loja_nome: string;
   cliente_nome: string;
   entregador_nome: string | null;
+  /** Presente só na visão agregada do painel master. */
+  tenant_id?: number;
+  tenant_nome?: string;
 }
 
 const COLUNAS: Array<{ status: string; rotulo: string }> = [
@@ -174,7 +177,7 @@ export function TelaMonitor() {
                     const ambar = esperando && !vermelho && min >= ALERTA_AMBAR;
                     return (
                       <Card
-                        key={p.id}
+                        key={`${p.tenant_id ?? 0}-${p.id}`}
                         className={cn('transition-shadow hover:shadow-sm',
                           vermelho && 'border-destructive/60 bg-destructive/5',
                           ambar && 'border-amber-500/60 bg-amber-500/5')}
@@ -185,7 +188,8 @@ export function TelaMonitor() {
                             <StatusBadge status={p.status as any} />
                           </div>
                           <div className="flex items-center gap-1.5 text-sm font-semibold leading-tight">
-                            <Store className="size-3.5 shrink-0 text-primary" /> {p.loja_nome}
+                            <Store className="size-3.5 shrink-0 text-primary" />
+                            <span className="truncate">{p.loja_nome}</span>
                           </div>
                           <div className="truncate text-xs text-muted-foreground">{p.cliente_nome}</div>
                           {p.entregador_nome && (

@@ -35,6 +35,22 @@ interface Lojista {
   total_pedidos: number;
   faturamento_centavos: number;
   total_clientes: number;
+  /** Presentes só na lista agregada do painel master (o id se repete entre clientes). */
+  tenant_id?: number;
+  tenant_nome?: string;
+}
+
+/**
+ * Chave única de um lojista na lista agregada: o id da loja se repete entre
+ * clientes da plataforma, então sozinho ele abriria dois drawers de uma vez.
+ */
+function chaveLojista(l: Pick<Lojista, 'id' | 'tenant_id'>): string {
+  return `${l.tenant_id ?? 0}-${l.id}`;
+}
+
+/** Anexa `?tenant_id=` quando a linha veio da lista agregada do master. */
+function comTenant(url: string, l: Pick<Lojista, 'tenant_id'>): string {
+  return l.tenant_id ? `${url}${url.includes('?') ? '&' : '?'}tenant_id=${l.tenant_id}` : url;
 }
 
 interface Cliente {
@@ -47,7 +63,7 @@ interface Cliente {
 }
 
 export function TelaLojistas() {
-  const [expandido, setExpandido] = useState<number | null>(null);
+  const [expandido, setExpandido] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
 
   const consulta = useQuery({
@@ -107,10 +123,10 @@ export function TelaLojistas() {
         <div className="space-y-3">
           {lista.map(l => (
             <CardLojista
-              key={l.id}
+              key={chaveLojista(l)}
               lojista={l}
-              expandido={expandido === l.id}
-              onToggle={() => setExpandido(expandido === l.id ? null : l.id)}
+              expandido={expandido === chaveLojista(l)}
+              onToggle={() => setExpandido(expandido === chaveLojista(l) ? null : chaveLojista(l))}
             />
           ))}
         </div>
@@ -131,8 +147,8 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
   const [editandoCliente, setEditandoCliente] = useState<Cliente | null>(null);
 
   const clientesQ = useQuery({
-    queryKey: ['admin-clientes', l.id],
-    queryFn: () => api<{ clientes: Cliente[] }>('GET', `/api/admin/lojistas/${l.id}/clientes`).then(r => r.clientes),
+    queryKey: ['admin-clientes', l.tenant_id ?? 0, l.id],
+    queryFn: () => api<{ clientes: Cliente[] }>('GET', comTenant(`/api/admin/lojistas/${l.id}/clientes`, l)).then(r => r.clientes),
     enabled: expandido,
   });
 
@@ -143,8 +159,8 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
     qc.invalidateQueries({ queryKey: ['admin-lojistas'] });
   }
   const pedidosQ = useQuery({
-    queryKey: ['admin-pedidos-lojista', l.id],
-    queryFn: () => api<{ pedidos: any[] }>('GET', `/api/admin/lojistas/${l.id}/pedidos`).then(r => r.pedidos),
+    queryKey: ['admin-pedidos-lojista', l.tenant_id ?? 0, l.id],
+    queryFn: () => api<{ pedidos: any[] }>('GET', comTenant(`/api/admin/lojistas/${l.id}/pedidos`, l)).then(r => r.pedidos),
     enabled: expandido,
   });
 
@@ -159,7 +175,7 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
     });
     if (!ok) return;
     try {
-      await api('POST', `/api/admin/usuarios/${usuarioId}/bloquear-desbloquear`);
+      await api('POST', comTenant(`/api/admin/usuarios/${usuarioId}/bloquear-desbloquear`, l));
       mostrar({ tipo: 'info', titulo: bloqueadoAtual ? 'Desbloqueado.' : 'Bloqueado.' });
       qc.invalidateQueries({ queryKey: ['admin-lojistas'] });
       qc.invalidateQueries({ queryKey: ['admin-clientes', l.id] });
@@ -248,7 +264,7 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
               </div>
 
               {criandoCliente && (
-                <FormCliente lojaId={l.id} onCancelar={() => setCriandoCliente(false)} onSalvo={aoSalvarCliente} />
+                <FormCliente lojaId={l.id} tenantId={l.tenant_id} onCancelar={() => setCriandoCliente(false)} onSalvo={aoSalvarCliente} />
               )}
 
               {clientesQ.isLoading && <Skeleton className="h-16 rounded-xl" />}
@@ -284,7 +300,7 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
               </div>
 
               {editandoCliente && (
-                <ModalEditarCliente cliente={editandoCliente} onFechar={() => setEditandoCliente(null)} onSalvo={aoSalvarCliente} />
+                <ModalEditarCliente cliente={editandoCliente} tenantId={l.tenant_id} onFechar={() => setEditandoCliente(null)} onSalvo={aoSalvarCliente} />
               )}
             </div>
 
@@ -316,7 +332,7 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
 }
 
 /* ──────────────────── Novo cliente (isolado nesta loja) ──────────────────── */
-function FormCliente({ lojaId, onCancelar, onSalvo }: { lojaId: number; onCancelar: () => void; onSalvo: () => void }) {
+function FormCliente({ lojaId, tenantId, onCancelar, onSalvo }: { lojaId: number; tenantId?: number; onCancelar: () => void; onSalvo: () => void }) {
   const { mostrar } = useToast();
   const [form, setForm] = useState({ nome: '', cpf: '', email: '', telefone: '', senha: '' });
   const [enviando, setEnviando] = useState(false);
@@ -325,7 +341,9 @@ function FormCliente({ lojaId, onCancelar, onSalvo }: { lojaId: number; onCancel
     e.preventDefault();
     setEnviando(true);
     try {
-      await api('POST', '/api/admin/usuarios', { ...form, loja_id: lojaId });
+      // tenant_id no CORPO: o middleware aceita dos dois lados, e aqui a loja
+      // pode ser de outro cliente da plataforma.
+      await api('POST', '/api/admin/usuarios', { ...form, loja_id: lojaId, tenant_id: tenantId });
       mostrar({ tipo: 'sucesso', titulo: 'Cliente criado!' });
       onSalvo();
     } catch (err) {
@@ -372,7 +390,7 @@ function FormCliente({ lojaId, onCancelar, onSalvo }: { lojaId: number; onCancel
 }
 
 /* ──────────────────── Editar cliente / resetar senha ──────────────────── */
-function ModalEditarCliente({ cliente, onFechar, onSalvo }: { cliente: Cliente; onFechar: () => void; onSalvo: () => void }) {
+function ModalEditarCliente({ cliente, tenantId, onFechar, onSalvo }: { cliente: Cliente; tenantId?: number; onFechar: () => void; onSalvo: () => void }) {
   const { mostrar } = useToast();
   const [nome, setNome] = useState(cliente.nome);
   const [email, setEmail] = useState(cliente.email);
@@ -385,7 +403,7 @@ function ModalEditarCliente({ cliente, onFechar, onSalvo }: { cliente: Cliente; 
     e.preventDefault();
     setEnviando(true);
     try {
-      await api('PUT', `/api/admin/usuarios/${cliente.id}`, { nome, email, telefone });
+      await api('PUT', `/api/admin/usuarios/${cliente.id}`, { nome, email, telefone, tenant_id: tenantId });
       mostrar({ tipo: 'sucesso', titulo: 'Cliente atualizado!' });
       onSalvo();
     } catch (err) {
@@ -399,7 +417,7 @@ function ModalEditarCliente({ cliente, onFechar, onSalvo }: { cliente: Cliente; 
     if (novaSenha.length < 6) { mostrar({ tipo: 'erro', titulo: 'Senha mínima de 6 caracteres.' }); return; }
     setResetando(true);
     try {
-      await api('POST', `/api/admin/usuarios/${cliente.id}/resetar-senha`, { senha: novaSenha });
+      await api('POST', `/api/admin/usuarios/${cliente.id}/resetar-senha`, { senha: novaSenha, tenant_id: tenantId });
       mostrar({ tipo: 'sucesso', titulo: 'Senha redefinida!' });
       setNovaSenha('');
     } catch (err) {

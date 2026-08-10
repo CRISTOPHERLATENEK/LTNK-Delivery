@@ -34,6 +34,9 @@ interface PedidoAdmin {
   cliente_nome: string;
   entregador_nome?: string;
   endereco_entrega: string;
+  /** Presentes só na lista agregada do painel master (um id se repete entre clientes). */
+  tenant_id?: number;
+  tenant_nome?: string;
 }
 
 interface LojaSimples { id: number; nome: string; }
@@ -221,8 +224,9 @@ export function TelaPedidosAdmin() {
 
         {/* Lista */}
         <div className="space-y-2">
+          {/* key com o cliente junto: o id 77 existe em mais de um cliente */}
           {naTela.map(p => (
-            <Card key={p.id} className={cn('transition-shadow', aberto?.id === p.id && 'ring-2 ring-primary/40')}>
+            <Card key={`${p.tenant_id ?? 0}-${p.id}`} className={cn('transition-shadow', aberto?.id === p.id && aberto?.tenant_id === p.tenant_id && 'ring-2 ring-primary/40')}>
               <CardContent className="p-0">
                 <button onClick={() => setAberto(p)} className="w-full p-4 text-left">
                   <div className="flex items-center gap-3 flex-wrap">
@@ -232,7 +236,14 @@ export function TelaPedidosAdmin() {
                     <Badge variant={STATUS_CORES[p.status] ?? 'secondary'} className="text-[10px]">
                       {ROTULO[p.status] ?? p.status}
                     </Badge>
-                    <span className="text-sm font-semibold flex-1 min-w-[120px] truncate">{p.loja_nome}</span>
+                    <span className="text-sm font-semibold flex-1 min-w-[120px] truncate">
+                      {p.loja_nome}
+                      {p.tenant_nome && (
+                        <span className="ml-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                          {p.tenant_nome}
+                        </span>
+                      )}
+                    </span>
                     <span className="text-sm text-muted-foreground truncate hidden sm:block">{p.cliente_nome}</span>
                     <span className="font-bold tabular-nums text-sm">{brl(p.total_centavos)}</span>
                     <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">{dataLocal(p.criado_em)}</span>
@@ -272,11 +283,12 @@ export function TelaPedidosAdmin() {
               {ROTULO[aberto.status] ?? aberto.status}
             </Badge>
             <span>{aberto.loja_nome}</span>
+            {aberto.tenant_nome && <span>· {aberto.tenant_nome}</span>}
             <span>· {dataLocal(aberto.criado_em)}</span>
           </>
         )}
       >
-        {aberto && <DetalhePedido id={aberto.id} />}
+        {aberto && <DetalhePedido id={aberto.id} tenantId={aberto.tenant_id} />}
       </DrawerDetalhe>
     </AdminLayout>
   );
@@ -304,10 +316,13 @@ interface DetalheResp {
   historico: { status: string; criado_em: string }[];
 }
 
-function DetalhePedido({ id }: { id: number }) {
+function DetalhePedido({ id, tenantId }: { id: number; tenantId?: number }) {
   const consulta = useQuery({
-    queryKey: ['admin-pedido-detalhe', id],
-    queryFn: () => api<DetalheResp>('GET', `/api/admin/pedidos/${id}`),
+    // O tenant entra na chave: sem ele, abrir o #77 de dois clientes
+    // diferentes reaproveitaria o cache do primeiro.
+    queryKey: ['admin-pedido-detalhe', tenantId ?? 0, id],
+    queryFn: () => api<DetalheResp>('GET',
+      `/api/admin/pedidos/${id}${tenantId ? `?tenant_id=${tenantId}` : ''}`),
   });
 
   if (consulta.isLoading) return <Skeleton className="h-40 rounded-xl" />;

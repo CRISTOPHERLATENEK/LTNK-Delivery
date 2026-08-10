@@ -3,7 +3,7 @@
  * Substitui o AppLayout genérico em todas as páginas do admin.
  */
 import { useState, type ReactNode } from 'react';
-import { NavLink, Link } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Store, Users, ShoppingBag, TrendingUp,
   Image, Palette, Shield, Crown, LogOut, Menu, X, ChevronRight, Radio, Bike, Building2, History,
@@ -13,7 +13,6 @@ import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
 import { api, encerrarSessao, sessaoUsuario, ehSuperAdmin } from '@/lib/api';
 import { ThemeToggle } from '@/components/theme-toggle';
-import { Badge } from '@/components/ui/badge';
 
 interface NavItem {
   rota: string;
