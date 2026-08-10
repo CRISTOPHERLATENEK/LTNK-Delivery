@@ -1236,7 +1236,20 @@ router.put('/configuracoes-gerais', exigirSuperAdmin, async (req, res, next) => 
     }
     // Só re-criptografa e salva se veio um valor novo não-vazio — campo em branco no form significa "não mexer".
     if (typeof req.body.wbapi_api_key === 'string' && req.body.wbapi_api_key.trim()) {
-      await upsertCentral('wbapi_api_key', criptografar(req.body.wbapi_api_key.trim()));
+      /*
+       * TIRA O RÓTULO COLADO JUNTO. Aconteceu de verdade: a chave foi salva como
+       * "X-Api-Key j9871RVMA14c7aCC0" porque quem copiou pegou a linha inteira da
+       * mensagem do fornecedor. O header saía "X-Api-Key: X-Api-Key j987..." e
+       * toda chamada dava 401 — sem nada na tela indicando o motivo.
+       *
+       * Limpar aqui é melhor que avisar: ninguém olha um campo de senha, e o
+       * erro só aparecia horas depois, na primeira mensagem que não saiu.
+       */
+      const chaveLimpa = req.body.wbapi_api_key
+        .trim()
+        .replace(/^x-api-key\s*[:=]?\s*/i, '')
+        .trim();
+      await upsertCentral('wbapi_api_key', criptografar(chaveLimpa));
     }
     if (req.body.mercadopago_modo !== undefined) {
       if (req.body.mercadopago_modo !== 'teste' && req.body.mercadopago_modo !== 'producao') {
