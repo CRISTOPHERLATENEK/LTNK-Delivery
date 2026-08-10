@@ -415,8 +415,10 @@ export function TelaConfiguracoes() {
             Suporte, integrações e backup da plataforma.
           </p>
         </div>
+        {/* A conexão do WhatsApp é renderizada DENTRO de SecaoConfiguracoesGerais,
+            logo abaixo do servidor/sessão que ela usa — e só quando há o que
+            conectar. Antes ela ficava aqui embaixo, longe da própria config. */}
         <SecaoConfiguracoesGerais />
-        <ConexaoWbapi />
         <SecaoBackup />
       </div>
     </AdminLayout>

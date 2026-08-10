@@ -181,7 +181,9 @@ function SidebarContent({ itens, pendentesLojas, superAdmin, u, onSair }: {
           <div key={item.rota}>
             <NavLink
               to={item.rota}
-              end={item.rota === '/painel-admin'}
+              // `end` no Dashboard (senão TUDO fica ativo) e em Marca, que é
+              // prefixo de /marca/landing — sem isso os dois acendiam juntos.
+              end={item.rota === '/painel-admin' || item.rota === '/painel-admin/marca'}
               className={({ isActive }) => cn(
                 'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
                 isActive
