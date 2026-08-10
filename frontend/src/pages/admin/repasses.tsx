@@ -40,7 +40,16 @@ export function TelaRepasses() {
       if (aplicados.de) params.set('de', aplicados.de);
       if (aplicados.ate) params.set('ate', aplicados.ate);
       const qs = params.toString();
-      return api<{ repasses: Repasse[] }>('GET', `/api/admin/repasses${qs ? '?' + qs : ''}`).then(r => r.repasses);
+      return api<{ repasses: Repasse[] }>('GET', `/api/admin/repasses${qs ? '?' + qs : ''}`).then(r =>
+        // SUM()/COUNT() do MySQL voltam como TEXTO — os totais abaixo usam `+`
+        // e concatenariam em vez de somar. Converte na entrada.
+        r.repasses.map(x => ({
+          ...x,
+          pedidos: Number(x.pedidos) || 0,
+          faturamento_centavos: Number(x.faturamento_centavos) || 0,
+          comissao_centavos: Number(x.comissao_centavos) || 0,
+          repasse_centavos: Number(x.repasse_centavos) || 0,
+        })));
     },
   });
 

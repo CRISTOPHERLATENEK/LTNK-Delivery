@@ -46,7 +46,14 @@ export function TelaEntregadores() {
   const [aba, setAba] = useState<Situacao | 'todos'>('todos');
   const consulta = useQuery({
     queryKey: ['admin-entregadores'],
-    queryFn: () => api<{ entregadores: Entregador[] }>('GET', '/api/admin/entregadores').then(r => r.entregadores),
+    queryFn: () => api<{ entregadores: Entregador[] }>('GET', '/api/admin/entregadores').then(r =>
+      /*
+       * SUM() do MySQL volta como TEXTO, não número.
+       * Somar isso com + concatenava em vez de somar: quatro entregadores com
+       * 0, 0, 1 e 2 entregas viravam "00012 entregas no total". Converte aqui,
+       * na entrada, pra ninguém precisar lembrar disso lá embaixo.
+       */
+      r.entregadores.map(e => ({ ...e, entregas: Number(e.entregas) || 0, ativas: Number(e.ativas) || 0 }))),
     refetchInterval: 15000,
   });
   const entregadores = consulta.data ?? [];
