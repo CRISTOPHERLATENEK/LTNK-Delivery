@@ -45,6 +45,7 @@ const TelaEntregadores = lazySeguro(() => import('@/pages/admin/entregadores').t
 const TelaTenants = lazySeguro(() => import('@/pages/admin/tenants').then(m => ({ default: m.TelaTenants })));
 const TelaAssinaturas = lazySeguro(() => import('@/pages/admin/assinaturas').then(m => ({ default: m.TelaAssinaturas })));
 const TelaAuditoria = lazySeguro(() => import('@/pages/admin/auditoria').then(m => ({ default: m.TelaAuditoria })));
+const TelaMinhaConta = lazySeguro(() => import('@/pages/admin/minha-conta').then(m => ({ default: m.TelaMinhaConta })));
 
 /** Fallback enquanto o chunk do painel baixa. */
 function CarregandoPainel() {
@@ -169,6 +170,9 @@ export default function App() {
         <Route path="/painel-admin/pedidos"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaPedidosAdmin /></Guard>} />
         <Route path="/painel-admin/banners"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaBanners /></Guard>} />
         <Route path="/painel-admin/repasses" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaRepasses /></Guard>} />
+        {/* Minha conta vale pra QUALQUER admin, não só super: trocar a própria
+            senha e resetar o próprio 2FA não é privilégio administrativo. */}
+        <Route path="/painel-admin/minha-conta" element={<Guard perfis={['admin']}><TelaMinhaConta /></Guard>} />
         <Route path="/painel-admin/auditoria" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaAuditoria /></Guard>} />
 
         {/* Admin — TelaAdmin gerencia seu próprio login */}

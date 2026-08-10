@@ -7,10 +7,11 @@ import { NavLink, Link } from 'react-router-dom';
 import {
   LayoutDashboard, Store, Users, ShoppingBag, TrendingUp,
   Image, Palette, Shield, Crown, LogOut, Menu, X, ChevronRight, Radio, Bike, Building2, History,
-  CreditCard,
+  CreditCard, UserCog,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { encerrarSessao, sessaoUsuario, ehSuperAdmin } from '@/lib/api';
+import { useQuery } from '@tanstack/react-query';
+import { api, encerrarSessao, sessaoUsuario, ehSuperAdmin } from '@/lib/api';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { Badge } from '@/components/ui/badge';
 
@@ -19,58 +20,44 @@ interface NavItem {
   icone: typeof LayoutDashboard;
   label: string;
   somenteSuper?: boolean;
-  badge?: number;
+  /** Filete separando blocos de intenção — ver comentário em ITENS. */
+  divisorDepois?: boolean;
 }
 
-interface NavGrupo {
-  titulo: string;
-  itens: NavItem[];
-}
+/*
+ * LISTA ÚNICA, não seis grupos.
+ *
+ * Metade dos grupos tinha UM item — 'Financeiro' com só Repasses, 'Operação'
+ * separada de 'Pessoas' sem que a divisão ajudasse a achar nada. Títulos de
+ * seção existem pra reduzir a busca; com um item cada, só empurram o menu pra
+ * baixo e escondem o resto atrás de rolagem.
+ *
+ * A ordem agora é por FREQUÊNCIA DE USO, e os divisores separam blocos de
+ * intenção: o dia a dia primeiro, cadastro no meio, configuração no fim.
+ */
+const ITENS: NavItem[] = [
+  { rota: '/painel-admin',              icone: LayoutDashboard, label: 'Dashboard' },
+  { rota: '/painel-admin/monitor',      icone: Radio,           label: 'Monitor', divisorDepois: true },
 
-const GRUPOS: NavGrupo[] = [
-  {
-    titulo: 'Visão geral',
-    itens: [
-      { rota: '/painel-admin',         icone: LayoutDashboard, label: 'Dashboard' },
-      { rota: '/painel-admin/monitor', icone: Radio,           label: 'Monitor' },
-    ],
-  },
-  {
-    titulo: 'Operação',
-    itens: [
-      { rota: '/painel-admin/lojas',         icone: Store,      label: 'Lojas' },
-      { rota: '/painel-admin/pedidos',       icone: ShoppingBag, label: 'Pedidos' },
-      { rota: '/painel-admin/entregadores',  icone: Bike,       label: 'Entregadores' },
-      { rota: '/painel-admin/banners',       icone: Image,      label: 'Banners' },
-    ],
-  },
-  {
-    titulo: 'Pessoas',
-    itens: [
-      { rota: '/painel-admin/lojistas', icone: Users,  label: 'Lojistas', somenteSuper: true },
-      { rota: '/painel-admin/admins',   icone: Shield, label: 'Admins',   somenteSuper: true },
-    ],
-  },
-  {
-    titulo: 'Financeiro',
-    itens: [
-      { rota: '/painel-admin/repasses', icone: TrendingUp, label: 'Repasses', somenteSuper: true },
-    ],
-  },
-  {
-    titulo: 'Configurações',
-    itens: [
-      { rota: '/painel-admin/marca',     icone: Palette, label: 'Marca',     somenteSuper: true },
-      { rota: '/painel-admin/auditoria', icone: History, label: 'Auditoria', somenteSuper: true },
-    ],
-  },
-  {
-    titulo: 'Clientes',
-    itens: [
-      { rota: '/painel-admin/assinaturas', icone: CreditCard, label: 'Assinaturas', somenteSuper: true },
-      { rota: '/painel-admin/clientes', icone: Building2, label: 'Bancos por loja', somenteSuper: true },
-    ],
-  },
+  { rota: '/painel-admin/pedidos',      icone: ShoppingBag,     label: 'Pedidos' },
+  { rota: '/painel-admin/lojas',        icone: Store,           label: 'Lojas' },
+  { rota: '/painel-admin/entregadores', icone: Bike,            label: 'Entregadores' },
+  { rota: '/painel-admin/banners',      icone: Image,           label: 'Banners', divisorDepois: true },
+
+  /*
+   * 'Clientes' é o nome do tenant em TODO lugar agora. Antes a mesma coisa
+   * aparecia como 'Tenants' no título e 'Bancos por loja' no menu — dois nomes
+   * técnicos pra algo que, do ponto de vista do negócio, é o cliente que
+   * contratou a plataforma.
+   */
+  { rota: '/painel-admin/clientes',     icone: Building2,       label: 'Clientes',    somenteSuper: true },
+  { rota: '/painel-admin/assinaturas',  icone: CreditCard,      label: 'Assinaturas', somenteSuper: true },
+  { rota: '/painel-admin/lojistas',     icone: Users,           label: 'Lojistas',    somenteSuper: true, divisorDepois: true },
+
+  { rota: '/painel-admin/repasses',     icone: TrendingUp,      label: 'Repasses',  somenteSuper: true },
+  { rota: '/painel-admin/marca',        icone: Palette,         label: 'Marca',     somenteSuper: true },
+  { rota: '/painel-admin/admins',       icone: Shield,          label: 'Admins',    somenteSuper: true },
+  { rota: '/painel-admin/auditoria',    icone: History,         label: 'Auditoria', somenteSuper: true },
 ];
 
 export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?: string }) {
@@ -78,9 +65,22 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
   const superAdmin = ehSuperAdmin();
   const u = sessaoUsuario();
 
-  const grupos = GRUPOS
-    .map(g => ({ ...g, itens: g.itens.filter(i => !i.somenteSuper || superAdmin) }))
-    .filter(g => g.itens.length > 0);
+  const itens = ITENS.filter(i => !i.somenteSuper || superAdmin);
+
+  /*
+   * LOJAS AGUARDANDO APROVAÇÃO viram um ponto âmbar no menu.
+   *
+   * É a única pendência do admin que trava um cliente do outro lado: enquanto
+   * ninguém aprova, a loja não vende. Sem o aviso, só descobria quem abrisse a
+   * tela de Lojas por acaso.
+   */
+  const pendentes = useQuery({
+    queryKey: ['admin-lojas-pendentes'],
+    queryFn: () => api<{ lojas: { status_aprovacao: string }[] }>('GET', '/api/admin/lojas')
+      .then(r => r.lojas.filter(l => l.status_aprovacao === 'pendente').length),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
 
   function sair() {
     encerrarSessao();
@@ -91,7 +91,7 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
     <div className="flex min-h-screen bg-muted/30">
       {/* ── SIDEBAR DESKTOP ── */}
       <aside className="hidden md:flex md:flex-col w-60 shrink-0 bg-zinc-900 text-zinc-100">
-        <SidebarContent grupos={grupos} superAdmin={superAdmin} u={u} onSair={sair} />
+        <SidebarContent itens={itens} pendentesLojas={pendentes.data ?? 0} superAdmin={superAdmin} u={u} onSair={sair} />
       </aside>
 
       {/* ── DRAWER MOBILE ── */}
@@ -105,7 +105,7 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
             >
               <X className="size-5" />
             </button>
-            <SidebarContent grupos={grupos} superAdmin={superAdmin} u={u} onSair={sair} />
+            <SidebarContent itens={itens} pendentesLojas={pendentes.data ?? 0} superAdmin={superAdmin} u={u} onSair={sair} />
           </aside>
         </div>
       )}
@@ -151,8 +151,9 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
   );
 }
 
-function SidebarContent({ grupos, superAdmin, u, onSair }: {
-  grupos: NavGrupo[];
+function SidebarContent({ itens, pendentesLojas, superAdmin, u, onSair }: {
+  itens: NavItem[];
+  pendentesLojas: number;
   superAdmin: boolean;
   u: ReturnType<typeof sessaoUsuario>;
   onSair: () => void;
@@ -173,33 +174,31 @@ function SidebarContent({ grupos, superAdmin, u, onSair }: {
       </div>
 
       {/* Navegação */}
-      <nav className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
-        {grupos.map(grupo => (
-          <div key={grupo.titulo} className="space-y-0.5">
-            <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500">
-              {grupo.titulo}
-            </div>
-            {grupo.itens.map(item => (
-              <NavLink
-                key={item.rota}
-                to={item.rota}
-                end={item.rota === '/painel-admin'}
-                className={({ isActive }) => cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
-                  isActive
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-zinc-400 hover:bg-white/8 hover:text-zinc-100',
-                )}
-              >
-                <item.icone className="size-4 shrink-0" />
-                <span className="flex-1">{item.label}</span>
-                {item.badge ? (
-                  <span className="flex size-5 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">
-                    {item.badge}
-                  </span>
-                ) : null}
-              </NavLink>
-            ))}
+      <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 py-4">
+        {itens.map(item => (
+          <div key={item.rota}>
+            <NavLink
+              to={item.rota}
+              end={item.rota === '/painel-admin'}
+              className={({ isActive }) => cn(
+                'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
+                isActive
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-zinc-400 hover:bg-white/8 hover:text-zinc-100',
+              )}
+            >
+              <item.icone className="size-4 shrink-0" />
+              <span className="flex-1">{item.label}</span>
+              {/* Ponto âmbar, não número: o que importa é 'tem coisa parada',
+                  e a contagem exata está na própria tela de Lojas. */}
+              {item.rota === '/painel-admin/lojas' && pendentesLojas > 0 && (
+                <span
+                  className="size-2 shrink-0 rounded-full bg-amber-500"
+                  title={`${pendentesLojas} loja(s) aguardando aprovação`}
+                />
+              )}
+            </NavLink>
+            {item.divisorDepois && <div className="my-2 border-t border-white/10" />}
           </div>
         ))}
       </nav>
@@ -215,6 +214,19 @@ function SidebarContent({ grupos, superAdmin, u, onSair }: {
             <div className="text-[11px] text-zinc-400 truncate">{u?.email}</div>
           </div>
         </div>
+        {/* MINHA CONTA sai de "Admins" e vem pro rodapé: trocar a PRÓPRIA senha
+            não é administrar os outros, e misturar as duas coisas fazia o admin
+            procurar a própria conta numa tela de gerenciar terceiros. */}
+        <NavLink
+          to="/painel-admin/minha-conta"
+          className={({ isActive }) => cn(
+            'flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
+            isActive ? 'bg-white/10 text-zinc-100' : 'text-zinc-400 hover:bg-white/8 hover:text-zinc-100',
+          )}
+        >
+          <UserCog className="size-4" />
+          Minha conta
+        </NavLink>
         <button
           onClick={onSair}
           className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-zinc-400 hover:bg-white/8 hover:text-zinc-100 transition-colors"
