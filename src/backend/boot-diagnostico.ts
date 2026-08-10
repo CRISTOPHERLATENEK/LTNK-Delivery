@@ -1,3 +1,25 @@
+/*
+ * IPv4 PRIMEIRO na resolução de nomes.
+ *
+ * O servidor ganhou IPv6 no reboot de 06/08, e o Node passa a preferir IPv6
+ * quando a máquina tem. Isso quebrou o WhatsApp em silêncio: `wbapi.deeliv.app`
+ * fica atrás do Cloudflare e responde diferente conforme a família de IP —
+ *
+ *   IPv4 → 200/401, a API de verdade
+ *   IPv6 → 403 com `cf-mitigated: challenge`, desafio de navegador
+ *
+ * O desafio é insolúvel fora de um navegador, então toda chamada morria em 403
+ * e parecia bloqueio do fornecedor. Era escolha de rota nossa.
+ *
+ * Fica no BOOT, antes de qualquer módulo: o `fetch` do Node (undici) não aceita
+ * agente customizado por requisição sem a dependência `undici`, que este
+ * projeto não tem. Preferir IPv4 é conservador — é o caminho que todos os
+ * fornecedores usados aqui atendem (Mercado Pago, ONZ, ViaCEP, geocodificação)
+ * — e reversível numa linha se algum dia a rede exigir IPv6.
+ */
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
+
 /**
  * Diagnóstico de boot — importado PRIMEIRO pelo server.ts.
  *
