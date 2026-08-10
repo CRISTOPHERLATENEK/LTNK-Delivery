@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Store, CheckCircle2, XCircle, Clock, Search, Building2, Trash2,
-  ChevronDown, TrendingUp, Receipt, Ticket, Activity,
+  ChevronDown, ChevronRight, TrendingUp, Receipt, Ticket, Activity,
   FileText, ShieldCheck, Upload, Package, Save, ChevronUp, Globe, Loader2, LogIn,
 } from 'lucide-react';
 import { AdminLayout } from './layout';
@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DrawerDetalhe } from '@/components/ui/drawer-detalhe';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, ehSuperAdmin, tokenSessao, abrirSessaoLojistaImpersonada, destinoImpersonacao } from '@/lib/api';
@@ -154,14 +155,14 @@ export function TelaLojas() {
             <p className="text-sm text-muted-foreground mt-0.5">
               {todas.length} lojas cadastradas
               {pendentes > 0 && (
-                <span className="ml-2 text-amber-600 font-semibold">· ⚠️ {pendentes} aguardando aprovação</span>
+                <span className="ml-2 font-semibold text-amber-600">· {pendentes} aguardando aprovação</span>
               )}
             </p>
           </div>
           {superAdmin && (
             <Link to="/painel-admin/clientes">
               <Button>
-                <Building2 className="size-4" /> Nova loja (via Clientes)
+                <Building2 className="size-4" /> Novo cliente
               </Button>
             </Link>
           )}
@@ -232,7 +233,7 @@ export function TelaLojas() {
                     >
                       {l.logo_url
                         ? <img src={l.logo_url} alt="" className="size-14 rounded-2xl object-cover border border-border" />
-                        : <div className="flex size-14 items-center justify-center rounded-2xl bg-muted text-2xl">🏪</div>}
+                        : <div className="flex size-14 items-center justify-center rounded-2xl bg-muted"><Store className="size-6 text-muted-foreground" /></div>}
                     </button>
 
                     {/* Info — clicável para abrir vendas */}
@@ -263,8 +264,8 @@ export function TelaLojas() {
                       )}
                       <div className="text-xs text-primary font-semibold mt-1 flex items-center gap-1">
                         <TrendingUp className="size-3" />
-                        {aberto ? 'Ocultar vendas' : 'Ver vendas'}
-                        <ChevronDown className={cn('size-3 transition-transform', aberto && 'rotate-180')} />
+                        Ver vendas e configurações
+                        <ChevronRight className="size-3" />
                       </div>
                     </button>
 
@@ -293,19 +294,33 @@ export function TelaLojas() {
                     </div>
                   </div>
 
-                  {/* Painel de vendas */}
-                  {aberto && <PainelVendas loja={l} />}
-                  {aberto && superAdmin && (
-                    <ComissaoLojaEditor loja={l} onSalvo={() => consulta.refetch()} />
-                  )}
-                  {aberto && superAdmin && (
-                    <DominioLojaEditor loja={l} onSalvo={() => consulta.refetch()} />
-                  )}
-                  {aberto && superAdmin && (
-                    <WhatsAppPermissoesEditor loja={l} onSalvo={() => consulta.refetch()} />
-                  )}
-                  {aberto && superAdmin && <FiscalLojaAdmin loja={l} />}
                 </CardContent>
+
+                {/*
+                  VENDAS E CONFIGURAÇÕES EM DRAWER.
+                  Aberto inline, este bloco tem vendas + comissão + domínio +
+                  WhatsApp + fiscal: empurrava as lojas seguintes vários écrans
+                  pra baixo, e fechar exigia rolar de volta até achar o card.
+                */}
+                <DrawerDetalhe
+                  aberto={aberto}
+                  aoFechar={() => setSelecionada(null)}
+                  titulo={l.nome}
+                  subtitulo={
+                    <>
+                      <StatusBadge status={l.status_aprovacao} />
+                      <span>{l.categoria} · {l.dono_nome}</span>
+                    </>
+                  }
+                >
+                  <div className="space-y-1">
+                    <PainelVendas loja={l} />
+                    {superAdmin && <ComissaoLojaEditor loja={l} onSalvo={() => consulta.refetch()} />}
+                    {superAdmin && <DominioLojaEditor loja={l} onSalvo={() => consulta.refetch()} />}
+                    {superAdmin && <WhatsAppPermissoesEditor loja={l} onSalvo={() => consulta.refetch()} />}
+                    {superAdmin && <FiscalLojaAdmin loja={l} />}
+                  </div>
+                </DrawerDetalhe>
               </Card>
             );
           })}
@@ -322,6 +337,19 @@ function ComissaoLojaEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void
   const [valor, setValor] = useState(loja.comissao_percentual != null ? String(loja.comissao_percentual) : '');
   const [salvando, setSalvando] = useState(false);
 
+  /*
+   * A comissão PADRÃO da plataforma como referência.
+   *
+   * O campo aceita vazio ("usa o padrão"), mas o padrão não aparecia em lugar
+   * nenhum aqui — dava pra digitar 12% sem saber que o padrão já era 12%, ou
+   * apagar o valor sem saber pra quanto a loja voltaria.
+   */
+  const padraoQ = useQuery({
+    queryKey: ['admin-comissao-padrao'],
+    queryFn: () => api<{ comissao_percentual: number }>('GET', '/api/admin/comissao').then(r => r.comissao_percentual),
+    staleTime: 5 * 60_000,
+  });
+
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
     setSalvando(true);
@@ -337,17 +365,25 @@ function ComissaoLojaEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void
   }
 
   return (
-    <form onSubmit={salvar} className="mt-3 flex items-end gap-2 border-t pt-3">
-      <div className="flex-1 max-w-xs">
-        <Label>Comissão desta loja (%)</Label>
-        <Input
-          type="number" min="0" max="50" step="0.5"
-          value={valor}
-          onChange={e => setValor(e.target.value)}
-          placeholder="Vazio = usa a comissão padrão"
-        />
+    <form onSubmit={salvar} className="mt-3 border-t pt-3">
+      <div className="flex items-end gap-2">
+        <div className="flex-1 max-w-xs">
+          <Label>Comissão desta loja (%)</Label>
+          <Input
+            type="number" min="0" max="50" step="0.5"
+            value={valor}
+            onChange={e => setValor(e.target.value)}
+            placeholder="Vazio = usa a comissão padrão"
+          />
+        </div>
+        <Button type="submit" size="sm" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
       </div>
-      <Button type="submit" size="sm" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
+      {padraoQ.data != null && (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          Padrão da plataforma: <b className="text-foreground">{padraoQ.data}%</b>
+          {valor === '' ? ' — é o que esta loja usa hoje.' : ' — deixe vazio pra voltar a usá-lo.'}
+        </p>
+      )}
     </form>
   );
 }
@@ -705,7 +741,9 @@ function FiscalLojaAdmin({ loja }: { loja: Loja }) {
                 {cert?.instalado ? (
                   <div className={cn('rounded-lg border p-2 text-xs flex items-center gap-2', venceProximo ? 'border-amber-500/50 bg-amber-500/5 text-amber-700' : 'border-green-500/40 bg-green-500/5 text-green-700')}>
                     <CheckCircle2 className="size-3.5 shrink-0" />
-                    <span>{cert.titular} · válido até {validadeFmt}{venceProximo && ' ⚠️'}</span>
+                    {/* "Vence em breve" por escrito, não só pela cor âmbar —
+                        quem não distingue as duas cores perdia o aviso. */}
+                    <span>{cert.titular} · válido até {validadeFmt}{venceProximo && ' · vence em breve'}</span>
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground">Nenhum certificado instalado.</p>

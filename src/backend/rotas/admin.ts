@@ -388,6 +388,63 @@ router.get('/pedidos', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * Mesma consulta da lista, em CSV — pros mesmos filtros da tela.
+ *
+ * DECLARADO ANTES de `/pedidos/:id`: o Express casa na ordem, e ali "csv"
+ * entraria como id e devolveria 404.
+ *
+ * Sem o LIMIT 500 da lista: exportar é justamente o caso em que se quer o
+ * período inteiro, e quem exporta já escolheu as datas.
+ */
+router.get('/pedidos/csv', async (req, res, next) => {
+  try {
+    let sql = `SELECT p.id, p.status, p.forma_pagamento, p.criado_em,
+                      p.subtotal_centavos, p.taxa_entrega_centavos, p.total_centavos,
+                      p.comissao_centavos, p.endereco_entrega,
+                      l.nome AS loja_nome, c.nome AS cliente_nome, e.nome AS entregador_nome
+                 FROM pedidos p
+                 JOIN lojas l ON l.id = p.loja_id
+                 JOIN usuarios c ON c.id = p.cliente_id
+                 LEFT JOIN usuarios e ON e.id = p.entregador_id
+                WHERE 1 = 1`;
+    const params: (string | number)[] = [];
+    if (req.query.loja_id) { sql += ' AND p.loja_id = ?'; params.push(String(req.query.loja_id)); }
+    if (req.query.status)  { sql += ' AND p.status = ?'; params.push(textoLimpo(req.query.status, 20)); }
+    if (req.query.de)      { sql += ' AND p.criado_em >= ?'; params.push(textoLimpo(req.query.de, 10) + 'T00:00:00.000Z'); }
+    if (req.query.ate)     { sql += ' AND p.criado_em <= ?'; params.push(textoLimpo(req.query.ate, 10) + 'T23:59:59.999Z'); }
+    sql += ' ORDER BY p.id DESC';
+
+    const linhas = await db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+    const reais = (c: unknown) => ((Number(c) || 0) / 100).toFixed(2).replace('.', ',');
+    const esc = (s: unknown) => `"${String(s ?? '').replace(/"/g, '""')}"`;
+    const cabecalho = [
+      'Pedido', 'Data', 'Status', 'Loja', 'Cliente', 'Entregador', 'Pagamento',
+      'Subtotal (R$)', 'Entrega (R$)', 'Total (R$)', 'Comissao (R$)', 'Endereco',
+    ];
+    const corpo = linhas.map(p => [
+      p.id,
+      esc(p.criado_em),
+      esc(p.status),
+      esc(p.loja_nome),
+      esc(p.cliente_nome),
+      esc(p.entregador_nome),
+      esc(p.forma_pagamento),
+      esc(reais(p.subtotal_centavos)),
+      esc(reais(p.taxa_entrega_centavos)),
+      esc(reais(p.total_centavos)),
+      esc(reais(p.comissao_centavos)),
+      esc(p.endereco_entrega),
+    ].join(';'));
+    // BOM + ';' + CRLF: é o que o Excel em pt-BR abre sem pedir importação.
+    const csv = '﻿' + [cabecalho.join(';'), ...corpo].join('\r\n');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="pedidos-${new Date().toISOString().slice(0, 10)}.csv"`);
+    res.send(csv);
+  } catch (e) { next(e); }
+});
+
 /** Detalhe de um pedido (itens + linha do tempo) para o admin. */
 router.get('/pedidos/:id', async (req, res, next) => {
   try {

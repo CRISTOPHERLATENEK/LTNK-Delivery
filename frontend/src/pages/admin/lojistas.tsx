@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Store, Users, ShoppingBag, TrendingUp,
-  ChevronDown, ChevronUp, Plus, Mail, Phone, Search, Lock, Unlock, Pencil, X, KeyRound,
+  ChevronRight, Plus, Mail, Phone, Search, Lock, Unlock, Pencil, X, KeyRound,
 } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DrawerDetalhe } from '@/components/ui/drawer-detalhe';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError } from '@/lib/api';
@@ -175,7 +176,7 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
           <div className="shrink-0">
             {l.logo_url
               ? <img src={l.logo_url} alt="" className="size-14 rounded-2xl object-cover border border-border" />
-              : <div className="flex size-14 items-center justify-center rounded-2xl bg-muted text-2xl">🏪</div>
+              : <div className="flex size-14 items-center justify-center rounded-2xl bg-muted"><Store className="size-6 text-muted-foreground" /></div>
             }
           </div>
           <div className="flex-1 min-w-0">
@@ -206,15 +207,35 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
           </Button>
           <button
             onClick={onToggle}
+            title="Ver clientes e pedidos"
             className="shrink-0 flex size-9 items-center justify-center rounded-xl hover:bg-accent text-muted-foreground transition-colors"
           >
-            {expandido ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+            <ChevronRight className="size-4" />
           </button>
         </div>
 
-        {/* Drill-down */}
-        {expandido && (
-          <div className="mt-5 space-y-5 border-t pt-5">
+      </CardContent>
+
+      {/*
+        DRILL-DOWN EM DRAWER, não mais inline.
+        Aberto no lugar, ele empurrava os lojistas seguintes pra fora da tela —
+        e como carrega clientes E pedidos, o empurrão era grande. Agora a lista
+        fica parada atrás e o ESC fecha.
+      */}
+      <DrawerDetalhe
+        aberto={expandido}
+        aoFechar={onToggle}
+        titulo={l.loja_nome}
+        subtitulo={
+          <>
+            <Badge variant={l.status_aprovacao === 'aprovada' ? 'success' : l.status_aprovacao === 'suspensa' ? 'danger' : 'warning'} className="text-[10px]">
+              {l.status_aprovacao}
+            </Badge>
+            <span>{l.dono_nome} · {l.dono_email}</span>
+          </>
+        }
+      >
+          <div className="space-y-5">
             {/* Clientes */}
             <div>
               <div className="flex items-center justify-between mb-3">
@@ -289,8 +310,7 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
               </div>
             </div>
           </div>
-        )}
-      </CardContent>
+      </DrawerDetalhe>
     </Card>
   );
 }

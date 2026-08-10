@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ShoppingBag, Filter, X, ChevronDown, MapPin, Bike, CreditCard, Phone, Check } from 'lucide-react';
+import { ShoppingBag, X, ChevronRight, MapPin, Bike, CreditCard, Phone, Check, Download } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -9,7 +9,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
-import { api } from '@/lib/api';
+import { DrawerDetalhe } from '@/components/ui/drawer-detalhe';
+import { useToast } from '@/components/ui/toast';
+import { api, tokenSessao } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -39,11 +41,28 @@ interface LojaSimples { id: number; nome: string; }
 const STATUS_LISTA = ['pendente', 'aceito', 'preparando', 'pronto', 'em_entrega', 'entregue', 'cancelado', 'recusado'];
 const ATIVOS = ['pendente', 'aceito', 'preparando', 'pronto', 'em_entrega'];
 
+interface Filtros { status: string; loja_id: string; de: string; ate: string; }
+
+/** Monta a query string dos filtros — a lista e o CSV usam exatamente a mesma. */
+function queryFiltros(f: Filtros): string {
+  const params = new URLSearchParams();
+  if (f.status) params.set('status', f.status);
+  if (f.loja_id) params.set('loja_id', f.loja_id);
+  if (f.de) params.set('de', f.de);
+  if (f.ate) params.set('ate', f.ate);
+  return params.toString();
+}
+
+/** Quantos pedidos a lista mostra antes do "carregar mais". */
+const PAGINA = 50;
+
 export function TelaPedidosAdmin() {
+  const { mostrar } = useToast();
   const [filtros, setFiltros] = useState({ status: '', loja_id: '', de: '', ate: '' });
-  const [aplicados, setAplicados] = useState(filtros);
   const [aoVivo, setAoVivo] = useState(true);
-  const [aberto, setAberto] = useState<number | null>(null);
+  const [aberto, setAberto] = useState<PedidoAdmin | null>(null);
+  const [visiveis, setVisiveis] = useState(PAGINA);
+  const [exportando, setExportando] = useState(false);
 
   const lojas = useQuery({
     queryKey: ['admin-lojas-simples'],
@@ -51,33 +70,57 @@ export function TelaPedidosAdmin() {
   });
 
   const consulta = useQuery({
-    queryKey: ['admin-pedidos', aplicados],
+    queryKey: ['admin-pedidos', filtros],
     queryFn: () => {
-      const params = new URLSearchParams();
-      if (aplicados.status) params.set('status', aplicados.status);
-      if (aplicados.loja_id) params.set('loja_id', aplicados.loja_id);
-      if (aplicados.de) params.set('de', aplicados.de);
-      if (aplicados.ate) params.set('ate', aplicados.ate);
-      const qs = params.toString();
+      const qs = queryFiltros(filtros);
       return api<{ pedidos: PedidoAdmin[] }>('GET', `/api/admin/pedidos${qs ? '?' + qs : ''}`).then(r => r.pedidos);
     },
     refetchInterval: aoVivo ? 10_000 : false,
   });
 
-  function aplicar(e: React.FormEvent) {
-    e.preventDefault();
-    setAplicados({ ...filtros });
+  /*
+   * FILTRO APLICA SOZINHO ao mudar — não existe mais botão "Filtrar".
+   *
+   * Eram só selects e datas: escolher "Cancelados" e a tela não mudar até
+   * apertar um segundo botão parecia bug. O "Limpar" fica, porque zerar quatro
+   * campos na mão é que dá trabalho.
+   */
+  function mudar(campo: keyof typeof filtros, valor: string) {
+    setFiltros(f => ({ ...f, [campo]: valor }));
+    setVisiveis(PAGINA); // filtro novo, lista volta pro começo
   }
   function limpar() {
-    const vazio = { status: '', loja_id: '', de: '', ate: '' };
-    setFiltros(vazio);
-    setAplicados(vazio);
+    setFiltros({ status: '', loja_id: '', de: '', ate: '' });
+    setVisiveis(PAGINA);
+  }
+
+  async function exportarCsv() {
+    setExportando(true);
+    try {
+      const qs = queryFiltros(filtros);
+      const resp = await fetch(`/api/admin/pedidos/csv${qs ? '?' + qs : ''}`, {
+        headers: { Authorization: `Bearer ${tokenSessao('admin')}` },
+      });
+      if (!resp.ok) throw new Error('Falha ao gerar o CSV.');
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pedidos-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      mostrar({ tipo: 'erro', titulo: err instanceof Error ? err.message : 'Não foi possível exportar.' });
+    } finally {
+      setExportando(false);
+    }
   }
 
   const pedidos = consulta.data ?? [];
   const faturamento = pedidos.filter(p => p.status === 'entregue').reduce((s, p) => s + p.total_centavos, 0);
   const emAndamento = pedidos.filter(p => ATIVOS.includes(p.status)).length;
-  const temFiltros = aplicados.status || aplicados.loja_id || aplicados.de || aplicados.ate;
+  const temFiltros = filtros.status || filtros.loja_id || filtros.de || filtros.ate;
+  const naTela = pedidos.slice(0, visiveis);
 
   return (
     <AdminLayout titulo="Pedidos">
@@ -91,16 +134,21 @@ export function TelaPedidosAdmin() {
               {pedidos.length} pedido{pedidos.length !== 1 ? 's' : ''} na visão atual
             </p>
           </div>
-          <button
-            onClick={() => setAoVivo(v => !v)}
-            className={cn(
-              'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
-              aoVivo ? 'bg-emerald-500/10 text-emerald-600' : 'bg-muted text-muted-foreground',
-            )}
-          >
-            <span className={cn('size-2 rounded-full', aoVivo ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground')} />
-            {aoVivo ? 'Ao vivo' : 'Pausado'}
-          </button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={exportarCsv} disabled={exportando || pedidos.length === 0}>
+              <Download className="size-3.5" /> {exportando ? 'Gerando…' : 'Exportar CSV'}
+            </Button>
+            <button
+              onClick={() => setAoVivo(v => !v)}
+              className={cn(
+                'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
+                aoVivo ? 'bg-emerald-500/10 text-emerald-600' : 'bg-muted text-muted-foreground',
+              )}
+            >
+              <span className={cn('size-2 rounded-full', aoVivo ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground')} />
+              {aoVivo ? 'Ao vivo' : 'Pausado'}
+            </button>
+          </div>
         </div>
 
         {/* KPIs rápidos */}
@@ -113,12 +161,12 @@ export function TelaPedidosAdmin() {
         {/* Filtros */}
         <Card>
           <CardContent className="p-4">
-            <form onSubmit={aplicar} className="grid grid-cols-2 sm:grid-cols-5 gap-3 items-end">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 items-end">
               <div className="col-span-2 sm:col-span-1">
                 <Label>Loja</Label>
                 <select
                   value={filtros.loja_id}
-                  onChange={e => setFiltros(f => ({ ...f, loja_id: e.target.value }))}
+                  onChange={e => mudar('loja_id', e.target.value)}
                   className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm"
                 >
                   <option value="">Todas</option>
@@ -129,7 +177,7 @@ export function TelaPedidosAdmin() {
                 <Label>Status</Label>
                 <select
                   value={filtros.status}
-                  onChange={e => setFiltros(f => ({ ...f, status: e.target.value }))}
+                  onChange={e => mudar('status', e.target.value)}
                   className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm"
                 >
                   <option value="">Todos</option>
@@ -138,19 +186,22 @@ export function TelaPedidosAdmin() {
               </div>
               <div>
                 <Label>De</Label>
-                <Input type="date" value={filtros.de} onChange={e => setFiltros(f => ({ ...f, de: e.target.value }))} />
+                <Input type="date" value={filtros.de} onChange={e => mudar('de', e.target.value)} />
               </div>
               <div>
                 <Label>Até</Label>
-                <Input type="date" value={filtros.ate} onChange={e => setFiltros(f => ({ ...f, ate: e.target.value }))} />
+                <Input type="date" value={filtros.ate} onChange={e => mudar('ate', e.target.value)} />
               </div>
-              <div className="flex gap-2 col-span-2 sm:col-span-1">
-                <Button type="submit" className="flex-1"><Filter className="size-3.5" /> Filtrar</Button>
-                {temFiltros && (
-                  <Button type="button" variant="ghost" size="icon" onClick={limpar}><X className="size-4" /></Button>
+              <div className="col-span-2 sm:col-span-1">
+                {temFiltros ? (
+                  <Button type="button" variant="outline" className="w-full" onClick={limpar}>
+                    <X className="size-3.5" /> Limpar filtros
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Os filtros aplicam ao escolher.</p>
                 )}
               </div>
-            </form>
+            </div>
           </CardContent>
         </Card>
 
@@ -170,13 +221,10 @@ export function TelaPedidosAdmin() {
 
         {/* Lista */}
         <div className="space-y-2">
-          {pedidos.map(p => (
-            <Card key={p.id} className={cn('transition-shadow', aberto === p.id && 'ring-2 ring-primary/40')}>
+          {naTela.map(p => (
+            <Card key={p.id} className={cn('transition-shadow', aberto?.id === p.id && 'ring-2 ring-primary/40')}>
               <CardContent className="p-0">
-                <button
-                  onClick={() => setAberto(aberto === p.id ? null : p.id)}
-                  className="w-full p-4 text-left"
-                >
+                <button onClick={() => setAberto(p)} className="w-full p-4 text-left">
                   <div className="flex items-center gap-3 flex-wrap">
                     <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
                       #{String(p.id).padStart(4, '0')}
@@ -188,15 +236,48 @@ export function TelaPedidosAdmin() {
                     <span className="text-sm text-muted-foreground truncate hidden sm:block">{p.cliente_nome}</span>
                     <span className="font-bold tabular-nums text-sm">{brl(p.total_centavos)}</span>
                     <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">{dataLocal(p.criado_em)}</span>
-                    <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', aberto === p.id && 'rotate-180')} />
+                    <ChevronRight className="size-4 text-muted-foreground" />
                   </div>
                 </button>
-                {aberto === p.id && <DetalhePedido id={p.id} />}
               </CardContent>
             </Card>
           ))}
         </div>
+
+        {/*
+          CARREGAR MAIS em vez de paginação numerada: a lista já vem ordenada
+          por id decrescente e quem abre esta tela quer os recentes — trocar de
+          "página" perderia esse fio. O backend corta em 500.
+        */}
+        {pedidos.length > naTela.length && (
+          <div className="flex flex-col items-center gap-1.5 pt-1">
+            <Button variant="outline" onClick={() => setVisiveis(v => v + PAGINA)}>
+              Carregar mais {Math.min(PAGINA, pedidos.length - naTela.length)}
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              Mostrando {naTela.length} de {pedidos.length}
+              {pedidos.length === 500 && ' (limite da consulta — filtre por data pra ver períodos maiores)'}
+            </span>
+          </div>
+        )}
       </div>
+
+      <DrawerDetalhe
+        aberto={aberto !== null}
+        aoFechar={() => setAberto(null)}
+        titulo={aberto ? `Pedido #${String(aberto.id).padStart(4, '0')}` : ''}
+        subtitulo={aberto && (
+          <>
+            <Badge variant={STATUS_CORES[aberto.status] ?? 'secondary'} className="text-[10px]">
+              {ROTULO[aberto.status] ?? aberto.status}
+            </Badge>
+            <span>{aberto.loja_nome}</span>
+            <span>· {dataLocal(aberto.criado_em)}</span>
+          </>
+        )}
+      >
+        {aberto && <DetalhePedido id={aberto.id} />}
+      </DrawerDetalhe>
     </AdminLayout>
   );
 }
@@ -229,14 +310,16 @@ function DetalhePedido({ id }: { id: number }) {
     queryFn: () => api<DetalheResp>('GET', `/api/admin/pedidos/${id}`),
   });
 
-  if (consulta.isLoading) return <div className="px-4 pb-4"><Skeleton className="h-32 rounded-xl" /></div>;
+  if (consulta.isLoading) return <Skeleton className="h-40 rounded-xl" />;
   if (!consulta.data) return null;
   const { pedido, itens, historico } = consulta.data;
   const pagamento = pedido.forma_pagamento === 'pix' ? 'Pix'
     : pedido.forma_pagamento === 'dinheiro' ? 'Dinheiro' : 'Cartão na entrega';
 
   return (
-    <div className="px-4 pb-4 border-t border-border pt-4 grid gap-4 sm:grid-cols-2">
+    // Uma coluna: no drawer de 640px, duas colunas espremiam o endereço e a
+    // lista de itens — que é justamente o que se vem conferir aqui.
+    <div className="space-y-5">
       {/* Itens */}
       <div>
         <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Itens</h4>
@@ -266,7 +349,11 @@ function DetalhePedido({ id }: { id: number }) {
           <div className="flex items-start gap-2"><MapPin className="size-4 mt-0.5 shrink-0 text-primary" /><span>{pedido.endereco_entrega}</span></div>
           {pedido.cliente_telefone && <div className="flex items-start gap-2"><Phone className="size-4 mt-0.5 shrink-0 text-primary" /><span>{pedido.cliente_nome} · {pedido.cliente_telefone}</span></div>}
           {pedido.entregador_nome && <div className="flex items-start gap-2"><Bike className="size-4 mt-0.5 shrink-0 text-primary" /><span>{pedido.entregador_nome}</span></div>}
-          {pedido.observacoes && <div className="rounded-lg bg-blue-500/10 px-2.5 py-1.5 text-blue-700 dark:text-blue-300 text-xs">📝 {pedido.observacoes}</div>}
+          {pedido.observacoes && (
+            <div className="rounded-lg border border-border bg-muted px-2.5 py-1.5 text-xs text-foreground">
+              <span className="font-semibold">Observação: </span>{pedido.observacoes}
+            </div>
+          )}
         </div>
         <div>
           <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Linha do tempo</h4>

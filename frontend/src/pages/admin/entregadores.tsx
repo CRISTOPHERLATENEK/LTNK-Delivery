@@ -1,12 +1,15 @@
 /**
  * Entregadores — visão da plataforma: métricas e bloqueio/desbloqueio.
  */
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Bike, Phone, Mail, Ban, CheckCircle2 } from 'lucide-react';
+import { Bike, Phone, Mail, Ban, CheckCircle2, Search } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
@@ -24,9 +27,20 @@ interface Entregador {
   criado_em: string;
 }
 
+type Situacao = 'disponiveis' | 'em_rota' | 'bloqueados';
+
+const ABAS: Array<{ chave: Situacao | 'todos'; rotulo: string }> = [
+  { chave: 'todos',       rotulo: 'Todos' },
+  { chave: 'disponiveis', rotulo: 'Disponíveis' },
+  { chave: 'em_rota',     rotulo: 'Em rota' },
+  { chave: 'bloqueados',  rotulo: 'Bloqueados' },
+];
+
 export function TelaEntregadores() {
   const { mostrar } = useToast();
   const confirmar = useConfirm();
+  const [termo, setTermo] = useState('');
+  const [aba, setAba] = useState<Situacao | 'todos'>('todos');
   const consulta = useQuery({
     queryKey: ['admin-entregadores'],
     queryFn: () => api<{ entregadores: Entregador[] }>('GET', '/api/admin/entregadores').then(r => r.entregadores),
@@ -49,6 +63,28 @@ export function TelaEntregadores() {
   const totalEntregas = entregadores.reduce((s, e) => s + e.entregas, 0);
   const emRota = entregadores.reduce((s, e) => s + e.ativas, 0);
 
+  /*
+   * A situação de cada entregador é derivada, não é coluna: bloqueado vence
+   * tudo, senão ter entrega ativa quer dizer que está em rota. É a mesma regra
+   * do badge da linha — calculada uma vez só pra badge e chip não divergirem.
+   */
+  const situacao = (e: Entregador): Situacao =>
+    e.bloqueado ? 'bloqueados' : e.ativas > 0 ? 'em_rota' : 'disponiveis';
+
+  const busca = termo.trim().toLowerCase();
+  const filtrados = entregadores.filter(e => {
+    if (aba !== 'todos' && situacao(e) !== aba) return false;
+    if (!busca) return true;
+    return `${e.nome} ${e.email} ${e.telefone ?? ''}`.toLowerCase().includes(busca);
+  });
+
+  const contagem: Record<Situacao | 'todos', number> = {
+    todos: entregadores.length,
+    disponiveis: entregadores.filter(e => situacao(e) === 'disponiveis').length,
+    em_rota: entregadores.filter(e => situacao(e) === 'em_rota').length,
+    bloqueados: entregadores.filter(e => situacao(e) === 'bloqueados').length,
+  };
+
   return (
     <AdminLayout titulo="Entregadores">
       <div className="space-y-5 max-w-4xl mx-auto">
@@ -59,6 +95,42 @@ export function TelaEntregadores() {
           <p className="text-sm text-muted-foreground mt-0.5">
             {entregadores.length} cadastrados · {emRota} em rota agora · {totalEntregas} entregas no total
           </p>
+        </div>
+
+        {/* Busca + chips de situação */}
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="pl-9"
+              placeholder="Buscar por nome, e-mail ou telefone…"
+              value={termo}
+              onChange={ev => setTermo(ev.target.value)}
+            />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {ABAS.map(a => (
+              <button
+                key={a.chave}
+                type="button"
+                onClick={() => setAba(a.chave)}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
+                  aba === a.chave
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border text-muted-foreground hover:bg-accent',
+                )}
+              >
+                {a.rotulo}
+                <span className={cn(
+                  'rounded-full px-1.5 tabular-nums',
+                  aba === a.chave ? 'bg-primary-foreground/20' : 'bg-muted',
+                )}>
+                  {contagem[a.chave]}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {consulta.isLoading && (
@@ -75,8 +147,15 @@ export function TelaEntregadores() {
           </CardContent></Card>
         )}
 
+        {/* Filtro não achou nada — diferente de "não há entregadores" */}
+        {!consulta.isLoading && entregadores.length > 0 && filtrados.length === 0 && (
+          <Card><CardContent className="p-10 text-center text-muted-foreground">
+            Nenhum entregador com esses filtros.
+          </CardContent></Card>
+        )}
+
         <div className="space-y-2">
-          {entregadores.map(e => (
+          {filtrados.map(e => (
             <Card key={e.id} className={e.bloqueado ? 'opacity-60' : ''}>
               <CardContent className="p-4 flex items-center gap-4 flex-wrap">
                 <div className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary font-bold shrink-0">
