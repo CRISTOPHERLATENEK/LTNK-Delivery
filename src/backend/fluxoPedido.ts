@@ -70,6 +70,22 @@ export async function transicionarStatus(
   const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as Pedido | undefined;
   if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
 
+  /*
+   * JÁ ESTÁ NO STATUS PEDIDO = sucesso, não conflito.
+   *
+   * Duplo clique em "Marcar como pronto", ou o painel aberto em duas abas: o
+   * primeiro clique muda o status e o segundo levava 409 na cara do lojista —
+   * um erro para uma ação que ALCANÇOU o que ele queria. Ele via "Transição
+   * inválida" e ficava sem saber se funcionou.
+   *
+   * Não afrouxa a máquina de estados: só reconhece que ir de "pronto" para
+   * "pronto" é chegar onde já se está. Transição de verdade inválida
+   * (pendente → entregue) continua sendo recusada abaixo.
+   */
+  if (pedido.status === novoStatus) {
+    return pedido as Pedido & Record<string, unknown>;
+  }
+
   const permitidos = TRANSICOES[pedido.status];
   if (!permitidos.includes(novoStatus)) {
     throw erroHttp(409,
