@@ -214,7 +214,8 @@ export function TelaRepasses() {
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5 font-semibold">
                       {r.loja_nome}
-                      {r.tenant_nome && (
+                      {/* Só quando acrescenta informação — ver comentário igual em Pedidos. */}
+                      {r.tenant_nome && r.tenant_nome !== r.loja_nome && (
                         <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">{r.tenant_nome}</span>
                       )}
                     </div>

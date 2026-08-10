@@ -238,7 +238,9 @@ export function TelaPedidosAdmin() {
                     </Badge>
                     <span className="text-sm font-semibold flex-1 min-w-[120px] truncate">
                       {p.loja_nome}
-                      {p.tenant_nome && (
+                      {/* A etiqueta existe pra desambiguar. Quando o cliente da
+                          plataforma se chama igual à loja, ela só repetiria o nome. */}
+                      {p.tenant_nome && p.tenant_nome !== p.loja_nome && (
                         <span className="ml-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
                           {p.tenant_nome}
                         </span>
@@ -283,7 +285,7 @@ export function TelaPedidosAdmin() {
               {ROTULO[aberto.status] ?? aberto.status}
             </Badge>
             <span>{aberto.loja_nome}</span>
-            {aberto.tenant_nome && <span>· {aberto.tenant_nome}</span>}
+            {aberto.tenant_nome && aberto.tenant_nome !== aberto.loja_nome && <span>· {aberto.tenant_nome}</span>}
             <span>· {dataLocal(aberto.criado_em)}</span>
           </>
         )}
