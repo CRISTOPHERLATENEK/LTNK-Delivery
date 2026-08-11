@@ -24,7 +24,7 @@ import type { Produto } from '@/types';
 const FORM_VAZIO = {
   nome: '', descricao: '', categoria: '', subcategoria: '',
   preco: '', preco_promocional: '', foto_url: '',
-  disponivel: true, destaque: false, serve_pessoas: '',
+  disponivel: true, disponivel_pdv: true, destaque: false, serve_pessoas: '',
   vendido_por: 'un' as 'un' | 'kg', codigo_barras: '',
   controla_estoque: false, estoque: '',
   // Dados fiscais (NFC-e) — mesmos valores padrão usados pelo backend ao
@@ -36,6 +36,23 @@ type FormProduto = typeof FORM_VAZIO;
 
 const CHAVE_DENSIDADE = 'lojista:produtos:densidade';
 type Densidade = 'confortavel' | 'compacta';
+
+/** Vende em algum canal? É o que o interruptor da lista liga e desliga. */
+function ehVendido(p: { disponivel?: number | null; disponivel_pdv?: number | null }): boolean {
+  return !!p.disponivel || !!p.disponivel_pdv;
+}
+
+/**
+ * Rótulo do estado de venda. Com dois canais, "À venda"/"Pausado" deixou de
+ * bastar: um item vendido só no balcão apareceria como "Pausado", o que é
+ * mentira — e o lojista iria procurar o problema onde não estava.
+ */
+function rotuloVenda(p: { disponivel?: number | null; disponivel_pdv?: number | null }): string {
+  if (p.disponivel && p.disponivel_pdv) return 'À venda';
+  if (p.disponivel) return 'Só cardápio';
+  if (p.disponivel_pdv) return 'Só PDV';
+  return 'Pausado';
+}
 
 interface OpcaoItem {
   id: number;
@@ -196,6 +213,7 @@ export function ProdutosLoja() {
         ? String((p.preco_promocional_centavos / 100).toFixed(2)) : '',
       foto_url: p.foto_url || '',
       disponivel: !!p.disponivel,
+      disponivel_pdv: !!p.disponivel_pdv,
       destaque: !!p.destaque,
       serve_pessoas: p.serve_pessoas ? String(p.serve_pessoas) : '',
       vendido_por: p.vendido_por === 'kg' ? 'kg' : 'un',
@@ -232,6 +250,7 @@ export function ProdutosLoja() {
       preco_promocional: form.preco_promocional ? Number(form.preco_promocional) : undefined,
       foto_url: form.foto_url,
       disponivel: form.disponivel,
+      disponivel_pdv: form.disponivel_pdv,
       destaque: form.destaque,
       serve_pessoas: form.serve_pessoas ? Number(form.serve_pessoas) : undefined,
       vendido_por: form.vendido_por,
@@ -310,7 +329,14 @@ export function ProdutosLoja() {
 
   async function alternarDisponivel(p: Produto) {
     try {
-      await api('PUT', `/api/lojista/produtos/${p.id}`, { disponivel: !p.disponivel });
+      /*
+        O interruptor da LISTA é "pausar/voltar a vender", e vale pros dois
+        canais. Separar cardápio de PDV é decisão item a item, e se faz no
+        editor — aqui, um item pausado no cardápio mas vendendo no balcão
+        viraria um estado que o interruptor não consegue nem representar.
+      */
+      const ligar = !ehVendido(p);
+      await api('PUT', `/api/lojista/produtos/${p.id}`, { disponivel: ligar, disponivel_pdv: ligar });
       qc.invalidateQueries({ queryKey: ['lojista-produtos'] });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
@@ -382,7 +408,7 @@ export function ProdutosLoja() {
     return acc;
   }, {});
 
-  const disponiveis = todos.filter(p => p.disponivel).length;
+  const disponiveis = todos.filter(ehVendido).length;
 
   const categoriasExistentes = [...new Set(todos.map(p => p.categoria).filter(Boolean))].sort() as string[];
   const subcategoriasDaCategoria = [...new Set(
@@ -628,12 +654,32 @@ export function ProdutosLoja() {
                   */}
                   <RotuloSecao>Disponibilidade</RotuloSecao>
                   <div className="-mx-1 space-y-1">
+                    {/*
+                      CARDÁPIO E PDV SÃO DOIS INTERRUPTORES, não um.
+                      Eram a mesma chave: pausar um item no delivery tirava ele
+                      também do balcão. Mas as duas coisas se decidem por
+                      motivos diferentes — o prato que só sai no salão, o combo
+                      de entrega que não faz sentido no balcão, o item que
+                      acabou pro delivery mas ainda dá pra vender pra quem está
+                      na loja.
+                    */}
                     <LinhaInterruptor
-                      titulo="Disponível para venda"
-                      descricao="Aparece no cardápio e no PDV"
+                      titulo="Vender no cardápio"
+                      descricao="Aparece pro cliente no delivery e na retirada"
                       ativo={form.disponivel}
                       onAlternar={() => setForm(f => ({ ...f, disponivel: !f.disponivel }))}
                     />
+                    <LinhaInterruptor
+                      titulo="Vender no PDV"
+                      descricao="Aparece na tela de venda no balcão"
+                      ativo={form.disponivel_pdv}
+                      onAlternar={() => setForm(f => ({ ...f, disponivel_pdv: !f.disponivel_pdv }))}
+                    />
+                    {!form.disponivel && !form.disponivel_pdv && (
+                      <p className="px-1 pb-1 text-[12.5px] text-amber-600">
+                        Com os dois desligados o produto fica pausado — não vende em lugar nenhum.
+                      </p>
+                    )}
                     <LinhaInterruptor
                       titulo="Destaque"
                       descricao="Aparece no topo do cardápio"
@@ -1282,7 +1328,7 @@ function CardProduto({
         // forte juntas é o que faz card parecer "caixa dentro de caixa".
         'group rounded-[18px] border border-border bg-card shadow-[0_1px_2px_rgba(28,25,23,0.04)] transition-all duration-[180ms]',
         'hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-20px_rgba(28,25,23,0.25)]',
-        !p.disponivel && 'opacity-70',
+        !ehVendido(p) && 'opacity-70',
         selecionado && 'ring-2 ring-primary',
         modoSelecao && 'cursor-pointer',
       )}
@@ -1364,17 +1410,17 @@ function CardProduto({
             onClick={onAlternarDisponivel}
             className="flex items-center gap-2.5"
             role="switch"
-            aria-checked={!!p.disponivel}
-            aria-label={p.disponivel ? 'Pausar produto' : 'Colocar à venda'}
+            aria-checked={ehVendido(p)}
+            aria-label={ehVendido(p) ? 'Pausar produto' : 'Colocar à venda'}
           >
             <span className={cn('relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors',
-              p.disponivel ? 'bg-primary' : 'bg-muted-foreground/30')}>
+              ehVendido(p) ? 'bg-primary' : 'bg-muted-foreground/30')}>
               <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-all',
-                p.disponivel ? 'left-[19px]' : 'left-[3px]')} />
+                ehVendido(p) ? 'left-[19px]' : 'left-[3px]')} />
             </span>
             <span className={cn('text-[12.5px] font-semibold',
-              p.disponivel ? 'text-foreground' : 'text-muted-foreground')}>
-              {p.disponivel ? 'À venda' : 'Pausado'}
+              ehVendido(p) ? 'text-foreground' : 'text-muted-foreground')}>
+              {rotuloVenda(p)}
             </span>
           </button>
 

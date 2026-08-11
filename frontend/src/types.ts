@@ -397,6 +397,8 @@ export interface Produto {
   destaque?: 0 | 1;
   foto_url?: string;
   disponivel?: 0 | 1;
+  /** Vender no PDV é decisão separada de aparecer no cardápio. */
+  disponivel_pdv?: 0 | 1;
   controla_estoque?: 0 | 1;
   estoque?: number;
   vendido_por?: 'un' | 'kg';

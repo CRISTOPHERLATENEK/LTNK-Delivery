@@ -160,6 +160,7 @@ const TABELAS: string[] = [
   preco_centavos  INT NOT NULL CHECK (preco_centavos > 0),
   foto_url        TEXT,
   disponivel      TINYINT NOT NULL DEFAULT 1,
+  disponivel_pdv  TINYINT NOT NULL DEFAULT 1,
   excluido        TINYINT NOT NULL DEFAULT 0,
   criado_em       VARCHAR(32) NOT NULL,
   preco_promocional_centavos INT,
@@ -687,6 +688,29 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     await pool.query(
       'ALTER TABLE notas_fiscais ADD UNIQUE KEY idx_notas_loja_serie_numero (loja_id, serie, numero)'
     );
+  }
+
+  /**
+   * produtos.disponivel_pdv — vender no BALCÃO é decisão separada de aparecer
+   * no CARDÁPIO.
+   *
+   * Antes era um interruptor só: pausar um item no delivery tirava ele também
+   * do PDV, e vice-versa. Mas as duas coisas se decidem por motivos
+   * diferentes — o prato que só sai no salão, o combo de entrega que não faz
+   * sentido no balcão, o item que acabou pro delivery mas ainda dá pra vender
+   * pra quem está na loja.
+   *
+   * NASCE COM O VALOR DE `disponivel`, não com 1: um DEFAULT 1 cego colocaria
+   * à venda no PDV todo item que o lojista tinha pausado de propósito.
+   */
+  const [jaTemPdv] = await pool.query(
+    `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'produtos' AND COLUMN_NAME = 'disponivel_pdv'
+      LIMIT 1`,
+  ) as any;
+  if (jaTemPdv.length === 0) {
+    await pool.query('ALTER TABLE produtos ADD COLUMN disponivel_pdv TINYINT NOT NULL DEFAULT 1');
+    await pool.query('UPDATE produtos SET disponivel_pdv = disponivel');
   }
 
   // pedidos.estornado_em: mesmo caso do índice acima — coluna nova que

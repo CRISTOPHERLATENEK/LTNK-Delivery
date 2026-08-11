@@ -153,7 +153,13 @@ export function BalcaoLoja() {
     }, config);
   }
 
-  const disponiveis = (produtosQ.data ?? []).filter(p => p.disponivel);
+  /*
+   * Filtra por `disponivel_pdv`, não por `disponivel`.
+   *
+   * O primeiro é "vende no balcão"; o segundo é "aparece no cardápio". Eram a
+   * mesma coluna, então pausar um item no delivery sumia com ele daqui também.
+   */
+  const disponiveis = (produtosQ.data ?? []).filter(p => p.disponivel_pdv);
   const categorias = useMemo(
     () => Array.from(new Set(disponiveis.map(p => p.categoria).filter(Boolean))),
     [disponiveis],

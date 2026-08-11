@@ -11,6 +11,7 @@ import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
 import { tenantPorDbNome } from '../tenants-mysql';
 import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido, normalizarBairro } from '../util';
+import { resolverCanais } from '../disponibilidade-produto';
 import { transicionarStatus } from '../fluxoPedido';
 import { enviarPush } from '../push';
 import { comissaoPercentualDaLoja } from '../comissao';
@@ -964,7 +965,7 @@ router.get('/produtos', async (req, res, next) => {
 interface CamposProduto {
   nome: string; preco: number; promo: number | null;
   servePessoas: number | null; descricao: string; categoria: string; subcategoria: string;
-  foto_url: string; destaque: 0 | 1; disponivel: 0 | 1;
+  foto_url: string; destaque: 0 | 1; disponivel: 0 | 1; disponivelPdv: 0 | 1;
   vendidoPor: 'un' | 'kg'; codigoBarras: string;
   controlaEstoque: 0 | 1; estoque: number;
 }
@@ -997,6 +998,8 @@ function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProdut
   // Código de barras: só dígitos (EAN/PLU). Vazio = sem código.
   const codigoBarras = textoLimpo(valor('codigo_barras', (atual as any).codigo_barras || ''), 20).replace(/\D/g, '');
 
+  const canais = resolverCanais(corpo, atual as Record<string, unknown>);
+
   const controlaEstoque: 0 | 1 = corpo.controla_estoque !== undefined
     ? (corpo.controla_estoque ? 1 : 0)
     : (((atual as any).controla_estoque ?? 0) as 0 | 1);
@@ -1014,7 +1017,10 @@ function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProdut
     subcategoria: textoLimpo(valor('subcategoria', (atual as any).subcategoria || ''), 80),
     foto_url: textoLimpo(valor('foto_url', atual.foto_url || ''), 500),
     destaque: corpo.destaque !== undefined ? (corpo.destaque ? 1 : 0) : ((atual.destaque || 0) as 0 | 1),
-    disponivel: corpo.disponivel !== undefined ? (corpo.disponivel ? 1 : 0) : ((atual.disponivel ?? 1) as 0 | 1),
+    // Cardápio e PDV são canais separados; a regra de herança está em
+    // disponibilidade-produto.ts, com testes.
+    disponivel: canais.cardapio,
+    disponivelPdv: canais.pdv,
     vendidoPor, codigoBarras, controlaEstoque, estoque,
   };
 }
@@ -1026,11 +1032,11 @@ router.post('/produtos', async (req, res, next) => {
     const info = await db.prepare(
       `INSERT INTO produtos (loja_id, nome, descricao, categoria, subcategoria, preco_centavos,
                              preco_promocional_centavos, serve_pessoas, destaque,
-                             foto_url, disponivel, vendido_por, codigo_barras,
+                             foto_url, disponivel, disponivel_pdv, vendido_por, codigo_barras,
                              controla_estoque, estoque, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(loja.id, c.nome, c.descricao, c.categoria, c.subcategoria, c.preco, c.promo,
-          c.servePessoas, c.destaque, c.foto_url, c.disponivel, c.vendidoPor, c.codigoBarras,
+          c.servePessoas, c.destaque, c.foto_url, c.disponivel, c.disponivelPdv, c.vendidoPor, c.codigoBarras,
           c.controlaEstoque, c.estoque, agoraUTC());
     res.status(201).json({ produto_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
@@ -1044,10 +1050,10 @@ router.put('/produtos/:id', async (req, res, next) => {
     await db.prepare(
       `UPDATE produtos SET nome = ?, descricao = ?, categoria = ?, subcategoria = ?, preco_centavos = ?,
               preco_promocional_centavos = ?, serve_pessoas = ?, destaque = ?,
-              foto_url = ?, disponivel = ?, vendido_por = ?, codigo_barras = ?,
+              foto_url = ?, disponivel = ?, disponivel_pdv = ?, vendido_por = ?, codigo_barras = ?,
               controla_estoque = ?, estoque = ? WHERE id = ?`
     ).run(c.nome, c.descricao, c.categoria, c.subcategoria, c.preco, c.promo, c.servePessoas,
-          c.destaque, c.foto_url, c.disponivel, c.vendidoPor, c.codigoBarras,
+          c.destaque, c.foto_url, c.disponivel, c.disponivelPdv, c.vendidoPor, c.codigoBarras,
           c.controlaEstoque, c.estoque, produto.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -1057,7 +1063,8 @@ router.delete('/produtos/:id', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const info = await db.prepare(
-      'UPDATE produtos SET excluido = 1, disponivel = 0 WHERE id = ? AND loja_id = ? AND excluido = 0'
+      // Excluído sai dos DOIS canais — senão o item continuaria vendável no PDV.
+      'UPDATE produtos SET excluido = 1, disponivel = 0, disponivel_pdv = 0 WHERE id = ? AND loja_id = ? AND excluido = 0'
     ).run(req.params.id, loja.id);
     if (info.changes === 0) throw erroHttp(404, 'Produto não encontrado.');
     res.json({ ok: true });
@@ -1079,10 +1086,10 @@ router.post('/produtos/:id/duplicar', async (req, res, next) => {
       const info = await tx.prepare(
         `INSERT INTO produtos (loja_id, nome, descricao, categoria, subcategoria, preco_centavos,
                                preco_promocional_centavos, serve_pessoas, destaque,
-                               foto_url, disponivel, vendido_por, codigo_barras,
+                               foto_url, disponivel, disponivel_pdv, vendido_por, codigo_barras,
                                controla_estoque, estoque, ncm, cfop, csosn, origem,
                                unidade_comercial, cest, criado_em)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         loja.id, `${original.nome} (cópia)`, original.descricao, original.categoria, original.subcategoria,
         original.preco_centavos, original.preco_promocional_centavos, original.serve_pessoas, original.destaque,
@@ -1130,14 +1137,21 @@ router.post('/produtos/bulk', async (req, res, next) => {
 
     const placeholders = ids.map(() => '?').join(',');
     let info;
+    /*
+     * Em massa vale pros DOIS canais, de propósito.
+     *
+     * Quem seleciona vinte itens e clica "desativar" quer eles fora do ar, não
+     * fora só do cardápio continuando vendáveis no balcão. A separação entre
+     * cardápio e PDV é uma decisão item a item — e se faz no editor do produto.
+     */
     if (acao === 'ativar') {
-      info = await db.prepare(`UPDATE produtos SET disponivel = 1 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
+      info = await db.prepare(`UPDATE produtos SET disponivel = 1, disponivel_pdv = 1 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
         .run(loja.id, ...ids);
     } else if (acao === 'desativar') {
-      info = await db.prepare(`UPDATE produtos SET disponivel = 0 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
+      info = await db.prepare(`UPDATE produtos SET disponivel = 0, disponivel_pdv = 0 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
         .run(loja.id, ...ids);
     } else {
-      info = await db.prepare(`UPDATE produtos SET excluido = 1, disponivel = 0 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
+      info = await db.prepare(`UPDATE produtos SET excluido = 1, disponivel = 0, disponivel_pdv = 0 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
         .run(loja.id, ...ids);
     }
     res.json({ ok: true, afetados: info.changes });
