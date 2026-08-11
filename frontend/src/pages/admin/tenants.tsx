@@ -4,8 +4,9 @@
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward, Link2 } from 'lucide-react';
+import { Handshake, Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward, Link2 } from 'lucide-react';
 import { AdminLayout } from './layout';
+import { SeloRevendedor } from './revendedores';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +28,9 @@ interface Tenant {
   ativo: 0 | 1;
   criado_em: string;
   lojas: number;
+  /** Revendedor dono deste cliente — vazio quando veio direto da plataforma. */
+  revendedor_id?: number | null;
+  revendedor_nome?: string;
   /**
    * Endereço público, calculado no servidor: domínio próprio, senão
    * `<slug>.<DOMINIO_BASE>`. Null quando não há nenhum dos dois — aí o cliente
@@ -102,6 +106,23 @@ export function TelaTenants() {
     try {
       await api('PUT', `/api/admin/tenants/${t.id}`, { dominio });
       mostrar({ tipo: 'sucesso', titulo: 'Domínio atualizado.' });
+      consulta.refetch();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+
+  /** Revendedores pro seletor de cada cliente. */
+  const revendedoresQ = useQuery({
+    queryKey: ['admin-revendedores'],
+    queryFn: () => api<{ revendedores: Array<{ id: number; nome: string }> }>('GET', '/api/admin/revendedores').then(r => r.revendedores),
+    staleTime: 5 * 60_000,
+  });
+
+  async function salvarRevendedor(t: Tenant, revendedorId: number | null) {
+    try {
+      await api('PUT', `/api/admin/tenants/${t.id}/revendedor`, { revendedor_id: revendedorId });
+      mostrar({ tipo: 'sucesso', titulo: revendedorId ? 'Revendedor vinculado.' : 'Vínculo removido.' });
       consulta.refetch();
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
@@ -277,7 +298,8 @@ export function TelaTenants() {
         ) : (
           <div className="space-y-3">
             {tenants.map(t => (
-              <TenantCard key={t.id} t={t} onToggle={() => alternarAtivo(t)} onSalvarDominio={d => salvarDominio(t, d)} />
+              <TenantCard key={t.id} t={t} onToggle={() => alternarAtivo(t)} onSalvarDominio={d => salvarDominio(t, d)}
+                revendedores={revendedoresQ.data ?? []} onSalvarRevendedor={id => salvarRevendedor(t, id)} />
             ))}
           </div>
         )}
@@ -527,8 +549,10 @@ function EtapaFiscal({ tenantId, lojaId, email, onVoltar, onConcluir }: {
   );
 }
 
-function TenantCard({ t, onToggle, onSalvarDominio }: {
+function TenantCard({ t, onToggle, onSalvarDominio, revendedores, onSalvarRevendedor }: {
   t: Tenant; onToggle: () => void; onSalvarDominio: (d: string) => void;
+  revendedores: Array<{ id: number; nome: string }>;
+  onSalvarRevendedor: (id: number | null) => void;
 }) {
   const { mostrar } = useToast();
   const [editandoDom, setEditandoDom] = useState(false);
@@ -603,6 +627,7 @@ function TenantCard({ t, onToggle, onSalvarDominio }: {
               <span className="font-bold">{t.nome}</span>
               {master && <Badge variant="outline">principal</Badge>}
               {t.ativo ? <Badge variant="success">ativo</Badge> : <Badge variant="secondary">suspenso</Badge>}
+              <SeloRevendedor nome={t.revendedor_nome} />
             </div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
               <span className="font-mono">{t.slug}</span>
@@ -648,6 +673,25 @@ function TenantCard({ t, onToggle, onSalvarDominio }: {
               className="text-xs font-semibold text-muted-foreground hover:text-primary">
               copiar
             </button>
+          </div>
+        )}
+
+        {/*
+          REVENDEDOR dono do cliente. Fica aqui, no cadastro, e não numa tela
+          separada de vínculos: quem acabou de cadastrar um cliente sabe naquele
+          momento de quem ele veio — depois, ninguém volta pra preencher.
+        */}
+        {!master && (
+          <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
+            <Handshake className="size-4 shrink-0 text-muted-foreground" />
+            <select
+              value={t.revendedor_id ?? ''}
+              onChange={e => onSalvarRevendedor(e.target.value ? Number(e.target.value) : null)}
+              className="h-8 flex-1 rounded-lg border border-input bg-background px-2 text-sm"
+            >
+              <option value="">Sem revendedor — veio direto</option>
+              {revendedores.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
+            </select>
           </div>
         )}
 

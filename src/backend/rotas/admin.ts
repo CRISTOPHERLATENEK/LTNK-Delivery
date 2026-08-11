@@ -7,7 +7,7 @@ import { slugUnico } from '../slug-loja';
 import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-mysql';
 import bcrypt from 'bcryptjs';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
-import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, emailValido, cpfValido, cpfDigitos, telefoneDigitos } from '../util';
+import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, emailValido, cpfValido, cpfDigitos, telefoneDigitos, reaisParaCentavos } from '../util';
 import { criptografar, descriptografar } from '../cripto';
 import { montarLandingAdmin, salvarLanding } from '../landing-campos';
 import { garantirSessaoPlataforma, obterQrPlataforma, solicitarCodigoPlataforma, statusSessaoPlataforma, desconectarPlataforma } from '../whatsapp-nao-oficial';
@@ -1823,11 +1823,132 @@ function dbNomeDoTenant(slug: string): string {
   return `${prefixo}${slug.replace(/-/g, '_')}`;
 }
 
+/* ───────────────────────── Revendedores ─────────────────────────
+ *
+ * Quem traz clientes e cobra deles por fora. Moram no banco CENTRAL, junto de
+ * `tenants`: um revendedor atravessa vários clientes, e guardá-lo no banco de
+ * um deles seria escolher um dono arbitrário.
+ */
+
+/** Lista revendedores com quantos clientes cada um tem. */
+router.get('/revendedores', exigirSuperAdmin, async (_req, res, next) => {
+  try {
+    exigirMaster();
+    const pool = poolCentral();
+    const [linhas] = await pool.query(
+      `SELECT r.id, r.nome, r.email, r.telefone, r.documento, r.custo_centavos,
+              r.ativo, r.bloqueado, r.criado_em,
+              (SELECT COUNT(*) FROM tenants t WHERE t.revendedor_id = r.id) AS clientes,
+              (SELECT COUNT(*) FROM tenants t WHERE t.revendedor_id = r.id AND t.ativo = 1) AS clientes_ativos
+         FROM revendedores r
+        ORDER BY r.nome`,
+    );
+    res.json({ revendedores: linhas });
+  } catch (e) { next(e); }
+});
+
+router.post('/revendedores', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const nome = textoLimpo(req.body.nome, 120);
+    const email = textoLimpo(req.body.email, 200).toLowerCase();
+    const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
+    if (nome.length < 2) throw erroHttp(400, 'Informe o nome do revendedor.');
+    if (!emailValido(email)) throw erroHttp(400, 'E-mail inválido.');
+    if (senha.length < 6) throw erroHttp(400, 'Senha: mínimo 6 caracteres.');
+
+    const pool = poolCentral();
+    try {
+      const [r] = await pool.query(
+        `INSERT INTO revendedores (nome, email, senha_hash, telefone, documento, custo_centavos, criado_em)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [nome, email, bcrypt.hashSync(senha, 10), textoLimpo(req.body.telefone || '', 30),
+         textoLimpo(req.body.documento || '', 20).replace(/\D/g, ''),
+         reaisParaCentavos(req.body.custo ?? 0) || 0, agoraUTC()],
+      );
+      await registrarAuditoria(req, 'revendedor.criar', { alvoTipo: 'revendedor', alvoId: Number((r as { insertId: number }).insertId), alvoDesc: nome });
+      res.status(201).json({ id: Number((r as { insertId: number }).insertId) });
+    } catch (e) {
+      // E-mail é UNIQUE: sem esta mensagem o admin via um erro cru de banco.
+      if (e instanceof Error && /Duplicate/i.test(e.message)) throw erroHttp(409, 'Já existe um revendedor com esse e-mail.');
+      throw e;
+    }
+  } catch (e) { next(e); }
+});
+
+router.put('/revendedores/:id', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const pool = poolCentral();
+    const [atualRows] = await pool.query('SELECT * FROM revendedores WHERE id = ?', [req.params.id]);
+    const atual = (atualRows as Array<Record<string, unknown>>)[0];
+    if (!atual) throw erroHttp(404, 'Revendedor não encontrado.');
+
+    const nome = req.body.nome !== undefined ? textoLimpo(req.body.nome, 120) : String(atual.nome);
+    if (nome.length < 2) throw erroHttp(400, 'Informe o nome do revendedor.');
+    const telefone = req.body.telefone !== undefined ? textoLimpo(req.body.telefone, 30) : String(atual.telefone);
+    const documento = req.body.documento !== undefined ? textoLimpo(req.body.documento, 20).replace(/\D/g, '') : String(atual.documento);
+    const custo = req.body.custo !== undefined ? (reaisParaCentavos(req.body.custo) || 0) : Number(atual.custo_centavos);
+    const bloqueado = req.body.bloqueado !== undefined ? (req.body.bloqueado ? 1 : 0) : Number(atual.bloqueado);
+
+    await pool.query(
+      'UPDATE revendedores SET nome = ?, telefone = ?, documento = ?, custo_centavos = ?, bloqueado = ? WHERE id = ?',
+      [nome, telefone, documento, custo, bloqueado, req.params.id],
+    );
+
+    // Senha só muda quando vem no corpo — campo vazio no formulário não pode
+    // virar uma senha em branco.
+    if (typeof req.body.senha === 'string' && req.body.senha.length > 0) {
+      if (req.body.senha.length < 6) throw erroHttp(400, 'Senha: mínimo 6 caracteres.');
+      await pool.query('UPDATE revendedores SET senha_hash = ? WHERE id = ?', [bcrypt.hashSync(req.body.senha, 10), req.params.id]);
+    }
+    await registrarAuditoria(req, 'revendedor.editar', { alvoTipo: 'revendedor', alvoId: Number(req.params.id), alvoDesc: nome });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+router.delete('/revendedores/:id', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const pool = poolCentral();
+    /*
+     * Remover o revendedor SOLTA os clientes dele, não os apaga.
+     * São lojas atendendo gente; o vínculo comercial acabou, a operação não.
+     */
+    await pool.query('UPDATE tenants SET revendedor_id = NULL WHERE revendedor_id = ?', [req.params.id]);
+    const [r] = await pool.query('DELETE FROM revendedores WHERE id = ?', [req.params.id]);
+    if ((r as { affectedRows: number }).affectedRows === 0) throw erroHttp(404, 'Revendedor não encontrado.');
+    await registrarAuditoria(req, 'revendedor.remover', { alvoTipo: 'revendedor', alvoId: Number(req.params.id), alvoDesc: '' });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/** Vincula (ou desvincula, com revendedor_id null) um cliente a um revendedor. */
+router.put('/tenants/:id/revendedor', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const revendedorId = req.body.revendedor_id ? inteiroPositivo(req.body.revendedor_id) : null;
+    const pool = poolCentral();
+    if (revendedorId) {
+      const [existe] = await pool.query('SELECT id FROM revendedores WHERE id = ?', [revendedorId]);
+      if ((existe as unknown[]).length === 0) throw erroHttp(404, 'Revendedor não encontrado.');
+    }
+    const [r] = await pool.query('UPDATE tenants SET revendedor_id = ? WHERE id = ?', [revendedorId, req.params.id]);
+    if ((r as { affectedRows: number }).affectedRows === 0) throw erroHttp(404, 'Cliente não encontrado.');
+    await registrarAuditoria(req, 'cliente.revendedor', { alvoTipo: 'tenant', alvoId: Number(req.params.id), alvoDesc: String(revendedorId ?? 'sem revendedor') });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 /** Lista os tenants com nº de lojas de cada um. */
 router.get('/tenants', exigirSuperAdmin, async (_req, res, next) => {
   try {
     exigirMaster();
     const todos = await listarTenants();
+    // Nome do revendedor junto: a lista mostra `revendedor_id`, e um número não
+    // diz nada pra quem está olhando a tela.
+    const [revs] = await poolCentral().query('SELECT id, nome FROM revendedores') as any;
+    const nomeRev = new Map<number, string>((revs as Array<{ id: number; nome: string }>).map(r => [r.id, r.nome]));
     const tenants = await Promise.all(todos.map(async (t) => {
       let lojas = 0;
       try {
@@ -1839,7 +1960,7 @@ router.get('/tenants', exigirSuperAdmin, async (_req, res, next) => {
       // subdomínio sob DOMINIO_BASE) vive em `urlDoTenant`, e DOMINIO_BASE é
       // variável de servidor — o painel não tem como saber. Sem isto, quem cadastra
       // um cliente sem domínio próprio não descobre qual endereço mandar pra ele.
-      return { ...t, lojas, url: urlDoTenant(t) };
+      return { ...t, lojas, url: urlDoTenant(t), revendedor_nome: t.revendedor_id ? (nomeRev.get(t.revendedor_id) || '') : '' };
     }));
     res.json({ tenants });
   } catch (e) { next(e); }

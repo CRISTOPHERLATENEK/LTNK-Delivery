@@ -45,6 +45,21 @@ export interface Tenant {
   db_nome: string;
   ativo: 0 | 1;
   criado_em: string;
+  /** Revendedor dono deste cliente — null quando veio direto da plataforma. */
+  revendedor_id?: number | null;
+}
+
+export interface Revendedor {
+  id: number;
+  nome: string;
+  email: string;
+  telefone: string;
+  documento: string;
+  /** Quanto ELE paga por cliente ativo. O que cobra do cliente final é dele. */
+  custo_centavos: number;
+  ativo: 0 | 1;
+  bloqueado: 0 | 1;
+  criado_em: string;
 }
 
 /** Cria a tabela `tenants` no banco central e garante o tenant padrão. Chamar uma vez no boot. */
@@ -61,6 +76,37 @@ export async function inicializarCentral(): Promise<void> {
       criado_em   VARCHAR(32) NOT NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  /*
+   * REVENDEDORES — quem traz clientes e cobra deles por fora.
+   *
+   * Vive no banco CENTRAL, junto de `tenants`, porque um revendedor atravessa
+   * vários clientes: guardá-lo no banco de um deles seria escolher um dono
+   * arbitrário e perder o vínculo no dia em que esse cliente saísse.
+   *
+   * `custo_centavos` é o que ELE paga por cliente ativo. O que ele cobra do
+   * cliente final é problema dele — a plataforma não sabe nem precisa saber.
+   */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS revendedores (
+      id             INT PRIMARY KEY AUTO_INCREMENT,
+      nome           TEXT NOT NULL,
+      email          VARCHAR(255) NOT NULL UNIQUE,
+      senha_hash     TEXT NOT NULL,
+      telefone       VARCHAR(30) NOT NULL DEFAULT '',
+      documento      VARCHAR(20) NOT NULL DEFAULT '',
+      custo_centavos INT NOT NULL DEFAULT 0,
+      ativo          TINYINT NOT NULL DEFAULT 1,
+      bloqueado      TINYINT NOT NULL DEFAULT 0,
+      criado_em      VARCHAR(32) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  /*
+   * SEM foreign key de propósito: revendedor removido não pode levar junto o
+   * cliente dele. O vínculo vira NULL e o cliente continua de pé, atendendo.
+   */
+  await garantirColuna(pool, BANCO_CENTRAL, 'tenants', 'revendedor_id', 'revendedor_id INT NULL');
   // coluna dominio pode ter sido criada NOT NULL em versões antigas de teste — no-op se já ok.
   await garantirColuna(pool, BANCO_CENTRAL, 'tenants', 'ativo', 'ativo TINYINT NOT NULL DEFAULT 1');
 

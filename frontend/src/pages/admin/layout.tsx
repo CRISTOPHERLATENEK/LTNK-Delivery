@@ -7,7 +7,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Store, Users, ShoppingBag, TrendingUp,
   Image, Palette, Shield, Crown, LogOut, Menu, X, ChevronRight, Radio, Bike, Building2, History,
-  CreditCard, UserCog, LayoutTemplate, Settings,
+  CreditCard, UserCog, LayoutTemplate, Settings, Handshake,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
@@ -51,7 +51,8 @@ const ITENS: NavItem[] = [
    */
   { rota: '/painel-admin/clientes',     icone: Building2,       label: 'Clientes',    somenteSuper: true },
   { rota: '/painel-admin/assinaturas',  icone: CreditCard,      label: 'Assinaturas', somenteSuper: true },
-  { rota: '/painel-admin/lojistas',     icone: Users,           label: 'Lojistas',    somenteSuper: true, divisorDepois: true },
+  { rota: '/painel-admin/lojistas',     icone: Users,           label: 'Lojistas',    somenteSuper: true },
+  { rota: '/painel-admin/revendedores', icone: Handshake,       label: 'Revendedores', somenteSuper: true, divisorDepois: true },
 
   { rota: '/painel-admin/repasses',     icone: TrendingUp,      label: 'Repasses',  somenteSuper: true },
   { rota: '/painel-admin/marca',        icone: Palette,         label: 'Marca',        somenteSuper: true },

@@ -38,6 +38,7 @@ const TelaLanding = lazySeguro(() => import('@/pages/admin/marca/landing').then(
 const TelaConfiguracoes = lazySeguro(() => import('@/pages/admin/configuracoes').then(m => ({ default: m.TelaConfiguracoes })));
 const TelaAdmins = lazySeguro(() => import('@/pages/admin/admins').then(m => ({ default: m.TelaAdmins })));
 const TelaLojistas = lazySeguro(() => import('@/pages/admin/lojistas').then(m => ({ default: m.TelaLojistas })));
+const TelaRevendedores = lazySeguro(() => import('@/pages/admin/revendedores').then(m => ({ default: m.TelaRevendedores })));
 const TelaLojas = lazySeguro(() => import('@/pages/admin/lojas').then(m => ({ default: m.TelaLojas })));
 const TelaPedidosAdmin = lazySeguro(() => import('@/pages/admin/pedidos-admin').then(m => ({ default: m.TelaPedidosAdmin })));
 const TelaBanners = lazySeguro(() => import('@/pages/admin/banners').then(m => ({ default: m.TelaBanners })));
@@ -168,6 +169,7 @@ export default function App() {
         <Route path="/painel-admin/clientes" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaTenants /></Guard>} />
         <Route path="/painel-admin/assinaturas" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaAssinaturas /></Guard>} />
         <Route path="/painel-admin/lojistas" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaLojistas /></Guard>} />
+        <Route path="/painel-admin/revendedores" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaRevendedores /></Guard>} />
         <Route path="/painel-admin/lojas"    element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaLojas /></Guard>} />
         <Route path="/painel-admin/monitor"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaMonitor /></Guard>} />
         <Route path="/painel-admin/entregadores" element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaEntregadores /></Guard>} />
