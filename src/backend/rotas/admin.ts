@@ -3,6 +3,7 @@
  * gestão de usuários, comissão, repasses e banners do carrossel.
  */
 import { Router } from 'express';
+import { slugUnico } from '../slug-loja';
 import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-mysql';
 import bcrypt from 'bcryptjs';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
@@ -1896,7 +1897,28 @@ router.post('/tenants', exigirSuperAdmin, async (req, res, next) => {
                                 status_aprovacao, aberta, criado_em)
              VALUES (?, ?, '', ?, '', 0, 40, '', 'aprovada', 0, ?)`
           ).run(uid, nomeLoja, categoria, agoraUTC());
-          return Number(l.lastInsertRowid);
+          const novaLojaId = Number(l.lastInsertRowid);
+
+          /*
+           * O CLIENTE JÁ NASCE COM ENDEREÇO. Duas coisas faltavam aqui, e
+           * juntas deixavam a loja inalcançável:
+           *
+           * 1) SLUG — sem ele e sem domínio próprio, a loja não tinha endereço
+           *    nenhum: nem `/nome-da-loja`, nem nada.
+           * 2) loja_padrao_id — a raiz do subdomínio (`cris.maxxdelivery.app.br`)
+           *    olha essa config pra decidir o que mostrar. Em 0 ela caía na
+           *    landing de VENDAS do produto, e o cliente novo abria o endereço
+           *    dele e via propaganda da plataforma em vez da própria loja.
+           */
+          const jaUsados = (await tx.prepare('SELECT slug FROM lojas WHERE slug IS NOT NULL').all() as Array<{ slug: string }>)
+            .map(r => r.slug);
+          await tx.prepare('UPDATE lojas SET slug = ? WHERE id = ?')
+            .run(slugUnico(nomeLoja, jaUsados, novaLojaId), novaLojaId);
+          await tx.prepare(
+            "INSERT INTO configuracoes (chave, valor) VALUES ('loja_padrao_id', ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)"
+          ).run(String(novaLojaId));
+
+          return novaLojaId;
         });
       });
     } catch (e) {
