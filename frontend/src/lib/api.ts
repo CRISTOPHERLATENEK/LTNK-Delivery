@@ -37,7 +37,7 @@ export class ApiError extends Error {
   }
 }
 
-export type Area = 'cliente' | 'lojista' | 'entregador' | 'cozinha' | 'admin';
+export type Area = 'cliente' | 'lojista' | 'entregador' | 'cozinha' | 'admin' | 'revendedor';
 
 /** Detecta a área atual pela URL. Cada área tem sessão isolada. */
 export function areaAtual(): Area {
@@ -46,6 +46,10 @@ export function areaAtual(): Area {
   if (p.startsWith('/entregador')) return 'entregador';
   if (p.startsWith('/cozinha')) return 'cozinha';
   if (p.startsWith('/painel-admin')) return 'admin';
+  // Sessão isolada: o revendedor não é usuário de tenant nenhum, e misturar a
+  // chave dele com a do admin faria uma sessão derrubar a outra no mesmo
+  // navegador.
+  if (p.startsWith('/revenda')) return 'revendedor';
   return 'cliente';
 }
 
@@ -55,6 +59,7 @@ export function raizArea(area: Area = areaAtual()): string {
     case 'lojista': return '/lojista';
     case 'entregador': return '/entregador';
     case 'cozinha': return '/cozinha';
+    case 'revendedor': return '/revenda';
     case 'admin': return '/painel-admin';
     default: return '/';
   }
@@ -79,6 +84,22 @@ export function salvarSessao(token: string, usuario: UsuarioSessao, area: Area =
   efemero.removeItem(chaveUsuario(area));
   persistente.setItem(chaveToken(area), token);
   persistente.setItem(chaveUsuario(area), JSON.stringify(usuario));
+}
+
+/**
+ * A resposta do login é de um REVENDEDOR? Se for, guarda a sessão dele e manda
+ * pro painel de revenda, devolvendo true pra quem chamou parar ali.
+ *
+ * Existe porque `/api/auth/login` é compartilhado por quatro telas, e a
+ * resposta do revendedor não traz `usuario` — sem este desvio, cada tela
+ * quebraria ao ler `r.usuario.perfil` de um objeto que não tem `usuario`.
+ */
+export function desviouParaRevendedor(r: unknown): boolean {
+  const resp = r as { token?: string; perfil?: string };
+  if (resp?.perfil !== 'revendedor' || !resp.token) return false;
+  salvarSessao(resp.token, { id: 0, nome: '', email: '', perfil: 'revendedor' } as unknown as UsuarioSessao, 'revendedor');
+  window.location.assign('/revenda');
+  return true;
 }
 
 export function sessaoUsuario(area: Area = areaAtual()): UsuarioSessao | null {

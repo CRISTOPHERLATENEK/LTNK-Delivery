@@ -13,7 +13,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
-import { api, ApiError, sessaoUsuario, ehSuperAdmin, salvarSessao } from '@/lib/api';
+import { api, ApiError, sessaoUsuario, ehSuperAdmin, salvarSessao, desviouParaRevendedor } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
@@ -321,6 +321,8 @@ function LoginAdmin() {
         | { token: string; usuario: any }
         | { precisa2fa: true; modo2fa: 'configurar' | 'verificar'; tokenPreAuth: string; redirecionar?: string | null }
       >('POST', '/api/auth/login', { email, senha });
+      // Revendedor entra pela mesma tela e vai pro painel dele.
+      if (desviouParaRevendedor(r)) return;
       if ('precisa2fa' in r) {
         // Admin de outra marca: o token de pré-autenticação é carimbado com
         // aquele tenant e seria recusado aqui — o 2FA termina no domínio de lá.

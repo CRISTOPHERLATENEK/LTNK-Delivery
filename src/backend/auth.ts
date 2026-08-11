@@ -7,6 +7,7 @@ import { Request, Response, NextFunction, RequestHandler } from 'express';
 import db, { comTenant, bancoTenantAtual } from './db-mysql';
 import { erroHttp } from './util';
 import { Perfil, Usuario } from '../tipos/modelos';
+import { poolCentral } from './tenants-mysql';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -140,6 +141,67 @@ export function gerarTokenImpersonado(usuario: Pick<Usuario, 'id' | 'perfil'>, d
  * Recarrega o usuário do banco a cada requisição para respeitar bloqueios
  * feitos pelo admin DEPOIS da emissão do token.
  */
+/* ───────────────────────── Revendedores ─────────────────────────
+ *
+ * O revendedor NÃO é um `usuarios`: ele vive no banco central, atravessa
+ * vários tenants e não pertence a nenhum. Por isso ganha token próprio,
+ * marcado com `tipo`, igual ao da cozinha — e o `autenticar` comum já recusa
+ * qualquer token com `tipo`, então este aqui não abre porta no painel de
+ * ninguém.
+ */
+
+export function gerarTokenRevendedor(id: number): string {
+  return jwt.sign({ sub: id, tipo: 'revendedor' }, JWT_SECRET as string, { expiresIn: JWT_EXPIRACAO });
+}
+
+export interface RevendedorSessao {
+  id: number;
+  nome: string;
+  email: string;
+  custo_centavos: number;
+}
+
+declare module 'express-serve-static-core' {
+  interface Request {
+    revendedor?: RevendedorSessao;
+  }
+}
+
+/**
+ * Autentica um revendedor. Recarrega do banco A CADA requisição, como o
+ * `autenticar`: bloquear no painel encerra a sessão na hora, sem depender do
+ * prazo do token.
+ */
+export const autenticarRevendedor: RequestHandler = async (req, _res, next) => {
+  const cabecalho = req.headers.authorization || '';
+  const token = cabecalho.startsWith('Bearer ') ? cabecalho.slice(7) : null;
+  if (!token) return next(erroHttp(401, 'Faça login para continuar.'));
+
+  let dados: jwt.JwtPayload;
+  try {
+    dados = jwt.verify(token, JWT_SECRET as string) as jwt.JwtPayload;
+  } catch {
+    return next(erroHttp(401, 'Sessão inválida ou expirada. Faça login novamente.'));
+  }
+  // Só token DESTE tipo entra: um token de usuário comum (que não tem `tipo`)
+  // não pode virar acesso de revendedor.
+  if (dados.tipo !== 'revendedor' || !dados.sub) {
+    return next(erroHttp(401, 'Sessão inválida ou expirada. Faça login novamente.'));
+  }
+
+  try {
+    const [linhas] = await poolCentral().query(
+      'SELECT id, nome, email, custo_centavos, bloqueado FROM revendedores WHERE id = ?',
+      [dados.sub],
+    ) as unknown as [Array<RevendedorSessao & { bloqueado: number }>];
+    const r = linhas[0];
+    if (!r) return next(erroHttp(401, 'Sessão inválida. Faça login novamente.'));
+    if (r.bloqueado) return next(erroHttp(403, 'Seu acesso está bloqueado. Fale com o suporte.'));
+    req.revendedor = { id: r.id, nome: r.nome, email: r.email, custo_centavos: r.custo_centavos };
+    next();
+  } catch (e) { next(e); }
+};
+
 export const autenticar: RequestHandler = async (req, _res, next) => {
   const cabecalho = req.headers.authorization || '';
   const token = cabecalho.startsWith('Bearer ') ? cabecalho.slice(7) : null;

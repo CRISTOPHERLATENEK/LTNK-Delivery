@@ -21,7 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge } from '@/components/ui/status-badge';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
-import { api, ApiError, sessaoUsuario, salvarSessao, abrirSessaoLojistaImpersonada, lerRepasseImpersonacao } from '@/lib/api';
+import { api, ApiError, sessaoUsuario, salvarSessao, abrirSessaoLojistaImpersonada, lerRepasseImpersonacao, desviouParaRevendedor } from '@/lib/api';
 import { Portal2FA } from '@/components/duplo-fator';
 import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
@@ -1228,6 +1228,8 @@ function LoginLojista() {
         | { token: string; usuario: any }
         | { precisa2fa: true; modo2fa: 'configurar' | 'verificar'; tokenPreAuth: string; redirecionar?: string | null }
       >('POST', '/api/auth/login', { email, senha, manter_conectado: lembrar });
+      // Revendedor entra pela mesma tela e vai pro painel dele.
+      if (desviouParaRevendedor(r)) return;
       // `manter_conectado` decide a VALIDADE do token no servidor (30d vs 12h);
       // `lembrar` no salvarSessao decide so ONDE ele fica (localStorage vs
       // sessionStorage). Antes so o segundo existia: o token sobrevivia a fechar a

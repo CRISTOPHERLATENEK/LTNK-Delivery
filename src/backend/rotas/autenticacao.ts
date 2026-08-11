@@ -12,8 +12,8 @@ import {
   provedoresDisponiveis, assinarEstado, lerEstado, urlDeAutorizacao,
   perfilDoCodigo, decidirVinculo, nomeUsavel, type ProvedorOauth,
 } from '../oauth';
-import { listarTenants, urlDoTenant, Tenant } from '../tenants-mysql';
-import { gerarToken, gerarTokenPreAuth, autenticar, autenticarPreAuth } from '../auth';
+import { listarTenants, urlDoTenant, poolCentral, Tenant } from '../tenants-mysql';
+import { gerarToken, gerarTokenPreAuth, autenticar, autenticarPreAuth, gerarTokenRevendedor } from '../auth';
 import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, telefoneDigitos, erroHttp } from '../util';
 import { enviarEmail, emailRedefinirSenha, emailHabilitado } from '../email';
 import { criptografar, descriptografar } from '../cripto';
@@ -193,6 +193,25 @@ router.post('/login', limiteLogin, async (req, res, next) => {
     } else {
       usuario = await db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email) as Usuario | undefined;
     }
+    /*
+     * REVENDEDOR entra pela MESMA tela, mas não é um `usuarios`: mora no banco
+     * central e atravessa vários clientes. Tentado só quando não achou usuário
+     * neste tenant — assim ninguém perde o login de sempre, e um e-mail que
+     * exista nos dois lugares continua entrando como usuário, que é o caso
+     * mais comum.
+     */
+    if (!usuario && email) {
+      const [revs] = await poolCentral().query(
+        'SELECT id, senha_hash, bloqueado FROM revendedores WHERE email = ?',
+        [email],
+      ) as unknown as [Array<{ id: number; senha_hash: string; bloqueado: number }>];
+      const rev = revs[0];
+      if (rev && bcrypt.compareSync(senha, rev.senha_hash)) {
+        if (rev.bloqueado) throw erroHttp(403, 'Seu acesso está bloqueado. Fale com o suporte.');
+        return res.json({ token: gerarTokenRevendedor(rev.id), perfil: 'revendedor' });
+      }
+    }
+
     if (!usuario || !bcrypt.compareSync(senha, usuario.senha_hash)) {
       // Não achou NESTE tenant. Se a pessoa entrou pelo domínio da plataforma
       // (que cai no tenant padrão), a conta pode simplesmente morar em outra

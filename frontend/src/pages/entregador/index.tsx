@@ -21,7 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
-import { api, ApiError, sessaoUsuario, salvarSessao } from '@/lib/api';
+import { api, ApiError, sessaoUsuario, salvarSessao, desviouParaRevendedor } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
 import { suportaPush, ativarPush } from '@/lib/push';
 import { cn } from '@/lib/utils';
@@ -1084,6 +1084,8 @@ function LoginEntregador() {
     setEnviando(true);
     try {
       const r = await api<{ token: string; usuario: any }>('POST', '/api/auth/login', { email, senha });
+      // Revendedor entra pela mesma tela e vai pro painel dele.
+      if (desviouParaRevendedor(r)) return;
       if (r.usuario.perfil !== 'entregador') {
         mostrar({ tipo: 'erro', titulo: 'Esta conta não é de entregador.' });
         return;
