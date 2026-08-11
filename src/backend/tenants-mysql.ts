@@ -17,6 +17,7 @@
 import { Pool } from 'mysql2/promise';
 import { abrirPool, garantirColuna, criarBancoSeNaoExiste } from './db-mysql';
 import { inicializarSchema } from './schema-mysql';
+import { basesDe, slugDoHost, urlDeSlug } from './dominio-base';
 import { agoraUTC } from './util';
 
 /**
@@ -83,7 +84,13 @@ function normalizarHost(host: string): string {
   return host.split(':')[0].toLowerCase().replace(/^www\./, '');
 }
 
-const DOMINIO_BASE = (process.env.DOMINIO_BASE || '').toLowerCase().replace(/^www\./, '');
+/*
+ * DOMINIO_BASE aceita LISTA separada por vírgula — o primeiro é o canônico.
+ * Regras e testes em dominio-base.ts. Lido a cada uso (e não uma vez no
+ * import) pra que trocar a variável e reiniciar baste, sem depender da ordem
+ * em que os módulos carregam.
+ */
+const basesAtuais = () => basesDe(process.env.DOMINIO_BASE);
 
 /**
  * Resolve o tenant pela URL da requisição. Ordem:
@@ -99,13 +106,11 @@ export async function resolverPorHost(host: string | undefined): Promise<Tenant 
   const exato = (exatoRows as Tenant[])[0];
   if (exato) return exato;
 
-  if (DOMINIO_BASE && h.endsWith('.' + DOMINIO_BASE)) {
-    const sub = h.slice(0, -(DOMINIO_BASE.length + 1));
-    if (sub && !sub.includes('.')) {
-      const [subRows] = await pool.query('SELECT * FROM tenants WHERE slug = ? AND ativo = 1', [sub]);
-      const porSlug = (subRows as Tenant[])[0];
-      if (porSlug) return porSlug;
-    }
+  const sub = slugDoHost(h, basesAtuais());
+  if (sub) {
+    const [subRows] = await pool.query('SELECT * FROM tenants WHERE slug = ? AND ativo = 1', [sub]);
+    const porSlug = (subRows as Tenant[])[0];
+    if (porSlug) return porSlug;
   }
   return null;
 }
@@ -157,8 +162,9 @@ export function problemaNoSlugTenant(slug: string): string | null {
 
 export function urlDoTenant(tenant: Tenant): string | null {
   if (tenant.dominio) return `https://${tenant.dominio}`;
-  const base = (process.env.DOMINIO_BASE || '').toLowerCase().replace(/^www\./, '');
-  return base ? `https://${tenant.slug}.${base}` : null;
+  // Sempre a base CANÔNICA (a primeira): é o endereço que se entrega ao
+  // cliente. As outras seguem funcionando, mas não são o que se divulga.
+  return urlDeSlug(tenant.slug, basesAtuais());
 }
 
 /** Tenant padrão (fallback para localhost / domínios não cadastrados). */
@@ -298,12 +304,13 @@ export async function tenantDesativadoDoHost(host: string | undefined): Promise<
   const achado = (porDominio as Tenant[])[0];
   if (achado) return achado;
 
-  if (DOMINIO_BASE && h.endsWith('.' + DOMINIO_BASE)) {
-    const sub = h.slice(0, -(DOMINIO_BASE.length + 1));
-    if (sub && !sub.includes('.')) {
-      const [porSlug] = await pool.query('SELECT * FROM tenants WHERE slug = ? AND ativo = 0', [sub]);
-      return (porSlug as Tenant[])[0] || null;
-    }
+  // Mesma regra da resolução normal: o aviso de "cliente desativado" tem que
+  // valer nos dois domínios, senão o endereço antigo mostraria a loja errada
+  // em vez do aviso.
+  const sub = slugDoHost(h, basesAtuais());
+  if (sub) {
+    const [porSlug] = await pool.query('SELECT * FROM tenants WHERE slug = ? AND ativo = 0', [sub]);
+    return (porSlug as Tenant[])[0] || null;
   }
   return null;
 }
