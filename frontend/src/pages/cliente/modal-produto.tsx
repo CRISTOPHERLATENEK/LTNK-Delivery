@@ -196,11 +196,14 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
 
         {/* Scroll area */}
         <div className="flex-1 overflow-y-auto min-h-0">
-          {grupos.length === 0 && (
-            <div className="py-10 text-center px-5">
-              <p className="text-sm text-muted-foreground">Sem personalizações para este item.</p>
-            </div>
-          )}
+          {/*
+            SEM AVISO DE "sem personalizações" quando não há grupos.
+            O modal agora abre em QUALQUER produto (tocar no card abre; só o "+"
+            adiciona direto), então num item simples esse texto era a única
+            coisa no corpo — parecia tela quebrada. Sem ele, o modal fica sendo
+            o que precisa ser: foto grande, descrição, preço, quantidade e o
+            botão de adicionar.
+          */}
           {grupos.map(g => (
             <GrupoOpcao
               key={g.id}

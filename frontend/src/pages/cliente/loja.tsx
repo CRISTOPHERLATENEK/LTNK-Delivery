@@ -248,19 +248,33 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
   const catSemSubfiltro = !!catAtiva && !subCatAtiva && !busca && subcategorias.length > 0;
   const categoriasFiltradas = semFiltro ? categorias : [];
 
-  function handleClickProduto(p: Produto) {
+  /*
+   * TOCAR NO CARD ABRE O PRODUTO; só o "+" põe no carrinho.
+   *
+   * Antes os dois faziam a mesma coisa, e num item sem complementos tocar no
+   * card jogava direto no carrinho — o cliente não conseguia ler a descrição,
+   * ver a foto grande nem escolher a quantidade antes de decidir. Pra quem só
+   * quer repetir o de sempre, o "+" continua sendo um toque.
+   */
+  function abrirProduto(p: Produto) {
     if (!loja.aberta) return;
-    const temGrupos = p.grupos && p.grupos.length > 0;
-    if (!temGrupos) {
-      const precoBase = p.preco_promocional_centavos && p.preco_promocional_centavos > 0
-        ? p.preco_promocional_centavos : p.preco_centavos;
-      const ok = adicionarAoCarrinho(loja, {
-        produto_id: p.id, nome: p.nome, preco_centavos: precoBase, quantidade: 1, opcoes: [], opcoes_texto: '', foto_url: p.foto_url,
-      });
-      if (ok) setAdicionado(p);
+    setProdutoAberto(p);
+  }
+
+  function adicionarRapido(p: Produto) {
+    if (!loja.aberta) return;
+    // Com complementos não existe "adicionar rápido": faltaria escolher o
+    // obrigatório. O "+" então abre o produto, em vez de não fazer nada.
+    if (p.grupos && p.grupos.length > 0) {
+      setProdutoAberto(p);
       return;
     }
-    setProdutoAberto(p);
+    const precoBase = p.preco_promocional_centavos && p.preco_promocional_centavos > 0
+      ? p.preco_promocional_centavos : p.preco_centavos;
+    const ok = adicionarAoCarrinho(loja, {
+      produto_id: p.id, nome: p.nome, preco_centavos: precoBase, quantidade: 1, opcoes: [], opcoes_texto: '', foto_url: p.foto_url,
+    });
+    if (ok) setAdicionado(p);
   }
 
   const RAIO_LOGO: Record<VisualJson['logo']['formato'], string> = { quadrado: '10%', arredondado: '28%', circular: '50%' };
@@ -469,17 +483,17 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
                 {subs.length > 0 ? (
                   <>
                     {semSub.length > 0 && (
-                      <GridProdutos produtos={semSub} podeAbrir={!!loja.aberta} onClick={handleClickProduto} visual={visual} corMarca={loja.cor_marca} />
+                      <GridProdutos produtos={semSub} podeAbrir={!!loja.aberta} onAbrir={abrirProduto} onAdicionar={adicionarRapido} visual={visual} corMarca={loja.cor_marca} />
                     )}
                     {subs.map(sub => (
                       <div key={sub} className="mt-4">
                         <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/60 mb-2 pl-0.5">{sub}</h3>
-                        <GridProdutos produtos={prods.filter(p => p.subcategoria === sub)} podeAbrir={!!loja.aberta} onClick={handleClickProduto} visual={visual} corMarca={loja.cor_marca} />
+                        <GridProdutos produtos={prods.filter(p => p.subcategoria === sub)} podeAbrir={!!loja.aberta} onAbrir={abrirProduto} onAdicionar={adicionarRapido} visual={visual} corMarca={loja.cor_marca} />
                       </div>
                     ))}
                   </>
                 ) : (
-                  <GridProdutos produtos={prods} podeAbrir={!!loja.aberta} onClick={handleClickProduto} visual={visual} corMarca={loja.cor_marca} />
+                  <GridProdutos produtos={prods} podeAbrir={!!loja.aberta} onAbrir={abrirProduto} onAdicionar={adicionarRapido} visual={visual} corMarca={loja.cor_marca} />
                 )}
               </div>
             );
@@ -493,12 +507,12 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
               return (
                 <>
                   {semSub.length > 0 && (
-                    <GridProdutos produtos={semSub} podeAbrir={!!loja.aberta} onClick={handleClickProduto} visual={visual} corMarca={loja.cor_marca} />
+                    <GridProdutos produtos={semSub} podeAbrir={!!loja.aberta} onAbrir={abrirProduto} onAdicionar={adicionarRapido} visual={visual} corMarca={loja.cor_marca} />
                   )}
                   {subcategorias.map(sub => (
                     <div key={sub} className="mt-4">
                       <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground/60 mb-2 pl-0.5">{sub}</h3>
-                      <GridProdutos produtos={prods.filter(p => p.subcategoria === sub)} podeAbrir={!!loja.aberta} onClick={handleClickProduto} visual={visual} corMarca={loja.cor_marca} />
+                      <GridProdutos produtos={prods.filter(p => p.subcategoria === sub)} podeAbrir={!!loja.aberta} onAbrir={abrirProduto} onAdicionar={adicionarRapido} visual={visual} corMarca={loja.cor_marca} />
                     </div>
                   ))}
                 </>
@@ -511,7 +525,7 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
             <GridProdutos
               produtos={filtrados}
               podeAbrir={!!loja.aberta}
-              onClick={handleClickProduto}
+              onAbrir={abrirProduto} onAdicionar={adicionarRapido}
               visual={visual}
               corMarca={loja.cor_marca}
               animado
@@ -769,10 +783,11 @@ function ChipSubcat({ label, ativo, onClick }: { label: string; ativo: boolean; 
 }
 
 /* ── Grid de produtos ── */
-function GridProdutos({ produtos, podeAbrir, onClick, visual, corMarca, animado }: {
+function GridProdutos({ produtos, podeAbrir, onAbrir, onAdicionar, visual, corMarca, animado }: {
   produtos: Produto[];
   podeAbrir: boolean;
-  onClick: (p: Produto) => void;
+  onAbrir: (p: Produto) => void;
+  onAdicionar: (p: Produto) => void;
   visual: VisualJson;
   corMarca?: string;
   animado?: boolean;
@@ -805,10 +820,10 @@ function GridProdutos({ produtos, podeAbrir, onClick, visual, corMarca, animado 
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.18, delay: i * 0.03 }}
           >
-            <CardProduto produto={p} podeAbrir={podeAbrir} onClick={() => onClick(p)} visual={visual} corMarca={corMarca} layoutGrid={grid} premium={premium} />
+            <CardProduto produto={p} podeAbrir={podeAbrir} onAbrir={() => onAbrir(p)} onAdicionar={() => onAdicionar(p)} visual={visual} corMarca={corMarca} layoutGrid={grid} premium={premium} />
           </motion.div>
         ) : (
-          <CardProduto key={p.id} produto={p} podeAbrir={podeAbrir} onClick={() => onClick(p)} visual={visual} corMarca={corMarca} layoutGrid={grid} premium={premium} />
+          <CardProduto key={p.id} produto={p} podeAbrir={podeAbrir} onAbrir={() => onAbrir(p)} onAdicionar={() => onAdicionar(p)} visual={visual} corMarca={corMarca} layoutGrid={grid} premium={premium} />
         )
       )}
     </div>
@@ -816,8 +831,9 @@ function GridProdutos({ produtos, podeAbrir, onClick, visual, corMarca, animado 
 }
 
 /* ── Card de produto ── */
-function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid, premium }: {
-  produto: Produto; podeAbrir: boolean; onClick: () => void; visual: VisualJson; corMarca?: string; layoutGrid: boolean; premium?: boolean;
+function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarca, layoutGrid, premium }: {
+  produto: Produto; podeAbrir: boolean; onAbrir: () => void; onAdicionar: () => void;
+  visual: VisualJson; corMarca?: string; layoutGrid: boolean; premium?: boolean;
 }) {
   const temPromo = !!produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0;
   const preco = temPromo ? produto.preco_promocional_centavos! : produto.preco_centavos;
@@ -833,7 +849,7 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
   return (
     <motion.div
       whileTap={abrivel ? { scale: 0.96 } : {}}
-      onClick={abrivel ? onClick : undefined}
+      onClick={abrivel ? onAbrir : undefined}
       className={cn(
         'group border overflow-hidden transition-all duration-300',
         premium ? 'border-transparent' : 'border-border/60',
@@ -980,7 +996,8 @@ function CardProduto({ produto, podeAbrir, onClick, visual, corMarca, layoutGrid
             <button
               type="button"
               aria-label={`Adicionar ${produto.nome}`}
-              onClick={e => { e.stopPropagation(); onClick(); }}
+              // stopPropagation pro toque no "+" não abrir o produto também.
+              onClick={e => { e.stopPropagation(); onAdicionar(); }}
               className={cn(
                 'flex shrink-0 items-center justify-center gap-1 rounded-full transition-opacity active:opacity-70 touch-manipulation',
                 // 44px de alvo nos dois formatos (diretriz de toque em celular).
