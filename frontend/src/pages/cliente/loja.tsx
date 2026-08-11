@@ -24,7 +24,7 @@ import type { Loja, Produto, Banner, VisualJson } from '@/types';
 
 interface CategoriaMeta { nome: string; icone: string; ordem: number; imagem?: string }
 interface RespostaCardapio {
-  loja: Loja & { categoria_estilo?: 'cards' | 'chips'; categoria_formato?: string; categoria_tamanho?: string };
+  loja: Loja & { categoria_estilo?: 'cards' | 'chips'; categoria_formato?: string; categoria_tamanho?: string; categoria_todos_imagem?: string };
   cardapio: Record<string, Produto[]>;
   categorias_meta?: CategoriaMeta[];
   banners: Banner[];
@@ -404,7 +404,9 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
         {estiloCat === 'cards' ? (
           <div className="-mx-4 px-4 overflow-x-auto scrollbar-hide">
             <div className="flex gap-2.5 pb-1">
-              <CardCategoria icone="geral" imagem="" label="Todos" ativo={!catAtiva}
+              {/* O "Todos" também aceita foto escolhida — sem isso ele era o
+                  único da fileira sempre em ícone, e destoava dos vizinhos. */}
+              <CardCategoria icone="geral" imagem={loja.categoria_todos_imagem} label="Todos" ativo={!catAtiva}
                 formato={formatoCat} tamanho={tamanhoCat} onClick={() => selecionarCat(null)} />
               {metaCat.map(c => (
                 <CardCategoria

@@ -3183,12 +3183,30 @@ router.get('/categorias', async (req, res, next) => {
         registro.push(item);
       }
     }
-    const categorias = [...mapa.values()].sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome));
+    /*
+     * A foto que a categoria HERDARIA de um produto, junto.
+     *
+     * A prévia do editor precisa dela: sem isso ela mostraria ícone onde a loja
+     * mostra a foto do produto, e a prévia passaria a mentir — que é o oposto
+     * do motivo dela existir.
+     */
+    const autos = await db.prepare(
+      `SELECT categoria, MIN(foto_url) AS foto FROM produtos
+        WHERE loja_id = ? AND excluido = 0 AND foto_url <> ''
+        GROUP BY categoria`
+    ).all(loja.id) as Array<{ categoria: string; foto: string }>;
+    const autoMapa = new Map(autos.map(a => [a.categoria, a.foto]));
+
+    const categorias = [...mapa.values()]
+      .map(c => ({ ...c, imagem_auto: autoMapa.get(c.nome) || '' }))
+      .sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome));
     res.json({
       categorias,
       estilo: loja.categoria_estilo || 'cards',
       formato: loja.categoria_formato || 'circulo',
       tamanho: loja.categoria_tamanho || 'medio',
+      todos_imagem: loja.categoria_todos_imagem || '',
+      foto_auto: loja.categoria_foto_auto ?? 1,
     });
   } catch (e) { next(e); }
 });
@@ -3202,11 +3220,16 @@ router.put('/categorias', async (req, res, next) => {
     // vitrine e a faixa apareceria sem formato nenhum.
     const formato = FORMATOS_CATEGORIA.includes(req.body.formato) ? req.body.formato : 'circulo';
     const tamanho = TAMANHOS_CATEGORIA.includes(req.body.tamanho) ? req.body.tamanho : 'medio';
+    const todosImagem = textoLimpo(req.body.todos_imagem, 500);
+    // Ausente = mantém ligada, que é o comportamento de sempre.
+    const fotoAuto = req.body.foto_auto === undefined ? 1 : (req.body.foto_auto ? 1 : 0);
     const itens: any[] = Array.isArray(req.body.itens) ? req.body.itens : [];
 
     await comTransacao(async (tx) => {
-      await tx.prepare('UPDATE lojas SET categoria_estilo = ?, categoria_formato = ?, categoria_tamanho = ? WHERE id = ?')
-        .run(estilo, formato, tamanho, loja.id);
+      await tx.prepare(
+        `UPDATE lojas SET categoria_estilo = ?, categoria_formato = ?, categoria_tamanho = ?,
+                          categoria_todos_imagem = ?, categoria_foto_auto = ? WHERE id = ?`
+      ).run(estilo, formato, tamanho, todosImagem, fotoAuto, loja.id);
       for (let i = 0; i < itens.length; i++) {
         const it = itens[i];
         const nome = textoLimpo(it.nome, 50);

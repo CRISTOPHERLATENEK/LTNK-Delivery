@@ -91,6 +91,8 @@ const TABELAS: string[] = [
   categoria_estilo      VARCHAR(20) NOT NULL DEFAULT 'cards',
   categoria_formato     VARCHAR(20) NOT NULL DEFAULT 'circulo',
   categoria_tamanho     VARCHAR(10) NOT NULL DEFAULT 'medio',
+  categoria_todos_imagem VARCHAR(500) NOT NULL DEFAULT '',
+  categoria_foto_auto   TINYINT NOT NULL DEFAULT 1,
   mercadopago_token     TEXT,
   mercadopago_token_teste    TEXT,
   mercadopago_token_producao TEXT,
@@ -708,6 +710,13 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     ['categorias', 'imagem',             "imagem VARCHAR(500) NOT NULL DEFAULT ''"],
     ['lojas',      'categoria_formato',  "categoria_formato VARCHAR(20) NOT NULL DEFAULT 'circulo'"],
     ['lojas',      'categoria_tamanho',  "categoria_tamanho VARCHAR(10) NOT NULL DEFAULT 'medio'"],
+    // Foto do botão "Todos" — o único que nunca tinha imagem, e por isso
+    // destoava sempre que as outras categorias tinham.
+    ['lojas',      'categoria_todos_imagem', "categoria_todos_imagem VARCHAR(500) NOT NULL DEFAULT ''"],
+    // Ligada (padrão) = comportamento de sempre: categoria sem foto escolhida
+    // usa a do 1º produto. Desligada = só as fotos escolhidas, ícone no resto —
+    // é o jeito de ter a faixa consistente sem produzir imagem pra tudo.
+    ['lojas',      'categoria_foto_auto',    'categoria_foto_auto TINYINT NOT NULL DEFAULT 1'],
   ] as const) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS

@@ -19,7 +19,11 @@ import {
   type FormatoCategoria, type TamanhoCategoria,
 } from '@/lib/categoria-visual';
 
-interface Cat { nome: string; icone: string; imagem: string; nomeEdit: string; setorId: number | null }
+interface Cat {
+  nome: string; icone: string; imagem: string; nomeEdit: string; setorId: number | null;
+  /** Foto que ela herdaria de um produto — só pra prévia não mentir. */
+  imagemAuto: string;
+}
 interface Setor { id: number; nome: string; categorias: number }
 
 /** Grade de ícones reaproveitada tanto no picker de cada categoria quanto no de "nova categoria". */
@@ -50,6 +54,8 @@ export function CategoriasLoja() {
   const [estilo, setEstilo] = useState<'cards' | 'chips'>('cards');
   const [formato, setFormato] = useState<FormatoCategoria>('circulo');
   const [tamanho, setTamanho] = useState<TamanhoCategoria>('medio');
+  const [todosImagem, setTodosImagem] = useState('');
+  const [fotoAuto, setFotoAuto] = useState(true);
   const [carregado, setCarregado] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [pickerAberto, setPickerAberto] = useState<number | null>(null);
@@ -62,12 +68,14 @@ export function CategoriasLoja() {
   const [novaCatPickerAberto, setNovaCatPickerAberto] = useState(false);
 
   function carregar() {
-    api<{ categorias: { nome: string; icone: string; imagem: string; setor_id: number | null }[]; estilo: 'cards' | 'chips'; formato: string; tamanho: string }>('GET', '/api/lojista/categorias')
+    api<{ categorias: { nome: string; icone: string; imagem: string; imagem_auto: string; setor_id: number | null }[]; estilo: 'cards' | 'chips'; formato: string; tamanho: string; todos_imagem: string; foto_auto: number }>('GET', '/api/lojista/categorias')
       .then(r => {
-        setCats(r.categorias.map(c => ({ nome: c.nome, icone: c.icone, imagem: c.imagem || '', nomeEdit: c.nome, setorId: c.setor_id })));
+        setCats(r.categorias.map(c => ({ nome: c.nome, icone: c.icone, imagem: c.imagem || '', imagemAuto: c.imagem_auto || '', nomeEdit: c.nome, setorId: c.setor_id })));
         setEstilo(r.estilo === 'chips' ? 'chips' : 'cards');
         setFormato(normalizarFormato(r.formato));
         setTamanho(normalizarTamanho(r.tamanho));
+        setTodosImagem(r.todos_imagem || '');
+        setFotoAuto(r.foto_auto !== 0);
         setCarregado(true);
       })
       .catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar as categorias.' }));
@@ -127,7 +135,7 @@ export function CategoriasLoja() {
       mostrar({ tipo: 'erro', titulo: 'Já existe uma categoria com esse nome.' });
       return;
     }
-    setCats(c => [...c, { nome, icone: novaCatIcone, imagem: '', nomeEdit: nome, setorId: null }]);
+    setCats(c => [...c, { nome, icone: novaCatIcone, imagem: '', imagemAuto: '', nomeEdit: nome, setorId: null }]);
     setNovaCatNome('');
     setNovaCatIcone('geral');
     setNovaCatPickerAberto(false);
@@ -140,6 +148,8 @@ export function CategoriasLoja() {
         estilo,
         formato,
         tamanho,
+        todos_imagem: todosImagem,
+        foto_auto: fotoAuto,
         itens: cats.map((c, i) => ({
           nome: c.nome, icone: c.icone, imagem: c.imagem, ordem: i, setor_id: c.setorId,
           renomear_para: c.nomeEdit.trim() && c.nomeEdit.trim() !== c.nome ? c.nomeEdit.trim() : undefined,
@@ -256,6 +266,46 @@ export function CategoriasLoja() {
               </div>
 
               {/*
+                O "TODOS" É O PRIMEIRO DA FILEIRA e era o único que nunca tinha
+                foto — então bastava uma categoria ter foto pra ele destoar dos
+                vizinhos. Aqui ele deixa de ser exceção.
+              */}
+              <div>
+                <ImageUpload
+                  value={todosImagem}
+                  onChange={setTodosImagem}
+                  label='Foto do botão "Todos" (opcional)'
+                  aspectRatio="square"
+                />
+              </div>
+
+              {/*
+                A foto automática é o que mistura ícone com foto sem ninguém
+                pedir: a categoria herda a foto de um produto, o "Todos" não
+                herda nada. Desligar aqui deixa a fileira consistente sem exigir
+                que se produza imagem pra tudo.
+              */}
+              <button
+                type="button"
+                onClick={() => setFotoAuto(v => !v)}
+                className="flex w-full items-start gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:bg-accent/40"
+              >
+                <span className={cn('relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors',
+                  fotoAuto ? 'bg-primary' : 'bg-muted-foreground/30')}>
+                  <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-all',
+                    fotoAuto ? 'left-[19px]' : 'left-[3px]')} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">Usar foto de produto quando eu não escolher</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {fotoAuto
+                      ? 'Categoria sem foto própria mostra a foto do primeiro produto dela.'
+                      : 'Só as fotos que você escolher. Nas outras aparece o ícone.'}
+                  </span>
+                </span>
+              </button>
+
+              {/*
                 PRÉVIA COM AS CATEGORIAS REAIS, não um exemplo genérico: é onde
                 se vê que a foto escolhida ficou cortada ou que o nome quebra em
                 duas linhas naquele tamanho. Usa as mesmas classes da vitrine
@@ -269,7 +319,13 @@ export function CategoriasLoja() {
                     {cats.length === 0 && (
                       <span className="text-sm text-muted-foreground">Crie uma categoria pra ver a prévia.</span>
                     )}
-                    {cats.map(c => <BolhaPrevia key={c.nome} cat={c} formato={formato} tamanho={tamanho} />)}
+                    {cats.length > 0 && (
+                      <BolhaPrevia
+                        cat={{ nome: 'Todos', icone: 'geral', imagem: todosImagem, imagemAuto: '', nomeEdit: 'Todos', setorId: null }}
+                        formato={formato} tamanho={tamanho} fotoAuto={fotoAuto}
+                      />
+                    )}
+                    {cats.map(c => <BolhaPrevia key={c.nome} cat={c} formato={formato} tamanho={tamanho} fotoAuto={fotoAuto} />)}
                   </div>
                 </div>
               </div>
@@ -399,14 +455,18 @@ export function CategoriasLoja() {
 }
 
 /** Uma bolha da prévia — mesmas classes da vitrine do cliente. */
-function BolhaPrevia({ cat, formato, tamanho }: { cat: Cat; formato: FormatoCategoria; tamanho: TamanhoCategoria }) {
+function BolhaPrevia({ cat, formato, tamanho, fotoAuto }: {
+  cat: Cat; formato: FormatoCategoria; tamanho: TamanhoCategoria; fotoAuto: boolean;
+}) {
   const cl = classesCategoria(formato, tamanho);
   const icone = iconeCategoria(cat.icone);
+  // Mesma precedência da vitrine: escolhida > herdada (se ligada) > ícone.
+  const foto = cat.imagem || (fotoAuto ? cat.imagemAuto : '');
   return (
     <div className={cn('flex shrink-0 flex-col items-center gap-1.5', cl.botao)}>
       <span className={cn('flex items-center justify-center overflow-hidden border-2 border-border bg-background', cl.bolha, cl.raio)}>
-        {cat.imagem
-          ? <img src={cat.imagem} alt="" className="size-full object-cover" />
+        {foto
+          ? <img src={foto} alt="" className="size-full object-cover" />
           : icone
             /* createElement em vez de <Icone/>: o ícone vem de um mapa, mas
                atribuí-lo a uma variável Maiúscula aqui faz o lint ler como

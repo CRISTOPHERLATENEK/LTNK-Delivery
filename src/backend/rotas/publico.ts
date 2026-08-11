@@ -238,6 +238,7 @@ router.get('/lojas/:id', async (req, res, next) => {
               taxa_entrega_centavos, tempo_estimado_min, horario_funcionamento, aberta,
               logo_url, capa_url, favicon_url, cor_marca, cor_secundaria, slug,
               categoria_estilo, categoria_formato, categoria_tamanho,
+              categoria_todos_imagem, categoria_foto_auto,
               horario_json, minimo_pedido_centavos, nota_media, nota_qtd, visual_json
          FROM lojas
         WHERE ${porNumero ? 'id = ?' : 'slug = ?'} AND status_aprovacao = 'aprovada'`
@@ -280,17 +281,20 @@ router.get('/lojas/:id', async (req, res, next) => {
       'SELECT nome, icone, imagem, ordem FROM categorias WHERE loja_id = ?'
     ).all(loja.id) as Array<{ nome: string; icone: string; imagem: string; ordem: number }>;
     const metaMapa = new Map(reg.map(r => [r.nome, r]));
+    const fotoAuto = (loja as unknown as { categoria_foto_auto?: number }).categoria_foto_auto !== 0;
     const categorias_meta = Object.keys(cardapio).map(nome => ({
       nome,
       icone: metaMapa.get(nome)?.icone || '',
       ordem: metaMapa.get(nome)?.ordem ?? 999,
       /*
-       * A escolhida pelo lojista VENCE; sem ela, cai na foto do 1º produto da
-       * categoria — que é como funcionava antes de dar pra escolher. Assim
-       * quem não mexer não vê diferença nenhuma.
+       * A escolhida pelo lojista VENCE. Sem ela, cai na foto do 1º produto —
+       * mas só se a foto automática estiver ligada (é o padrão, e o
+       * comportamento de sempre). Desligada, fica vazio e a vitrine mostra o
+       * ícone: é assim que a faixa fica consistente sem exigir imagem pra
+       * toda categoria.
        */
       imagem: metaMapa.get(nome)?.imagem
-        || (cardapio[nome].find(p => p.foto_url)?.foto_url)
+        || (fotoAuto ? (cardapio[nome].find(p => p.foto_url)?.foto_url) : '')
         || '',
     })).sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome));
 
