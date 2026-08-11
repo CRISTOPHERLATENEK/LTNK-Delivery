@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { adicionarAoCarrinho, useCarrinho, mudarQuantidade } from '@/lib/carrinho';
 import { registrarLojaAtual, registrarCorLoja } from '@/lib/loja-atual';
 import { iconeCategoria } from '@/lib/icones-categoria';
+import { classesCategoria } from '@/lib/categoria-visual';
 import { ModalProduto } from './modal-produto';
 import { BannerCarousel } from '@/components/banner-carousel';
 import {
@@ -23,7 +24,7 @@ import type { Loja, Produto, Banner, VisualJson } from '@/types';
 
 interface CategoriaMeta { nome: string; icone: string; ordem: number; imagem?: string }
 interface RespostaCardapio {
-  loja: Loja & { categoria_estilo?: 'cards' | 'chips' };
+  loja: Loja & { categoria_estilo?: 'cards' | 'chips'; categoria_formato?: string; categoria_tamanho?: string };
   cardapio: Record<string, Produto[]>;
   categorias_meta?: CategoriaMeta[];
   banners: Banner[];
@@ -204,6 +205,8 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
   } : consulta.data.loja;
   const modoWhiteLabel = marca.loja_id > 0;
   const estiloCat: 'cards' | 'chips' = loja.categoria_estilo === 'chips' ? 'chips' : 'cards';
+  const formatoCat = loja.categoria_formato;
+  const tamanhoCat = loja.categoria_tamanho;
   const metaCat: CategoriaMeta[] = consulta.data.categorias_meta?.length
     ? consulta.data.categorias_meta
     : Object.keys(cardapio).map((nome, i) => ({ nome, icone: '', ordem: i }));
@@ -401,7 +404,8 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
         {estiloCat === 'cards' ? (
           <div className="-mx-4 px-4 overflow-x-auto scrollbar-hide">
             <div className="flex gap-2.5 pb-1">
-              <CardCategoria icone="geral" imagem="" label="Todos" ativo={!catAtiva} onClick={() => selecionarCat(null)} />
+              <CardCategoria icone="geral" imagem="" label="Todos" ativo={!catAtiva}
+                formato={formatoCat} tamanho={tamanhoCat} onClick={() => selecionarCat(null)} />
               {metaCat.map(c => (
                 <CardCategoria
                   key={c.nome}
@@ -409,6 +413,8 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
                   imagem={c.imagem}
                   label={c.nome}
                   ativo={catAtiva === c.nome}
+                  formato={formatoCat}
+                  tamanho={tamanhoCat}
                   onClick={() => selecionarCat(catAtiva === c.nome ? null : c.nome)}
                 />
               ))}
@@ -690,29 +696,34 @@ function CarrinhoLateral({ loja }: { loja: Loja }) {
 }
 
 /* ── Card de categoria com foto (estilo iFood) ── */
-function CardCategoria({ icone, imagem, label, ativo, onClick }: { icone: string; imagem?: string; label: string; ativo: boolean; onClick: () => void }) {
+function CardCategoria({ icone, imagem, label, ativo, formato, tamanho, onClick }: {
+  icone: string; imagem?: string; label: string; ativo: boolean;
+  formato?: string; tamanho?: string; onClick: () => void;
+}) {
   const Icone = iconeCategoria(icone);
+  const c = classesCategoria(formato, tamanho);
   return (
     <button
       onClick={onClick}
-      className="flex shrink-0 flex-col items-center gap-1.5 w-[68px] active:scale-90 transition-transform"
+      className={cn('flex shrink-0 flex-col items-center gap-1.5 active:scale-90 transition-transform', c.botao)}
     >
       <span
         className={cn(
-          'flex size-14 items-center justify-center overflow-hidden rounded-full border-2 transition-all',
+          'flex items-center justify-center overflow-hidden border-2 transition-all',
+          c.bolha, c.raio,
           ativo ? 'border-primary bg-primary/10' : 'border-border bg-muted/40',
         )}
       >
         {imagem ? (
           <img src={imagem} alt="" className="size-full object-cover" />
         ) : Icone ? (
-          <Icone className={cn('size-6', ativo ? 'text-primary' : 'text-muted-foreground')} strokeWidth={1.75} />
+          <Icone className={cn(c.icone, ativo ? 'text-primary' : 'text-muted-foreground')} strokeWidth={1.75} />
         ) : (
           <span className="text-2xl">{icone || '🍽️'}</span>
         )}
       </span>
       <span className={cn(
-        'text-center text-[11px] font-semibold leading-tight line-clamp-2',
+        'text-center font-semibold leading-tight line-clamp-2', c.texto,
         ativo ? 'text-primary' : 'text-muted-foreground',
       )}>
         {label}

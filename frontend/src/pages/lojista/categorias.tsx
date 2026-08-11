@@ -2,7 +2,7 @@
  * Gestão de categorias do cardápio: criação, ícone (Lucide), ordem, renomear, e o
  * estilo de exibição na vitrine do cliente (cards com ícone ou chips de texto).
  */
-import { useEffect, useState } from 'react';
+import { createElement, useEffect, useState } from 'react';
 import { Tag, Save, ChevronUp, ChevronDown, LayoutGrid, Type, Printer, Plus, X, Pencil } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,8 +13,13 @@ import { useToast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { ICONES_CATEGORIA, iconeCategoria } from '@/lib/icones-categoria';
+import { ImageUpload } from '@/components/ui/image-upload';
+import {
+  FORMATOS, TAMANHOS, classesCategoria, normalizarFormato, normalizarTamanho,
+  type FormatoCategoria, type TamanhoCategoria,
+} from '@/lib/categoria-visual';
 
-interface Cat { nome: string; icone: string; nomeEdit: string; setorId: number | null }
+interface Cat { nome: string; icone: string; imagem: string; nomeEdit: string; setorId: number | null }
 interface Setor { id: number; nome: string; categorias: number }
 
 /** Grade de ícones reaproveitada tanto no picker de cada categoria quanto no de "nova categoria". */
@@ -43,6 +48,8 @@ export function CategoriasLoja() {
   const { mostrar } = useToast();
   const [cats, setCats] = useState<Cat[]>([]);
   const [estilo, setEstilo] = useState<'cards' | 'chips'>('cards');
+  const [formato, setFormato] = useState<FormatoCategoria>('circulo');
+  const [tamanho, setTamanho] = useState<TamanhoCategoria>('medio');
   const [carregado, setCarregado] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [pickerAberto, setPickerAberto] = useState<number | null>(null);
@@ -55,10 +62,12 @@ export function CategoriasLoja() {
   const [novaCatPickerAberto, setNovaCatPickerAberto] = useState(false);
 
   function carregar() {
-    api<{ categorias: { nome: string; icone: string; setor_id: number | null }[]; estilo: 'cards' | 'chips' }>('GET', '/api/lojista/categorias')
+    api<{ categorias: { nome: string; icone: string; imagem: string; setor_id: number | null }[]; estilo: 'cards' | 'chips'; formato: string; tamanho: string }>('GET', '/api/lojista/categorias')
       .then(r => {
-        setCats(r.categorias.map(c => ({ nome: c.nome, icone: c.icone, nomeEdit: c.nome, setorId: c.setor_id })));
+        setCats(r.categorias.map(c => ({ nome: c.nome, icone: c.icone, imagem: c.imagem || '', nomeEdit: c.nome, setorId: c.setor_id })));
         setEstilo(r.estilo === 'chips' ? 'chips' : 'cards');
+        setFormato(normalizarFormato(r.formato));
+        setTamanho(normalizarTamanho(r.tamanho));
         setCarregado(true);
       })
       .catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar as categorias.' }));
@@ -118,7 +127,7 @@ export function CategoriasLoja() {
       mostrar({ tipo: 'erro', titulo: 'Já existe uma categoria com esse nome.' });
       return;
     }
-    setCats(c => [...c, { nome, icone: novaCatIcone, nomeEdit: nome, setorId: null }]);
+    setCats(c => [...c, { nome, icone: novaCatIcone, imagem: '', nomeEdit: nome, setorId: null }]);
     setNovaCatNome('');
     setNovaCatIcone('geral');
     setNovaCatPickerAberto(false);
@@ -129,8 +138,10 @@ export function CategoriasLoja() {
     try {
       await api('PUT', '/api/lojista/categorias', {
         estilo,
+        formato,
+        tamanho,
         itens: cats.map((c, i) => ({
-          nome: c.nome, icone: c.icone, ordem: i, setor_id: c.setorId,
+          nome: c.nome, icone: c.icone, imagem: c.imagem, ordem: i, setor_id: c.setorId,
           renomear_para: c.nomeEdit.trim() && c.nomeEdit.trim() !== c.nome ? c.nomeEdit.trim() : undefined,
         })),
       });
@@ -208,6 +219,62 @@ export function CategoriasLoja() {
               <Type className="size-4" /> Chips de texto
             </button>
           </div>
+
+          {/*
+            Formato e tamanho só existem no estilo "cards" — em chips não há
+            bolha nenhuma pra arredondar. Mostrar controles que não fazem nada
+            é pior do que escondê-los.
+          */}
+          {estilo === 'cards' && (
+            <div className="mt-4 space-y-4 border-t border-border pt-4">
+              <div>
+                <Label className="mb-2 block">Formato</Label>
+                <div className="flex gap-2">
+                  {FORMATOS.map(f => (
+                    <button key={f.valor} type="button" onClick={() => setFormato(f.valor)}
+                      className={cn('flex flex-1 items-center justify-center gap-2 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors',
+                        formato === f.valor ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground')}>
+                      <span className={cn('size-4 border-2 border-current',
+                        f.valor === 'circulo' ? 'rounded-full' : f.valor === 'arredondado' ? 'rounded-md' : 'rounded-[2px]')} />
+                      {f.rotulo}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <Label className="mb-2 block">Tamanho</Label>
+                <div className="flex gap-2">
+                  {TAMANHOS.map(t => (
+                    <button key={t.valor} type="button" onClick={() => setTamanho(t.valor)}
+                      className={cn('flex-1 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors',
+                        tamanho === t.valor ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground')}>
+                      {t.rotulo}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/*
+                PRÉVIA COM AS CATEGORIAS REAIS, não um exemplo genérico: é onde
+                se vê que a foto escolhida ficou cortada ou que o nome quebra em
+                duas linhas naquele tamanho. Usa as mesmas classes da vitrine
+                (lib/categoria-visual), então o que aparece aqui é o que o
+                cliente vê.
+              */}
+              <div>
+                <Label className="mb-2 block">Prévia</Label>
+                <div className="-mx-1 overflow-x-auto rounded-xl bg-muted/40 p-3">
+                  <div className="flex gap-2.5">
+                    {cats.length === 0 && (
+                      <span className="text-sm text-muted-foreground">Crie uma categoria pra ver a prévia.</span>
+                    )}
+                    {cats.map(c => <BolhaPrevia key={c.nome} cat={c} formato={formato} tamanho={tamanho} />)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -296,6 +363,24 @@ export function CategoriasLoja() {
                     <GradeIcones selecionado={c.icone} onEscolher={chave => { setCampo(i, { icone: chave }); setPickerAberto(null); }} />
                   </div>
                 )}
+
+                {/*
+                  FOTO DA CATEGORIA. Vazio = foto do primeiro produto que tiver
+                  uma, que era o único comportamento possível antes — então
+                  quem não mexer aqui não vê diferença.
+                */}
+                {estilo === 'cards' && (
+                  <div className="mt-2 flex items-center gap-3">
+                    <div className="flex-1">
+                      <ImageUpload
+                        value={c.imagem}
+                        onChange={url => setCampo(i, { imagem: url })}
+                        label="Foto da categoria (opcional)"
+                        aspectRatio="square"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </CardContent>
@@ -309,6 +394,29 @@ export function CategoriasLoja() {
       <Button size="lg" className="w-full" onClick={salvar} disabled={enviando}>
         <Save className="size-4" /> {enviando ? 'Salvando…' : 'Salvar categorias'}
       </Button>
+    </div>
+  );
+}
+
+/** Uma bolha da prévia — mesmas classes da vitrine do cliente. */
+function BolhaPrevia({ cat, formato, tamanho }: { cat: Cat; formato: FormatoCategoria; tamanho: TamanhoCategoria }) {
+  const cl = classesCategoria(formato, tamanho);
+  const icone = iconeCategoria(cat.icone);
+  return (
+    <div className={cn('flex shrink-0 flex-col items-center gap-1.5', cl.botao)}>
+      <span className={cn('flex items-center justify-center overflow-hidden border-2 border-border bg-background', cl.bolha, cl.raio)}>
+        {cat.imagem
+          ? <img src={cat.imagem} alt="" className="size-full object-cover" />
+          : icone
+            /* createElement em vez de <Icone/>: o ícone vem de um mapa, mas
+               atribuí-lo a uma variável Maiúscula aqui faz o lint ler como
+               "componente criado durante o render". */
+            ? createElement(icone, { className: cn(cl.icone, 'text-muted-foreground'), strokeWidth: 1.75 })
+            : <span className="text-2xl">{cat.icone || '🍴'}</span>}
+      </span>
+      <span className={cn('line-clamp-2 text-center font-semibold leading-tight text-muted-foreground', cl.texto)}>
+        {cat.nomeEdit || cat.nome}
+      </span>
     </div>
   );
 }

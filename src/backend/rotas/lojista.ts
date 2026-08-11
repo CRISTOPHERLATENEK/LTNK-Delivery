@@ -3159,26 +3159,37 @@ router.delete('/setores/:id', async (req, res, next) => {
 
 // ----- Categorias do cardápio ---------------------------------------------
 
+/** Formatos da bolha de categoria na vitrine. */
+const FORMATOS_CATEGORIA = ['circulo', 'arredondado', 'quadrado'] as const;
+/** Tamanhos da faixa de categorias. */
+const TAMANHOS_CATEGORIA = ['pequeno', 'medio', 'grande'] as const;
+
+
 /** Lista categorias (registro + as que existem só nos produtos) + estilo. */
 router.get('/categorias', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req) as any;
     const registro = await db.prepare(
-      'SELECT nome, icone, ordem, setor_id FROM categorias WHERE loja_id = ? ORDER BY ordem, nome'
-    ).all(loja.id) as Array<{ nome: string; icone: string; ordem: number; setor_id: number | null }>;
+      'SELECT nome, icone, imagem, ordem, setor_id FROM categorias WHERE loja_id = ? ORDER BY ordem, nome'
+    ).all(loja.id) as Array<{ nome: string; icone: string; imagem: string; ordem: number; setor_id: number | null }>;
     const mapa = new Map(registro.map(r => [r.nome, r]));
     const doProduto = await db.prepare(
       "SELECT DISTINCT categoria FROM produtos WHERE loja_id = ? AND excluido = 0 AND categoria != ''"
     ).all(loja.id) as Array<{ categoria: string }>;
     for (const { categoria } of doProduto) {
       if (!mapa.has(categoria)) {
-        const item = { nome: categoria, icone: '', ordem: 999, setor_id: null };
+        const item = { nome: categoria, icone: '', imagem: '', ordem: 999, setor_id: null };
         mapa.set(categoria, item);
         registro.push(item);
       }
     }
     const categorias = [...mapa.values()].sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome));
-    res.json({ categorias, estilo: loja.categoria_estilo || 'cards' });
+    res.json({
+      categorias,
+      estilo: loja.categoria_estilo || 'cards',
+      formato: loja.categoria_formato || 'circulo',
+      tamanho: loja.categoria_tamanho || 'medio',
+    });
   } catch (e) { next(e); }
 });
 
@@ -3187,15 +3198,21 @@ router.put('/categorias', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const estilo = req.body.estilo === 'chips' ? 'chips' : 'cards';
+    // Lista fechada: valor fora dela cairia como classe CSS inexistente na
+    // vitrine e a faixa apareceria sem formato nenhum.
+    const formato = FORMATOS_CATEGORIA.includes(req.body.formato) ? req.body.formato : 'circulo';
+    const tamanho = TAMANHOS_CATEGORIA.includes(req.body.tamanho) ? req.body.tamanho : 'medio';
     const itens: any[] = Array.isArray(req.body.itens) ? req.body.itens : [];
 
     await comTransacao(async (tx) => {
-      await tx.prepare('UPDATE lojas SET categoria_estilo = ? WHERE id = ?').run(estilo, loja.id);
+      await tx.prepare('UPDATE lojas SET categoria_estilo = ?, categoria_formato = ?, categoria_tamanho = ? WHERE id = ?')
+        .run(estilo, formato, tamanho, loja.id);
       for (let i = 0; i < itens.length; i++) {
         const it = itens[i];
         const nome = textoLimpo(it.nome, 50);
         if (!nome) continue;
         const icone = textoLimpo(it.icone, 16);
+        const imagem = textoLimpo(it.imagem, 500);
         const ordem = Number.isFinite(Number(it.ordem)) ? Number(it.ordem) : i;
         const setorId = it.setor_id ? Number(it.setor_id) : null;
         const novo = textoLimpo(it.renomear_para, 50);
@@ -3205,9 +3222,9 @@ router.put('/categorias', async (req, res, next) => {
           await tx.prepare('DELETE FROM categorias WHERE loja_id = ? AND nome = ?').run(loja.id, nome);
         }
         await tx.prepare(
-          `INSERT INTO categorias (loja_id, nome, icone, ordem, setor_id, criado_em) VALUES (?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE icone = VALUES(icone), ordem = VALUES(ordem), setor_id = VALUES(setor_id)`
-        ).run(loja.id, nomeFinal, icone, ordem, setorId, agoraUTC());
+          `INSERT INTO categorias (loja_id, nome, icone, imagem, ordem, setor_id, criado_em) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE icone = VALUES(icone), imagem = VALUES(imagem), ordem = VALUES(ordem), setor_id = VALUES(setor_id)`
+        ).run(loja.id, nomeFinal, icone, imagem, ordem, setorId, agoraUTC());
       }
     });
     res.json({ ok: true });

@@ -89,6 +89,8 @@ const TABELAS: string[] = [
   nota_qtd              INT NOT NULL DEFAULT 0,
   comissao_percentual   DOUBLE,
   categoria_estilo      VARCHAR(20) NOT NULL DEFAULT 'cards',
+  categoria_formato     VARCHAR(20) NOT NULL DEFAULT 'circulo',
+  categoria_tamanho     VARCHAR(10) NOT NULL DEFAULT 'medio',
   mercadopago_token     TEXT,
   mercadopago_token_teste    TEXT,
   mercadopago_token_producao TEXT,
@@ -581,6 +583,7 @@ const TABELAS: string[] = [
   loja_id   INT NOT NULL,
   nome      VARCHAR(120) NOT NULL,
   icone     VARCHAR(20) NOT NULL DEFAULT '',
+  imagem    VARCHAR(500) NOT NULL DEFAULT '',
   ordem     INT NOT NULL DEFAULT 0,
   criado_em VARCHAR(32) NOT NULL,
   setor_id  INT,
@@ -688,6 +691,33 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     await pool.query(
       'ALTER TABLE notas_fiscais ADD UNIQUE KEY idx_notas_loja_serie_numero (loja_id, serie, numero)'
     );
+  }
+
+  /**
+   * Aparência da faixa de categorias do cardápio.
+   *
+   * A imagem era SEMPRE a foto do primeiro produto da categoria, e o formato
+   * era sempre círculo — o lojista não escolhia nem uma coisa nem outra. Numa
+   * categoria com um produto sem foto boa, a vitrine inteira ficava feia e não
+   * havia o que fazer.
+   *
+   * `categorias.imagem` vazio mantém o comportamento de antes (foto do 1º
+   * produto), então nada muda pra quem não mexer.
+   */
+  for (const [tabela, coluna, ddl] of [
+    ['categorias', 'imagem',             "imagem VARCHAR(500) NOT NULL DEFAULT ''"],
+    ['lojas',      'categoria_formato',  "categoria_formato VARCHAR(20) NOT NULL DEFAULT 'circulo'"],
+    ['lojas',      'categoria_tamanho',  "categoria_tamanho VARCHAR(10) NOT NULL DEFAULT 'medio'"],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+        LIMIT 1`,
+      [tabela, coluna],
+    ) as any;
+    if (existe.length === 0) {
+      await pool.query(`ALTER TABLE \`${tabela}\` ADD COLUMN ${ddl}`);
+    }
   }
 
   /**

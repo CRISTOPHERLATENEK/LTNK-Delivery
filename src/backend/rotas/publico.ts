@@ -236,7 +236,8 @@ router.get('/lojas/:id', async (req, res, next) => {
     const loja = await db.prepare(
       `SELECT id, nome, descricao, categoria, endereco,
               taxa_entrega_centavos, tempo_estimado_min, horario_funcionamento, aberta,
-              logo_url, capa_url, favicon_url, cor_marca, cor_secundaria, slug, categoria_estilo,
+              logo_url, capa_url, favicon_url, cor_marca, cor_secundaria, slug,
+              categoria_estilo, categoria_formato, categoria_tamanho,
               horario_json, minimo_pedido_centavos, nota_media, nota_qtd, visual_json
          FROM lojas
         WHERE ${porNumero ? 'id = ?' : 'slug = ?'} AND status_aprovacao = 'aprovada'`
@@ -276,15 +277,21 @@ router.get('/lojas/:id', async (req, res, next) => {
     // Metadados das categorias (ícone + ordem) para a vitrine. Mescla o registro
     // com as categorias que só existem nos produtos (ícone vazio, ordem alta).
     const reg = await db.prepare(
-      'SELECT nome, icone, ordem FROM categorias WHERE loja_id = ?'
-    ).all(loja.id) as Array<{ nome: string; icone: string; ordem: number }>;
+      'SELECT nome, icone, imagem, ordem FROM categorias WHERE loja_id = ?'
+    ).all(loja.id) as Array<{ nome: string; icone: string; imagem: string; ordem: number }>;
     const metaMapa = new Map(reg.map(r => [r.nome, r]));
     const categorias_meta = Object.keys(cardapio).map(nome => ({
       nome,
       icone: metaMapa.get(nome)?.icone || '',
       ordem: metaMapa.get(nome)?.ordem ?? 999,
-      // Imagem da categoria = foto do 1º produto dela que tenha foto (estilo iFood).
-      imagem: (cardapio[nome].find(p => p.foto_url)?.foto_url) || '',
+      /*
+       * A escolhida pelo lojista VENCE; sem ela, cai na foto do 1º produto da
+       * categoria — que é como funcionava antes de dar pra escolher. Assim
+       * quem não mexer não vê diferença nenhuma.
+       */
+      imagem: metaMapa.get(nome)?.imagem
+        || (cardapio[nome].find(p => p.foto_url)?.foto_url)
+        || '',
     })).sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome));
 
     // Zonas de entrega (taxa por bairro) — o cliente usa para prever o frete.
