@@ -23,6 +23,7 @@ export function LojaConfiguracao() {
   const [form, setForm] = useState({
     nome: '', descricao: '', categoria: '', endereco: '',
     taxa_entrega: '', tempo_estimado_min: '', horario_funcionamento: '', minimo_pedido: '',
+    aceita_retirada: false,
     slug: '', dominio_personalizado: '',
   });
   const [enviando, setEnviando] = useState(false);
@@ -77,6 +78,7 @@ export function LojaConfiguracao() {
         minimo_pedido: l.minimo_pedido_centavos ? String((l.minimo_pedido_centavos / 100).toFixed(2)) : '',
         slug: (l as any).slug || '',
         dominio_personalizado: (l as any).dominio_personalizado || '',
+        aceita_retirada: !!(l as { aceita_retirada?: number }).aceita_retirada,
       });
     }).catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar os dados da loja.' }));
   }, []);
@@ -99,6 +101,7 @@ export function LojaConfiguracao() {
         tempo_estimado_min: Number(form.tempo_estimado_min),
         horario_funcionamento: form.horario_funcionamento,
         minimo_pedido: form.minimo_pedido === '' ? 0 : Number(form.minimo_pedido),
+        aceita_retirada: form.aceita_retirada,
         slug: form.slug.trim() || null,
         dominio_personalizado: form.dominio_personalizado.trim() || null,
       });
@@ -326,6 +329,31 @@ export function LojaConfiguracao() {
                 placeholder="0.00 para sem mínimo"
               />
             </div>
+
+            {/*
+              RETIRADA NO LOCAL — desligada por padrão.
+              Só a loja sabe se tem balcão pra receber gente. Ligada sem querer,
+              o cliente aparece na porta de uma cozinha que não atende público.
+            */}
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, aceita_retirada: !f.aceita_retirada }))}
+              className="flex w-full items-start gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:bg-accent/40"
+            >
+              <span className={cn('relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors',
+                form.aceita_retirada ? 'bg-primary' : 'bg-muted-foreground/30')}>
+                <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-all',
+                  form.aceita_retirada ? 'left-[19px]' : 'left-[3px]')} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">Aceitar retirada no local</span>
+                <span className="block text-xs text-muted-foreground">
+                  {form.aceita_retirada
+                    ? 'O cliente pode escolher buscar na loja, sem taxa de entrega.'
+                    : 'Só entrega. O cliente não vê a opção de retirar.'}
+                </span>
+              </span>
+            </button>
 
             <div>
               <Label>Tempo estimado (minutos)</Label>

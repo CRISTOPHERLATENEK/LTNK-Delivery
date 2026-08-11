@@ -818,6 +818,7 @@ ${config?.loja_nome ? `<div class="center loja">${escapar(config.loja_nome)}</di
 ${itensHtml}
 <div class="sep"></div>
 <div class="row total"><span>TOTAL</span><span>${fmt(p.total_centavos)}</span></div>
+${p.tipo_entrega === 'retirada' ? `<div class="sep"></div><div class="end"><b>*** RETIRADA NO LOCAL ***</b></div>` : ''}
 ${p.endereco_entrega ? `<div class="sep"></div><div class="end">📍 ${escapar(p.endereco_entrega)}</div>` : ''}
 ${p.observacoes ? `<div class="note">📝 ${escapar(p.observacoes)}</div>` : ''}
 </body></html>`;
@@ -837,6 +838,7 @@ ${p.observacoes ? `<div class="note">📝 ${escapar(p.observacoes)}</div>` : ''}
     }),
     { t: 'linha' },
     { t: 'lr', b: true, l: 'TOTAL', r: fmt(p.total_centavos) },
+    ...(p.tipo_entrega === 'retirada' ? [{ t: 'center' as const, b: true, txt: '*** RETIRADA NO LOCAL ***' }] : []),
     ...(p.endereco_entrega ? [{ t: 'texto' as const, txt: 'End: ' + p.endereco_entrega }] : []),
     ...(p.observacoes ? [{ t: 'texto' as const, txt: 'Obs: ' + p.observacoes }] : []),
     { t: 'corte' },
@@ -1162,6 +1164,17 @@ function CardPedidoLojista({ pedido, aoAtualizar }: { pedido: PedidoComItens; ao
           <span className="tabular-nums">{brl(pedido.total_centavos)}</span>
         </div>
 
+        {/*
+          RETIRADA precisa aparecer ANTES do endereço, e em destaque.
+          O campo de endereço guarda o endereço da LOJA nesses pedidos — sem o
+          selo, a linha "📍 Rua tal" se lê como destino de entrega e alguém
+          despacha um entregador pra buscar o pedido na própria loja.
+        */}
+        {pedido.tipo_entrega === 'retirada' && (
+          <div className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-amber-500/15 px-2.5 py-1 text-xs font-bold text-amber-700 dark:text-amber-400">
+            RETIRADA NO LOCAL — o cliente vem buscar
+          </div>
+        )}
         {pedido.endereco_entrega && (
           <div className="mt-2 text-xs text-muted-foreground">📍 {pedido.endereco_entrega}</div>
         )}

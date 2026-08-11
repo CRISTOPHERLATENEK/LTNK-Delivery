@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Minus, Plus, ShoppingBag, MapPin, CreditCard, Ticket, X, AlertTriangle, QrCode, Banknote, Copy, Check, Loader2, UtensilsCrossed, XCircle } from 'lucide-react';
+import { Minus, Plus, ShoppingBag, MapPin, Bike, CreditCard, Ticket, X, AlertTriangle, QrCode, Banknote, Copy, Check, Loader2, UtensilsCrossed, XCircle } from 'lucide-react';
 import { useCarrinho, mudarQuantidade, limparCarrinho } from '@/lib/carrinho';
 import { rotaInicioCliente } from '@/lib/loja-atual';
 import { useTema } from '@/lib/tema';
@@ -49,12 +49,14 @@ export function PaginaCarrinho() {
 
   const infoLoja = useQuery({
     queryKey: ['loja-checkout', carrinho?.loja_id],
-    queryFn: () => api<{ loja: { minimo_pedido_centavos?: number }; zonas: { bairro: string; taxa_centavos: number }[] }>(
+    queryFn: () => api<{ loja: { minimo_pedido_centavos?: number; aceita_retirada?: 0 | 1; endereco?: string }; zonas: { bairro: string; taxa_centavos: number }[] }>(
       'GET', `/api/lojas/${carrinho!.loja_id}`),
     enabled: !!carrinho?.loja_id,
   });
   const minimoPedido = infoLoja.data?.loja.minimo_pedido_centavos || 0;
   const zonas = infoLoja.data?.zonas || [];
+  const aceitaRetirada = !!infoLoja.data?.loja.aceita_retirada;
+  const lojaEndereco = infoLoja.data?.loja.endereco || '';
 
   const subtotal = carrinho?.itens.reduce((s, i) => s + i.preco_centavos * i.quantidade, 0) || 0;
   const desconto = useMemo(() => {
@@ -292,6 +294,8 @@ export function PaginaCarrinho() {
           total={total}
           zonas={zonas}
           fretePadrao={carrinho.taxa_entrega_centavos}
+          aceitaRetirada={aceitaRetirada}
+          lojaEndereco={lojaEndereco}
           bloqueado={abaixoMinimo}
           cupomCodigo={desconto > 0 ? cupom?.codigo : undefined}
           onFreteChange={setFreteEfetivo}
@@ -529,7 +533,7 @@ function PixPagamento({
 
 function Checkout({
   subtotal: _subtotal, total, cupomCodigo, onPedido, onPix, onCartao, onPedidoCriadoSemNavegar,
-  zonas, fretePadrao, bloqueado, onFreteChange,
+  zonas, fretePadrao, aceitaRetirada, lojaEndereco, bloqueado, onFreteChange,
 }: {
   subtotal: number; total: number; cupomCodigo?: string;
   onPedido: (id: number) => void;
@@ -539,6 +543,8 @@ function Checkout({
   onPedidoCriadoSemNavegar?: () => void;
   zonas: { bairro: string; taxa_centavos: number }[];
   fretePadrao: number;
+  aceitaRetirada: boolean;
+  lojaEndereco: string;
   bloqueado: boolean;
   onFreteChange: (centavos: number | null) => void;
 }) {
@@ -550,6 +556,7 @@ function Checkout({
     queryFn: () => api<{ enderecos: Endereco[] }>('GET', '/api/cliente/enderecos').then(r => r.enderecos),
   });
 
+  const [tipoEntrega, setTipoEntrega] = useState<'entrega' | 'retirada'>('entrega');
   const [enderecoId, setEnderecoId] = useState<number | 'novo' | null>(null);
   const [pagamento, setPagamento] = useState<FormaPagamento>('pix');
   const [troco, setTroco] = useState('');
@@ -571,10 +578,17 @@ function Checkout({
     ? novo.bairro
     : enderecos.data?.find(e => e.id === enderecoId)?.bairro ?? '';
   useEffect(() => {
+    /*
+     * RETIRADA ZERA O FRETE na tela também, não só no servidor.
+     * O total exibido tem que bater com o cobrado: mostrar taxa numa retirada
+     * e depois cobrar sem ela é o tipo de divergência que faz o cliente achar
+     * que foi enganado — mesmo quando é a favor dele.
+     */
+    if (tipoEntrega === 'retirada') { onFreteChange(0); return; }
     const bairroNorm = normalizarBairro(bairroSelecionado);
     const zona = zonas.find(z => normalizarBairro(z.bairro) === bairroNorm);
     onFreteChange(zona ? zona.taxa_centavos : fretePadrao);
-  }, [bairroSelecionado, zonas, fretePadrao, onFreteChange]);
+  }, [tipoEntrega, bairroSelecionado, zonas, fretePadrao, onFreteChange]);
 
   /*
    * Uma chave por TENTATIVA de checkout, criada no primeiro clique e reusada em
@@ -592,7 +606,9 @@ function Checkout({
     setEnviando(true);
     try {
       let idFinal = enderecoId;
-      if (idFinal === 'novo') {
+      // Na retirada não há endereço pra criar — e criar um "endereço de
+      // entrega" que ninguém vai usar sujaria a conta do cliente.
+      if (tipoEntrega === 'entrega' && idFinal === 'novo') {
         const r = await api<{ endereco: Endereco }>('POST', '/api/cliente/enderecos', novo);
         idFinal = r.endereco.id;
       }
@@ -603,6 +619,7 @@ function Checkout({
         loja_id: carrinho.loja_id,
         itens: carrinho.itens.map(i => ({ produto_id: i.produto_id, quantidade: i.quantidade, opcoes: i.opcoes, observacao: i.observacao })),
         endereco_id: idFinal,
+        tipo_entrega: tipoEntrega,
         forma_pagamento: pagamento,
         troco_para: pagamento === 'dinheiro' && troco ? troco : undefined,
         observacoes: obs,
@@ -674,7 +691,51 @@ function Checkout({
         </CardContent>
       </Card>
 
-      {/* Endereço */}
+      {/*
+        COMO RECEBER — a primeira decisão do checkout.
+        Vem antes do endereço porque é ela que decide se endereço existe: pedir
+        endereço primeiro e depois descobrir que é retirada faz o cliente
+        preencher à toa.
+      */}
+      {aceitaRetirada && (
+        <Card>
+          <CardContent className="p-5">
+            <h2 className="mb-3 flex items-center gap-2 font-bold">
+              <Bike className="size-4 text-primary" />
+              Como você quer receber?
+            </h2>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setTipoEntrega('entrega')}
+                className={cn('rounded-xl border-2 p-3 text-left transition-colors',
+                  tipoEntrega === 'entrega' ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent/40')}
+              >
+                <span className="block text-sm font-bold">Entrega</span>
+                <span className="block text-xs text-muted-foreground">Levamos no seu endereço</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTipoEntrega('retirada')}
+                className={cn('rounded-xl border-2 p-3 text-left transition-colors',
+                  tipoEntrega === 'retirada' ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent/40')}
+              >
+                <span className="block text-sm font-bold">Retirar no local</span>
+                <span className="block text-xs text-muted-foreground">Você busca na loja · sem taxa</span>
+              </button>
+            </div>
+            {tipoEntrega === 'retirada' && lojaEndereco && (
+              <p className="mt-3 flex items-start gap-1.5 rounded-lg bg-muted px-3 py-2 text-xs">
+                <MapPin className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                <span>Retire em <b>{lojaEndereco}</b></span>
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Endereço — só na entrega */}
+      {tipoEntrega === 'entrega' && (
       <Card>
         <CardContent className="p-5 space-y-3">
           <h2 className="flex items-center gap-2 font-bold">
@@ -721,6 +782,7 @@ function Checkout({
           {enderecoId === 'novo' && <FormNovoEndereco valor={novo} onMudar={setNovo} />}
         </CardContent>
       </Card>
+      )}
 
       {/* Pagamento */}
       <Card>

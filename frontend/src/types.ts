@@ -489,6 +489,8 @@ export interface Pedido {
   entregador_local_em?: string | null;
   aviso_chegada_em?: string | null;
   endereco_entrega: string;
+  /** 'entrega' (padrão) ou 'retirada' — o cliente busca na loja. */
+  tipo_entrega?: 'entrega' | 'retirada';
   forma_pagamento: FormaPagamento;
   pagamento_status?: 'na_entrega' | 'aguardando' | 'aprovado' | 'recusado';
   /** Preenchido quando o pagamento Pix foi estornado (ver POST /lojista/pedidos/:id/estornar). */

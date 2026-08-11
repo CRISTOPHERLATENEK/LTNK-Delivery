@@ -157,12 +157,12 @@ async function montarTextoConfirmacao(pedido: {
    */
   const extra = await db.prepare(
     `SELECT p.subtotal_centavos, p.taxa_entrega_centavos, p.desconto_centavos, p.cupom_codigo,
-            p.troco_para_centavos, p.observacoes, p.endereco_entrega, l.tempo_estimado_min
+            p.troco_para_centavos, p.observacoes, p.endereco_entrega, p.tipo_entrega, l.tempo_estimado_min
        FROM pedidos p JOIN lojas l ON l.id = p.loja_id WHERE p.id = ?`
   ).get(pedido.id) as {
     subtotal_centavos: number; taxa_entrega_centavos: number; desconto_centavos: number;
     cupom_codigo: string; troco_para_centavos: number | null; observacoes: string;
-    endereco_entrega: string; tempo_estimado_min: number;
+    endereco_entrega: string; tipo_entrega?: string; tempo_estimado_min: number;
   } | undefined;
 
   const linhas: string[] = [
@@ -208,7 +208,9 @@ async function montarTextoConfirmacao(pedido: {
   }
 
   if (extra?.endereco_entrega) {
-    linhas.push('', '*ENTREGA*', extra.endereco_entrega);
+    // RETIRADA precisa gritar aqui. Sob o título "ENTREGA", o cliente lê o
+    // endereço da loja como se fosse o destino e fica esperando em casa.
+    linhas.push('', extra.tipo_entrega === 'retirada' ? '*RETIRADA NO LOCAL*' : '*ENTREGA*', extra.endereco_entrega);
     if (extra.tempo_estimado_min) linhas.push(`Tempo estimado: ~${extra.tempo_estimado_min} min`);
   }
 

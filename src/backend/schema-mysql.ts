@@ -88,6 +88,7 @@ const TABELAS: string[] = [
   nota_media            DOUBLE NOT NULL DEFAULT 0,
   nota_qtd              INT NOT NULL DEFAULT 0,
   comissao_percentual   DOUBLE,
+  aceita_retirada       TINYINT NOT NULL DEFAULT 0,
   categoria_estilo      VARCHAR(20) NOT NULL DEFAULT 'cards',
   categoria_formato     VARCHAR(20) NOT NULL DEFAULT 'circulo',
   categoria_tamanho     VARCHAR(10) NOT NULL DEFAULT 'medio',
@@ -235,6 +236,7 @@ const TABELAS: string[] = [
                         CHECK (status IN ('pendente','aceito','preparando','pronto',
                                           'em_entrega','entregue','cancelado','recusado')),
   endereco_entrega      TEXT NOT NULL,
+  tipo_entrega          VARCHAR(10) NOT NULL DEFAULT 'entrega',
   forma_pagamento       VARCHAR(20) NOT NULL CHECK (forma_pagamento IN ('pix','dinheiro','cartao_entrega','cartao_online')),
   troco_para_centavos   INT,
   observacoes           TEXT NOT NULL,
@@ -725,6 +727,18 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * X-Burguer sem cebola" e esperar que a cozinha entendesse qual era.
      */
     ['itens_pedido', 'observacao', "observacao VARCHAR(160) NOT NULL DEFAULT ''"],
+    /*
+     * RETIRADA NO LOCAL. Nasce 'entrega' em todo pedido que já existe — é o
+     * que eles foram, e o padrão certo pra qualquer pedido novo que não diga
+     * nada.
+     */
+    ['pedidos', 'tipo_entrega', "tipo_entrega VARCHAR(10) NOT NULL DEFAULT 'entrega'"],
+    /*
+     * DESLIGADO por padrão, de propósito: ligar retirada em toda loja da
+     * plataforma de uma vez faria clientes aparecerem no balcão de cozinhas
+     * que não têm balcão.
+     */
+    ['lojas', 'aceita_retirada', 'aceita_retirada TINYINT NOT NULL DEFAULT 0'],
   ] as const) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS

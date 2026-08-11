@@ -344,6 +344,10 @@ router.put('/loja', async (req, res, next) => {
       ? (reaisParaCentavos(req.body.minimo_pedido) ?? 0)
       : (lojaQualquer.minimo_pedido_centavos ?? 0);
     if (minimoPedido < 0) throw erroHttp(400, 'Pedido mínimo inválido.');
+    // Retirada no local: desligada por padrão. Só a loja sabe se tem balcão.
+    const aceitaRetirada = req.body.aceita_retirada !== undefined
+      ? (req.body.aceita_retirada ? 1 : 0)
+      : (lojaQualquer.aceita_retirada ?? 0);
 
     // Impressão térmica
     const impLargura = req.body.impressora_largura !== undefined
@@ -396,7 +400,7 @@ router.put('/loja', async (req, res, next) => {
               taxa_entrega_centavos = ?, tempo_estimado_min = ?, horario_funcionamento = ?,
               logo_url = ?, capa_url = ?, favicon_url = ?, cor_marca = ?, cor_secundaria = ?, slug = ?,
               dominio_personalizado = ?,
-              horario_json = ?, auto_horario = ?, minimo_pedido_centavos = ?,
+              horario_json = ?, auto_horario = ?, minimo_pedido_centavos = ?, aceita_retirada = ?,
               impressora_largura = ?, impressora_auto = ?, cupom_rodape = ?, visual_json = ?
         WHERE id = ?`
     ).run(nome,
@@ -411,7 +415,7 @@ router.put('/loja', async (req, res, next) => {
           validarCor('cor_marca', lojaQualquer.cor_marca || ''),
           validarCor('cor_secundaria', lojaQualquer.cor_secundaria || ''),
           slug, dominioPersonalizado,
-          horarioJson, autoHorario, minimoPedido,
+          horarioJson, autoHorario, minimoPedido, aceitaRetirada,
           impLargura, impAuto, cupomRodape, visualJson,
           loja.id);
 

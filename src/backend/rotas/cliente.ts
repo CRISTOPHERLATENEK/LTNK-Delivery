@@ -368,9 +368,27 @@ router.post('/pedidos', async (req, res, next) => {
     if (!loja || loja.status_aprovacao !== 'aprovada') throw erroHttp(404, 'Loja não encontrada.');
     if (!loja.aberta) throw erroHttp(409, 'Esta loja está fechada no momento e não pode receber pedidos.');
 
-    const endereco = await db.prepare('SELECT * FROM enderecos WHERE id = ? AND usuario_id = ?')
-      .get(enderecoId, req.usuario!.id) as Endereco | undefined;
-    if (!endereco) throw erroHttp(400, 'Selecione um endereço de entrega válido.');
+    /*
+     * RETIRADA NO LOCAL x ENTREGA.
+     *
+     * Validado contra a config da LOJA, não contra o que o cliente mandou: uma
+     * requisição forjada com `tipo_entrega: retirada` numa loja que não faz
+     * retirada geraria um pedido sem endereço e sem taxa, e alguém apareceria
+     * num balcão que não existe.
+     */
+    const querRetirada = req.body.tipo_entrega === 'retirada';
+    if (querRetirada && !(loja as any).aceita_retirada) {
+      throw erroHttp(400, 'Esta loja não aceita retirada no local.');
+    }
+    const tipoEntrega = querRetirada ? 'retirada' : 'entrega';
+
+    // Na retirada o endereço do cliente é irrelevante — e exigir um faria o
+    // pedido falhar pra quem nunca cadastrou endereço nenhum.
+    const endereco = tipoEntrega === 'retirada'
+      ? null
+      : await db.prepare('SELECT * FROM enderecos WHERE id = ? AND usuario_id = ?')
+          .get(enderecoId, req.usuario!.id) as Endereco | undefined;
+    if (tipoEntrega === 'entrega' && !endereco) throw erroHttp(400, 'Selecione um endereço de entrega válido.');
 
     let subtotal = 0;
     const itensValidados: Array<{ produto: Produto; quantidade: number; precoUnit: number; opcoesTexto: string; opcoesIds: number[]; observacao: string }> = [];
@@ -432,11 +450,14 @@ router.post('/pedidos', async (req, res, next) => {
     // Frete: área desenhada no mapa > bairro cadastrado > taxa padrão. Decisão
     // toda em resolverFrete() pra checkout e prévia nunca divergirem (o cliente
     // veria um valor e pagaria outro).
-    const frete = await resolverFrete(
-      lojaId,
-      { bairro: endereco.bairro, lat: (endereco as any).lat, lon: (endereco as any).lon },
-      loja.taxa_entrega_centavos,
-    );
+    // Retirada não tem frete nem zona pra resolver: ninguém vai levar nada.
+    const frete = tipoEntrega === 'retirada'
+      ? { taxaCentavos: 0, tempoMin: null as number | null }
+      : await resolverFrete(
+          lojaId,
+          { bairro: endereco!.bairro, lat: (endereco as any).lat, lon: (endereco as any).lon },
+          loja.taxa_entrega_centavos,
+        );
     // null = fora de toda área que a loja desenhou.
     if (!frete) {
       throw erroHttp(400, 'Esta loja não entrega no endereço escolhido. Escolha outro endereço ou retire no local.');
@@ -496,12 +517,20 @@ router.post('/pedidos', async (req, res, next) => {
                               troco_para_centavos, observacoes, subtotal_centavos,
                               taxa_entrega_centavos, desconto_centavos, cupom_codigo, total_centavos,
                               comissao_percentual, comissao_centavos, pagamento_status, chave_idem, tempo_estimado_min,
-                              criado_em, atualizado_em)
-         VALUES (?, ?, 'pendente', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(req.usuario!.id, lojaId, formatarEndereco(endereco),
-            (endereco as any).lat ?? null, (endereco as any).lon ?? null, formaPagamento,
+                              tipo_entrega, criado_em, atualizado_em)
+         VALUES (?, ?, 'pendente', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(req.usuario!.id, lojaId,
+            /*
+             * Na retirada, o campo guarda o endereço DA LOJA, não um vazio.
+             * Cupom, comanda e histórico já leem essa coluna; deixá-la em
+             * branco imprimiria pedido sem endereço nenhum, e ninguém saberia
+             * onde o cliente vai buscar.
+             */
+            tipoEntrega === 'retirada' ? `Retirada no local — ${loja.endereco || loja.nome}` : formatarEndereco(endereco!),
+            (endereco as any)?.lat ?? null, (endereco as any)?.lon ?? null, formaPagamento,
             trocoPara, observacoes, subtotal, taxaEntrega, descontoCupom, cupom?.codigo || '',
-            total, comissaoPct, comissao, pagoAntes ? 'aguardando' : 'na_entrega', chaveIdem, tempoEstimado, agora, agora);
+            total, comissaoPct, comissao, pagoAntes ? 'aguardando' : 'na_entrega', chaveIdem, tempoEstimado,
+            tipoEntrega, agora, agora);
 
       const novoPedidoId = Number(info.lastInsertRowid);
 

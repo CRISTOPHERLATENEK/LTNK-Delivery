@@ -239,7 +239,8 @@ router.get('/lojas/:id', async (req, res, next) => {
               logo_url, capa_url, favicon_url, cor_marca, cor_secundaria, slug,
               categoria_estilo, categoria_formato, categoria_tamanho,
               categoria_todos_imagem, categoria_foto_auto,
-              horario_json, minimo_pedido_centavos, nota_media, nota_qtd, visual_json
+              horario_json, minimo_pedido_centavos, nota_media, nota_qtd, visual_json,
+              aceita_retirada
          FROM lojas
         WHERE ${porNumero ? 'id = ?' : 'slug = ?'} AND status_aprovacao = 'aprovada'`
     ).get(param) as Loja | undefined;
