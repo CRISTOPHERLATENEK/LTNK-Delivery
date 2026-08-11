@@ -287,6 +287,7 @@ const TABELAS: string[] = [
   quantidade           INT NOT NULL CHECK (quantidade > 0),
   opcoes_texto         TEXT,
   opcoes_ids           TEXT,
+  observacao           VARCHAR(160) NOT NULL DEFAULT '',
   KEY idx_itens_pedido (pedido_id),
   FOREIGN KEY (pedido_id) REFERENCES pedidos(id),
   FOREIGN KEY (produto_id) REFERENCES produtos(id)
@@ -717,6 +718,13 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     // usa a do 1º produto. Desligada = só as fotos escolhidas, ícone no resto —
     // é o jeito de ter a faixa consistente sem produzir imagem pra tudo.
     ['lojas',      'categoria_foto_auto',    'categoria_foto_auto TINYINT NOT NULL DEFAULT 1'],
+    /*
+     * itens_pedido.observacao — pedido por ITEM ("sem cebola"), não do pedido
+     * inteiro. Existia só uma observação geral, no fim do checkout: quem pedia
+     * dois lanches e queria um sem cebola tinha que escrever "o segundo
+     * X-Burguer sem cebola" e esperar que a cozinha entendesse qual era.
+     */
+    ['itens_pedido', 'observacao', "observacao VARCHAR(160) NOT NULL DEFAULT ''"],
   ] as const) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS

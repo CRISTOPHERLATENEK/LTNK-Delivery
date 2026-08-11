@@ -3,12 +3,11 @@
  * Recalcula o preço em tempo real conforme as escolhas.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { Minus, Plus, Check, AlertCircle } from 'lucide-react';
+import { Minus, Plus, Check, AlertCircle, X } from 'lucide-react';
 import {
   Sheet, SheetContent, SheetFooter,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { adicionarAoCarrinho, vooCarrinho } from '@/lib/carrinho';
@@ -27,11 +26,13 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
   const grupos = produto.grupos || [];
   const [escolhidas, setEscolhidas] = useState<Record<number, number[]>>({});
   const [qtd, setQtd] = useState(1);
+  const [observacao, setObservacao] = useState('');
   const { mostrar } = useToast();
 
   useEffect(() => {
     setEscolhidas({});
     setQtd(1);
+    setObservacao('');
   }, [produto.id]);
 
   const precoBase = (produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0)
@@ -112,6 +113,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
       quantidade: qtd,
       opcoes: opcoesIds,
       opcoes_texto: opcoesTexto,
+      observacao: observacao.trim(),
       foto_url: produto.foto_url,
     });
     if (ok) {
@@ -129,67 +131,99 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
       <SheetContent
         side="bottom"
         hideHandle
+        hideClose
         className={cn(
           'p-0 flex flex-col overflow-hidden gap-0',
-          // Mobile: bottom sheet full width
+          // Mobile: bottom sheet ocupando a largura toda.
           'max-h-[92dvh] rounded-t-3xl',
-          // Desktop: centered card with constrained width
-          'sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 sm:bottom-6 sm:w-full sm:max-w-md sm:rounded-3xl sm:max-h-[85dvh]',
+          /*
+           * Desktop: card CENTRADO na vertical também, não colado no rodapé.
+           * Com o corpo rolando, um card ancorado embaixo cresce pra cima e a
+           * foto "sobe" conforme se escolhe complemento — a página parece
+           * pular. Centrado, ele cresce pros dois lados e fica parado.
+           */
+          'sm:inset-x-auto sm:inset-y-auto sm:left-1/2 sm:top-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2',
+          'sm:w-[min(480px,100vw-48px)] sm:max-w-none sm:rounded-[22px] sm:max-h-[calc(100dvh-48px)]',
+          'sm:shadow-[0_40px_90px_-30px_rgba(28,25,23,.5)]',
         )}
       >
 
-        {/* Foto com gradient overlay */}
+        {/*
+          X PRÓPRIO, não o do Sheet.
+          O padrão fica em `top-4 right-4` — exatamente onde ficavam os selos, e
+          um cobria o outro. E sobre foto escura ele desaparecia: aqui é um
+          círculo branco, que se vê em qualquer imagem.
+        */}
+        <button
+          type="button"
+          onClick={onFechar}
+          aria-label="Fechar"
+          className="absolute right-3 top-3 z-10 flex size-9 items-center justify-center rounded-full bg-white/95 text-stone-800 shadow-md transition-transform active:scale-90"
+        >
+          <X className="size-[18px]" strokeWidth={2.5} />
+        </button>
+
+        {/* Foto: sangra na largura toda, sem moldura */}
         {produto.foto_url ? (
-          <div className="relative h-52 shrink-0 overflow-hidden">
+          <div className="relative h-60 shrink-0 overflow-hidden">
             <img
               src={produto.foto_url}
               alt={produto.nome}
               className="size-full object-cover"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-background/95 via-background/20 to-transparent" />
-            <div className="absolute top-3 left-1/2 -translate-x-1/2 w-10 h-1 rounded-full bg-white/60" />
-            <div className="absolute top-4 right-4 flex gap-1.5">
+            <div className="absolute top-3 left-1/2 -translate-x-1/2 h-1 w-10 rounded-full bg-white/60 sm:hidden" />
+            <div className="absolute bottom-3 left-4 flex gap-1.5">
               {!!produto.destaque && (
-                <span className="rounded-full bg-amber-400 text-amber-900 text-[10px] font-bold px-2.5 py-1 shadow-sm">
-                  ★ Destaque
+                <span className="rounded-full bg-amber-400 px-2.5 py-1 text-[11px] font-bold text-amber-950 shadow-sm">
+                  Destaque
                 </span>
               )}
+              {/*
+                O DESCONTO EM NÚMERO, não "PROMO".
+                "PROMO" não diz se vale a pena; "−11% hoje" diz. Verde é o único
+                lugar em que a loja não usa a cor da marca, de propósito:
+                desconto se lê como dinheiro, não como identidade visual.
+              */}
               {temPromo && (
-                <span className="rounded-full bg-primary text-primary-foreground text-[10px] font-bold px-2.5 py-1 shadow-sm">
-                  PROMO
+                <span className="rounded-full bg-emerald-600 px-2.5 py-1 text-[11px] font-bold text-white shadow-sm tabular-nums">
+                  −{Math.round((1 - precoBase / produto.preco_centavos) * 100)}% hoje
                 </span>
               )}
             </div>
           </div>
         ) : null}
 
-        {/* Header info */}
-        <div className="px-5 pt-4 pb-4 shrink-0">
-          <h2 className="text-xl font-extrabold leading-tight">{produto.nome}</h2>
-          {produto.descricao && (
-            <p className="text-sm text-muted-foreground mt-1 leading-relaxed">{produto.descricao}</p>
-          )}
-          <div className="flex items-baseline gap-2.5 mt-2.5 flex-wrap">
-            {temPromo ? (
-              <>
-                <span className="text-sm text-muted-foreground line-through">{brl(produto.preco_centavos)}</span>
-                <span className="text-2xl font-extrabold text-success">{brl(precoBase)}</span>
-                <Badge variant="promo" className="text-[10px]">
-                  {Math.round((1 - precoBase / produto.preco_centavos) * 100)}% off
-                </Badge>
-              </>
-            ) : (
-              <span className="text-2xl font-extrabold">{brl(precoBase)}</span>
-            )}
-            {produto.serve_pessoas && (
-              <Badge variant="outline" className="text-xs font-medium">
-                serve {produto.serve_pessoas} pessoa{produto.serve_pessoas > 1 ? 's' : ''}
-              </Badge>
-            )}
+        {/*
+          NOME E PREÇO NA MESMA LINHA. Empilhados, o preço caía depois da
+          descrição e num item de texto longo saía da primeira tela — o dado que
+          mais decide a compra exigia rolar pra aparecer.
+        */}
+        <div className="shrink-0 px-5 pb-3 pt-4">
+          <div className="flex items-start justify-between gap-4">
+            <h2 className="min-w-0 text-[21px] font-extrabold leading-tight">{produto.nome}</h2>
+            <div className="shrink-0 text-right leading-tight">
+              {temPromo && (
+                <span className="block text-[13px] text-muted-foreground line-through tabular-nums">
+                  {brl(produto.preco_centavos)}
+                </span>
+              )}
+              <span className={cn('block text-[19px] font-extrabold tabular-nums',
+                temPromo ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground')}>
+                {brl(precoBase)}
+              </span>
+            </div>
           </div>
+          {produto.descricao && (
+            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{produto.descricao}</p>
+          )}
+          {produto.serve_pessoas && (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Serve {produto.serve_pessoas} pessoa{produto.serve_pessoas > 1 ? 's' : ''}
+            </p>
+          )}
           {controlaEstoque && !esgotado && estoqueDisp <= 5 && (
             <p className="mt-2 text-xs font-semibold text-amber-600">
-              🔥 Últimas {estoqueDisp} unidade{estoqueDisp > 1 ? 's' : ''} em estoque
+              Últimas {estoqueDisp} unidade{estoqueDisp > 1 ? 's' : ''} em estoque
             </p>
           )}
         </div>
@@ -213,6 +247,31 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
               saboresPermitidos={saboresPermitidos}
             />
           ))}
+          {/*
+            OBSERVAÇÃO POR ITEM.
+            Existia uma só, do pedido inteiro, no fim do checkout: quem pedia
+            dois lanches e queria um sem cebola escrevia "o segundo X-Burguer
+            sem cebola" e torcia pra cozinha entender qual era. Aqui a
+            instrução fica presa ao item, e sai na comanda dele.
+          */}
+          <div className="border-t-[6px] border-muted/70 px-5 py-4">
+            <label htmlFor="obs-item" className="text-[14.5px] font-bold">Alguma observação?</label>
+            <textarea
+              id="obs-item"
+              rows={2}
+              maxLength={140}
+              value={observacao}
+              onChange={e => setObservacao(e.target.value)}
+              placeholder="Ex.: sem cebola, molho à parte…"
+              className="mt-2 w-full resize-none rounded-xl border border-border bg-muted/30 px-3 py-2.5 text-sm outline-none transition-shadow placeholder:text-muted-foreground/70 focus:border-primary focus:ring-2 focus:ring-primary/25"
+            />
+            {/* Contador só perto do fim: mostrar "0/140" de saída é ruído. */}
+            {observacao.length > 100 && (
+              <p className="mt-1 text-right text-[11px] text-muted-foreground tabular-nums">
+                {observacao.length}/140
+              </p>
+            )}
+          </div>
           <div className="h-4" />
         </div>
 
@@ -242,22 +301,32 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
               </button>
             </div>
 
-            {/* Add button */}
+            {/*
+              BOTÃO DESABILITADO enquanto falta escolha obrigatória, com o
+              rótulo dizendo O QUE falta.
+              Antes ele ficava ativo e, ao tocar, respondia com um aviso que
+              subia no canto da tela — longe do dedo e longe do grupo que
+              faltava. Agora a instrução está no próprio botão, e o rótulo dele
+              é a resposta.
+            */}
             <Button
               size="lg"
-              className="flex-1 h-12 text-sm font-bold rounded-2xl gap-2 touch-manipulation"
+              className="h-12 flex-1 justify-between gap-2 rounded-xl text-sm font-bold touch-manipulation"
               onClick={adicionar}
-              disabled={esgotado}
+              disabled={esgotado || faltando.length > 0}
             >
               {esgotado ? (
-                'Esgotado'
+                <span className="mx-auto">Esgotado</span>
               ) : faltando.length > 0 ? (
                 <>
                   <AlertCircle className="size-4 shrink-0" />
-                  Escolha: {faltando[0]}
+                  <span className="flex-1 text-left">Escolha {faltando[0]}</span>
                 </>
               ) : (
-                `Adicionar · ${brl(precoUnit * qtd)}`
+                <>
+                  <span>Adicionar ao carrinho</span>
+                  <span className="tabular-nums">{brl(precoUnit * qtd)}</span>
+                </>
               )}
             </Button>
           </div>
@@ -325,16 +394,27 @@ function GrupoOpcao({
       <div className="px-4 pb-4 space-y-2">
         {grupo.opcoes.map(o => {
           const ativa = escolhidas.includes(o.id);
+          /*
+           * NO MÁXIMO, as não marcadas ficam INERTES.
+           * O clique já era ignorado, mas a linha continuava com cara de
+           * clicável — o cliente tocava, nada acontecia e ele não tinha como
+           * saber por quê. Esmaecida e sem cursor, a regra fica visível.
+           */
+          const bloqueada = !ativa && maxEfetivo > 0 && escolhidas.length >= maxEfetivo;
           return (
             <button
               key={o.id}
               type="button"
-              onClick={() => onAlternar(o)}
+              onClick={() => !bloqueada && onAlternar(o)}
+              disabled={bloqueada}
+              aria-disabled={bloqueada}
               className={cn(
-                'flex w-full items-center gap-3 px-4 py-3.5 rounded-2xl border-2 text-left transition-all cursor-pointer select-none touch-manipulation',
+                'flex w-full items-center gap-3 px-4 py-3.5 rounded-2xl border-2 text-left transition-all select-none touch-manipulation',
                 ativa
                   ? 'border-primary bg-primary/5 shadow-sm shadow-primary/10'
-                  : 'border-border bg-background active:bg-muted/50',
+                  : bloqueada
+                    ? 'cursor-not-allowed border-border/50 bg-muted/20 opacity-50'
+                    : 'cursor-pointer border-border bg-background active:bg-muted/50',
               )}
             >
               {/* Indicator */}

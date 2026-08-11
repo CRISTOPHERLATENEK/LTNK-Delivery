@@ -612,7 +612,7 @@ router.get('/pedidos/:id', async (req, res, next) => {
     ).get(req.params.id);
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
     const itens = await db.prepare(
-      'SELECT nome_produto, preco_unit_centavos, quantidade, opcoes_texto FROM itens_pedido WHERE pedido_id = ?'
+      'SELECT nome_produto, preco_unit_centavos, quantidade, opcoes_texto, observacao FROM itens_pedido WHERE pedido_id = ?'
     ).all((pedido as { id: number }).id);
     const historico = await db.prepare(
       'SELECT status, criado_em FROM historico_status WHERE pedido_id = ? ORDER BY id'

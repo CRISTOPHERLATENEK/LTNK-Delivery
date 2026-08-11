@@ -11,6 +11,7 @@ import {
   XCircle, Package, Bike, Box, UtensilsCrossed, Settings, BarChart3, Ticket, Star, Eye,
   Store, ChevronRight, MessagesSquare,
 } from 'lucide-react';
+import { detalheItem } from '@/lib/item-pedido';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -79,7 +80,7 @@ function imprimirPedido(p: PedidoComItens) {
 <div class="sep"></div>
 ${(p.itens || []).map(i => `
 <div class="row">
-  <span>${i.quantidade}× ${i.nome_produto}${i.opcoes_texto ? ` (${i.opcoes_texto})` : ''}</span>
+  <span>${i.quantidade}× ${i.nome_produto}${detalheItem(i) ? ` (${detalheItem(i)})` : ''}</span>
   <span>${fmt(i.preco_unit_centavos * i.quantidade)}</span>
 </div>`).join('')}
 <div class="sep"></div>
@@ -537,8 +538,8 @@ function CardPedidoDash({
               <span>
                 <span className="tabular-nums mr-1">{i.quantidade}×</span>
                 {i.nome_produto}
-                {i.opcoes_texto && (
-                  <span className="block text-xs pl-5 text-muted-foreground/70">{i.opcoes_texto}</span>
+                {detalheItem(i) && (
+                  <span className="block text-xs pl-5 text-muted-foreground/70">{detalheItem(i)}</span>
                 )}
               </span>
               <span className="tabular-nums font-medium">{brl(i.preco_unit_centavos * i.quantidade)}</span>

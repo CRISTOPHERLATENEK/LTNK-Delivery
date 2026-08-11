@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
+import { detalheItem } from '../detalhe-item';
 import db from '../db-mysql';
 import { gerarTokenCozinha, autenticarCozinha } from '../auth';
 import { textoLimpo, erroHttp, agoraUTC } from '../util';
@@ -98,8 +99,8 @@ router.get('/pedidos', async (req, res, next) => {
 
     const filaDelivery = [];
     for (const p of delivery) {
-      const itens = await db.prepare('SELECT nome_produto, quantidade, opcoes_texto FROM itens_pedido WHERE pedido_id = ?')
-        .all(p.id) as Array<{ nome_produto: string; quantidade: number; opcoes_texto: string }>;
+      const itens = await db.prepare('SELECT nome_produto, quantidade, opcoes_texto, observacao FROM itens_pedido WHERE pedido_id = ?')
+        .all(p.id) as Array<{ nome_produto: string; quantidade: number; opcoes_texto: string; observacao: string }>;
       filaDelivery.push({
         fonte: 'delivery',
         id: p.id,
@@ -107,7 +108,13 @@ router.get('/pedidos', async (req, res, next) => {
         etapa: p.status === 'aceito' ? 'novo' : 'preparando',
         observacao: p.observacoes || '',
         criado_em: p.criado_em,
-        itens: itens.map(i => ({ nome_produto: i.nome_produto, quantidade: i.quantidade, detalhe: i.opcoes_texto || '' })),
+        // Antes o KDS mostrava só os complementos, e a observação do item não
+        // chegava aqui. Regra da ordem em detalhe-item.ts, com testes.
+        itens: itens.map(i => ({
+          nome_produto: i.nome_produto,
+          quantidade: i.quantidade,
+          detalhe: detalheItem(i),
+        })),
       });
     }
 

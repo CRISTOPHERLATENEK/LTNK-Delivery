@@ -204,6 +204,8 @@ export interface ItemRequisicaoPedido {
   produto_id: number;
   quantidade: number;
   opcoes?: number[];
+  /** Observação DESTE item ("sem cebola") — diferente da do pedido inteiro. */
+  observacao?: string;
 }
 
 /** Corpo da requisição de criação de pedido. */

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
+import { detalheItem } from '@/lib/item-pedido';
 import { lerRepasse2FA, destinoRepasse2FA } from '../../lib/repasse-2fa';
 import { useQuery } from '@tanstack/react-query';
 import { Routes, Route, Link } from 'react-router-dom';
@@ -787,7 +788,7 @@ function imprimirPedidoPainel(p: PedidoComItens, config?: { largura?: '80' | '58
     : p.forma_pagamento === 'cartao_entrega' ? 'Cartão na entrega — COBRAR'
     : 'A combinar';
   const itensHtml = (p.itens || []).map(i => {
-    const obs = (i as { opcoes_texto?: string }).opcoes_texto;
+    const obs = detalheItem(i as { opcoes_texto?: string; observacao?: string });
     return `<div class="row"><span class="nome">${i.quantidade}× ${escapar(i.nome_produto)}</span><span class="val">${fmt(i.preco_unit_centavos * i.quantidade)}</span></div>`
       + (obs ? `<div class="obs">${escapar(obs)}</div>` : '');
   }).join('');
@@ -829,7 +830,7 @@ ${p.observacoes ? `<div class="note">📝 ${escapar(p.observacoes)}</div>` : ''}
     { t: 'lr', l: 'Data', r: dataLocal(p.criado_em) },
     { t: 'linha' },
     ...(p.itens || []).flatMap(i => {
-      const obs = (i as { opcoes_texto?: string }).opcoes_texto;
+      const obs = detalheItem(i as { opcoes_texto?: string; observacao?: string });
       const arr: BlocoImpressao[] = [{ t: 'lr', l: `${i.quantidade}x ${i.nome_produto}`, r: fmt(i.preco_unit_centavos * i.quantidade) }];
       if (obs) arr.push({ t: 'texto', txt: '  ' + obs });
       return arr;
@@ -851,7 +852,7 @@ ${p.observacoes ? `<div class="note">📝 ${escapar(p.observacoes)}</div>` : ''}
       qtd: String(i.quantidade),
       nome: i.nome_produto,
       valor: fmt(i.preco_unit_centavos * i.quantidade),
-      observacao: (i as { opcoes_texto?: string }).opcoes_texto,
+      observacao: detalheItem(i as { opcoes_texto?: string; observacao?: string }) || undefined,
       categoria: (i as { categoria?: string }).categoria || undefined,
     })),
     totais: [],
@@ -1147,8 +1148,8 @@ function CardPedidoLojista({ pedido, aoAtualizar }: { pedido: PedidoComItens; ao
               <span className="flex-1">
                 <span className="text-muted-foreground tabular-nums mr-1">{i.quantidade}×</span>
                 {i.nome_produto}
-                {i.opcoes_texto && (
-                  <span className="block text-xs text-muted-foreground pl-5">{i.opcoes_texto}</span>
+                {detalheItem(i) && (
+                  <span className="block text-xs text-muted-foreground pl-5">{detalheItem(i)}</span>
                 )}
               </span>
               <span className="tabular-nums font-medium">{brl(i.preco_unit_centavos * i.quantidade)}</span>

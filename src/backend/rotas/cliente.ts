@@ -373,7 +373,7 @@ router.post('/pedidos', async (req, res, next) => {
     if (!endereco) throw erroHttp(400, 'Selecione um endereço de entrega válido.');
 
     let subtotal = 0;
-    const itensValidados: Array<{ produto: Produto; quantidade: number; precoUnit: number; opcoesTexto: string; opcoesIds: number[] }> = [];
+    const itensValidados: Array<{ produto: Produto; quantidade: number; precoUnit: number; opcoesTexto: string; opcoesIds: number[]; observacao: string }> = [];
     for (const item of itens) {
       const produtoId = inteiroPositivo(item.produto_id);
       const quantidade = inteiroPositivo(item.quantidade);
@@ -387,7 +387,9 @@ router.post('/pedidos', async (req, res, next) => {
 
       const { precoUnit, opcoesTexto, opcoesIds } = await validarOpcoesDoItem(produto, item.opcoes);
       subtotal += precoUnit * quantidade;
-      itensValidados.push({ produto, quantidade, precoUnit, opcoesTexto, opcoesIds });
+      // Observação DO ITEM ("sem cebola"). 140 é o limite do campo na tela; o
+      // corte aqui é a garantia, porque o cliente é quem manda o valor.
+      itensValidados.push({ produto, quantidade, precoUnit, opcoesTexto, opcoesIds, observacao: textoLimpo(item.observacao, 140) });
     }
 
     // Estoque: agrega a quantidade pedida por produto (o mesmo produto pode
@@ -512,11 +514,11 @@ router.post('/pedidos', async (req, res, next) => {
         ).run(cupom.id);
         if (u.changes === 0) throw erroHttp(409, 'Este cupom atingiu o limite de usos.');
       }
-      for (const { produto, quantidade, precoUnit, opcoesTexto, opcoesIds } of itensValidados) {
+      for (const { produto, quantidade, precoUnit, opcoesTexto, opcoesIds, observacao } of itensValidados) {
         await tx.prepare(
-          `INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos, quantidade, opcoes_texto, opcoes_ids)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`
-        ).run(novoPedidoId, produto.id, produto.nome, precoUnit, quantidade, opcoesTexto, JSON.stringify(opcoesIds));
+          `INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos, quantidade, opcoes_texto, opcoes_ids, observacao)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(novoPedidoId, produto.id, produto.nome, precoUnit, quantidade, opcoesTexto, JSON.stringify(opcoesIds), observacao);
       }
       // Baixa de estoque (só produtos que controlam). UPDATE condicional: se outro
       // pedido esgotou entre a validação e aqui, changes=0 e desfazemos tudo.

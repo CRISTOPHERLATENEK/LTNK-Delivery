@@ -45,8 +45,17 @@ export function useCarrinho(): CarrinhoLocal | null {
   return useSyncExternalStore(inscrever, ler, ler);
 }
 
-function chaveItem(produtoId: number, opcoes: number[]): string {
-  return produtoId + ':' + [...opcoes].sort((a, b) => a - b).join(',');
+/*
+ * A OBSERVAÇÃO ENTRA NA CHAVE.
+ *
+ * A chave é o que decide se dois itens são "o mesmo" e viram quantidade 2. Sem
+ * a observação aqui, pedir um X-Burguer sem cebola e outro normal juntaria os
+ * dois em "2× X-Burguer" — e uma das instruções desapareceria sem aviso, com o
+ * cliente achando que pediu certo.
+ */
+function chaveItem(produtoId: number, opcoes: number[], observacao = ''): string {
+  const obs = observacao.trim().toLowerCase();
+  return produtoId + ':' + [...opcoes].sort((a, b) => a - b).join(',') + (obs ? '|' + obs : '');
 }
 
 /**
@@ -70,7 +79,7 @@ export function adicionarAoCarrinho(loja: Loja, item: Omit<ItemCarrinho, 'chave'
       itens: [],
     };
   }
-  const chave = chaveItem(item.produto_id, item.opcoes);
+  const chave = chaveItem(item.produto_id, item.opcoes, item.observacao);
   const existente = carrinho.itens.find(i => i.chave === chave);
   if (existente) existente.quantidade += item.quantidade;
   else carrinho.itens.push({ ...item, chave });

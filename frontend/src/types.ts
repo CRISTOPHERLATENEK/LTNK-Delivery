@@ -437,6 +437,8 @@ export interface ItemCarrinho {
   opcoes: number[];
   opcoes_texto: string;
   foto_url?: string;
+  /** Observação DESTE item ("sem cebola"). Entra na chave — ver chaveItem. */
+  observacao?: string;
 }
 
 export interface CarrinhoLocal {

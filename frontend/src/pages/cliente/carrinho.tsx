@@ -181,6 +181,13 @@ export function PaginaCarrinho() {
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold leading-tight">{item.nome}</div>
+                    {/* A observação do item aparece aqui: escrita no modal, ela
+                        precisa ser conferível antes de fechar o pedido. */}
+                    {item.observacao && (
+                      <div className="mt-1 rounded-md bg-muted px-2 py-1 text-xs text-foreground">
+                        <span className="font-semibold">Obs.: </span>{item.observacao}
+                      </div>
+                    )}
                     {item.opcoes_texto && (
                       <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{item.opcoes_texto}</div>
                     )}
@@ -594,7 +601,7 @@ function Checkout({
         cartao?: { public_key: string; total_centavos: number };
       }>('POST', '/api/cliente/pedidos', {
         loja_id: carrinho.loja_id,
-        itens: carrinho.itens.map(i => ({ produto_id: i.produto_id, quantidade: i.quantidade, opcoes: i.opcoes })),
+        itens: carrinho.itens.map(i => ({ produto_id: i.produto_id, quantidade: i.quantidade, opcoes: i.opcoes, observacao: i.observacao })),
         endereco_id: idFinal,
         forma_pagamento: pagamento,
         troco_para: pagamento === 'dinheiro' && troco ? troco : undefined,
