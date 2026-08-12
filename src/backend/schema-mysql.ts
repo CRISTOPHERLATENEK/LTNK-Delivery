@@ -757,6 +757,16 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * que não têm balcão.
      */
     ['lojas', 'aceita_retirada', 'aceita_retirada TINYINT NOT NULL DEFAULT 0'],
+    /*
+     * XML DO EVENTO DE CANCELAMENTO, em coluna própria.
+     *
+     * O cancelamento gravava o evento POR CIMA de `xml`, e a nota autorizada
+     * original sumia. O contador precisa das duas peças: a NFC-e autorizada e o
+     * evento que a cancelou — só o evento não comprova o que foi cancelado.
+     * Notas canceladas ANTES desta coluna já perderam o XML original; não há de
+     * onde recuperar a não ser baixando da SEFAZ.
+     */
+    ['notas_fiscais', 'xml_cancelamento', 'xml_cancelamento MEDIUMTEXT'],
   ] as const) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS

@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   FileText, ShieldCheck, Upload, AlertTriangle, CheckCircle2, Save, FlaskConical,
-  Download, X, Package, ChevronDown, ChevronUp, Ban, RefreshCw, Receipt, Loader2,
+  Download, X, Package, ChevronDown, ChevronUp, Ban, RefreshCw, Receipt, Loader2, FolderArchive,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,9 @@ interface FiscalConfig {
   ncm_padrao: string; cfop_padrao: string; csosn_padrao: string;
 }
 interface FiscalCert { instalado: boolean; titular: string | null; validade: string | null; }
+interface Competencia {
+  competencia: string; notas: number; autorizadas: number; canceladas: number; total_centavos: number;
+}
 interface ResultadoSefaz {
   autorizada: boolean; c_stat: string; motivo: string; protocolo: string; chave: string; numero: number;
 }
@@ -90,6 +93,53 @@ export function FiscalLoja() {
   const [notasCarregando, setNotasCarregando] = useState(false);
   const [cancelando, setCancelando] = useState<number | null>(null);
 
+  const [competencias, setCompetencias] = useState<Competencia[]>([]);
+  const [mesEscolhido, setMesEscolhido] = useState('');
+  const [baixandoZip, setBaixandoZip] = useState(false);
+
+  function carregarCompetencias() {
+    api<{ competencias: Competencia[] }>('GET', '/api/lojista/nfce/competencias')
+      .then(r => {
+        setCompetencias(r.competencias);
+        // Já vem no mês mais recente com nota: é o que o contador pede, e
+        // ninguém abre esta tela pra baixar março de dois anos atrás.
+        setMesEscolhido(m => m || (r.competencias[0]?.competencia ?? ''));
+      })
+      .catch(() => { /* silencioso: loja pode não ter emitido nada ainda */ });
+  }
+
+  /**
+   * Baixa o ZIP do mês. Vai por `fetch` e não por link direto porque a rota
+   * exige o token da sessão — um <a href> não manda cabeçalho nenhum.
+   */
+  async function baixarXmlsDoMes() {
+    if (!mesEscolhido) return;
+    setBaixandoZip(true);
+    try {
+      const resp = await fetch(`/api/lojista/nfce/xmls?competencia=${mesEscolhido}`, {
+        headers: { Authorization: `Bearer ${tokenSessao('lojista')}` },
+      });
+      if (!resp.ok) {
+        // O corpo de erro é JSON do servidor; a mensagem dele é mais útil que
+        // um "falhou" genérico (ex.: mês só com nota de homologação).
+        const erro = await resp.json().catch(() => null);
+        throw new Error(erro?.erro || erro?.mensagem || 'Não foi possível gerar o arquivo.');
+      }
+      const blob = await resp.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `nfce-${mesEscolhido}.zip`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      mostrar({ tipo: 'erro', titulo: err instanceof Error ? err.message : 'Não foi possível baixar.' });
+    } finally {
+      setBaixandoZip(false);
+    }
+  }
+
+  const escolhida = competencias.find(c => c.competencia === mesEscolhido);
+
   function carregarNotas() {
     setNotasCarregando(true);
     api<{ notas: NotaFiscal[] }>('GET', '/api/lojista/nfce/notas')
@@ -127,6 +177,7 @@ export function FiscalLoja() {
       if (r.cancelada) {
         mostrar({ tipo: 'sucesso', titulo: 'NFC-e cancelada na SEFAZ.' });
         carregarNotas();
+        carregarCompetencias();
       } else {
         mostrar({ tipo: 'erro', titulo: 'A SEFAZ recusou o cancelamento', descricao: r.motivo });
       }
@@ -186,7 +237,7 @@ export function FiscalLoja() {
       .finally(() => setProdutosCarregando(false));
   }
 
-  useEffect(() => { carregar(); carregarNotas(); }, []);
+  useEffect(() => { carregar(); carregarNotas(); carregarCompetencias(); }, []);
 
   useEffect(() => {
     if (produtosAberto && !produtosCarregados) carregarProdutos();
@@ -656,6 +707,68 @@ export function FiscalLoja() {
         </CardContent>
       </Card>
 
+      {/*
+        XMLs DO MÊS PRO CONTADOR.
+        Baixar nota por nota era inviável: um mês razoável tem centenas, e o
+        contador precisa do lote inteiro, com o cancelamento junto de cada uma
+        que foi cancelada.
+      */}
+      <Card>
+        <CardContent className="space-y-3 p-5">
+          <div className="flex items-center gap-2">
+            <FolderArchive className="size-4 text-primary" />
+            <span className="text-sm font-bold">XMLs do mês para o contador</span>
+          </div>
+
+          {competencias.length === 0 ? (
+            <p className="text-xs text-muted-foreground">
+              Nenhuma nota de produção emitida ainda. Notas de homologação não entram aqui —
+              elas não têm valor fiscal e não servem para escrituração.
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-[220px] flex-1">
+                  <Label htmlFor="xml-mes">Mês</Label>
+                  <select
+                    id="xml-mes"
+                    value={mesEscolhido}
+                    onChange={e => setMesEscolhido(e.target.value)}
+                    className="flex h-12 w-full rounded-xl border border-input bg-background px-4 text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {competencias.map(c => (
+                      <option key={c.competencia} value={c.competencia}>
+                        {mesPorExtenso(c.competencia)} — {c.autorizadas} autorizada(s)
+                        {c.canceladas > 0 ? `, ${c.canceladas} cancelada(s)` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Button type="button" onClick={baixarXmlsDoMes} disabled={baixandoZip || !mesEscolhido}>
+                  {baixandoZip
+                    ? <><Loader2 className="size-4 animate-spin" /> Preparando…</>
+                    : <><Download className="size-4" /> Baixar ZIP</>}
+                </Button>
+              </div>
+
+              {escolhida && (
+                <p className="text-xs text-muted-foreground">
+                  {escolhida.autorizadas} nota(s) autorizada(s)
+                  {escolhida.canceladas > 0 && <>, {escolhida.canceladas} cancelada(s)</>}
+                  {' · '}total autorizado R$ {(escolhida.total_centavos / 100).toFixed(2).replace('.', ',')}
+                </p>
+              )}
+
+              <p className="text-xs text-muted-foreground">
+                O ZIP traz um arquivo por nota (nomeado pela chave), o XML do evento de cancelamento
+                quando houver, e um <span className="font-mono">relacao.csv</span> com número, chave,
+                data, valor e situação — pro contador conferir se recebeu tudo sem abrir XML por XML.
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Gerar NFC-e de teste */}
       <Card>
         <CardContent className="p-5 space-y-3">
@@ -749,4 +862,14 @@ export function FiscalLoja() {
       )}
     </div>
   );
+}
+
+const MESES_XML = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+
+/** '2026-07' -> 'julho de 2026'. Competência inválida volta como veio. */
+function mesPorExtenso(competencia: string): string {
+  const [ano, mes] = String(competencia || '').split('-').map(Number);
+  const nome = MESES_XML[(mes || 0) - 1];
+  return nome ? `${nome} de ${ano}` : String(competencia);
 }
