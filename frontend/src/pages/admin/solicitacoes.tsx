@@ -7,7 +7,7 @@
  */
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Inbox, Check, X, Handshake, Building2, Mail, Phone } from 'lucide-react';
+import { Inbox, Check, X, Handshake, Building2, Mail, Phone, Trash2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +20,9 @@ import { dataLocal } from '@/lib/format';
 
 interface Solicitacao {
   id: number;
+  /** 'cadastro' cria o cliente; 'exclusao' APAGA um que ja existe. */
+  tipo: 'cadastro' | 'exclusao';
+  motivo_pedido: string | null;
   revendedor_id: number;
   revendedor_nome: string | null;
   nome: string;
@@ -52,21 +55,33 @@ export function PainelSolicitacoes() {
   const pendentes = lista.filter(s => s.status === 'pendente');
 
   async function aprovar(s: Solicitacao) {
+    const exclusao = s.tipo === 'exclusao';
     const ok = await confirmar({
-      titulo: `Aprovar ${s.nome}?`,
+      titulo: exclusao ? `Apagar ${s.nome}?` : `Aprovar ${s.nome}?`,
       // O que a aprovação FAZ, dito antes de fazer: é aqui que a infraestrutura
-      // do cliente passa a existir e a cobrança começa a valer.
-      descricao: `Cria o banco de dados do cliente e o acesso de ${s.dono_nome}. `
-        + `O endereço ${s.slug}.maxxpedidos.com.br passa a funcionar, e o cliente entra na conta de ${s.revendedor_nome || 'quem pediu'}.`,
-      confirmar: 'Aprovar e criar',
+      // do cliente passa a existir (ou deixa de existir) de verdade.
+      descricao: exclusao
+        ? 'Apaga o cliente e o banco de dados dele — pedidos, produtos, clientes, histórico. Não tem volta. '
+          + 'Se a intenção é só tirar do ar, suspenda o cliente em vez de apagar.'
+        : `Cria o banco de dados do cliente e o acesso de ${s.dono_nome}. `
+          + `O endereço ${s.slug}.maxxpedidos.com.br passa a funcionar, e o cliente entra na conta de ${s.revendedor_nome || 'quem pediu'}.`,
+      confirmar: exclusao ? 'Apagar definitivamente' : 'Aprovar e criar',
+      destrutivo: exclusao,
+      // Digitar o identificador obriga a olhar QUAL cliente vai sumir — o
+      // botão fica onde estava o "Aprovar" do pedido de cadastro, e a mão vai
+      // sozinha.
+      exigirTexto: exclusao ? s.slug : undefined,
     });
     if (!ok) return;
     setOcupado(true);
     try {
-      await api('POST', `/api/admin/solicitacoes/${s.id}/aprovar`);
-      mostrar({ tipo: 'sucesso', titulo: 'Cliente criado.', descricao: `${s.slug}.maxxpedidos.com.br já está no ar.` });
+      await api('POST', `/api/admin/solicitacoes/${s.id}/aprovar`, exclusao ? { confirmacao: s.slug } : undefined);
+      mostrar(exclusao
+        ? { tipo: 'sucesso', titulo: 'Cliente apagado.', descricao: `${s.nome} e o banco dele não existem mais.` }
+        : { tipo: 'sucesso', titulo: 'Cliente criado.', descricao: `${s.slug}.maxxpedidos.com.br já está no ar.` });
       qc.invalidateQueries({ queryKey: ['admin-solicitacoes'] });
       qc.invalidateQueries({ queryKey: ['admin-tenants'] });
+      qc.invalidateQueries({ queryKey: ['admin-revendedores'] });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
@@ -112,12 +127,19 @@ export function PainelSolicitacoes() {
 
         <div className="space-y-3">
           {lista.map(s => (
-            <Card key={s.id} className={s.status === 'pendente' ? 'border-amber-500/40' : 'opacity-75'}>
+            <Card key={s.id} className={s.status !== 'pendente' ? 'opacity-75'
+              // Pedido de exclusão pendente sai em vermelho, não em âmbar: na
+              // mesma fila, um "apagar" precisa parecer diferente de um "criar"
+              // antes de alguém clicar no botão verde por reflexo.
+              : s.tipo === 'exclusao' ? 'border-destructive/50' : 'border-amber-500/40'}>
               <CardContent className="space-y-3 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Building2 className="size-4 shrink-0 text-primary" />
+                      {s.tipo === 'exclusao'
+                        ? <Trash2 className="size-4 shrink-0 text-destructive" />
+                        : <Building2 className="size-4 shrink-0 text-primary" />}
+                      {s.tipo === 'exclusao' && <Badge variant="danger">pedido de exclusão</Badge>}
                       <span className="font-bold">{s.nome}</span>
                       <span className="font-mono text-xs text-muted-foreground">{s.slug}</span>
                       {s.status === 'pendente' && <Badge variant="warning">pendente</Badge>}
@@ -128,19 +150,30 @@ export function PainelSolicitacoes() {
                       <span className="flex items-center gap-1">
                         <Handshake className="size-3" /> {s.revendedor_nome || 'revendedor removido'}
                       </span>
-                      <span className="flex items-center gap-1"><Mail className="size-3" /> {s.dono_email}</span>
-                      {s.dono_telefone && <span className="flex items-center gap-1"><Phone className="size-3" /> {s.dono_telefone}</span>}
+                      {/* No pedido de exclusão essas colunas vêm vazias — não
+                          existe "dono" a cadastrar, o cliente já é de alguém. */}
+                      {s.tipo !== 'exclusao' && <>
+                        <span className="flex items-center gap-1"><Mail className="size-3" /> {s.dono_email}</span>
+                        {s.dono_telefone && <span className="flex items-center gap-1"><Phone className="size-3" /> {s.dono_telefone}</span>}
+                      </>}
                       <span>{dataLocal(s.criado_em)}</span>
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Loja: <b className="text-foreground">{s.nome_loja}</b> · {s.categoria} · responsável {s.dono_nome}
-                    </p>
+                    {s.tipo === 'exclusao' ? (
+                      <p className="mt-1 text-xs">
+                        <span className="text-muted-foreground">Motivo do revendedor: </span>
+                        <b className="text-foreground">{s.motivo_pedido || '—'}</b>
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Loja: <b className="text-foreground">{s.nome_loja}</b> · {s.categoria} · responsável {s.dono_nome}
+                      </p>
+                    )}
                   </div>
 
                   {s.status === 'pendente' && recusando !== s.id && (
                     <div className="flex shrink-0 gap-2">
-                      <Button size="sm" variant="success" disabled={ocupado} onClick={() => aprovar(s)}>
-                        <Check className="size-4" /> Aprovar
+                      <Button size="sm" variant={s.tipo === 'exclusao' ? 'destructive' : 'success'} disabled={ocupado} onClick={() => aprovar(s)}>
+                        {s.tipo === 'exclusao' ? <><Trash2 className="size-4" /> Apagar</> : <><Check className="size-4" /> Aprovar</>}
                       </Button>
                       <Button size="sm" variant="destructive" disabled={ocupado} onClick={() => { setRecusando(s.id); setMotivo(''); }}>
                         <X className="size-4" /> Recusar

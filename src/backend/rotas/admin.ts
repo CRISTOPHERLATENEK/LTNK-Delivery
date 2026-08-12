@@ -2043,6 +2043,44 @@ router.post('/solicitacoes/:id/aprovar', exigirSuperAdmin, async (req, res, next
     if (!s) throw erroHttp(404, 'Solicitação não encontrada.');
     if (s.status !== 'pendente') throw erroHttp(409, `Esta solicitação já foi ${s.status}.`);
 
+    /*
+     * EXCLUSÃO: aprovar aqui APAGA o cliente e o banco dele, sem volta. Por isso
+     * a confirmação por digitação é exigida no servidor, igual ao DELETE
+     * /tenants/:id — a fila é uma tela a mais entre o pedido e o estrago, não um
+     * substituto pra ela.
+     */
+    if (s.tipo === 'exclusao') {
+      const alvo = await tenantPorId(Number(s.tenant_id));
+      if (!alvo) {
+        // Já foi apagado por outro caminho: fecha o pedido em vez de deixar a
+        // fila travada num cliente que não existe mais.
+        await pool.query(
+          "UPDATE solicitacoes_cliente SET status = 'aprovada', decidido_em = ? WHERE id = ?",
+          [agoraUTC(), s.id],
+        );
+        return res.json({ ok: true, excluido: true, ja_removido: true });
+      }
+      const confirmacao = textoLimpo(req.body?.confirmacao, 60);
+      if (confirmacao !== alvo.slug) {
+        throw erroHttp(400, `Confirmação incorreta: digite o identificador "${alvo.slug}" para excluir.`);
+      }
+      let resultado;
+      try {
+        resultado = await removerTenant(alvo.id);
+      } catch (e) {
+        throw erroHttp(409, e instanceof Error ? e.message : 'Não foi possível excluir o cliente.');
+      }
+      await pool.query(
+        "UPDATE solicitacoes_cliente SET status = 'aprovada', decidido_em = ? WHERE id = ?",
+        [agoraUTC(), s.id],
+      );
+      await registrarAuditoria(req, 'cliente.excluir', {
+        alvoTipo: 'tenant', alvoId: alvo.id,
+        alvoDesc: `${resultado.nome} (${alvo.slug}) — pedido do revendedor #${s.revendedor_id}`,
+      });
+      return res.json({ ok: true, excluido: true });
+    }
+
     const { tenant, lojaId } = await provisionarCliente({
       nome: s.nome, slug: s.slug, dominio: null,
       nomeLoja: s.nome_loja, categoria: s.categoria,

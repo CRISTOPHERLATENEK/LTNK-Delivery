@@ -206,6 +206,42 @@ export async function inicializarCentral(): Promise<void> {
       KEY idx_solic_status (status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  /*
+   * A mesma fila atende dois pedidos: CADASTRO de cliente novo e EXCLUSÃO de um
+   * que já existe. Filas separadas dariam duas telas pro admin olhar, e a que
+   * ele esquecesse de abrir seria a que acumula.
+   * `tipo` já existia como coluna nova em base publicada — daí garantirColuna.
+   */
+  await garantirColuna(pool, BANCO_CENTRAL, 'solicitacoes_cliente', 'tipo', "tipo VARCHAR(12) NOT NULL DEFAULT 'cadastro'");
+  // Motivo escrito pelo REVENDEDOR (por que quer excluir), separado do
+  // motivo_recusa, que é a resposta do admin. Um campo só misturaria as vozes.
+  await garantirColuna(pool, BANCO_CENTRAL, 'solicitacoes_cliente', 'motivo_pedido', 'motivo_pedido TEXT');
+  // Quando o revendedor viu a decisão. NULL = ainda não viu → vira o aviso no
+  // painel dele, que hoje só descobre a recusa se abrir a lista por conta.
+  await garantirColuna(pool, BANCO_CENTRAL, 'solicitacoes_cliente', 'visto_em', "visto_em VARCHAR(32) NOT NULL DEFAULT ''");
+
+  /*
+   * HISTÓRICO DE FATURAS do revendedor — um retrato por competência.
+   *
+   * Tem que ser retrato, não consulta: módulo ligado hoje mudaria o valor de
+   * março se a conta velha fosse recalculada, e o revendedor veria um total
+   * diferente do que pagou. Uma vez fechada, a linha não se mexe mais.
+   */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS faturas_revendedor (
+      id                    INT PRIMARY KEY AUTO_INCREMENT,
+      revendedor_id         INT NOT NULL,
+      competencia           CHAR(7) NOT NULL,
+      clientes_ativos       INT NOT NULL DEFAULT 0,
+      mensalidades_centavos INT NOT NULL DEFAULT 0,
+      modulos_centavos      INT NOT NULL DEFAULT 0,
+      total_centavos        INT NOT NULL DEFAULT 0,
+      detalhe               MEDIUMTEXT,
+      fechada_em            VARCHAR(32) NOT NULL,
+      UNIQUE KEY uq_fatura (revendedor_id, competencia),
+      KEY idx_fat_revendedor (revendedor_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
   // coluna dominio pode ter sido criada NOT NULL em versões antigas de teste — no-op se já ok.
   await garantirColuna(pool, BANCO_CENTRAL, 'tenants', 'ativo', 'ativo TINYINT NOT NULL DEFAULT 1');
 

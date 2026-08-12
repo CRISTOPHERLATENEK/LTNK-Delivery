@@ -14,6 +14,8 @@ import bcrypt from 'bcryptjs';
 import { erroHttp, inteiroPositivo, textoLimpo, emailValido, agoraUTC } from '../util';
 import { problemaNoSlugTenant } from '../tenants-mysql';
 import { contaDoMes } from '../conta-revendedor';
+import { gravarFaturaDoMes } from '../faturas';
+import { competenciaDe } from '../fatura-revendedor';
 
 const router = Router();
 router.use(autenticarRevendedor);
@@ -58,8 +60,32 @@ router.get('/eu', async (req, res, next) => {
       ativo: !!t.ativo,
       modulos: [Number(t.modulos_centavos) || 0],
     })));
+    /*
+     * Decisões que ele ainda não viu. Sem isso o revendedor só descobre a
+     * recusa se abrir a lista por conta própria — e uma recusa que ninguém lê
+     * vira o mesmo pedido reenviado uma semana depois.
+     */
+    const [naoVistas] = await poolCentral().query(
+      `SELECT status, COUNT(*) AS n FROM solicitacoes_cliente
+        WHERE revendedor_id = ? AND status <> 'pendente' AND visto_em = ''
+        GROUP BY status`,
+      [r.id],
+    ) as unknown as [Array<{ status: string; n: number }>];
+    const [pend] = await poolCentral().query(
+      "SELECT COUNT(*) AS n FROM solicitacoes_cliente WHERE revendedor_id = ? AND status = 'pendente'",
+      [r.id],
+    ) as unknown as [Array<{ n: number }>];
+    const [perfil] = await poolCentral().query(
+      'SELECT telefone FROM revendedores WHERE id = ?', [r.id],
+    ) as unknown as [Array<{ telefone: string }>];
+
     res.json({
-      revendedor: { id: r.id, nome: r.nome, email: r.email },
+      revendedor: { id: r.id, nome: r.nome, email: r.email, telefone: perfil[0]?.telefone ?? '' },
+      novidades: {
+        aprovadas: Number(naoVistas.find(x => x.status === 'aprovada')?.n ?? 0),
+        recusadas: Number(naoVistas.find(x => x.status === 'recusada')?.n ?? 0),
+        pendentes: Number(pend[0]?.n ?? 0),
+      },
       clientes: linhas.length,
       custo_centavos: r.custo_centavos,
       ...conta,
@@ -181,11 +207,235 @@ router.get('/solicitacoes', async (req, res, next) => {
   try {
     const r = req.revendedor!;
     const [linhas] = await poolCentral().query(
-      `SELECT id, nome, slug, nome_loja, dono_nome, dono_email, status, motivo_recusa, criado_em, decidido_em
+      `SELECT id, tipo, tenant_id, nome, slug, nome_loja, dono_nome, dono_email, status,
+              motivo_pedido, motivo_recusa, visto_em, criado_em, decidido_em
          FROM solicitacoes_cliente WHERE revendedor_id = ? ORDER BY id DESC`,
       [r.id],
     );
     res.json({ solicitacoes: linhas });
+  } catch (e) { next(e); }
+});
+
+/* ─────────────────────────── Detalhe do cliente ─────────────────────────── */
+
+/**
+ * Um cliente dele, de perto: dono, módulos com preço, lojas, pedidos do mês.
+ *
+ * Rota separada da lista de propósito: estes números vêm do banco DO CLIENTE,
+ * um banco por cliente. Fazer isso para todos de uma vez deixaria a lista lenta
+ * na proporção do sucesso do revendedor.
+ */
+router.get('/clientes/:id', async (req, res, next) => {
+  try {
+    const r = req.revendedor!;
+    const t = await meuCliente(r.id, req.params.id);
+
+    const [mods] = await poolCentral().query(
+      `SELECT COALESCE(m.nome, 'Módulo removido') AS nome, mc.preco_centavos, mc.criado_em
+         FROM modulos_cliente mc
+         LEFT JOIN modulos m ON m.id = mc.modulo_id
+        WHERE mc.tenant_id = ? ORDER BY nome`,
+      [t.id],
+    ) as unknown as [Array<Record<string, unknown>>];
+
+    const inicioMes = competenciaDe(agoraUTC()) + '-01T00:00:00.000Z';
+    let lojas: Array<Record<string, unknown>> = [];
+    let pedidos = 0, faturamento = 0, ticket = 0, usuarios = 0;
+    let bancoOk = true;
+    try {
+      const pool = abrirPool(String(t.db_nome));
+      const [ls] = await pool.query('SELECT id, nome, slug, ativa FROM lojas ORDER BY nome') as any;
+      lojas = ls;
+      const [p] = await pool.query(
+        `SELECT COUNT(*) AS n, COALESCE(SUM(total_centavos), 0) AS total
+           FROM pedidos WHERE status = 'entregue' AND criado_em >= ?`,
+        [inicioMes],
+      ) as any;
+      pedidos = Number(p[0]?.n ?? 0);
+      faturamento = Number(p[0]?.total ?? 0);
+      ticket = pedidos > 0 ? Math.round(faturamento / pedidos) : 0;
+      const [u] = await pool.query('SELECT COUNT(*) AS n FROM usuarios') as any;
+      usuarios = Number(u[0]?.n ?? 0);
+    } catch {
+      // Banco fora do ar não vira 500: a tela mostra o que sabe e avisa que os
+      // números não carregaram. Um erro aqui esconderia até o nome do dono.
+      bancoOk = false;
+    }
+
+    /*
+     * O pedido de exclusão pendente vai junto: a tela precisa mostrar "já
+     * pedido" em vez de oferecer o botão de novo e tomar 409 na cara do
+     * revendedor.
+     */
+    const [exc] = await poolCentral().query(
+      "SELECT id, criado_em FROM solicitacoes_cliente WHERE tenant_id = ? AND tipo = 'exclusao' AND status = 'pendente' LIMIT 1",
+      [t.id],
+    ) as unknown as [Array<Record<string, unknown>>];
+
+    res.json({
+      cliente: {
+        id: t.id, nome: t.nome, slug: t.slug, dominio: t.dominio,
+        ativo: t.ativo, criado_em: t.criado_em,
+      },
+      modulos: mods,
+      modulos_centavos: mods.reduce((s, m) => s + (Number(m.preco_centavos) || 0), 0),
+      lojas, usuarios,
+      pedidos_mes: pedidos,
+      faturamento_mes_centavos: faturamento,
+      ticket_medio_centavos: ticket,
+      banco_ok: bancoOk,
+      exclusao_pendente: exc[0] ?? null,
+    });
+  } catch (e) { next(e); }
+});
+
+/* ──────────────────────────────── Fatura ──────────────────────────────── */
+
+/**
+ * O que ele paga ESTE mês, cliente por cliente.
+ *
+ * Grava o retrato na mesma passada (ver faturas.ts): a competência corrente é
+ * regravada o tempo todo pra que, na virada do mês, a linha já esteja fechada
+ * com um estado de dentro do próprio mês.
+ */
+router.get('/fatura', async (req, res, next) => {
+  try {
+    const r = req.revendedor!;
+    const f = await gravarFaturaDoMes(r.id, r.custo_centavos);
+    res.json({ competencia: competenciaDe(agoraUTC()), custo_centavos: r.custo_centavos, ...f });
+  } catch (e) { next(e); }
+});
+
+/** Meses anteriores, como foram fechados. Não recalcula nada. */
+router.get('/faturas', async (req, res, next) => {
+  try {
+    const r = req.revendedor!;
+    const atual = competenciaDe(agoraUTC());
+    const [linhas] = await poolCentral().query(
+      `SELECT competencia, clientes_ativos, mensalidades_centavos, modulos_centavos,
+              total_centavos, detalhe, fechada_em
+         FROM faturas_revendedor
+        WHERE revendedor_id = ? AND competencia < ?
+        ORDER BY competencia DESC LIMIT 24`,
+      [r.id, atual],
+    ) as unknown as [Array<Record<string, unknown>>];
+    const faturas = linhas.map(l => ({
+      ...l,
+      // O detalhe é JSON gravado por nós; se um dia vier torto, a fatura ainda
+      // aparece com os totais em vez de derrubar a tela inteira.
+      detalhe: (() => { try { return JSON.parse(String(l.detalhe || '[]')); } catch { return []; } })(),
+    }));
+    res.json({ faturas });
+  } catch (e) { next(e); }
+});
+
+/* ───────────────────────── Pedido de exclusão ───────────────────────── */
+
+/**
+ * Pede pra APAGAR um cliente. Não apaga nada aqui.
+ *
+ * Apagar derruba o banco inteiro do cliente — pedidos, produtos, histórico — e
+ * não tem volta. Um clique errado no painel de quem revende não pode ser a
+ * última etapa disso; entra na fila do admin, do lado das solicitações de
+ * cadastro.
+ */
+router.post('/clientes/:id/exclusao', async (req, res, next) => {
+  try {
+    const r = req.revendedor!;
+    const t = await meuCliente(r.id, req.params.id);
+    const motivo = textoLimpo(req.body.motivo, 300);
+    if (motivo.length < 3) throw erroHttp(400, 'Escreva o motivo — quem aprova vai ler antes de apagar.');
+
+    const pool = poolCentral();
+    const [ja] = await pool.query(
+      "SELECT id FROM solicitacoes_cliente WHERE tenant_id = ? AND tipo = 'exclusao' AND status = 'pendente'",
+      [t.id],
+    ) as unknown as [unknown[]];
+    if (ja.length) throw erroHttp(409, 'Já existe um pedido de exclusão pendente para este cliente.');
+
+    /*
+     * Reusa a mesma tabela do cadastro. As colunas de cadastro (senha,
+     * categoria) ficam vazias: são obrigatórias no schema por causa do outro
+     * tipo, e inventar uma senha aqui seria pior que a string vazia.
+     */
+    const [ins] = await pool.query(
+      `INSERT INTO solicitacoes_cliente
+         (revendedor_id, tipo, tenant_id, nome, slug, nome_loja, categoria,
+          dono_nome, dono_email, dono_telefone, senha_hash, motivo_pedido, criado_em)
+       VALUES (?, 'exclusao', ?, ?, ?, '', '', '', '', '', '', ?, ?)`,
+      [r.id, t.id, String(t.nome), String(t.slug), motivo, agoraUTC()],
+    ) as unknown as [{ insertId: number }];
+    res.status(201).json({ id: Number(ins.insertId) });
+  } catch (e) { next(e); }
+});
+
+/* ─────────────────── Solicitações: cancelar e dar por vista ─────────────── */
+
+/** Cancela um pedido DELE que ainda está pendente. */
+router.delete('/solicitacoes/:id', async (req, res, next) => {
+  try {
+    const r = req.revendedor!;
+    const [x] = await poolCentral().query(
+      "DELETE FROM solicitacoes_cliente WHERE id = ? AND revendedor_id = ? AND status = 'pendente'",
+      [req.params.id, r.id],
+    ) as unknown as [{ affectedRows: number }];
+    // Já decidida não volta atrás: o cliente pode ter sido provisionado, e
+    // apagar a linha apagaria o registro de que aquilo aconteceu.
+    if (x.affectedRows === 0) throw erroHttp(409, 'Solicitação não encontrada ou já decidida.');
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/** Marca as decisões como lidas — some o aviso do painel. */
+router.post('/solicitacoes/vistas', async (req, res, next) => {
+  try {
+    const r = req.revendedor!;
+    await poolCentral().query(
+      "UPDATE solicitacoes_cliente SET visto_em = ? WHERE revendedor_id = ? AND status <> 'pendente' AND visto_em = ''",
+      [agoraUTC(), r.id],
+    );
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/* ──────────────────────────── Perfil e senha ──────────────────────────── */
+
+/** Nome e telefone dele. E-mail não: é o login, e trocar login é outra coisa. */
+router.put('/perfil', async (req, res, next) => {
+  try {
+    const r = req.revendedor!;
+    const nome = textoLimpo(req.body.nome, 120);
+    const telefone = textoLimpo(req.body.telefone || '', 30);
+    if (nome.length < 2) throw erroHttp(400, 'Informe seu nome.');
+    await poolCentral().query('UPDATE revendedores SET nome = ?, telefone = ? WHERE id = ?', [nome, telefone, r.id]);
+    res.json({ ok: true, nome, telefone });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Troca a própria senha.
+ *
+ * EXIGE A SENHA ATUAL. Sem isso, quem pegasse a tela aberta trocaria a senha e
+ * o dono perderia a conta — o token sozinho não prova que quem está ali sabe a
+ * senha.
+ */
+router.put('/senha', async (req, res, next) => {
+  try {
+    const r = req.revendedor!;
+    const atual = typeof req.body.atual === 'string' ? req.body.atual : '';
+    const nova = typeof req.body.nova === 'string' ? req.body.nova : '';
+    if (nova.length < 6) throw erroHttp(400, 'A nova senha precisa de pelo menos 6 caracteres.');
+
+    const [linhas] = await poolCentral().query(
+      'SELECT senha_hash FROM revendedores WHERE id = ?', [r.id],
+    ) as unknown as [Array<{ senha_hash: string }>];
+    if (!linhas[0] || !bcrypt.compareSync(atual, linhas[0].senha_hash)) {
+      throw erroHttp(403, 'Senha atual incorreta.');
+    }
+    await poolCentral().query(
+      'UPDATE revendedores SET senha_hash = ? WHERE id = ?', [bcrypt.hashSync(nova, 10), r.id],
+    );
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 

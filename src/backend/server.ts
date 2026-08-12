@@ -24,6 +24,7 @@ import adminRoutes from './rotas/admin';
 import revendedorRoutes from './rotas/revendedor';
 import pagamentosRoutes, { reconciliarPagamentosOnz, reconciliarCartoesMP, cancelarCartoesAbandonados } from './rotas/pagamentos';
 import { aquecerTokens } from './onz';
+import { gravarFaturasDeTodos } from './faturas';
 import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
@@ -642,6 +643,18 @@ const PORT = Number(process.env.PORT) || 3000;
   // Mantém quente o token da ONZ (vale só 5 min): sem isso, quase todo pedido
   // pagava ~1s de autenticação antes de mostrar o QR, com o cliente esperando.
   setInterval(() => { aquecerTokens().catch(() => { /* melhor esforço */ }); }, 60_000);
+
+  /*
+   * Retrato da fatura do mês de cada revendedor, de hora em hora.
+   *
+   * De hora em hora e não uma vez por mês porque o que fecha a competência é o
+   * ÚLTIMO retrato tirado dentro dela: assim, na virada, o valor gravado é de no
+   * máximo uma hora antes do fim do mês. Um job mensal que não rodasse (deploy,
+   * reboot, servidor fora) deixaria o mês inteiro sem fatura, e ela não pode ser
+   * reconstruída depois sem inventar número (ver faturas.ts).
+   */
+  gravarFaturasDeTodos().catch(e => console.error('[fatura] falha no fechamento inicial:', e));
+  setInterval(() => { gravarFaturasDeTodos().catch(e => console.error('[fatura] falha no fechamento:', e)); }, 60 * 60_000);
 
   app.listen(PORT, () => {
     // Esta mensagem é só informativa (endereço LOCAL do processo). Em produção,
