@@ -47,7 +47,25 @@ import { capturarErro } from './monitoramento';
 
 const app = express();
 app.disable('x-powered-by');
-if (process.env.CONFIA_PROXY === '1') app.set('trust proxy', 1);
+/*
+ * CONFIA_PROXY = QUANTOS intermediários existem entre o cliente e o app.
+ *
+ *   1 = só o nginx           (tráfego direto no servidor)
+ *   2 = Cloudflare + nginx   (proxy da Cloudflare ligado)
+ *
+ * O número importa e não é detalhe: seis limitadores de requisição usam
+ * `req.ip` (login, cadastro, 2FA, recuperação de senha, cozinha e upload). Com
+ * o valor baixo demais, `req.ip` passa a ser o IP do proxy da frente — e aí os
+ * limitadores enxergam a internet inteira como uma pessoa só e começam a
+ * bloquear gente legítima que nunca errou senha nenhuma.
+ *
+ * Valor inválido ou ausente = não confia em ninguém, que é o padrão seguro:
+ * `req.ip` vira o IP do socket, no máximo pessimista demais.
+ */
+const saltosConfiaveis = Math.trunc(Number(process.env.CONFIA_PROXY));
+if (Number.isFinite(saltosConfiaveis) && saltosConfiaveis > 0) {
+  app.set('trust proxy', saltosConfiaveis);
+}
 app.use(express.json({ limit: '200kb' }));
 
 // Cabeçalhos de segurança básicos. Exceção estreita: a própria página da
@@ -310,6 +328,27 @@ app.use('/api/cliente', clienteRoutes);
 app.use('/api/lojista', lojistaRoutes);
 app.use('/api/entregador', entregadorRoutes);
 app.use('/api/cozinha', cozinhaRoutes);
+/*
+ * DIAGNÓSTICO DE PROXY — diz qual IP o servidor está enxergando como sendo o
+ * do cliente.
+ *
+ * Existe porque ligar o proxy da Cloudflare muda esse IP em silêncio: nada
+ * quebra na hora, e o estrago (limitador bloqueando gente inocente) só aparece
+ * sob carga. Com isto dá pra conferir antes, em vez de descobrir depois.
+ *
+ * Não expõe nada sensível: devolve só o que o próprio chamador já mandou.
+ */
+app.get('/api/diagnostico/ip', (req, res) => {
+  res.json({
+    ip_visto: req.ip,
+    saltos_confiaveis: app.get('trust proxy'),
+    via_cloudflare: !!req.headers['cf-connecting-ip'],
+    // Quando bate, o app está lendo o IP certo por trás da Cloudflare.
+    ip_real_cloudflare: req.headers['cf-connecting-ip'] || null,
+    encaminhado_por: req.headers['x-forwarded-for'] || null,
+  });
+});
+
 app.use('/api/admin', adminRoutes);
 app.use('/api/revendedor', revendedorRoutes);
 app.use('/api/pagamentos', pagamentosRoutes);
