@@ -4,6 +4,7 @@
  */
 import { Router } from 'express';
 import { slugUnico } from '../slug-loja';
+import { contaDoMes, type ClienteNaConta } from '../conta-revendedor';
 import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-mysql';
 import bcrypt from 'bcryptjs';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
@@ -1860,6 +1861,110 @@ router.delete('/tenants/:id', exigirSuperAdmin, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ───────────────────── Módulos adicionais (cobrança) ─────────────────────
+ *
+ * COBRANÇA, não permissão. Ligar um módulo num cliente soma na conta do
+ * revendedor; não habilita nem bloqueia nada no painel do lojista.
+ */
+
+router.get('/modulos', exigirSuperAdmin, async (_req, res, next) => {
+  try {
+    exigirMaster();
+    const [linhas] = await poolCentral().query(
+      `SELECT m.*, (SELECT COUNT(*) FROM modulos_cliente mc WHERE mc.modulo_id = m.id) AS clientes
+         FROM modulos m ORDER BY m.nome`,
+    );
+    res.json({ modulos: linhas });
+  } catch (e) { next(e); }
+});
+
+router.post('/modulos', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const nome = textoLimpo(req.body.nome, 80);
+    if (nome.length < 2) throw erroHttp(400, 'Informe o nome do módulo.');
+    const [r] = await poolCentral().query(
+      'INSERT INTO modulos (nome, descricao, preco_centavos, criado_em) VALUES (?, ?, ?, ?)',
+      [nome, textoLimpo(req.body.descricao || '', 200), reaisParaCentavos(req.body.preco ?? 0) || 0, agoraUTC()],
+    ) as unknown as [{ insertId: number }];
+    await registrarAuditoria(req, 'modulo.criar', { alvoTipo: 'modulo', alvoId: Number(r.insertId), alvoDesc: nome });
+    res.status(201).json({ id: Number(r.insertId) });
+  } catch (e) { next(e); }
+});
+
+router.put('/modulos/:id', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const nome = textoLimpo(req.body.nome, 80);
+    if (nome.length < 2) throw erroHttp(400, 'Informe o nome do módulo.');
+    /*
+     * Reajuste vale só pros PRÓXIMOS. Os clientes que já têm o módulo mantêm o
+     * preço copiado no momento em que foi ligado — senão um reajuste mudaria
+     * retroativamente o que já foi combinado, e a conta do mês passado deixaria
+     * de bater com o que foi cobrado.
+     */
+    const [r] = await poolCentral().query(
+      'UPDATE modulos SET nome = ?, descricao = ?, preco_centavos = ? WHERE id = ?',
+      [nome, textoLimpo(req.body.descricao || '', 200), reaisParaCentavos(req.body.preco ?? 0) || 0, req.params.id],
+    ) as unknown as [{ affectedRows: number }];
+    if (r.affectedRows === 0) throw erroHttp(404, 'Módulo não encontrado.');
+    await registrarAuditoria(req, 'modulo.editar', { alvoTipo: 'modulo', alvoId: Number(req.params.id), alvoDesc: nome });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+router.delete('/modulos/:id', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const pool = poolCentral();
+    // Some das contas futuras junto: deixar o vínculo órfão faria a conta somar
+    // um módulo que não existe mais, sem nome pra mostrar na linha.
+    await pool.query('DELETE FROM modulos_cliente WHERE modulo_id = ?', [req.params.id]);
+    const [r] = await pool.query('DELETE FROM modulos WHERE id = ?', [req.params.id]) as unknown as [{ affectedRows: number }];
+    if (r.affectedRows === 0) throw erroHttp(404, 'Módulo não encontrado.');
+    await registrarAuditoria(req, 'modulo.remover', { alvoTipo: 'modulo', alvoId: Number(req.params.id), alvoDesc: '' });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/** Módulos ligados num cliente. */
+router.get('/tenants/:id/modulos', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const [linhas] = await poolCentral().query(
+      `SELECT mc.modulo_id, mc.preco_centavos, m.nome
+         FROM modulos_cliente mc JOIN modulos m ON m.id = mc.modulo_id
+        WHERE mc.tenant_id = ? ORDER BY m.nome`,
+      [req.params.id],
+    );
+    res.json({ modulos: linhas });
+  } catch (e) { next(e); }
+});
+
+/** Liga ou desliga um módulo num cliente. */
+router.put('/tenants/:id/modulos/:moduloId', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const pool = poolCentral();
+    const ligar = !!req.body.ligado;
+    if (!ligar) {
+      await pool.query('DELETE FROM modulos_cliente WHERE tenant_id = ? AND modulo_id = ?', [req.params.id, req.params.moduloId]);
+      await registrarAuditoria(req, 'modulo.desligar', { alvoTipo: 'tenant', alvoId: Number(req.params.id), alvoDesc: String(req.params.moduloId) });
+      return res.json({ ok: true, ligado: false });
+    }
+    const [mods] = await pool.query('SELECT preco_centavos FROM modulos WHERE id = ?', [req.params.moduloId]) as unknown as [Array<{ preco_centavos: number }>];
+    if (!mods[0]) throw erroHttp(404, 'Módulo não encontrado.');
+    // Preço COPIADO agora — ver comentário do reajuste acima.
+    await pool.query(
+      `INSERT INTO modulos_cliente (tenant_id, modulo_id, preco_centavos, criado_em) VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE preco_centavos = VALUES(preco_centavos)`,
+      [req.params.id, req.params.moduloId, mods[0].preco_centavos, agoraUTC()],
+    );
+    await registrarAuditoria(req, 'modulo.ligar', { alvoTipo: 'tenant', alvoId: Number(req.params.id), alvoDesc: String(req.params.moduloId) });
+    res.json({ ok: true, ligado: true });
+  } catch (e) { next(e); }
+});
+
 /* ────────────── Solicitações de cliente (fila do revendedor) ────────────── */
 
 /** Fila de solicitações. Pendentes primeiro — é o que exige ação. */
@@ -1946,12 +2051,38 @@ router.get('/revendedores', exigirSuperAdmin, async (_req, res, next) => {
     const [linhas] = await pool.query(
       `SELECT r.id, r.nome, r.email, r.telefone, r.documento, r.custo_centavos,
               r.ativo, r.bloqueado, r.criado_em,
-              (SELECT COUNT(*) FROM tenants t WHERE t.revendedor_id = r.id) AS clientes,
-              (SELECT COUNT(*) FROM tenants t WHERE t.revendedor_id = r.id AND t.ativo = 1) AS clientes_ativos
+              (SELECT COUNT(*) FROM tenants t WHERE t.revendedor_id = r.id) AS clientes
          FROM revendedores r
         ORDER BY r.nome`,
-    );
-    res.json({ revendedores: linhas });
+    ) as unknown as [Array<Record<string, unknown>>];
+
+    /*
+     * A conta sai do módulo testado (conta-revendedor.ts), não de um SUM na
+     * consulta: a regra "cliente suspenso não paga nada, nem módulo" precisa
+     * ser a MESMA aqui e no painel do revendedor. Duas somas separadas divergem
+     * no dia em que uma delas esquecer o `ativo`.
+     */
+    const [vinculos] = await pool.query(
+      `SELECT t.revendedor_id, t.id AS tenant_id, t.ativo,
+              COALESCE(SUM(mc.preco_centavos), 0) AS modulos_centavos
+         FROM tenants t
+         LEFT JOIN modulos_cliente mc ON mc.tenant_id = t.id
+        WHERE t.revendedor_id IS NOT NULL
+        GROUP BY t.revendedor_id, t.id, t.ativo`,
+    ) as unknown as [Array<{ revendedor_id: number; ativo: number; modulos_centavos: number }>];
+
+    const porRevendedor = new Map<number, ClienteNaConta[]>();
+    for (const v of vinculos) {
+      const lista = porRevendedor.get(v.revendedor_id) ?? [];
+      lista.push({ ativo: !!v.ativo, modulos: [Number(v.modulos_centavos) || 0] });
+      porRevendedor.set(v.revendedor_id, lista);
+    }
+
+    const revendedores = linhas.map(r => ({
+      ...r,
+      ...contaDoMes(Number(r.custo_centavos) || 0, porRevendedor.get(Number(r.id)) ?? []),
+    }));
+    res.json({ revendedores });
   } catch (e) { next(e); }
 });
 

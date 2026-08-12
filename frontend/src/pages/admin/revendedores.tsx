@@ -12,6 +12,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Handshake, Plus, Pencil, Trash2, Lock, Unlock, Building2, X } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { PainelSolicitacoes } from './solicitacoes';
+import { PainelModulos } from './modulos';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -37,6 +38,9 @@ interface Revendedor {
   criado_em: string;
   clientes: number;
   clientes_ativos: number;
+  mensalidades_centavos: number;
+  modulos_centavos: number;
+  total_centavos: number;
 }
 
 const FORM_VAZIO = { nome: '', email: '', senha: '', telefone: '', documento: '', custo: '' };
@@ -49,7 +53,7 @@ export function TelaRevendedores() {
    * valendo e abre já nesta aba: link antigo não pode virar página em branco.
    */
   const local = useLocation();
-  const [aba, setAba] = useState<'revendedores' | 'solicitacoes'>(
+  const [aba, setAba] = useState<'revendedores' | 'solicitacoes' | 'modulos'>(
     local.pathname.endsWith('/solicitacoes') ? 'solicitacoes' : 'revendedores',
   );
   const confirmar = useConfirm();
@@ -76,7 +80,9 @@ export function TelaRevendedores() {
    * Cliente suspenso não gera cobrança — somar todos daria um número que não
    * corresponde a nada que se possa cobrar de ninguém.
    */
-  const totalMes = lista.reduce((s, r) => s + r.custo_centavos * r.clientes_ativos, 0);
+  // Vem do servidor (conta-revendedor.ts) — a tela não recalcula, senão dois
+  // lugares somariam a mesma coisa de jeitos que um dia divergem.
+  const totalMes = lista.reduce((s, r) => s + (r.total_centavos || 0), 0);
 
   async function remover(r: Revendedor) {
     const ok = await confirmar({
@@ -132,6 +138,7 @@ export function TelaRevendedores() {
           {([
             { chave: 'revendedores' as const, rotulo: 'Revendedores' },
             { chave: 'solicitacoes' as const, rotulo: 'Solicitações' },
+            { chave: 'modulos' as const, rotulo: 'Módulos' },
           ]).map(t => (
             <button
               key={t.chave}
@@ -150,7 +157,7 @@ export function TelaRevendedores() {
           ))}
         </div>
 
-        {aba === 'solicitacoes' ? <PainelSolicitacoes /> : (
+        {aba === 'modulos' ? <PainelModulos /> : aba === 'solicitacoes' ? <PainelSolicitacoes /> : (
         <>
 
         {(criando || editando) && (
@@ -200,8 +207,14 @@ export function TelaRevendedores() {
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
-                  <div className="text-lg font-extrabold tabular-nums">{brl(r.custo_centavos * r.clientes_ativos)}</div>
-                  <div className="text-[11px] text-muted-foreground">no mês</div>
+                  <div className="text-lg font-extrabold tabular-nums">{brl(r.total_centavos)}</div>
+                  {/* A quebra só aparece quando há módulo: sem eles, "mensalidade
+                      R$ X + módulos R$ 0" é ruído. */}
+                  <div className="text-[11px] text-muted-foreground">
+                    {r.modulos_centavos > 0
+                      ? `${brl(r.mensalidades_centavos)} + ${brl(r.modulos_centavos)} módulos`
+                      : 'no mês'}
+                  </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <Button variant="ghost" size="sm" onClick={() => { setCriando(false); setEditando(r); }} title="Editar">

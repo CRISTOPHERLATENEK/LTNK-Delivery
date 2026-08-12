@@ -13,6 +13,7 @@ import { abrirPool } from '../db-mysql';
 import bcrypt from 'bcryptjs';
 import { erroHttp, inteiroPositivo, textoLimpo, emailValido, agoraUTC } from '../util';
 import { problemaNoSlugTenant } from '../tenants-mysql';
+import { contaDoMes } from '../conta-revendedor';
 
 const router = Router();
 router.use(autenticarRevendedor);
@@ -39,19 +40,31 @@ async function meuCliente(revendedorId: number, tenantId: unknown) {
 router.get('/eu', async (req, res, next) => {
   try {
     const r = req.revendedor!;
+    /*
+     * MESMO cálculo que o admin vê (conta-revendedor.ts). Se cada lado somasse
+     * do seu jeito, o revendedor veria um valor e a cobrança sairia outro — e a
+     * discussão seria sobre qual das duas telas está certa.
+     */
     const [linhas] = await poolCentral().query(
-      `SELECT COUNT(*) AS total, COALESCE(SUM(ativo), 0) AS ativos
-         FROM tenants WHERE revendedor_id = ?`,
+      `SELECT t.id, t.ativo, COALESCE(SUM(mc.preco_centavos), 0) AS modulos_centavos
+         FROM tenants t
+         LEFT JOIN modulos_cliente mc ON mc.tenant_id = t.id
+        WHERE t.revendedor_id = ?
+        GROUP BY t.id, t.ativo`,
       [r.id],
-    ) as unknown as [Array<{ total: number; ativos: number }>];
-    const { total, ativos } = linhas[0];
+    ) as unknown as [Array<{ ativo: number; modulos_centavos: number }>];
+
+    const conta = contaDoMes(r.custo_centavos, linhas.map(t => ({
+      ativo: !!t.ativo,
+      modulos: [Number(t.modulos_centavos) || 0],
+    })));
     res.json({
       revendedor: { id: r.id, nome: r.nome, email: r.email },
-      clientes: Number(total),
-      clientes_ativos: Number(ativos),
+      clientes: linhas.length,
       custo_centavos: r.custo_centavos,
-      // Só os ATIVOS entram na conta: cliente suspenso não gera cobrança.
-      total_mes_centavos: r.custo_centavos * Number(ativos),
+      ...conta,
+      // Mantido pelo nome antigo pra não quebrar a tela já publicada.
+      total_mes_centavos: conta.total_centavos,
     });
   } catch (e) { next(e); }
 });
@@ -61,7 +74,15 @@ router.get('/clientes', async (req, res, next) => {
   try {
     const r = req.revendedor!;
     const [tenants] = await poolCentral().query(
-      'SELECT id, nome, slug, dominio, db_nome, ativo, criado_em FROM tenants WHERE revendedor_id = ? ORDER BY nome',
+      `SELECT t.id, t.nome, t.slug, t.dominio, t.db_nome, t.ativo, t.criado_em,
+              COALESCE(SUM(mc.preco_centavos), 0) AS modulos_centavos,
+              COALESCE(GROUP_CONCAT(m.nome ORDER BY m.nome SEPARATOR ', '), '') AS modulos_nomes
+         FROM tenants t
+         LEFT JOIN modulos_cliente mc ON mc.tenant_id = t.id
+         LEFT JOIN modulos m ON m.id = mc.modulo_id
+        WHERE t.revendedor_id = ?
+        GROUP BY t.id, t.nome, t.slug, t.dominio, t.db_nome, t.ativo, t.criado_em
+        ORDER BY t.nome`,
       [r.id],
     ) as unknown as [Array<Record<string, unknown>>];
 

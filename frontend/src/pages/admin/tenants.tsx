@@ -3,8 +3,8 @@
  * Cada tenant tem seu próprio banco (.db) e domínio (multi-tenant SILO).
  */
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Trash2, Handshake, Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward, Link2 } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Boxes, Trash2, Handshake, Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward, Link2 } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { SeloRevendedor } from './revendedores';
 import { Card, CardContent } from '@/components/ui/card';
@@ -19,6 +19,7 @@ import { ImageUpload } from '@/components/ui/image-upload';
 import { api, ApiError, tokenSessao, abrirSessaoLojistaImpersonada, destinoImpersonacao } from '@/lib/api';
 import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
 import { cn } from '@/lib/utils';
+import { brl } from '@/lib/format';
 
 interface Tenant {
   id: number;
@@ -48,6 +49,7 @@ function gerarSlug(nome: string): string {
 export function TelaTenants() {
   const { mostrar } = useToast();
   const confirmar = useConfirm();
+  const qc = useQueryClient();
   const consulta = useQuery({
     queryKey: ['tenants'],
     queryFn: () => api<{ tenants: Tenant[] }>('GET', '/api/admin/tenants').then(r => r.tenants),
@@ -144,6 +146,41 @@ export function TelaTenants() {
           : 'O banco foi preservado — ele não foi criado pela plataforma.',
       });
       consulta.refetch();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
+
+  /** Catálogo de módulos + quais estão ligados em cada cliente. */
+  const modulosQ = useQuery({
+    queryKey: ['admin-modulos'],
+    queryFn: () => api<{ modulos: Array<{ id: number; nome: string; preco_centavos: number }> }>('GET', '/api/admin/modulos').then(r => r.modulos),
+    staleTime: 5 * 60_000,
+  });
+
+  const ligadosQ = useQuery({
+    queryKey: ['admin-modulos-por-cliente', (consulta.data ?? []).map(t => t.id).join(',')],
+    enabled: (consulta.data ?? []).length > 0,
+    queryFn: async () => {
+      const mapa: Record<number, number[]> = {};
+      // Uma consulta por cliente: são poucos, e um endpoint agregado só pra
+      // isso seria mais código pra manter do que o problema justifica.
+      await Promise.all((consulta.data ?? []).map(async t => {
+        try {
+          const r = await api<{ modulos: Array<{ modulo_id: number }> }>('GET', `/api/admin/tenants/${t.id}/modulos`);
+          mapa[t.id] = r.modulos.map(m => m.modulo_id);
+        } catch { mapa[t.id] = []; }
+      }));
+      return mapa;
+    },
+  });
+  const modulosPorTenant = ligadosQ.data ?? {};
+
+  async function alternarModulo(t: Tenant, moduloId: number, ligar: boolean) {
+    try {
+      await api('PUT', `/api/admin/tenants/${t.id}/modulos/${moduloId}`, { ligado: ligar });
+      qc.invalidateQueries({ queryKey: ['admin-modulos-por-cliente'] });
+      qc.invalidateQueries({ queryKey: ['admin-revendedores'] });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     }
@@ -329,7 +366,10 @@ export function TelaTenants() {
           <div className="space-y-3">
             {tenants.map(t => (
               <TenantCard key={t.id} t={t} onToggle={() => alternarAtivo(t)} onSalvarDominio={d => salvarDominio(t, d)}
-                revendedores={revendedoresQ.data ?? []} onSalvarRevendedor={id => salvarRevendedor(t, id)} onExcluir={() => excluir(t)} />
+                revendedores={revendedoresQ.data ?? []} onSalvarRevendedor={id => salvarRevendedor(t, id)} onExcluir={() => excluir(t)}
+                modulos={modulosQ.data ?? []}
+                modulosDoCliente={modulosPorTenant[t.id] ?? []}
+                onAlternarModulo={(mid, ligar) => alternarModulo(t, mid, ligar)} />
             ))}
           </div>
         )}
@@ -579,11 +619,14 @@ function EtapaFiscal({ tenantId, lojaId, email, onVoltar, onConcluir }: {
   );
 }
 
-function TenantCard({ t, onToggle, onSalvarDominio, revendedores, onSalvarRevendedor, onExcluir }: {
+function TenantCard({ t, onToggle, onSalvarDominio, revendedores, onSalvarRevendedor, onExcluir, modulos, modulosDoCliente, onAlternarModulo }: {
   t: Tenant; onToggle: () => void; onSalvarDominio: (d: string) => void;
   revendedores: Array<{ id: number; nome: string }>;
   onSalvarRevendedor: (id: number | null) => void;
   onExcluir: () => void;
+  modulos: Array<{ id: number; nome: string; preco_centavos: number }>;
+  modulosDoCliente: number[];
+  onAlternarModulo: (moduloId: number, ligar: boolean) => void;
 }) {
   const { mostrar } = useToast();
   const [editandoDom, setEditandoDom] = useState(false);
@@ -730,6 +773,35 @@ function TenantCard({ t, onToggle, onSalvarDominio, revendedores, onSalvarRevend
               <option value="">Sem revendedor — veio direto</option>
               {revendedores.map(r => <option key={r.id} value={r.id}>{r.nome}</option>)}
             </select>
+          </div>
+        )}
+
+        {/*
+          MÓDULOS deste cliente — só aparecem quando ele tem revendedor.
+          Sem revendedor não há a quem cobrar o extra, e mostrar o controle ali
+          prometeria uma cobrança que nunca sai.
+        */}
+        {!master && t.revendedor_id && modulos.length > 0 && (
+          <div className="rounded-lg bg-muted/50 px-3 py-2">
+            <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+              <Boxes className="size-3.5" /> Módulos cobrados deste cliente
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {modulos.map(m => {
+                const ligado = modulosDoCliente.includes(m.id);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => onAlternarModulo(m.id, !ligado)}
+                    className={cn('rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors',
+                      ligado ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-accent')}
+                  >
+                    {m.nome} · {brl(m.preco_centavos)}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 

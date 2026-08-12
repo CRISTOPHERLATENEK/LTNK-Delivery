@@ -109,6 +109,47 @@ export async function inicializarCentral(): Promise<void> {
   await garantirColuna(pool, BANCO_CENTRAL, 'tenants', 'revendedor_id', 'revendedor_id INT NULL');
 
   /*
+   * MÓDULOS ADICIONAIS — os valores extras além da mensalidade.
+   *
+   * Isto é COBRANÇA, não permissão. Ligar um módulo num cliente soma na conta
+   * do revendedor; não habilita nem bloqueia nada no painel dele. Quem controla
+   * acesso continua sendo o super admin, na mão.
+   *
+   * Está escrito aqui porque a confusão é fácil: "cliente tem o módulo NFC-e"
+   * soa como permissão, e alguém um dia vai assumir que desligar tira o
+   * recurso. Não tira.
+   */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS modulos (
+      id        INT PRIMARY KEY AUTO_INCREMENT,
+      nome      VARCHAR(80) NOT NULL,
+      descricao TEXT,
+      preco_centavos INT NOT NULL DEFAULT 0,
+      ativo     TINYINT NOT NULL DEFAULT 1,
+      criado_em VARCHAR(32) NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  /*
+   * O PREÇO É COPIADO na hora de ligar, não lido do módulo.
+   *
+   * Sem isso, reajustar o módulo mudaria retroativamente o que já foi
+   * combinado com cada revendedor — e a conta do mês passado deixaria de bater
+   * com o que foi cobrado. Assim o reajuste vale só pros próximos.
+   */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS modulos_cliente (
+      id             INT PRIMARY KEY AUTO_INCREMENT,
+      tenant_id      INT NOT NULL,
+      modulo_id      INT NOT NULL,
+      preco_centavos INT NOT NULL,
+      criado_em      VARCHAR(32) NOT NULL,
+      UNIQUE KEY uq_modulo_cliente (tenant_id, modulo_id),
+      KEY idx_mc_tenant (tenant_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  /*
    * SOLICITAÇÕES DE CLIENTE — o revendedor pede, o super admin aprova.
    *
    * A solicitação NÃO cria nada: guarda o formulário e espera. O banco só é

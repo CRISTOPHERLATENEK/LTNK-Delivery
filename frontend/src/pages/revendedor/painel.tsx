@@ -7,7 +7,7 @@
  */
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Handshake, Building2, Store, ShoppingBag, Power, LogOut, ExternalLink, Plus, X } from 'lucide-react';
+import { Handshake, Building2, Store, ShoppingBag, Power, LogOut, ExternalLink, Plus, X, Boxes } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -26,6 +26,9 @@ interface Eu {
   clientes: number;
   clientes_ativos: number;
   custo_centavos: number;
+  mensalidades_centavos: number;
+  modulos_centavos: number;
+  total_centavos: number;
   total_mes_centavos: number;
 }
 
@@ -38,6 +41,8 @@ interface ClienteRev {
   lojas: number;
   pedidos_mes: number;
   faturamento_mes_centavos: number;
+  modulos_centavos: number;
+  modulos_nomes: string;
 }
 
 export function PainelRevendedor() {
@@ -248,6 +253,14 @@ function PainelInterno() {
                   <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                     <span className="flex items-center gap-1"><Store className="size-3" /> {c.lojas} loja(s)</span>
                     <span className="flex items-center gap-1"><ShoppingBag className="size-3" /> {c.pedidos_mes} pedidos no mês</span>
+                    {/* O que ele paga a mais POR ESTE cliente. Sem isso, o
+                        total do mês some e ele não tem como conferir de onde
+                        veio. */}
+                    {c.modulos_centavos > 0 && (
+                      <span className="flex items-center gap-1" title={c.modulos_nomes}>
+                        <Boxes className="size-3" /> {brl(c.modulos_centavos)} em módulos
+                      </span>
+                    )}
                     {c.dominio && (
                       <a href={`https://${c.dominio}`} target="_blank" rel="noreferrer"
                         className="flex items-center gap-1 font-mono hover:text-primary">
@@ -276,7 +289,8 @@ function PainelInterno() {
         {clientes.length > 0 && (
           <p className="px-1 text-xs text-muted-foreground">
             O valor de cada cliente é o que a loja dele faturou no mês, não o seu ganho.
-            Sua conta é {brl(eu?.custo_centavos ?? 0)} por cliente ativo.
+            Sua conta é {brl(eu?.custo_centavos ?? 0)} por cliente ativo
+            {(eu?.modulos_centavos ?? 0) > 0 && <>, mais {brl(eu!.modulos_centavos)} de módulos</>}.
           </p>
         )}
       </main>
