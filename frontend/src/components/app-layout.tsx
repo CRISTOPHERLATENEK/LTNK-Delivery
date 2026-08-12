@@ -205,42 +205,46 @@ export function AppLayout({ children, itens, grupos, titulo, subtitulo }: Props)
             main, depois do conteúdo: um rodapé fixo roubaria altura de tela em
             celular, onde o painel já tem a barra de navegação embaixo.
           */}
-          {marca.rodape_credito_texto && (
-            <div className="mt-10 border-t border-border/60 pt-6 text-center">
-              {(() => {
-                const conteudo = (
-                  <>
-                    <span>{marca.rodape_credito_texto}</span>
-                    {marca.rodape_credito_logo_url && (
-                      <img
-                        src={marca.rodape_credito_logo_url}
-                        alt=""
-                        className="h-6 w-auto max-w-[130px] object-contain"
-                      />
-                    )}
-                  </>
-                );
-                const classe = 'inline-flex items-center gap-2 text-xs text-muted-foreground';
-                /*
-                 * `target="_blank"` com `rel="noopener"`: sem isso a página de
-                 * destino ganha referência à janela do painel e pode
-                 * redirecioná-la. E abrir na mesma aba tiraria o lojista de um
-                 * painel onde ele estava trabalhando.
-                 */
-                return marca.rodape_credito_url ? (
-                  <a
-                    href={marca.rodape_credito_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={classe + ' opacity-80 transition-opacity hover:opacity-100'}
-                  >
-                    {conteudo}
-                  </a>
-                ) : (
-                  <span className={classe}>{conteudo}</span>
-                );
-              })()}
-            </div>
+          {/*
+            CRÉDITO DE QUEM DESENVOLVEU, no fim do painel de quem contratou.
+            Empilhado e centralizado: o texto é rótulo da logo, não legenda ao
+            lado dela — lado a lado, a logo virava um detalhe da frase.
+            Cada parte só aparece se estiver preenchida, então dá pra usar só o
+            texto, só a logo, ou tudo.
+          */}
+          {(marca.rodape_credito_texto || marca.rodape_credito_logo_url || marca.rodape_credito_copyright) && (
+            <footer className="mt-12 border-t border-border/60 pt-8 text-center">
+              {marca.rodape_credito_texto && (
+                <p className="text-xs text-muted-foreground">{marca.rodape_credito_texto}</p>
+              )}
+
+              {marca.rodape_credito_logo_url && (
+                <img
+                  src={marca.rodape_credito_logo_url}
+                  alt={marca.rodape_credito_texto || ''}
+                  className="mx-auto mt-2 h-8 w-auto max-w-[190px] object-contain"
+                />
+              )}
+
+              {/* O botão precisa dos DOIS: sem link ele não leva a lugar nenhum,
+                  sem rótulo seria um botão sem texto. */}
+              {marca.rodape_credito_url && marca.rodape_credito_botao && (
+                <a
+                  href={marca.rodape_credito_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-4 inline-flex items-center rounded-full border border-border px-5 py-2 text-xs font-semibold text-muted-foreground transition-colors hover:border-primary/40 hover:bg-accent hover:text-foreground"
+                >
+                  {marca.rodape_credito_botao}
+                </a>
+              )}
+
+              {marca.rodape_credito_copyright && (
+                <p className="mt-6 border-t border-border/40 pt-4 text-[11px] text-muted-foreground/70">
+                  {marca.rodape_credito_copyright}
+                </p>
+              )}
+            </footer>
           )}
         </main>
       </div>

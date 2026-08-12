@@ -194,6 +194,8 @@ export interface TemaMarca {
   rodape_credito_texto?: string;
   rodape_credito_logo_url?: string;
   rodape_credito_url?: string;
+  rodape_credito_botao?: string;
+  rodape_credito_copyright?: string;
   favicon_url: string;
   cor_primaria: string;
   /** Cor de destaque secundária (botões alternativos, links). Vazio = derivada da primária. */

@@ -165,10 +165,15 @@ export async function inicializarCentral(): Promise<void> {
       id        INT PRIMARY KEY,
       texto     VARCHAR(60) NOT NULL DEFAULT '',
       logo_url  VARCHAR(500) NOT NULL DEFAULT '',
-      url       VARCHAR(300) NOT NULL DEFAULT ''
+      url       VARCHAR(300) NOT NULL DEFAULT '',
+      botao_texto VARCHAR(60) NOT NULL DEFAULT '',
+      copyright   VARCHAR(160) NOT NULL DEFAULT ''
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   await pool.query("INSERT IGNORE INTO rodape_credito (id, texto, logo_url, url) VALUES (1, '', '', '')");
+  // Colunas novas em base ja criada — `CREATE TABLE IF NOT EXISTS` nao alcanca.
+  await garantirColuna(pool, BANCO_CENTRAL, 'rodape_credito', 'botao_texto', "botao_texto VARCHAR(60) NOT NULL DEFAULT ''");
+  await garantirColuna(pool, BANCO_CENTRAL, 'rodape_credito', 'copyright', "copyright VARCHAR(160) NOT NULL DEFAULT ''");
 
   /*
    * SOLICITAÇÕES DE CLIENTE — o revendedor pede, o super admin aprova.
@@ -361,24 +366,26 @@ export async function removerTenant(id: number): Promise<{ nome: string; bancoAp
   return { nome: t.nome, bancoApagado };
 }
 
-export interface RodapeCredito { texto: string; logo_url: string; url: string }
+export interface RodapeCredito { texto: string; logo_url: string; url: string; botao_texto: string; copyright: string }
+
+const VAZIO: RodapeCredito = { texto: '', logo_url: '', url: '', botao_texto: '', copyright: '' };
 
 /** Crédito de rodapé da plataforma — um só, lido por todos os clientes. */
 export async function lerRodapeCredito(): Promise<RodapeCredito> {
   try {
-    const [linhas] = await poolCentral().query('SELECT texto, logo_url, url FROM rodape_credito WHERE id = 1');
-    return (linhas as RodapeCredito[])[0] ?? { texto: '', logo_url: '', url: '' };
+    const [linhas] = await poolCentral().query('SELECT texto, logo_url, url, botao_texto, copyright FROM rodape_credito WHERE id = 1');
+    return (linhas as RodapeCredito[])[0] ?? VAZIO;
   } catch {
     // Banco central fora do ar não pode derrubar o tema da loja: sem crédito é
     // melhor que sem página.
-    return { texto: '', logo_url: '', url: '' };
+    return VAZIO;
   }
 }
 
 export async function salvarRodapeCredito(c: RodapeCredito): Promise<void> {
   await poolCentral().query(
-    'UPDATE rodape_credito SET texto = ?, logo_url = ?, url = ? WHERE id = 1',
-    [c.texto, c.logo_url, c.url],
+    'UPDATE rodape_credito SET texto = ?, logo_url = ?, url = ?, botao_texto = ?, copyright = ? WHERE id = 1',
+    [c.texto, c.logo_url, c.url, c.botao_texto, c.copyright],
   );
 }
 

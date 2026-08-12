@@ -1313,6 +1313,8 @@ router.get('/tema', async (_req, res, next) => {
       rodape_credito_texto:    credito.texto,
       rodape_credito_logo_url: credito.logo_url,
       rodape_credito_url:      credito.url,
+      rodape_credito_botao:     credito.botao_texto,
+      rodape_credito_copyright: credito.copyright,
       favicon_url:       await valor('marca_favicon_url'),
       cor_primaria:      await valor('marca_cor_primaria', '#dc2640'),
       cor_secundaria:    await valor('marca_cor_secundaria'),
@@ -1353,7 +1355,9 @@ router.put('/tema', exigirSuperAdmin, async (req, res, next) => {
      */
     if (req.body.rodape_credito_texto !== undefined
       || req.body.rodape_credito_logo_url !== undefined
-      || req.body.rodape_credito_url !== undefined) {
+      || req.body.rodape_credito_url !== undefined
+      || req.body.rodape_credito_botao !== undefined
+      || req.body.rodape_credito_copyright !== undefined) {
       exigirMaster();
       const atual = await lerRodapeCredito();
       const logo = req.body.rodape_credito_logo_url !== undefined
@@ -1369,6 +1373,10 @@ router.put('/tema', exigirSuperAdmin, async (req, res, next) => {
           ? textoLimpo(req.body.rodape_credito_texto, 60) : atual.texto,
         logo_url: logo,
         url: link,
+        botao_texto: req.body.rodape_credito_botao !== undefined
+          ? textoLimpo(req.body.rodape_credito_botao, 60) : atual.botao_texto,
+        copyright: req.body.rodape_credito_copyright !== undefined
+          ? textoLimpo(req.body.rodape_credito_copyright, 160) : atual.copyright,
       });
     }
 

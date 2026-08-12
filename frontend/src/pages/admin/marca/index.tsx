@@ -235,16 +235,37 @@ export function TelaMarca() {
                 onChange={e => up('rodape_credito_texto', e.target.value)}
                 placeholder="Ex.: Desenvolvido por" />
             </div>
-            <ImageUpload label="Logo ao lado do texto (opcional)"
+            <ImageUpload label="Logo abaixo do texto (opcional)"
               value={form.rodape_credito_logo_url || ''}
               onChange={v => up('rodape_credito_logo_url', v)} aspectRatio="wide" />
             <div>
-              <Label htmlFor="rodape-url">Link ao clicar (opcional)</Label>
+              <Label htmlFor="rodape-url">Link (opcional)</Label>
               <Input id="rodape-url" maxLength={300}
                 value={form.rodape_credito_url || ''}
                 onChange={e => up('rodape_credito_url', e.target.value)}
                 placeholder="https://seusite.com.br" />
               <p className="mt-1 text-xs text-muted-foreground">Abre em outra aba, pra não tirar o lojista do painel.</p>
+            </div>
+            <div>
+              <Label htmlFor="rodape-botao">Texto do botão (opcional)</Label>
+              <Input id="rodape-botao" maxLength={60}
+                value={form.rodape_credito_botao || ''}
+                onChange={e => up('rodape_credito_botao', e.target.value)}
+                placeholder="Ex.: Conheça a Unimaxx" />
+              {/* Sem link o botão não leva a lugar nenhum — melhor avisar aqui do
+                  que deixar o lojista achando que salvou e não apareceu. */}
+              <p className="mt-1 text-xs text-muted-foreground">
+                {form.rodape_credito_botao && !form.rodape_credito_url
+                  ? 'Preencha o link acima, senão o botão não aparece.'
+                  : 'Só aparece se o link estiver preenchido.'}
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="rodape-copy">Linha de copyright (opcional)</Label>
+              <Input id="rodape-copy" maxLength={160}
+                value={form.rodape_credito_copyright || ''}
+                onChange={e => up('rodape_credito_copyright', e.target.value)}
+                placeholder="© 2026 Sua Empresa LTDA — CNPJ 00.000.000/0001-00" />
             </div>
           </Secao>
 

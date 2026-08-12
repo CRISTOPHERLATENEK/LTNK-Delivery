@@ -113,6 +113,8 @@ router.get('/tema', async (req, res, next) => {
       rodape_credito_texto:    credito.texto,
       rodape_credito_logo_url: credito.logo_url,
       rodape_credito_url:      credito.url,
+      rodape_credito_botao:     credito.botao_texto,
+      rodape_credito_copyright: credito.copyright,
       favicon_url:       favicon,
       cor_primaria:      corPrimaria,
       cor_secundaria:    corSecundaria,
