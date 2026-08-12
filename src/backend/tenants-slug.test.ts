@@ -14,9 +14,22 @@ describe('problemaNoSlugTenant', () => {
    * principal viraria a loja dele.
    */
   it('recusa subdomínio que pertence à plataforma', () => {
-    for (const s of ['www', 'api', 'admin', 'mail', 'painel', 'lojista', 'demo', 'webhook']) {
+    for (const s of ['www', 'api', 'admin', 'mail', 'painel', 'lojista', 'webhook']) {
       expect(problemaNoSlugTenant(s), s).toMatch(/reservado/);
     }
+  });
+
+  it("'demo' É PERMITIDO — a reserva foi liberada de propósito", () => {
+    /*
+     * Ele ficou reservado por um tempo pra guardar `demo.<base>` pra uma
+     * demonstração do produto. Passou a ser usado exatamente pra isso (a loja
+     * de mostruário atende nesse endereço), então manter o bloqueio impediria o
+     * próprio uso que motivou a reserva.
+     *
+     * Este teste existe pra que reintroduzir 'demo' na lista seja uma decisão
+     * consciente, e não um "adicionei de volta junto com outros".
+     */
+    expect(problemaNoSlugTenant('demo')).toBeNull();
   });
 
   it('recusa o que não é nome de host válido', () => {

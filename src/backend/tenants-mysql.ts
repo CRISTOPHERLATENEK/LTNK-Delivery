@@ -258,7 +258,15 @@ const SLUGS_RESERVADOS = new Set([
   'painel', 'plataforma', 'suporte', 'ajuda', 'blog', 'status', 'docs',
   'lojista', 'entregador', 'cozinha', 'kds', 'cliente', 'pdv', 'checkout',
   'pay', 'pagamento', 'webhook', 'webhooks', 'auth', 'login', 'sso',
-  'test', 'teste', 'dev', 'staging', 'homolog', 'demo', 'localhost',
+  'test', 'teste', 'dev', 'staging', 'homolog', 'localhost',
+  /*
+   * 'demo' SAIU desta lista de propósito.
+   *
+   * Ele estava aqui pra guardar `demo.<base>` pra uma demonstração do produto —
+   * e é exatamente pra isso que passou a ser usado: a loja de mostruário atende
+   * nesse endereço. Manter reservado bloquearia o próprio uso que motivou a
+   * reserva. (A rota `/demo/:slug` do app é CAMINHO, não subdomínio: não colide.)
+   */
 ]);
 
 /**
