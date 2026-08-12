@@ -19,7 +19,7 @@ import multer from 'multer';
 import { spawn } from 'child_process';
 import path from 'path';
 import os from 'os';
-import { Tenant, listarTenants, criarTenant, atualizarTenant, tenantPorId, removerTenant, ehMaster, urlDoTenant, problemaNoSlugTenant, poolCentral } from '../tenants-mysql';
+import { Tenant, lerRodapeCredito, salvarRodapeCredito, listarTenants, criarTenant, atualizarTenant, tenantPorId, removerTenant, ehMaster, urlDoTenant, problemaNoSlugTenant, poolCentral } from '../tenants-mysql';
 import {
   listarAssinaturas, salvarAssinatura, registrarPagamento, historicoPagamentos,
   processarVencimentos, statusCalculado, diasDeAtraso,
@@ -1299,6 +1299,7 @@ router.get('/monitor', async (req, res, next) => {
 
 router.get('/tema', async (_req, res, next) => {
   try {
+    const credito = await lerRodapeCredito();
     const valor = async (chave: string, padrao = ''): Promise<string> => {
       const r = await db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
       return r?.valor ?? padrao;
@@ -1308,9 +1309,10 @@ router.get('/tema', async (_req, res, next) => {
       slogan:            await valor('marca_slogan', 'Peça das melhores lojas da sua região'),
       logo_url:          await valor('marca_logo_url'),
       mostrar_nome:      (await valor('marca_mostrar_nome', '1')) !== '0',
-      rodape_credito_texto:    await valor('rodape_credito_texto'),
-      rodape_credito_logo_url: await valor('rodape_credito_logo_url'),
-      rodape_credito_url:      await valor('rodape_credito_url'),
+      // Do banco central — o crédito é da plataforma, não de cada cliente.
+      rodape_credito_texto:    credito.texto,
+      rodape_credito_logo_url: credito.logo_url,
+      rodape_credito_url:      credito.url,
       favicon_url:       await valor('marca_favicon_url'),
       cor_primaria:      await valor('marca_cor_primaria', '#dc2640'),
       cor_secundaria:    await valor('marca_cor_secundaria'),
@@ -1344,17 +1346,30 @@ router.put('/tema', exigirSuperAdmin, async (req, res, next) => {
     // chaves booleanas de configuracoes (a tabela é chave/valor em texto).
     if (req.body.mostrar_nome !== undefined) await set(req.body.mostrar_nome ? '1' : '0', 'marca_mostrar_nome');
 
-    // Crédito do rodapé. A logo aceita upload ou URL, como as outras imagens.
-    if (req.body.rodape_credito_texto !== undefined) await set(textoLimpo(req.body.rodape_credito_texto, 60), 'rodape_credito_texto');
-    if (req.body.rodape_credito_logo_url !== undefined) {
-      const v = textoLimpo(req.body.rodape_credito_logo_url, 500);
-      if (v && !/^https?:\/\//i.test(v) && !v.startsWith('/uploads/')) throw erroHttp(400, 'URL da logo do rodapé inválida (use https://… ou faça upload).');
-      await set(v, 'rodape_credito_logo_url');
-    }
-    if (req.body.rodape_credito_url !== undefined) {
-      const v = textoLimpo(req.body.rodape_credito_url, 300);
-      if (v && !/^https?:\/\//i.test(v)) throw erroHttp(400, 'O link do rodapé precisa começar com https://');
-      await set(v, 'rodape_credito_url');
+    /*
+     * Crédito do rodapé — gravado no banco CENTRAL, não em `configuracoes`.
+     * `configuracoes` é por cliente: ali, cada tenant teria (e poderia apagar) o
+     * próprio crédito, e a plataforma teria que configurar um por um.
+     */
+    if (req.body.rodape_credito_texto !== undefined
+      || req.body.rodape_credito_logo_url !== undefined
+      || req.body.rodape_credito_url !== undefined) {
+      exigirMaster();
+      const atual = await lerRodapeCredito();
+      const logo = req.body.rodape_credito_logo_url !== undefined
+        ? textoLimpo(req.body.rodape_credito_logo_url, 500) : atual.logo_url;
+      if (logo && !/^https?:\/\//i.test(logo) && !logo.startsWith('/uploads/')) {
+        throw erroHttp(400, 'URL da logo do rodapé inválida (use https://… ou faça upload).');
+      }
+      const link = req.body.rodape_credito_url !== undefined
+        ? textoLimpo(req.body.rodape_credito_url, 300) : atual.url;
+      if (link && !/^https?:\/\//i.test(link)) throw erroHttp(400, 'O link do rodapé precisa começar com https://');
+      await salvarRodapeCredito({
+        texto: req.body.rodape_credito_texto !== undefined
+          ? textoLimpo(req.body.rodape_credito_texto, 60) : atual.texto,
+        logo_url: logo,
+        url: link,
+      });
     }
 
     if (req.body.logo_url !== undefined) {

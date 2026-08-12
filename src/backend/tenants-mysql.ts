@@ -150,6 +150,27 @@ export async function inicializarCentral(): Promise<void> {
   `);
 
   /*
+   * CRÉDITO DE RODAPÉ ("Desenvolvido por") — vive no banco CENTRAL.
+   *
+   * A primeira versão guardou isso em `configuracoes`, que é POR CLIENTE. Duas
+   * consequências, as duas erradas: o crédito precisava ser configurado cliente
+   * a cliente, e cada cliente podia apagar o crédito de quem desenvolveu o
+   * sistema dele. É informação da plataforma sobre si mesma — pertence ao
+   * centro, e é lida por todos os tenants.
+   *
+   * Linha única (id fixo 1): não existem dois créditos.
+   */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS rodape_credito (
+      id        INT PRIMARY KEY,
+      texto     VARCHAR(60) NOT NULL DEFAULT '',
+      logo_url  VARCHAR(500) NOT NULL DEFAULT '',
+      url       VARCHAR(300) NOT NULL DEFAULT ''
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await pool.query("INSERT IGNORE INTO rodape_credito (id, texto, logo_url, url) VALUES (1, '', '', '')");
+
+  /*
    * SOLICITAÇÕES DE CLIENTE — o revendedor pede, o super admin aprova.
    *
    * A solicitação NÃO cria nada: guarda o formulário e espera. O banco só é
@@ -338,6 +359,27 @@ export async function removerTenant(id: number): Promise<{ nome: string; bancoAp
     bancoApagado = true;
   }
   return { nome: t.nome, bancoApagado };
+}
+
+export interface RodapeCredito { texto: string; logo_url: string; url: string }
+
+/** Crédito de rodapé da plataforma — um só, lido por todos os clientes. */
+export async function lerRodapeCredito(): Promise<RodapeCredito> {
+  try {
+    const [linhas] = await poolCentral().query('SELECT texto, logo_url, url FROM rodape_credito WHERE id = 1');
+    return (linhas as RodapeCredito[])[0] ?? { texto: '', logo_url: '', url: '' };
+  } catch {
+    // Banco central fora do ar não pode derrubar o tema da loja: sem crédito é
+    // melhor que sem página.
+    return { texto: '', logo_url: '', url: '' };
+  }
+}
+
+export async function salvarRodapeCredito(c: RodapeCredito): Promise<void> {
+  await poolCentral().query(
+    'UPDATE rodape_credito SET texto = ?, logo_url = ?, url = ? WHERE id = 1',
+    [c.texto, c.logo_url, c.url],
+  );
 }
 
 export async function listarTenants(): Promise<Tenant[]> {

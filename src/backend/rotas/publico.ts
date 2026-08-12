@@ -5,7 +5,7 @@ import { Router } from 'express';
 import db, { bancoTenantAtual } from '../db-mysql';
 import { erroHttp } from '../util';
 import { chavePublicaVapid } from '../push';
-import { ehMaster } from '../tenants-mysql';
+import { ehMaster, lerRodapeCredito } from '../tenants-mysql';
 import { montarLandingPublica } from '../landing-campos';
 import { lojaIdDoHost } from '../dominios';
 import { GrupoComOpcoes, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
@@ -64,6 +64,7 @@ router.get('/tema', async (req, res, next) => {
     let slogan = await valor('marca_slogan', 'Peça das melhores lojas da sua região');
     let logo = await valor('marca_logo_url');
     const mostrarNome = (await valor('marca_mostrar_nome', '1')) !== '0';
+    const credito = await lerRodapeCredito();
     let descricao = await valor('marca_descricao');
 
     if (lojaId > 0) {
@@ -107,9 +108,11 @@ router.get('/tema', async (req, res, next) => {
       slogan,
       logo_url:          logo,
       mostrar_nome:      mostrarNome,
-      rodape_credito_texto:    await valor('rodape_credito_texto'),
-      rodape_credito_logo_url: await valor('rodape_credito_logo_url'),
-      rodape_credito_url:      await valor('rodape_credito_url'),
+      // Do banco CENTRAL, não de `configuracoes`: é o crédito da plataforma e
+      // vale igual pra todos os clientes. Ver lerRodapeCredito.
+      rodape_credito_texto:    credito.texto,
+      rodape_credito_logo_url: credito.logo_url,
+      rodape_credito_url:      credito.url,
       favicon_url:       favicon,
       cor_primaria:      corPrimaria,
       cor_secundaria:    corSecundaria,
