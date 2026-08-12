@@ -118,7 +118,7 @@ export function AppLayout({ children, itens, grupos, titulo, subtitulo }: Props)
         <img
           src={marca.logo_url}
           alt={nomeMarca}
-          className="h-10 w-auto max-w-[150px] object-contain shrink-0"
+          className="h-11 w-auto max-w-[180px] object-contain shrink-0"
         />
       ) : (
         <div className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground shadow-sm group-hover:shadow-md transition-shadow shrink-0">

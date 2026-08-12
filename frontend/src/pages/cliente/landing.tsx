@@ -776,7 +776,7 @@ export function PaginaLanding() {
     <div ref={raiz} className="min-h-screen bg-background text-foreground flex flex-col overflow-x-clip">
       {/* ───── Header sticky ───── */}
       <header ref={navRef} className="sticky top-0 z-40 border-b border-transparent transition-colors duration-300">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3 sm:px-6">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-4 sm:px-6">
           <a href="#topo" className="flex items-center gap-2 min-w-0">
             {/*
               LOGO MAIOR e o nome opcional ao lado.
@@ -787,7 +787,7 @@ export function PaginaLanding() {
               duas marcas DIFERENTES, se a logo e o cadastro não combinarem).
             */}
             {marca.logo_url ? (
-              <img src={marca.logo_url} alt={marca.nome} className="h-11 w-auto max-w-[190px] object-contain" />
+              <img src={marca.logo_url} alt={marca.nome} className="h-12 w-auto max-w-[230px] object-contain sm:h-14" />
             ) : (
               <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Store className="h-5 w-5" /></div>
             )}
