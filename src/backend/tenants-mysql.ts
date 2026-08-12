@@ -107,6 +107,38 @@ export async function inicializarCentral(): Promise<void> {
    * cliente dele. O vínculo vira NULL e o cliente continua de pé, atendendo.
    */
   await garantirColuna(pool, BANCO_CENTRAL, 'tenants', 'revendedor_id', 'revendedor_id INT NULL');
+
+  /*
+   * SOLICITAÇÕES DE CLIENTE — o revendedor pede, o super admin aprova.
+   *
+   * A solicitação NÃO cria nada: guarda o formulário e espera. O banco só é
+   * provisionado na aprovação — se a resposta for "não", não sobra banco órfão
+   * na infraestrutura, e o slug continua livre pra outra pessoa.
+   *
+   * A senha do responsável vem JÁ EM HASH. Uma fila com senha em claro seria
+   * um depósito de credencial esperando alguém ler o banco central.
+   */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS solicitacoes_cliente (
+      id             INT PRIMARY KEY AUTO_INCREMENT,
+      revendedor_id  INT NOT NULL,
+      nome           TEXT NOT NULL,
+      slug           VARCHAR(60) NOT NULL,
+      nome_loja      TEXT NOT NULL,
+      categoria      VARCHAR(50) NOT NULL DEFAULT 'Outros',
+      dono_nome      TEXT NOT NULL,
+      dono_email     VARCHAR(255) NOT NULL,
+      dono_telefone  VARCHAR(30) NOT NULL DEFAULT '',
+      senha_hash     TEXT NOT NULL,
+      status         VARCHAR(12) NOT NULL DEFAULT 'pendente',
+      motivo_recusa  TEXT,
+      tenant_id      INT NULL,
+      criado_em      VARCHAR(32) NOT NULL,
+      decidido_em    VARCHAR(32) NOT NULL DEFAULT '',
+      KEY idx_solic_revendedor (revendedor_id),
+      KEY idx_solic_status (status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
   // coluna dominio pode ter sido criada NOT NULL em versões antigas de teste — no-op se já ok.
   await garantirColuna(pool, BANCO_CENTRAL, 'tenants', 'ativo', 'ativo TINYINT NOT NULL DEFAULT 1');
 

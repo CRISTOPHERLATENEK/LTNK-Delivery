@@ -7,7 +7,7 @@
  */
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Handshake, Building2, Store, ShoppingBag, Power, LogOut, ExternalLink } from 'lucide-react';
+import { Handshake, Building2, Store, ShoppingBag, Power, LogOut, ExternalLink, Plus, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -95,8 +95,18 @@ function LoginRevendedor() {
   );
 }
 
+interface Solicitacao {
+  id: number; nome: string; slug: string; nome_loja: string;
+  dono_nome: string; dono_email: string;
+  status: 'pendente' | 'aprovada' | 'recusada';
+  motivo_recusa: string | null; criado_em: string;
+}
+
+const FORM_SOLIC = { nome: '', slug: '', nome_loja: '', categoria: 'Outros', dono_nome: '', email: '', telefone: '', senha: '' };
+
 function PainelInterno() {
   const { mostrar } = useToast();
+  const [pedindo, setPedindo] = useState(false);
   const confirmar = useConfirm();
   const qc = useQueryClient();
 
@@ -109,8 +119,14 @@ function PainelInterno() {
     queryFn: () => api<{ clientes: ClienteRev[] }>('GET', '/api/revendedor/clientes').then(r => r.clientes),
   });
 
+  const solicQ = useQuery({
+    queryKey: ['rev-solicitacoes'],
+    queryFn: () => api<{ solicitacoes: Solicitacao[] }>('GET', '/api/revendedor/solicitacoes').then(r => r.solicitacoes),
+  });
+
   const eu = euQ.data;
   const clientes = clientesQ.data ?? [];
+  const solicitacoes = solicQ.data ?? [];
 
   async function alternar(c: ClienteRev) {
     const ok = await confirmar({
@@ -160,6 +176,50 @@ function PainelInterno() {
           <Kpi carregando={euQ.isLoading} valor={brl(eu?.custo_centavos ?? 0)} rotulo="Por cliente" />
           <Kpi carregando={euQ.isLoading} valor={brl(eu?.total_mes_centavos ?? 0)} rotulo="Sua conta no mês" destaque />
         </div>
+
+        {/*
+          PEDIR CLIENTE NOVO. O revendedor preenche e ESPERA — nada é criado
+          aqui. O banco só nasce quando o dono da plataforma aprova.
+        */}
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-bold">Meus clientes</h2>
+          <Button size="sm" onClick={() => setPedindo(v => !v)}>
+            <Plus className="size-4" /> Pedir cliente novo
+          </Button>
+        </div>
+
+        {pedindo && (
+          <FormSolicitacao
+            onFechar={() => setPedindo(false)}
+            onEnviado={() => { setPedindo(false); qc.invalidateQueries({ queryKey: ['rev-solicitacoes'] }); }}
+          />
+        )}
+
+        {solicitacoes.length > 0 && (
+          <Card>
+            <CardContent className="space-y-2 p-4">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Solicitações</h3>
+              {solicitacoes.map(sol => (
+                <div key={sol.id} className="rounded-xl border border-border p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">{sol.nome}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{sol.slug}</span>
+                    {sol.status === 'pendente' && <Badge variant="warning">aguardando aprovação</Badge>}
+                    {sol.status === 'aprovada' && <Badge variant="success">aprovada</Badge>}
+                    {sol.status === 'recusada' && <Badge variant="danger">recusada</Badge>}
+                  </div>
+                  {/* O motivo da recusa é o que evita o revendedor reenviar o
+                      mesmo pedido sem saber o que mudar. */}
+                  {sol.status === 'recusada' && sol.motivo_recusa && (
+                    <p className="mt-1.5 rounded-lg bg-destructive/10 px-2.5 py-1.5 text-xs text-destructive">
+                      {sol.motivo_recusa}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
 
         {clientesQ.isLoading && (
           <div className="space-y-2">{[1, 2].map(i => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
@@ -237,4 +297,109 @@ function Kpi({ valor, rotulo, destaque, carregando }: {
       </CardContent>
     </Card>
   );
+}
+
+/** Formulário do pedido de cliente novo. */
+function FormSolicitacao({ onFechar, onEnviado }: { onFechar: () => void; onEnviado: () => void }) {
+  const { mostrar } = useToast();
+  const [form, setForm] = useState(FORM_SOLIC);
+  const [enviando, setEnviando] = useState(false);
+
+  const campo = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm(f => ({ ...f, [k]: e.target.value }));
+
+  /*
+   * O SLUG É O ENDEREÇO do cliente, então é sugerido a partir do nome em vez
+   * de deixado em branco: quem preenche não tem como saber que aquele campo
+   * vira `nome.maxxpedidos.com.br`. Continua editável.
+   */
+  function mudarNome(e: React.ChangeEvent<HTMLInputElement>) {
+    const nome = e.target.value;
+    setForm(f => ({
+      ...f,
+      nome,
+      slug: f.slug === sugerirSlug(f.nome) ? sugerirSlug(nome) : f.slug,
+    }));
+  }
+
+  async function enviar(e: React.FormEvent) {
+    e.preventDefault();
+    setEnviando(true);
+    try {
+      await api('POST', '/api/revendedor/solicitacoes', form);
+      mostrar({
+        tipo: 'sucesso',
+        titulo: 'Pedido enviado.',
+        descricao: 'O cliente é criado assim que a plataforma aprovar.',
+      });
+      onEnviado();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <Card className="border-primary/30">
+      <CardContent className="p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="font-bold">Pedir cliente novo</h3>
+          <Button variant="ghost" size="sm" onClick={onFechar}><X className="size-4" /></Button>
+        </div>
+        <form onSubmit={enviar} className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="s-nome">Nome do cliente</Label>
+              <Input id="s-nome" required value={form.nome} onChange={mudarNome} />
+            </div>
+            <div>
+              <Label htmlFor="s-slug">Identificador (endereço)</Label>
+              <Input id="s-slug" required value={form.slug} onChange={campo('slug')} className="font-mono" />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Vira o endereço: <span className="font-mono">{form.slug || 'nome'}.maxxpedidos.com.br</span>
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="s-loja">Nome da loja</Label>
+              <Input id="s-loja" value={form.nome_loja} onChange={campo('nome_loja')} placeholder="Igual ao nome do cliente" />
+            </div>
+            <div>
+              <Label htmlFor="s-cat">Categoria</Label>
+              <Input id="s-cat" value={form.categoria} onChange={campo('categoria')} />
+            </div>
+            <div>
+              <Label htmlFor="s-dono">Responsável</Label>
+              <Input id="s-dono" required value={form.dono_nome} onChange={campo('dono_nome')} />
+            </div>
+            <div>
+              <Label htmlFor="s-email">E-mail do responsável</Label>
+              <Input id="s-email" type="email" required value={form.email} onChange={campo('email')} />
+            </div>
+            <div>
+              <Label htmlFor="s-tel">Telefone</Label>
+              <Input id="s-tel" value={form.telefone} onChange={campo('telefone')} />
+            </div>
+            <div>
+              <Label htmlFor="s-senha">Senha de acesso (mín. 6)</Label>
+              <Input id="s-senha" type="password" required minLength={6} value={form.senha} onChange={campo('senha')} autoComplete="new-password" />
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Nada é criado agora. O cliente passa por aprovação da plataforma antes de existir.
+          </p>
+          <div className="flex gap-2">
+            <Button type="submit" disabled={enviando}>{enviando ? 'Enviando…' : 'Enviar pedido'}</Button>
+            <Button type="button" variant="outline" onClick={onFechar}>Cancelar</Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Mesma normalização do servidor: minúsculo, sem acento, hífen no lugar do resto. */
+function sugerirSlug(nome: string): string {
+  return nome.normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
 }

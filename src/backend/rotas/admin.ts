@@ -18,7 +18,7 @@ import multer from 'multer';
 import { spawn } from 'child_process';
 import path from 'path';
 import os from 'os';
-import { listarTenants, criarTenant, atualizarTenant, tenantPorId, removerTenant, ehMaster, urlDoTenant, problemaNoSlugTenant, poolCentral } from '../tenants-mysql';
+import { Tenant, listarTenants, criarTenant, atualizarTenant, tenantPorId, removerTenant, ehMaster, urlDoTenant, problemaNoSlugTenant, poolCentral } from '../tenants-mysql';
 import {
   listarAssinaturas, salvarAssinatura, registrarPagamento, historicoPagamentos,
   processarVencimentos, statusCalculado, diasDeAtraso,
@@ -1860,6 +1860,77 @@ router.delete('/tenants/:id', exigirSuperAdmin, async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/* ────────────── Solicitações de cliente (fila do revendedor) ────────────── */
+
+/** Fila de solicitações. Pendentes primeiro — é o que exige ação. */
+router.get('/solicitacoes', exigirSuperAdmin, async (_req, res, next) => {
+  try {
+    exigirMaster();
+    const [linhas] = await poolCentral().query(
+      `SELECT s.*, r.nome AS revendedor_nome
+         FROM solicitacoes_cliente s
+         LEFT JOIN revendedores r ON r.id = s.revendedor_id
+        ORDER BY (s.status = 'pendente') DESC, s.id DESC`,
+    );
+    // A senha em hash não sai daqui: ninguém precisa dela na tela, e mandar
+    // hash pro navegador é oferecer material pra quebrar offline.
+    const solicitacoes = (linhas as Array<Record<string, unknown>>).map(({ senha_hash, ...resto }) => resto);
+    res.json({ solicitacoes });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Aprova: provisiona o cliente AGORA, já vinculado ao revendedor que pediu.
+ *
+ * Reusa `provisionarCliente` — a mesma função da criação manual. Duas formas de
+ * nascer cliente dariam duas chances de esquecer o slug ou a loja padrão.
+ */
+router.post('/solicitacoes/:id/aprovar', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const pool = poolCentral();
+    const [linhas] = await pool.query('SELECT * FROM solicitacoes_cliente WHERE id = ?', [req.params.id]) as unknown as [Array<Record<string, any>>];
+    const s = linhas[0];
+    if (!s) throw erroHttp(404, 'Solicitação não encontrada.');
+    if (s.status !== 'pendente') throw erroHttp(409, `Esta solicitação já foi ${s.status}.`);
+
+    const { tenant, lojaId } = await provisionarCliente({
+      nome: s.nome, slug: s.slug, dominio: null,
+      nomeLoja: s.nome_loja, categoria: s.categoria,
+      nomeDono: s.dono_nome, email: s.dono_email, telefone: s.dono_telefone,
+      senhaHash: s.senha_hash,
+      revendedorId: s.revendedor_id,
+    });
+
+    await pool.query(
+      "UPDATE solicitacoes_cliente SET status = 'aprovada', tenant_id = ?, decidido_em = ? WHERE id = ?",
+      [tenant.id, agoraUTC(), s.id],
+    );
+    await registrarAuditoria(req, 'solicitacao.aprovar', { alvoTipo: 'tenant', alvoId: tenant.id, alvoDesc: `${s.nome} (${s.slug})` });
+    res.json({ ok: true, tenant, loja_id: lojaId });
+  } catch (e) { next(e); }
+});
+
+/** Recusa com motivo. Nada foi provisionado, então não há o que desfazer. */
+router.post('/solicitacoes/:id/recusar', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    // Motivo OBRIGATÓRIO: recusa sem explicação faz o revendedor reenviar o
+    // mesmo pedido, e a fila vira um ciclo.
+    const motivo = textoLimpo(req.body.motivo, 300);
+    if (motivo.length < 3) throw erroHttp(400, 'Escreva o motivo da recusa — o revendedor vai ler.');
+
+    const pool = poolCentral();
+    const [r] = await pool.query(
+      "UPDATE solicitacoes_cliente SET status = 'recusada', motivo_recusa = ?, decidido_em = ? WHERE id = ? AND status = 'pendente'",
+      [motivo, agoraUTC(), req.params.id],
+    ) as unknown as [{ affectedRows: number }];
+    if (r.affectedRows === 0) throw erroHttp(409, 'Solicitação não encontrada ou já decidida.');
+    await registrarAuditoria(req, 'solicitacao.recusar', { alvoTipo: 'solicitacao', alvoId: Number(req.params.id), alvoDesc: motivo });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 /* ───────────────────────── Revendedores ─────────────────────────
  *
  * Quem traz clientes e cobra deles por fora. Moram no banco CENTRAL, junto de
@@ -2009,6 +2080,74 @@ router.get('/tenants', exigirSuperAdmin, async (_req, res, next) => {
  * dbNomeDoTenant) E JÁ CRIA o primeiro lojista responsável dentro desse banco.
  * Sem isso, o tenant nascia vazio e ninguém conseguia entrar nele.
  */
+/**
+ * Provisiona um cliente: cria o tenant (banco + schema) e o primeiro lojista
+ * dentro dele.
+ *
+ * EXTRAÍDA da rota pra ser reusada pela APROVAÇÃO de solicitação do
+ * revendedor. Duplicar isso significaria duas formas de nascer cliente — e a
+ * segunda esqueceria o slug ou o `loja_padrao_id`, que é exatamente o bug que
+ * deixou o primeiro cliente sem endereço.
+ */
+export interface DadosCliente {
+  nome: string; slug: string; dominio: string | null;
+  nomeLoja: string; categoria: string;
+  nomeDono: string; email: string; telefone: string;
+  /** Já em hash — a senha em claro não trafega nem fica guardada em fila. */
+  senhaHash: string;
+  revendedorId?: number | null;
+}
+
+export async function provisionarCliente(d: DadosCliente): Promise<{ tenant: Tenant; lojaId: number }> {
+  let tenant;
+  try {
+    tenant = await criarTenant({ nome: d.nome, slug: d.slug, dominio: d.dominio, dbNome: dbNomeDoTenant(d.slug) });
+  } catch (e) {
+    throw erroHttp(409, e instanceof Error ? e.message : 'Já existe um cliente com esse slug ou domínio.');
+  }
+
+  if (d.revendedorId) {
+    await poolCentral().query('UPDATE tenants SET revendedor_id = ? WHERE id = ?', [d.revendedorId, tenant.id]);
+  }
+
+  // O 1º lojista nasce DENTRO do banco deste tenant — não no banco atual.
+  let lojaId: number;
+  try {
+    lojaId = await comTenant(tenant.db_nome, async () => comTransacao(async (tx) => {
+      const u = await tx.prepare(
+        `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, criado_em)
+         VALUES (?, ?, ?, 'lojista', ?, NULL, ?)`
+      ).run(d.nomeDono, d.email, d.senhaHash, d.telefone, agoraUTC());
+      const uid = Number(u.lastInsertRowid);
+      const l = await tx.prepare(
+        `INSERT INTO lojas (usuario_id, nome, descricao, categoria, endereco,
+                            taxa_entrega_centavos, tempo_estimado_min, horario_funcionamento,
+                            status_aprovacao, aberta, criado_em)
+         VALUES (?, ?, '', ?, '', 0, 40, '', 'aprovada', 0, ?)`
+      ).run(uid, d.nomeLoja, d.categoria, agoraUTC());
+      const novaLojaId = Number(l.lastInsertRowid);
+
+      /*
+       * O CLIENTE JÁ NASCE COM ENDEREÇO. Sem SLUG e sem `loja_padrao_id`, a
+       * loja fica inalcançável: nem `/nome-da-loja`, e a raiz do subdomínio cai
+       * na landing de VENDAS da plataforma em vez da loja do cliente.
+       */
+      const jaUsados = (await tx.prepare('SELECT slug FROM lojas WHERE slug IS NOT NULL').all() as Array<{ slug: string }>)
+        .map(r => r.slug);
+      await tx.prepare('UPDATE lojas SET slug = ? WHERE id = ?')
+        .run(slugUnico(d.nomeLoja, jaUsados, novaLojaId), novaLojaId);
+      await tx.prepare(
+        "INSERT INTO configuracoes (chave, valor) VALUES ('loja_padrao_id', ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)"
+      ).run(String(novaLojaId));
+
+      return novaLojaId;
+    }));
+  } catch {
+    throw erroHttp(500, 'Cliente provisionado, mas falhou ao criar o responsável. Contate o suporte.');
+  }
+  return { tenant, lojaId };
+}
+
 router.post('/tenants', exigirSuperAdmin, async (req, res, next) => {
   try {
     exigirMaster();
@@ -2022,66 +2161,17 @@ router.post('/tenants', exigirSuperAdmin, async (req, res, next) => {
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
     const telefone = textoLimpo(req.body.telefone || '', 30);
     if (nome.length < 2) throw erroHttp(400, 'Informe o nome do cliente.');
-    // Com DOMINIO_BASE ligado o slug É um subdomínio real: `www` viraria
-    // www.seudominio e o site principal passaria a ser a loja desse cliente.
-    // Ver SLUGS_RESERVADOS em tenants-mysql.ts.
     const problemaSlug = problemaNoSlugTenant(slug);
     if (problemaSlug) throw erroHttp(400, problemaSlug);
     if (nomeDono.length < 2) throw erroHttp(400, 'Informe o nome do responsável pela loja.');
     if (!emailValido(email)) throw erroHttp(400, 'E-mail do responsável inválido.');
     if (senha.length < 6) throw erroHttp(400, 'Senha do responsável: mínimo 6 caracteres.');
 
-    let tenant;
-    try {
-      tenant = await criarTenant({ nome, slug, dominio: dominio || null, dbNome: dbNomeDoTenant(slug) });
-    } catch (e) {
-      throw erroHttp(409, e instanceof Error ? e.message : 'Já existe um cliente com esse slug ou domínio.');
-    }
-
-    // Cadastra o 1º lojista DENTRO do banco deste tenant — não do banco atual (o do super admin).
-    let lojaId: number;
-    try {
-      lojaId = await comTenant(tenant.db_nome, async () => {
-        const hash = bcrypt.hashSync(senha, 10);
-        return comTransacao(async (tx) => {
-          const u = await tx.prepare(
-            `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, criado_em)
-             VALUES (?, ?, ?, 'lojista', ?, NULL, ?)`
-          ).run(nomeDono, email, hash, telefone, agoraUTC());
-          const uid = Number(u.lastInsertRowid);
-          const l = await tx.prepare(
-            `INSERT INTO lojas (usuario_id, nome, descricao, categoria, endereco,
-                                taxa_entrega_centavos, tempo_estimado_min, horario_funcionamento,
-                                status_aprovacao, aberta, criado_em)
-             VALUES (?, ?, '', ?, '', 0, 40, '', 'aprovada', 0, ?)`
-          ).run(uid, nomeLoja, categoria, agoraUTC());
-          const novaLojaId = Number(l.lastInsertRowid);
-
-          /*
-           * O CLIENTE JÁ NASCE COM ENDEREÇO. Duas coisas faltavam aqui, e
-           * juntas deixavam a loja inalcançável:
-           *
-           * 1) SLUG — sem ele e sem domínio próprio, a loja não tinha endereço
-           *    nenhum: nem `/nome-da-loja`, nem nada.
-           * 2) loja_padrao_id — a raiz do subdomínio (`cris.maxxdelivery.app.br`)
-           *    olha essa config pra decidir o que mostrar. Em 0 ela caía na
-           *    landing de VENDAS do produto, e o cliente novo abria o endereço
-           *    dele e via propaganda da plataforma em vez da própria loja.
-           */
-          const jaUsados = (await tx.prepare('SELECT slug FROM lojas WHERE slug IS NOT NULL').all() as Array<{ slug: string }>)
-            .map(r => r.slug);
-          await tx.prepare('UPDATE lojas SET slug = ? WHERE id = ?')
-            .run(slugUnico(nomeLoja, jaUsados, novaLojaId), novaLojaId);
-          await tx.prepare(
-            "INSERT INTO configuracoes (chave, valor) VALUES ('loja_padrao_id', ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)"
-          ).run(String(novaLojaId));
-
-          return novaLojaId;
-        });
-      });
-    } catch (e) {
-      throw erroHttp(500, 'Cliente provisionado, mas falhou ao criar o responsável. Contate o suporte.');
-    }
+    const { tenant, lojaId } = await provisionarCliente({
+      nome, slug, dominio: dominio || null, nomeLoja, categoria,
+      nomeDono, email, telefone, senhaHash: bcrypt.hashSync(senha, 10),
+      revendedorId: req.body.revendedor_id ? inteiroPositivo(req.body.revendedor_id) : null,
+    });
 
     await registrarAuditoria(req, 'tenant.criar', { alvoTipo: 'tenant', alvoId: tenant.id, alvoDesc: nome });
     res.status(201).json({ tenant, loja_id: lojaId });

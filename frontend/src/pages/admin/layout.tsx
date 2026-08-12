@@ -7,7 +7,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Store, Users, ShoppingBag, TrendingUp,
   Image, Palette, Shield, Crown, LogOut, Menu, X, ChevronRight, Radio, Bike, Building2, History,
-  CreditCard, UserCog, LayoutTemplate, Settings, Handshake,
+  CreditCard, UserCog, LayoutTemplate, Settings, Handshake, Inbox,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
@@ -52,7 +52,8 @@ const ITENS: NavItem[] = [
   { rota: '/painel-admin/clientes',     icone: Building2,       label: 'Clientes',    somenteSuper: true },
   { rota: '/painel-admin/assinaturas',  icone: CreditCard,      label: 'Assinaturas', somenteSuper: true },
   { rota: '/painel-admin/lojistas',     icone: Users,           label: 'Lojistas',    somenteSuper: true },
-  { rota: '/painel-admin/revendedores', icone: Handshake,       label: 'Revendedores', somenteSuper: true, divisorDepois: true },
+  { rota: '/painel-admin/revendedores', icone: Handshake,       label: 'Revendedores', somenteSuper: true },
+  { rota: '/painel-admin/solicitacoes', icone: Inbox,           label: 'Solicitações', somenteSuper: true, divisorDepois: true },
 
   { rota: '/painel-admin/repasses',     icone: TrendingUp,      label: 'Repasses',  somenteSuper: true },
   { rota: '/painel-admin/marca',        icone: Palette,         label: 'Marca',        somenteSuper: true },
@@ -84,6 +85,20 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
     refetchInterval: 120_000,
   });
 
+  /*
+   * SOLICITAÇÕES PENDENTES — mesma lógica das lojas: é pendência que trava
+   * alguém do outro lado. O revendedor pediu um cliente e está esperando; sem
+   * aviso, a fila só aparece pra quem abrir a tela por acaso.
+   */
+  const solicPendentes = useQuery({
+    queryKey: ['admin-solicitacoes-pendentes'],
+    enabled: superAdmin,
+    queryFn: () => api<{ solicitacoes: { status: string }[] }>('GET', '/api/admin/solicitacoes')
+      .then(r => r.solicitacoes.filter(s => s.status === 'pendente').length),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
+
   function sair() {
     encerrarSessao();
     window.location.href = '/painel-admin';
@@ -93,7 +108,7 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
     <div className="flex min-h-screen bg-muted/30">
       {/* ── SIDEBAR DESKTOP ── */}
       <aside className="hidden md:flex md:flex-col w-60 shrink-0 bg-zinc-900 text-zinc-100">
-        <SidebarContent itens={itens} pendentesLojas={pendentes.data ?? 0} superAdmin={superAdmin} u={u} onSair={sair} />
+        <SidebarContent itens={itens} pendentesLojas={pendentes.data ?? 0} pendentesSolic={solicPendentes.data ?? 0} superAdmin={superAdmin} u={u} onSair={sair} />
       </aside>
 
       {/* ── DRAWER MOBILE ── */}
@@ -107,7 +122,7 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
             >
               <X className="size-5" />
             </button>
-            <SidebarContent itens={itens} pendentesLojas={pendentes.data ?? 0} superAdmin={superAdmin} u={u} onSair={sair} />
+            <SidebarContent itens={itens} pendentesLojas={pendentes.data ?? 0} pendentesSolic={solicPendentes.data ?? 0} superAdmin={superAdmin} u={u} onSair={sair} />
           </aside>
         </div>
       )}
@@ -153,9 +168,10 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
   );
 }
 
-function SidebarContent({ itens, pendentesLojas, superAdmin, u, onSair }: {
+function SidebarContent({ itens, pendentesLojas, pendentesSolic, superAdmin, u, onSair }: {
   itens: NavItem[];
   pendentesLojas: number;
+  pendentesSolic: number;
   superAdmin: boolean;
   u: ReturnType<typeof sessaoUsuario>;
   onSair: () => void;
@@ -199,6 +215,12 @@ function SidebarContent({ itens, pendentesLojas, superAdmin, u, onSair }: {
                 <span
                   className="size-2 shrink-0 rounded-full bg-amber-500"
                   title={`${pendentesLojas} loja(s) aguardando aprovação`}
+                />
+              )}
+              {item.rota === '/painel-admin/solicitacoes' && pendentesSolic > 0 && (
+                <span
+                  className="size-2 shrink-0 rounded-full bg-amber-500"
+                  title={`${pendentesSolic} solicitação(ões) aguardando análise`}
                 />
               )}
             </NavLink>
