@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   FileText, ShieldCheck, Upload, AlertTriangle, CheckCircle2, Save, FlaskConical,
-  Download, X, Package, ChevronDown, ChevronUp, Ban, RefreshCw, Receipt, Loader2, FolderArchive,
+  Download, X, Package, ChevronDown, ChevronUp, Ban, RefreshCw, Receipt, Loader2, FolderArchive, Mail,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,6 +26,11 @@ interface FiscalConfig {
   ncm_padrao: string; cfop_padrao: string; csosn_padrao: string;
 }
 interface FiscalCert { instalado: boolean; titular: string | null; validade: string | null; }
+interface Contador {
+  email: string; envio_auto: boolean; dia_envio: number;
+  ultima_competencia: string; ultimo_envio_em: string; ultimo_erro: string;
+  email_configurado: boolean;
+}
 interface Competencia {
   competencia: string; notas: number; autorizadas: number; canceladas: number; total_centavos: number;
 }
@@ -96,6 +101,46 @@ export function FiscalLoja() {
   const [competencias, setCompetencias] = useState<Competencia[]>([]);
   const [mesEscolhido, setMesEscolhido] = useState('');
   const [baixandoZip, setBaixandoZip] = useState(false);
+
+  const [contador, setContador] = useState<Contador | null>(null);
+  const [salvandoContador, setSalvandoContador] = useState(false);
+  const [enviandoContador, setEnviandoContador] = useState(false);
+
+  function carregarContador() {
+    api<Contador>('GET', '/api/lojista/nfce/contador')
+      .then(setContador)
+      .catch(() => { /* silencioso: a tela funciona sem esta parte */ });
+  }
+
+  async function salvarContador() {
+    if (!contador) return;
+    setSalvandoContador(true);
+    try {
+      await api('PUT', '/api/lojista/nfce/contador', {
+        email: contador.email, envio_auto: contador.envio_auto, dia_envio: contador.dia_envio,
+      });
+      mostrar({ tipo: 'sucesso', titulo: 'Contador salvo.' });
+      carregarContador();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setSalvandoContador(false);
+    }
+  }
+
+  async function enviarAgoraAoContador() {
+    if (!mesEscolhido) return;
+    setEnviandoContador(true);
+    try {
+      const r = await api<{ notas: number }>('POST', '/api/lojista/nfce/contador/enviar', { competencia: mesEscolhido });
+      mostrar({ tipo: 'sucesso', titulo: `Enviado: ${r.notas} nota(s).`, descricao: 'O contador recebe o ZIP em anexo.' });
+      carregarContador();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setEnviandoContador(false);
+    }
+  }
 
   function carregarCompetencias() {
     api<{ competencias: Competencia[] }>('GET', '/api/lojista/nfce/competencias')
@@ -237,7 +282,7 @@ export function FiscalLoja() {
       .finally(() => setProdutosCarregando(false));
   }
 
-  useEffect(() => { carregar(); carregarNotas(); carregarCompetencias(); }, []);
+  useEffect(() => { carregar(); carregarNotas(); carregarCompetencias(); carregarContador(); }, []);
 
   useEffect(() => {
     if (produtosAberto && !produtosCarregados) carregarProdutos();
@@ -765,6 +810,108 @@ export function FiscalLoja() {
                 data, valor e situação — pro contador conferir se recebeu tudo sem abrir XML por XML.
               </p>
             </>
+          )}
+
+          {/*
+            CADASTRO DO CONTADOR + ENVIO AUTOMÁTICO.
+            Fica aqui e não numa tela à parte porque é a mesma decisão: quem
+            acabou de baixar o mês pra mandar por e-mail é exatamente quem
+            deveria ligar o automático e não fazer isso de novo.
+          */}
+          {contador && (
+            <div className="space-y-3 border-t border-border pt-4">
+              <div className="flex items-center gap-2">
+                <Mail className="size-4 text-primary" />
+                <span className="text-sm font-bold">Enviar direto pro contador</span>
+              </div>
+
+              <div>
+                <Label htmlFor="contador-email">E-mail do contador</Label>
+                <Input
+                  id="contador-email"
+                  type="text"
+                  value={contador.email}
+                  onChange={e => setContador(c => c && ({ ...c, email: e.target.value }))}
+                  placeholder="contador@escritorio.com.br"
+                />
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Mais de um? Separe por vírgula (até 5).
+                </p>
+              </div>
+
+              <label className="flex cursor-pointer items-start gap-2.5">
+                <input
+                  type="checkbox"
+                  checked={contador.envio_auto}
+                  onChange={e => setContador(c => c && ({ ...c, envio_auto: e.target.checked }))}
+                  className="mt-0.5 size-4 shrink-0 accent-primary"
+                />
+                <span className="text-sm">
+                  Enviar automaticamente todo mês
+                  <span className="block text-[11px] text-muted-foreground">
+                    No dia escolhido, manda os XMLs do <b>mês anterior</b> (fechado) sem você precisar entrar aqui.
+                  </span>
+                </span>
+              </label>
+
+              {contador.envio_auto && (
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="w-40">
+                    <Label htmlFor="contador-dia">Dia do envio</Label>
+                    <select
+                      id="contador-dia"
+                      value={contador.dia_envio}
+                      onChange={e => setContador(c => c && ({ ...c, dia_envio: Number(e.target.value) }))}
+                      className="flex h-12 w-full rounded-xl border border-input bg-background px-4 text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {/* Até 28: dia 29-31 não existe em todo mês, e um envio
+                          que pula fevereiro é pior que um dia antes. */}
+                      {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
+                        <option key={d} value={d}>dia {d}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Sem SMTP o automático nunca sai. Dizer isso ANTES é o que
+                  evita o lojista ligar a chave e achar que resolveu. */}
+              {contador.envio_auto && !contador.email_configurado && (
+                <p className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                  O envio de e-mail da plataforma não está configurado — nada será enviado até o suporte ligar o SMTP.
+                </p>
+              )}
+
+              {contador.ultimo_erro && (
+                <p className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                  Último envio falhou: {contador.ultimo_erro}
+                </p>
+              )}
+
+              {contador.ultima_competencia && !contador.ultimo_erro && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <CheckCircle2 className="size-3.5 text-green-600" />
+                  Último envio: {mesPorExtenso(contador.ultima_competencia)}
+                  {contador.ultimo_envio_em && <> em {contador.ultimo_envio_em.slice(8, 10)}/{contador.ultimo_envio_em.slice(5, 7)}</>}
+                </p>
+              )}
+
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" onClick={salvarContador} disabled={salvandoContador}>
+                  <Save className="size-4" /> {salvandoContador ? 'Salvando…' : 'Salvar'}
+                </Button>
+                {competencias.length > 0 && (
+                  <Button type="button" variant="outline" onClick={enviarAgoraAoContador}
+                    disabled={enviandoContador || !contador.email}>
+                    {enviandoContador
+                      ? <><Loader2 className="size-4 animate-spin" /> Enviando…</>
+                      : <><Mail className="size-4" /> Enviar {mesEscolhido ? mesPorExtenso(mesEscolhido) : 'agora'}</>}
+                  </Button>
+                )}
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

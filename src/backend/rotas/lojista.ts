@@ -18,8 +18,10 @@ import { comissaoPercentualDaLoja } from '../comissao';
 import { poligonoValido } from '../geometria';
 import { validarCertificado, lerCertificadoPfx, assinarXmlNfce, assinarPorTag, type CertificadoLido } from '../assinatura';
 import QRCode from 'qrcode';
-import JSZip from 'jszip';
 import { montarXmlNfce, urlQrCode, CODIGO_UF, type EmitenteNfce, type VendaNfce } from '../nfce';
+import { competenciasDaLoja, montarPacoteXml, enviarPacoteAoContador } from '../xml-contador';
+import { destinatariosDe } from '../envio-contador';
+import { emailHabilitado } from '../email';
 import { codigoProdutoNfce } from '../codigo-produto';
 import { tipoPagamentoNfce } from '../tipo-pagamento-nfce';
 import {
@@ -3012,112 +3014,98 @@ router.get('/nfce/notas/:id', async (req, res, next) => {
 
 /* ─────────────── XMLs do mês, o pacote que vai pro contador ─────────────── */
 
-/**
- * SÓ PRODUÇÃO (ambiente = 1). Nota de homologação não tem valor fiscal nenhum;
- * mandar isso pro contador junto seria entregar lixo misturado com escrituração.
- */
-const FILTRO_XML_CONTADOR = "loja_id = ? AND ambiente = 1 AND status IN ('autorizada', 'cancelada')";
-
-/** A data que vale é a da autorização; antes dela a nota não existe pra SEFAZ. */
-const DATA_FISCAL = "COALESCE(NULLIF(autorizada_em, ''), criado_em)";
-
 /** Meses que têm nota — é o que a tela oferece pra baixar. */
 router.get('/nfce/competencias', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
-    const linhas = await db.prepare(
-      `SELECT LEFT(${DATA_FISCAL}, 7) AS competencia,
-              COUNT(*) AS notas,
-              SUM(status = 'autorizada') AS autorizadas,
-              SUM(status = 'cancelada') AS canceladas,
-              SUM(CASE WHEN status = 'autorizada' THEN total_centavos ELSE 0 END) AS total_centavos
-         FROM notas_fiscais
-        WHERE ${FILTRO_XML_CONTADOR}
-        GROUP BY competencia
-        ORDER BY competencia DESC
-        LIMIT 24`
-    ).all(loja.id) as Array<Record<string, unknown>>;
-    // SUM() no MySQL volta como string — sem coagir aqui, "12" + "30" viraria
-    // "1230" na tela em vez de 42.
+    res.json({ competencias: await competenciasDaLoja(loja.id) });
+  } catch (e) { next(e); }
+});
+
+/** ZIP com os XMLs do mês — o pacote que o lojista manda pro contador. */
+router.get('/nfce/xmls', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req) as any;
+    const competencia = competenciaValida(req.query.competencia);
+    let pacote;
+    try {
+      pacote = await montarPacoteXml(loja.id, String(loja.slug || ''), competencia);
+    } catch (e) {
+      // Só estoura por excesso de notas; a mensagem já é a que serve pra tela.
+      throw erroHttp(413, e instanceof Error ? e.message : 'Não foi possível montar o arquivo.');
+    }
+    if (!pacote) {
+      throw erroHttp(404, 'Nenhuma nota de produção neste mês. Notas de homologação não entram — elas não têm valor fiscal.');
+    }
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${pacote.nome}"`);
+    res.send(pacote.conteudo);
+  } catch (e) { next(e); }
+});
+
+/** Cadastro do contador: pra quem manda, se manda sozinho e em que dia. */
+router.get('/nfce/contador', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req) as any;
     res.json({
-      competencias: linhas.map(l => ({
-        competencia: String(l.competencia),
-        notas: Number(l.notas) || 0,
-        autorizadas: Number(l.autorizadas) || 0,
-        canceladas: Number(l.canceladas) || 0,
-        total_centavos: Number(l.total_centavos) || 0,
-      })),
+      email: loja.contador_email || '',
+      envio_auto: !!loja.contador_envio_auto,
+      dia_envio: Number(loja.contador_dia_envio) || 5,
+      ultima_competencia: loja.contador_ultima_competencia || '',
+      ultimo_envio_em: loja.contador_ultimo_envio_em || '',
+      ultimo_erro: loja.contador_ultimo_erro || '',
+      // Sem SMTP configurado o automático nunca sai. A tela precisa dizer isso
+      // ANTES de o lojista ligar a chave e confiar que está resolvido.
+      email_configurado: emailHabilitado(),
     });
   } catch (e) { next(e); }
 });
 
-/**
- * ZIP com os XMLs do mês — o pacote que o lojista manda pro contador.
- *
- * Vai a NFC-e autorizada de cada nota e, quando houve cancelamento, o evento
- * num arquivo à parte. As duas peças são necessárias: só o evento não comprova
- * o que foi cancelado, e só a nota não mostra que ela foi.
- *
- * Junto vai um `relacao.csv` com número, chave, data, valor e situação. Não é
- * exigência de ninguém — é o que evita o contador abrir 300 XMLs pra conferir
- * se recebeu tudo.
- */
-router.get('/nfce/xmls', async (req, res, next) => {
+router.put('/nfce/contador', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req) as any;
-    const competencia = String(req.query.competencia ?? '').slice(0, 7);
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(competencia)) {
-      throw erroHttp(400, 'Informe o mês no formato AAAA-MM.');
-    }
-
-    const notas = await db.prepare(
-      `SELECT numero, serie, chave, status, motivo, total_centavos, xml, xml_cancelamento,
-              ${DATA_FISCAL} AS data_fiscal
-         FROM notas_fiscais
-        WHERE ${FILTRO_XML_CONTADOR} AND LEFT(${DATA_FISCAL}, 7) = ?
-        ORDER BY numero`
-    ).all(loja.id, competencia) as Array<Record<string, any>>;
-
-    if (notas.length === 0) {
-      throw erroHttp(404, 'Nenhuma nota de produção neste mês. Notas de homologação não entram — elas não têm valor fiscal.');
-    }
+    const texto = textoLimpo(req.body.email, 300);
+    const validos = destinatariosDe(texto);
     /*
-     * O ZIP é montado inteiro em memória. Cinco mil notas já são uns 60 MB de
-     * XML, e o servidor atende todas as lojas ao mesmo tempo — acima disso o
-     * pedido é recusado com uma saída, em vez de derrubar o processo.
+     * Recusa AQUI o endereço torto, com o campo na frente da pessoa. No envio
+     * o inválido é só descartado — lá, derrubar a remessa inteira por causa de
+     * um endereço errado seria pior que mandar pros que estão certos.
      */
-    if (notas.length > 5000) {
-      throw erroHttp(413, `Este mês tem ${notas.length} notas, demais para um arquivo só. Baixe as notas pela lista ou peça ajuda ao suporte.`);
-    }
+    if (texto && validos.length === 0) throw erroHttp(400, 'E-mail inválido. Separe vários por vírgula.');
 
-    const zip = new JSZip();
-    const csv = ['numero;serie;chave;data;valor;situacao;motivo'];
-    for (const n of notas) {
-      // O nome do arquivo é a CHAVE, que é como o contador e o software fiscal
-      // dele identificam a nota — "nota-12.xml" não diz nada do outro lado.
-      if (n.xml) zip.file(`${n.chave}.xml`, String(n.xml));
-      if (n.xml_cancelamento) zip.file(`${n.chave}-cancelamento.xml`, String(n.xml_cancelamento));
-      csv.push([
-        n.numero, n.serie, n.chave,
-        String(n.data_fiscal || '').slice(0, 10),
-        ((Number(n.total_centavos) || 0) / 100).toFixed(2).replace('.', ','),
-        n.status,
-        String(n.motivo || '').replace(/[;\r\n]+/g, ' ').trim(),
-      ].join(';'));
-    }
-    /*
-     * BOM no CSV: o contador abre isso no Excel em português, e sem o BOM o
-     * Excel lê como ANSI e estraga todo acento do motivo do cancelamento.
-     */
-    zip.file('relacao.csv', '﻿' + csv.join('\r\n') + '\r\n');
+    const auto = req.body.envio_auto ? 1 : 0;
+    if (auto && validos.length === 0) throw erroHttp(400, 'Cadastre o e-mail do contador antes de ligar o envio automático.');
+    const dia = Math.min(Math.max(inteiroPositivo(req.body.dia_envio) || 5, 1), 28);
 
-    const conteudo = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
-    const nomeArquivo = `nfce-${String(loja.slug || loja.id)}-${competencia}.zip`;
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${nomeArquivo}"`);
-    res.send(conteudo);
+    await db.prepare(
+      `UPDATE lojas SET contador_email = ?, contador_envio_auto = ?, contador_dia_envio = ?
+        WHERE id = ?`
+    ).run(validos.join(', '), auto, dia, loja.id);
+    res.json({ ok: true, email: validos.join(', '), envio_auto: !!auto, dia_envio: dia });
   } catch (e) { next(e); }
 });
+
+/**
+ * Manda AGORA o mês escolhido. Serve pro lojista testar o cadastro sem esperar
+ * a virada, e pra reenviar quando o contador diz que não recebeu.
+ */
+router.post('/nfce/contador/enviar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req) as any;
+    const competencia = competenciaValida(req.body.competencia);
+    const r = await enviarPacoteAoContador(loja, competencia);
+    if (!r.ok) throw erroHttp(422, r.motivo);
+    if (r.notas === 0) throw erroHttp(404, 'Nenhuma nota de produção neste mês — não havia o que enviar.');
+    res.json({ ok: true, notas: r.notas });
+  } catch (e) { next(e); }
+});
+
+/** AAAA-MM ou 400. Mês fora de 01-12 não existe e não vira consulta. */
+function competenciaValida(bruto: unknown): string {
+  const c = String(bruto ?? '').slice(0, 7);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(c)) throw erroHttp(400, 'Informe o mês no formato AAAA-MM.');
+  return c;
+}
 
 /**
  * CANCELA uma NFC-e autorizada (evento 110111). Exige justificativa (15-255).

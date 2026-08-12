@@ -62,8 +62,16 @@ async function obterTransportador(): Promise<Transporter | null> {
   return transportador;
 }
 
+export interface AnexoEmail {
+  nome: string;
+  conteudo: Buffer;
+  tipo?: string;
+}
+
 /** Envia um e-mail. Nunca lança — best-effort, retorna se conseguiu enviar. */
-export async function enviarEmail(destino: string, assunto: string, html: string): Promise<boolean> {
+export async function enviarEmail(
+  destino: string, assunto: string, html: string, anexos?: AnexoEmail[],
+): Promise<boolean> {
   const t = await obterTransportador();
   if (!t) return false;
   try {
@@ -73,6 +81,11 @@ export async function enviarEmail(destino: string, assunto: string, html: string
       to: destino,
       subject: assunto,
       html,
+      attachments: anexos?.map(a => ({
+        filename: a.nome,
+        content: a.conteudo,
+        contentType: a.tipo || 'application/octet-stream',
+      })),
     });
     console.log('[EMAIL] ✅ Enviado. messageId:', info.messageId, '| response:', info.response);
     return true;

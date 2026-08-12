@@ -767,6 +767,20 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * onde recuperar a não ser baixando da SEFAZ.
      */
     ['notas_fiscais', 'xml_cancelamento', 'xml_cancelamento MEDIUMTEXT'],
+    /*
+     * ENVIO DOS XMLs PRO CONTADOR.
+     *
+     * `contador_ultima_competencia` é o que impede o envio em dobro: o job roda
+     * várias vezes por dia e, sem essa marca, o contador escrituraria o mesmo
+     * mês de novo a cada passada.
+     */
+    ['lojas', 'contador_email',               "contador_email VARCHAR(300) NOT NULL DEFAULT ''"],
+    ['lojas', 'contador_envio_auto',          'contador_envio_auto TINYINT NOT NULL DEFAULT 0'],
+    ['lojas', 'contador_dia_envio',           'contador_dia_envio INT NOT NULL DEFAULT 5'],
+    ['lojas', 'contador_ultima_competencia',  "contador_ultima_competencia VARCHAR(7) NOT NULL DEFAULT ''"],
+    ['lojas', 'contador_ultimo_envio_em',     "contador_ultimo_envio_em VARCHAR(32) NOT NULL DEFAULT ''"],
+    /** Erro do último envio, pra tela poder dizer POR QUE não chegou. */
+    ['lojas', 'contador_ultimo_erro',         "contador_ultimo_erro VARCHAR(300) NOT NULL DEFAULT ''"],
   ] as const) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS

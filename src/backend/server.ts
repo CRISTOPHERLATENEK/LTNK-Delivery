@@ -25,6 +25,9 @@ import revendedorRoutes from './rotas/revendedor';
 import pagamentosRoutes, { reconciliarPagamentosOnz, reconciliarCartoesMP, cancelarCartoesAbandonados } from './rotas/pagamentos';
 import { aquecerTokens } from './onz';
 import { gravarFaturasDeTodos } from './faturas';
+import { deveEnviar, destinatariosDe } from './envio-contador';
+import { enviarPacoteAoContador } from './xml-contador';
+import { emailHabilitado } from './email';
 import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
@@ -497,6 +500,51 @@ async function sincronizarHorariosDoTenant(): Promise<void> {
   }
 }
 
+/**
+ * Manda os XMLs do mês fechado pro contador das lojas que pediram.
+ *
+ * A decisão de "hoje é dia?" está em envio-contador.ts, testada — o que mora
+ * aqui é só a varredura. A marca de competência enviada fica NA LOJA, então
+ * rodar isto várias vezes no mesmo dia não manda nada duas vezes.
+ */
+async function enviarXmlsDoTenant(): Promise<void> {
+  const lojas = await db.prepare(
+    `SELECT id, nome, slug, nfce_cnpj, nfce_razao_social,
+            contador_email, contador_envio_auto, contador_dia_envio, contador_ultima_competencia
+       FROM lojas WHERE contador_envio_auto = 1 AND contador_email <> ''`
+  ).all() as Array<Record<string, any>>;
+
+  for (const loja of lojas) {
+    const { enviar, competencia } = deveEnviar({
+      hojeIso: agoraUTC(),
+      auto: true,
+      temDestinatario: destinatariosDe(loja.contador_email).length > 0,
+      diaEnvio: Number(loja.contador_dia_envio) || 5,
+      ultimaCompetencia: String(loja.contador_ultima_competencia || ''),
+    });
+    if (!enviar) continue;
+    const r = await enviarPacoteAoContador(loja, competencia);
+    console.log(`[CONTADOR] loja ${loja.id} ${competencia}:`,
+      r.ok ? `${r.notas} nota(s) enviada(s)` : `falhou — ${r.motivo}`);
+  }
+}
+
+async function enviarXmlsAoContador(): Promise<void> {
+  // Sem SMTP não há envio possível; varrer todos os bancos pra descobrir isso
+  // a cada ciclo seria trabalho jogado fora.
+  if (!emailHabilitado()) return;
+  for (const tenant of await listarTenants()) {
+    if (!tenant.ativo) continue;
+    try {
+      await comTenant(tenant.db_nome, enviarXmlsDoTenant);
+    } catch (e) {
+      // Um cliente com problema não pode impedir o envio dos outros — cada
+      // loja tem um contador esperando o próprio pacote.
+      console.error(`[CONTADOR] falha no tenant ${tenant.slug}:`, e);
+    }
+  }
+}
+
 /** Roda o tick de horário para CADA tenant (cada um no seu próprio banco). */
 async function sincronizarHorarios(): Promise<void> {
   for (const tenant of await listarTenants()) {
@@ -653,6 +701,14 @@ const PORT = Number(process.env.PORT) || 3000;
    * reboot, servidor fora) deixaria o mês inteiro sem fatura, e ela não pode ser
    * reconstruída depois sem inventar número (ver faturas.ts).
    */
+  /*
+   * XMLs do mês pro contador. De 6 em 6 horas e não uma vez por dia porque um
+   * deploy no horário errado faria o dia inteiro passar sem envio; a marca de
+   * competência na loja garante que rodar de novo não manda duas vezes.
+   */
+  enviarXmlsAoContador().catch(e => console.error('[CONTADOR] falha na varredura inicial:', e));
+  setInterval(() => { enviarXmlsAoContador().catch(e => console.error('[CONTADOR] falha na varredura:', e)); }, 6 * 60 * 60_000);
+
   gravarFaturasDeTodos().catch(e => console.error('[fatura] falha no fechamento inicial:', e));
   setInterval(() => { gravarFaturasDeTodos().catch(e => console.error('[fatura] falha no fechamento:', e)); }, 60 * 60_000);
 
