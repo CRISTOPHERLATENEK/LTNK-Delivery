@@ -8,7 +8,6 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Inbox, Check, X, Handshake, Building2, Mail, Phone } from 'lucide-react';
-import { AdminLayout } from './layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -37,7 +36,7 @@ interface Solicitacao {
   decidido_em: string;
 }
 
-export function TelaSolicitacoes() {
+export function PainelSolicitacoes() {
   const { mostrar } = useToast();
   const confirmar = useConfirm();
   const qc = useQueryClient();
@@ -90,19 +89,13 @@ export function TelaSolicitacoes() {
   }
 
   return (
-    <AdminLayout titulo="Solicitações">
-      <div className="mx-auto max-w-3xl space-y-5">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-extrabold">
-            <Inbox className="size-6 text-primary" /> Solicitações de cliente
-          </h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            {pendentes.length > 0
-              ? `${pendentes.length} aguardando sua análise`
-              : 'Nada aguardando análise'}
-            {' · '}pedidas pelos revendedores
-          </p>
-        </div>
+      <div className="space-y-4">
+        <p className="text-sm text-muted-foreground">
+          {pendentes.length > 0
+            ? `${pendentes.length} aguardando sua análise`
+            : 'Nada aguardando análise'}
+          {' · '}pedidas pelos revendedores
+        </p>
 
         {consulta.isLoading && (
           <div className="space-y-2">{[1, 2].map(i => <Skeleton key={i} className="h-32 rounded-xl" />)}</div>
@@ -195,6 +188,5 @@ export function TelaSolicitacoes() {
           ))}
         </div>
       </div>
-    </AdminLayout>
   );
 }

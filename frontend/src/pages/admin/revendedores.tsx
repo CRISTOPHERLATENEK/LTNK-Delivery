@@ -7,9 +7,11 @@
  * precisa saber, quanto ele revende.
  */
 import { useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Handshake, Plus, Pencil, Trash2, Lock, Unlock, Building2, X } from 'lucide-react';
 import { AdminLayout } from './layout';
+import { PainelSolicitacoes } from './solicitacoes';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -41,10 +43,27 @@ const FORM_VAZIO = { nome: '', email: '', senha: '', telefone: '', documento: ''
 
 export function TelaRevendedores() {
   const { mostrar } = useToast();
+  /*
+   * SOLICITAÇÃO É PARTE DA RELAÇÃO com o revendedor, não um assunto à parte —
+   * por isso aba e não item de menu separado. A rota /solicitacoes continua
+   * valendo e abre já nesta aba: link antigo não pode virar página em branco.
+   */
+  const local = useLocation();
+  const [aba, setAba] = useState<'revendedores' | 'solicitacoes'>(
+    local.pathname.endsWith('/solicitacoes') ? 'solicitacoes' : 'revendedores',
+  );
   const confirmar = useConfirm();
   const qc = useQueryClient();
   const [criando, setCriando] = useState(false);
   const [editando, setEditando] = useState<Revendedor | null>(null);
+
+  const pendentesQ = useQuery({
+    queryKey: ['admin-solicitacoes-pendentes'],
+    queryFn: () => api<{ solicitacoes: { status: string }[] }>('GET', '/api/admin/solicitacoes')
+      .then(r => r.solicitacoes.filter(s => s.status === 'pendente').length),
+    staleTime: 60_000,
+  });
+  const pendentesSolic = pendentesQ.data ?? 0;
 
   const consulta = useQuery({
     queryKey: ['admin-revendedores'],
@@ -102,10 +121,37 @@ export function TelaRevendedores() {
               {totalMes > 0 && <> · <b className="text-foreground">{brl(totalMes)}</b>/mês a receber</>}
             </p>
           </div>
-          <Button onClick={() => { setEditando(null); setCriando(true); }}>
-            <Plus className="size-4" /> Novo revendedor
-          </Button>
+          {aba === 'revendedores' && (
+            <Button onClick={() => { setEditando(null); setCriando(true); }}>
+              <Plus className="size-4" /> Novo revendedor
+            </Button>
+          )}
         </div>
+
+        <div className="flex gap-2 border-b border-border">
+          {([
+            { chave: 'revendedores' as const, rotulo: 'Revendedores' },
+            { chave: 'solicitacoes' as const, rotulo: 'Solicitações' },
+          ]).map(t => (
+            <button
+              key={t.chave}
+              type="button"
+              onClick={() => setAba(t.chave)}
+              className={cn('relative -mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-semibold transition-colors',
+                aba === t.chave ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')}
+            >
+              {t.rotulo}
+              {/* Ponto âmbar na aba: a pendência precisa ser vista de onde a
+                  pessoa já está, não só de quem abrir a aba por acaso. */}
+              {t.chave === 'solicitacoes' && pendentesSolic > 0 && (
+                <span className="size-2 rounded-full bg-amber-500" title={`${pendentesSolic} aguardando análise`} />
+              )}
+            </button>
+          ))}
+        </div>
+
+        {aba === 'solicitacoes' ? <PainelSolicitacoes /> : (
+        <>
 
         {(criando || editando) && (
           <FormRevendedor
@@ -172,6 +218,8 @@ export function TelaRevendedores() {
             </Card>
           ))}
         </div>
+        </>
+        )}
       </div>
     </AdminLayout>
   );

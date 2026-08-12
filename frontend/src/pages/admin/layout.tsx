@@ -7,7 +7,7 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Store, Users, ShoppingBag, TrendingUp,
   Image, Palette, Shield, Crown, LogOut, Menu, X, ChevronRight, Radio, Bike, Building2, History,
-  CreditCard, UserCog, LayoutTemplate, Settings, Handshake, Inbox,
+  CreditCard, UserCog, LayoutTemplate, Settings, Handshake,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
@@ -52,8 +52,7 @@ const ITENS: NavItem[] = [
   { rota: '/painel-admin/clientes',     icone: Building2,       label: 'Clientes',    somenteSuper: true },
   { rota: '/painel-admin/assinaturas',  icone: CreditCard,      label: 'Assinaturas', somenteSuper: true },
   { rota: '/painel-admin/lojistas',     icone: Users,           label: 'Lojistas',    somenteSuper: true },
-  { rota: '/painel-admin/revendedores', icone: Handshake,       label: 'Revendedores', somenteSuper: true },
-  { rota: '/painel-admin/solicitacoes', icone: Inbox,           label: 'Solicitações', somenteSuper: true, divisorDepois: true },
+  { rota: '/painel-admin/revendedores', icone: Handshake,       label: 'Revendedores', somenteSuper: true, divisorDepois: true },
 
   { rota: '/painel-admin/repasses',     icone: TrendingUp,      label: 'Repasses',  somenteSuper: true },
   { rota: '/painel-admin/marca',        icone: Palette,         label: 'Marca',        somenteSuper: true },
@@ -217,7 +216,7 @@ function SidebarContent({ itens, pendentesLojas, pendentesSolic, superAdmin, u, 
                   title={`${pendentesLojas} loja(s) aguardando aprovação`}
                 />
               )}
-              {item.rota === '/painel-admin/solicitacoes' && pendentesSolic > 0 && (
+              {item.rota === '/painel-admin/revendedores' && pendentesSolic > 0 && (
                 <span
                   className="size-2 shrink-0 rounded-full bg-amber-500"
                   title={`${pendentesSolic} solicitação(ões) aguardando análise`}
