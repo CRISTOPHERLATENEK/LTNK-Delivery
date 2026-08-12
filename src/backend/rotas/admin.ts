@@ -1308,6 +1308,9 @@ router.get('/tema', async (_req, res, next) => {
       slogan:            await valor('marca_slogan', 'Peça das melhores lojas da sua região'),
       logo_url:          await valor('marca_logo_url'),
       mostrar_nome:      (await valor('marca_mostrar_nome', '1')) !== '0',
+      rodape_credito_texto:    await valor('rodape_credito_texto'),
+      rodape_credito_logo_url: await valor('rodape_credito_logo_url'),
+      rodape_credito_url:      await valor('rodape_credito_url'),
       favicon_url:       await valor('marca_favicon_url'),
       cor_primaria:      await valor('marca_cor_primaria', '#dc2640'),
       cor_secundaria:    await valor('marca_cor_secundaria'),
@@ -1340,6 +1343,19 @@ router.put('/tema', exigirSuperAdmin, async (req, res, next) => {
     // Nome ao lado da logo. Guardado como '1'/'0' pra ficar igual às outras
     // chaves booleanas de configuracoes (a tabela é chave/valor em texto).
     if (req.body.mostrar_nome !== undefined) await set(req.body.mostrar_nome ? '1' : '0', 'marca_mostrar_nome');
+
+    // Crédito do rodapé. A logo aceita upload ou URL, como as outras imagens.
+    if (req.body.rodape_credito_texto !== undefined) await set(textoLimpo(req.body.rodape_credito_texto, 60), 'rodape_credito_texto');
+    if (req.body.rodape_credito_logo_url !== undefined) {
+      const v = textoLimpo(req.body.rodape_credito_logo_url, 500);
+      if (v && !/^https?:\/\//i.test(v) && !v.startsWith('/uploads/')) throw erroHttp(400, 'URL da logo do rodapé inválida (use https://… ou faça upload).');
+      await set(v, 'rodape_credito_logo_url');
+    }
+    if (req.body.rodape_credito_url !== undefined) {
+      const v = textoLimpo(req.body.rodape_credito_url, 300);
+      if (v && !/^https?:\/\//i.test(v)) throw erroHttp(400, 'O link do rodapé precisa começar com https://');
+      await set(v, 'rodape_credito_url');
+    }
 
     if (req.body.logo_url !== undefined) {
       const v = textoLimpo(req.body.logo_url, 500);

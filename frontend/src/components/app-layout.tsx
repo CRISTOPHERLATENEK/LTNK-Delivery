@@ -197,6 +197,51 @@ export function AppLayout({ children, itens, grupos, titulo, subtitulo }: Props)
           >
             {children}
           </motion.div>
+
+          {/*
+            CRÉDITO DE QUEM DESENVOLVEU, no fim do painel de quem contratou.
+            Só aparece se estiver configurado — plataforma que não quer assinar
+            o painel do cliente deixa vazio e nada é renderizado. Fica DENTRO do
+            main, depois do conteúdo: um rodapé fixo roubaria altura de tela em
+            celular, onde o painel já tem a barra de navegação embaixo.
+          */}
+          {marca.rodape_credito_texto && (
+            <div className="mt-10 border-t border-border/60 pt-6 text-center">
+              {(() => {
+                const conteudo = (
+                  <>
+                    <span>{marca.rodape_credito_texto}</span>
+                    {marca.rodape_credito_logo_url && (
+                      <img
+                        src={marca.rodape_credito_logo_url}
+                        alt=""
+                        className="h-6 w-auto max-w-[130px] object-contain"
+                      />
+                    )}
+                  </>
+                );
+                const classe = 'inline-flex items-center gap-2 text-xs text-muted-foreground';
+                /*
+                 * `target="_blank"` com `rel="noopener"`: sem isso a página de
+                 * destino ganha referência à janela do painel e pode
+                 * redirecioná-la. E abrir na mesma aba tiraria o lojista de um
+                 * painel onde ele estava trabalhando.
+                 */
+                return marca.rodape_credito_url ? (
+                  <a
+                    href={marca.rodape_credito_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={classe + ' opacity-80 transition-opacity hover:opacity-100'}
+                  >
+                    {conteudo}
+                  </a>
+                ) : (
+                  <span className={classe}>{conteudo}</span>
+                );
+              })()}
+            </div>
+          )}
         </main>
       </div>
 

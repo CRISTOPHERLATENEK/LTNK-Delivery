@@ -660,6 +660,17 @@ const CONFIGS_PADRAO: Array<[string, string]> = [
    * mostrar dois nomes DIFERENTES se a logo e o cadastro não combinarem.
    */
   ['marca_mostrar_nome', '1'],
+  /*
+   * CRÉDITO NO RODAPÉ do painel de quem contratou ("Desenvolvido por ...").
+   *
+   * Configurável, e não fixo no código, porque num sistema white-label o
+   * crédito nem sempre é da plataforma: um revendedor que entrega o sistema com
+   * a marca dele quer o nome dele ali. Vazio = não aparece nada, que é o certo
+   * pra quem não quer assinar o painel do cliente.
+   */
+  ['rodape_credito_texto', ''],
+  ['rodape_credito_logo_url', ''],
+  ['rodape_credito_url', ''],
   ['marca_favicon_url', ''],
   ['marca_cor_primaria', '#dc2640'],
   ['loja_padrao_id', '0'],

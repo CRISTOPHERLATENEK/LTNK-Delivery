@@ -190,6 +190,10 @@ export interface TemaMarca {
   logo_url: string;
   /** Mostrar o nome da marca ao lado da logo. Falso quando a logo já traz o nome. */
   mostrar_nome?: boolean;
+  /** Crédito no rodapé do painel: "Desenvolvido por ..." + logo opcional. */
+  rodape_credito_texto?: string;
+  rodape_credito_logo_url?: string;
+  rodape_credito_url?: string;
   favicon_url: string;
   cor_primaria: string;
   /** Cor de destaque secundária (botões alternativos, links). Vazio = derivada da primária. */

@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store } from 'lucide-react';
+import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, Code2 } from 'lucide-react';
 import { AdminLayout } from '../layout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -216,6 +216,36 @@ export function TelaMarca() {
             </div>
             <ImageUpload label="Imagem de compartilhamento (Open Graph)"
               value={form.og_image} onChange={v => up('og_image', v)} aspectRatio="wide" />
+          </Secao>
+
+          {/*
+            CRÉDITO NO RODAPÉ do painel do lojista.
+            Configurável e não fixo no código porque, num white-label, o crédito
+            nem sempre é da plataforma: um revendedor que entrega o sistema com
+            a marca dele quer o nome dele ali. Vazio = não aparece nada.
+          */}
+          <Secao icone={Code2} titulo="Crédito no rodapé">
+            <p className="text-xs text-muted-foreground">
+              Aparece no fim do painel de quem contratou. Deixe o texto vazio para não mostrar nada.
+            </p>
+            <div>
+              <Label htmlFor="rodape-texto">Texto</Label>
+              <Input id="rodape-texto" maxLength={60}
+                value={form.rodape_credito_texto || ''}
+                onChange={e => up('rodape_credito_texto', e.target.value)}
+                placeholder="Ex.: Desenvolvido por" />
+            </div>
+            <ImageUpload label="Logo ao lado do texto (opcional)"
+              value={form.rodape_credito_logo_url || ''}
+              onChange={v => up('rodape_credito_logo_url', v)} aspectRatio="wide" />
+            <div>
+              <Label htmlFor="rodape-url">Link ao clicar (opcional)</Label>
+              <Input id="rodape-url" maxLength={300}
+                value={form.rodape_credito_url || ''}
+                onChange={e => up('rodape_credito_url', e.target.value)}
+                placeholder="https://seusite.com.br" />
+              <p className="mt-1 text-xs text-muted-foreground">Abre em outra aba, pra não tirar o lojista do painel.</p>
+            </div>
           </Secao>
 
           {/* Modo de exibição: loja única (white label) ou marketplace */}
