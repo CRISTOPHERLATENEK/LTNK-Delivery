@@ -18,7 +18,7 @@ import multer from 'multer';
 import { spawn } from 'child_process';
 import path from 'path';
 import os from 'os';
-import { listarTenants, criarTenant, atualizarTenant, tenantPorId, ehMaster, urlDoTenant, problemaNoSlugTenant, poolCentral } from '../tenants-mysql';
+import { listarTenants, criarTenant, atualizarTenant, tenantPorId, removerTenant, ehMaster, urlDoTenant, problemaNoSlugTenant, poolCentral } from '../tenants-mysql';
 import {
   listarAssinaturas, salvarAssinatura, registrarPagamento, historicoPagamentos,
   processarVencimentos, statusCalculado, diasDeAtraso,
@@ -1822,6 +1822,43 @@ function dbNomeDoTenant(slug: string): string {
   const prefixo = process.env.MYSQL_TENANT_PREFIX || 'tenant_';
   return `${prefixo}${slug.replace(/-/g, '_')}`;
 }
+
+/**
+ * Exclui um cliente — apaga o registro e o banco dele.
+ *
+ * A confirmação (digitar o slug) é exigida AQUI também, não só na tela: a
+ * proteção que só existe no frontend não protege de um clique errado em outro
+ * lugar do sistema, nem de uma requisição repetida por engano.
+ */
+router.delete('/tenants/:id', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const id = inteiroPositivo(req.params.id);
+    if (!id) throw erroHttp(400, 'Cliente inválido.');
+    const tenant = await tenantPorId(id);
+    if (!tenant) throw erroHttp(404, 'Cliente não encontrado.');
+
+    const confirmacao = textoLimpo(req.query.confirmacao ?? req.body?.confirmacao, 60);
+    if (confirmacao !== tenant.slug) {
+      throw erroHttp(400, `Confirmação incorreta: digite o identificador "${tenant.slug}" para excluir.`);
+    }
+
+    let resultado;
+    try {
+      resultado = await removerTenant(id);
+    } catch (e) {
+      throw erroHttp(409, e instanceof Error ? e.message : 'Não foi possível excluir o cliente.');
+    }
+
+    // Auditoria ANTES da resposta: se o registro do que foi apagado se perder,
+    // não sobra rastro de quem apagou o quê — e o dado já não existe mais.
+    await registrarAuditoria(req, 'cliente.excluir', {
+      alvoTipo: 'tenant', alvoId: id,
+      alvoDesc: `${resultado.nome} (${tenant.slug})${resultado.bancoApagado ? ' — banco apagado' : ' — banco preservado'}`,
+    });
+    res.json({ ok: true, banco_apagado: resultado.bancoApagado });
+  } catch (e) { next(e); }
+});
 
 /* ───────────────────────── Revendedores ─────────────────────────
  *

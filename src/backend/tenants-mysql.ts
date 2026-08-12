@@ -223,6 +223,42 @@ export async function tenantPadrao(): Promise<Tenant> {
   return (qualquer as Tenant[])[0];
 }
 
+/**
+ * Remove um cliente: apaga o registro e, se o banco tiver sido criado pelo
+ * sistema, dropa o banco junto.
+ *
+ * O QUE ELA SE RECUSA A FAZER, e por quê:
+ *
+ *  - O TENANT PADRÃO (banco da plataforma) nunca. Dropar ele apagaria o
+ *    cadastro de todos os outros clientes junto — o registro deles vive lá.
+ *  - Banco que NÃO nasceu do prefixo automático fica de pé. Se alguém apontou
+ *    um banco existente na mão, ele pode ser compartilhado ou ter história
+ *    anterior à plataforma; apagar seria destruir o que não é nosso.
+ *
+ * Devolve o que aconteceu com o banco pra tela poder dizer a verdade em vez de
+ * um "excluído" genérico.
+ */
+export async function removerTenant(id: number): Promise<{ nome: string; bancoApagado: boolean }> {
+  const pool = poolCentral();
+  const [rows] = await pool.query('SELECT * FROM tenants WHERE id = ?', [id]);
+  const t = (rows as Tenant[])[0];
+  if (!t) throw new Error('Cliente não encontrado.');
+  if (BANCO_PADRAO && t.db_nome === BANCO_PADRAO) {
+    throw new Error('Este é o cliente principal da plataforma e não pode ser excluído.');
+  }
+
+  await pool.query('DELETE FROM tenants WHERE id = ?', [id]);
+
+  let bancoApagado = false;
+  if (t.db_nome.startsWith(PREFIXO_AUTO_CRIACAO)) {
+    // Crase no nome: nome de banco não entra como parâmetro em DDL, e o
+    // prefixo já garante que ele veio de dbNomeDoTenant (a-z, 0-9 e _).
+    await pool.query(`DROP DATABASE IF EXISTS \`${t.db_nome}\``);
+    bancoApagado = true;
+  }
+  return { nome: t.nome, bancoApagado };
+}
+
 export async function listarTenants(): Promise<Tenant[]> {
   const [rows] = await poolCentral().query('SELECT * FROM tenants ORDER BY id');
   return rows as Tenant[];

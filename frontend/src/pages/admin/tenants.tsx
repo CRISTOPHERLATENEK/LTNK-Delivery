@@ -4,7 +4,7 @@
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Handshake, Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward, Link2 } from 'lucide-react';
+import { Trash2, Handshake, Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward, Link2 } from 'lucide-react';
 import { AdminLayout } from './layout';
 import { SeloRevendedor } from './revendedores';
 import { Card, CardContent } from '@/components/ui/card';
@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { api, ApiError, tokenSessao, abrirSessaoLojistaImpersonada, destinoImpersonacao } from '@/lib/api';
 import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
@@ -46,6 +47,7 @@ function gerarSlug(nome: string): string {
 
 export function TelaTenants() {
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const consulta = useQuery({
     queryKey: ['tenants'],
     queryFn: () => api<{ tenants: Tenant[] }>('GET', '/api/admin/tenants').then(r => r.tenants),
@@ -118,6 +120,34 @@ export function TelaTenants() {
     queryFn: () => api<{ revendedores: Array<{ id: number; nome: string }> }>('GET', '/api/admin/revendedores').then(r => r.revendedores),
     staleTime: 5 * 60_000,
   });
+
+  async function excluir(t: Tenant) {
+    const ok = await confirmar({
+      titulo: `Excluir ${t.nome}?`,
+      descricao: 'Apaga o banco deste cliente: pedidos, clientes, produtos e histórico. '
+        + 'Não dá pra desfazer, e o backup só existe se você tiver baixado antes. '
+        + 'Se a intenção é só tirar do ar, use Suspender.',
+      confirmar: 'Excluir para sempre',
+      destrutivo: true,
+      // Digitar o identificador obriga a olhar QUAL cliente está prestes a
+      // sumir — os cards são parecidos, e o botão fica no mesmo lugar em todos.
+      exigirTexto: t.slug,
+    });
+    if (!ok) return;
+    try {
+      const r = await api<{ banco_apagado: boolean }>('DELETE', `/api/admin/tenants/${t.id}?confirmacao=${encodeURIComponent(t.slug)}`);
+      mostrar({
+        tipo: 'sucesso',
+        titulo: 'Cliente excluído.',
+        descricao: r.banco_apagado
+          ? 'O banco de dados dele foi apagado.'
+          : 'O banco foi preservado — ele não foi criado pela plataforma.',
+      });
+      consulta.refetch();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    }
+  }
 
   async function salvarRevendedor(t: Tenant, revendedorId: number | null) {
     try {
@@ -299,7 +329,7 @@ export function TelaTenants() {
           <div className="space-y-3">
             {tenants.map(t => (
               <TenantCard key={t.id} t={t} onToggle={() => alternarAtivo(t)} onSalvarDominio={d => salvarDominio(t, d)}
-                revendedores={revendedoresQ.data ?? []} onSalvarRevendedor={id => salvarRevendedor(t, id)} />
+                revendedores={revendedoresQ.data ?? []} onSalvarRevendedor={id => salvarRevendedor(t, id)} onExcluir={() => excluir(t)} />
             ))}
           </div>
         )}
@@ -549,10 +579,11 @@ function EtapaFiscal({ tenantId, lojaId, email, onVoltar, onConcluir }: {
   );
 }
 
-function TenantCard({ t, onToggle, onSalvarDominio, revendedores, onSalvarRevendedor }: {
+function TenantCard({ t, onToggle, onSalvarDominio, revendedores, onSalvarRevendedor, onExcluir }: {
   t: Tenant; onToggle: () => void; onSalvarDominio: (d: string) => void;
   revendedores: Array<{ id: number; nome: string }>;
   onSalvarRevendedor: (id: number | null) => void;
+  onExcluir: () => void;
 }) {
   const { mostrar } = useToast();
   const [editandoDom, setEditandoDom] = useState(false);
@@ -649,6 +680,13 @@ function TenantCard({ t, onToggle, onSalvarDominio, revendedores, onSalvarRevend
             {!master && (
               <Button variant="ghost" size="sm" onClick={onToggle}>
                 <Power className="size-4" /> {t.ativo ? 'Suspender' : 'Ativar'}
+              </Button>
+            )}
+            {/* O cliente PRINCIPAL não tem excluir: o cadastro de todos os
+                outros mora no banco dele. */}
+            {!master && (
+              <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={onExcluir} title="Excluir cliente">
+                <Trash2 className="size-4" />
               </Button>
             )}
           </div>

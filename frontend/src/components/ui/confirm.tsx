@@ -13,6 +13,14 @@ export interface OpcoesConfirm {
   descricao?: string;
   /** Texto do botão de confirmar (padrão: "Confirmar"). */
   confirmar?: string;
+  /*
+   * EXIGE DIGITAR este texto pra liberar o botão.
+   *
+   * Pra ação irreversível, um clique não basta: "Excluir" fica no mesmo lugar
+   * onde estava "Salvar" no diálogo anterior, e a mão vai sozinha. Digitar o
+   * nome obriga a olhar QUAL registro está prestes a sumir.
+   */
+  exigirTexto?: string;
   /** Texto do botão de cancelar (padrão: "Cancelar"). */
   cancelar?: string;
   /** Ação perigosa (excluir/cancelar) — botão vermelho e ícone de alerta. */
@@ -30,11 +38,15 @@ export function useConfirm(): Fn {
 
 export function ConfirmProvider({ children }: { children: React.ReactNode }) {
   const [opts, setOpts] = React.useState<OpcoesConfirm | null>(null);
+  const [digitado, setDigitado] = React.useState('');
   const resolverRef = React.useRef<((v: boolean) => void) | undefined>(undefined);
 
   const confirmar = React.useCallback<Fn>((o) => {
     return new Promise<boolean>((resolve) => {
       resolverRef.current = resolve;
+      // Limpa AQUI, ao abrir: o texto digitado no diálogo anterior não pode
+      // liberar o botão deste. Num efeito, isso virava re-render em cascata.
+      setDigitado('');
       setOpts(o);
     });
   }, []);
@@ -58,6 +70,7 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
 
   const destrutivo = !!opts?.destrutivo;
   const Icone = destrutivo ? AlertTriangle : HelpCircle;
+  const liberado = !opts?.exigirTexto || digitado.trim() === opts.exigirTexto;
 
   return (
     <ConfirmContext.Provider value={confirmar}>
@@ -89,6 +102,20 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                 {opts.descricao && (
                   <p className="mt-1.5 text-sm text-muted-foreground leading-relaxed">{opts.descricao}</p>
                 )}
+                {opts.exigirTexto && (
+                  <div className="mt-4">
+                    <label htmlFor="confirm-texto" className="text-xs font-semibold text-muted-foreground">
+                      Digite <b className="font-mono text-foreground">{opts.exigirTexto}</b> para confirmar
+                    </label>
+                    <input
+                      id="confirm-texto"
+                      autoFocus
+                      value={digitado}
+                      onChange={e => setDigitado(e.target.value)}
+                      className="mt-1.5 w-full rounded-xl border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus:border-destructive focus:ring-2 focus:ring-destructive/25"
+                    />
+                  </div>
+                )}
               </div>
               <div className="flex gap-2 border-t border-border/60 p-3">
                 <button
@@ -98,10 +125,12 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                   {opts.cancelar || 'Cancelar'}
                 </button>
                 <button
-                  autoFocus
-                  onClick={() => fechar(true)}
+                  autoFocus={!opts.exigirTexto}
+                  disabled={!liberado}
+                  onClick={() => liberado && fechar(true)}
                   className={cn(
                     'flex-1 rounded-2xl py-3 text-sm font-bold text-white shadow-sm transition-opacity hover:opacity-90',
+                    'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40',
                     destrutivo ? 'bg-destructive shadow-destructive/30' : 'bg-primary text-primary-foreground shadow-primary/30',
                   )}
                 >
