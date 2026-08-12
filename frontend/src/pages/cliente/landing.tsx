@@ -778,12 +778,22 @@ export function PaginaLanding() {
       <header ref={navRef} className="sticky top-0 z-40 border-b border-transparent transition-colors duration-300">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-5 py-3 sm:px-6">
           <a href="#topo" className="flex items-center gap-2 min-w-0">
+            {/*
+              LOGO MAIOR e o nome opcional ao lado.
+              Em h-8 a logo ficava minúscula — e pior: arquivo de logo quase
+              sempre vem com margem vazia em volta, então a altura útil era
+              menor ainda que os 32px. O nome sai quando a logo já traz o nome
+              escrito, senão o cabeçalho mostra a mesma marca duas vezes (ou
+              duas marcas DIFERENTES, se a logo e o cadastro não combinarem).
+            */}
             {marca.logo_url ? (
-              <img src={marca.logo_url} alt={marca.nome} className="h-8 w-auto" />
+              <img src={marca.logo_url} alt={marca.nome} className="h-11 w-auto max-w-[190px] object-contain" />
             ) : (
-              <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Store className="h-4 w-4" /></div>
+              <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Store className="h-5 w-5" /></div>
             )}
-            <span className="truncate font-extrabold">{marca.nome}</span>
+            {(marca.mostrar_nome !== false || !marca.logo_url) && (
+              <span className="truncate font-extrabold">{marca.nome}</span>
+            )}
           </a>
 
           <nav className="hidden items-center gap-1 lg:flex">
@@ -1263,8 +1273,8 @@ export function PaginaLanding() {
         <div className="mx-auto grid max-w-6xl gap-8 px-5 py-12 sm:px-6 sm:grid-cols-3">
           <div>
             <div className="flex items-center gap-2 font-extrabold text-white">
-              {marca.logo_url ? <img src={marca.logo_url} alt={marca.nome} className="h-6 w-auto" /> : <Store className="h-5 w-5 text-primary" />}
-              {marca.nome}
+              {marca.logo_url ? <img src={marca.logo_url} alt={marca.nome} className="h-9 w-auto max-w-[170px] object-contain" /> : <Store className="h-5 w-5 text-primary" />}
+              {(marca.mostrar_nome !== false || !marca.logo_url) && marca.nome}
             </div>
             <p className="mt-2 max-w-xs text-sm text-neutral-400">{marca.slogan || 'Seu delivery white label: com a sua marca e o seu domínio.'}</p>
             {redesSociais.length > 0 && (

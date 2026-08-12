@@ -1307,6 +1307,7 @@ router.get('/tema', async (_req, res, next) => {
       nome:              await valor('marca_nome', 'Delivery Já'),
       slogan:            await valor('marca_slogan', 'Peça das melhores lojas da sua região'),
       logo_url:          await valor('marca_logo_url'),
+      mostrar_nome:      (await valor('marca_mostrar_nome', '1')) !== '0',
       favicon_url:       await valor('marca_favicon_url'),
       cor_primaria:      await valor('marca_cor_primaria', '#dc2640'),
       cor_secundaria:    await valor('marca_cor_secundaria'),
@@ -1335,6 +1336,10 @@ router.put('/tema', exigirSuperAdmin, async (req, res, next) => {
     if (req.body.nome !== undefined) await set(nome, 'marca_nome');
 
     if (req.body.slogan !== undefined) await set(textoLimpo(req.body.slogan, 120), 'marca_slogan');
+
+    // Nome ao lado da logo. Guardado como '1'/'0' pra ficar igual às outras
+    // chaves booleanas de configuracoes (a tabela é chave/valor em texto).
+    if (req.body.mostrar_nome !== undefined) await set(req.body.mostrar_nome ? '1' : '0', 'marca_mostrar_nome');
 
     if (req.body.logo_url !== undefined) {
       const v = textoLimpo(req.body.logo_url, 500);

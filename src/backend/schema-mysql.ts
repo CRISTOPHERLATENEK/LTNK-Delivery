@@ -653,6 +653,13 @@ const CONFIGS_PADRAO: Array<[string, string]> = [
   ['marca_nome', 'Delivery Já'],
   ['marca_slogan', 'Peça das melhores lojas da sua região'],
   ['marca_logo_url', ''],
+  /*
+   * Nome ao lado da logo. Padrão LIGADO: logo só de símbolo sem o nome ao lado
+   * deixa o visitante sem saber onde está. Quem tem logo com o nome escrito
+   * (wordmark) desliga — senão o cabeçalho mostra o nome duas vezes, e pode
+   * mostrar dois nomes DIFERENTES se a logo e o cadastro não combinarem.
+   */
+  ['marca_mostrar_nome', '1'],
   ['marca_favicon_url', ''],
   ['marca_cor_primaria', '#dc2640'],
   ['loja_padrao_id', '0'],

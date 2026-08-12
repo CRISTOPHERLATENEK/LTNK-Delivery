@@ -14,6 +14,7 @@ const PADRAO: TemaMarca = {
   nome: 'Delivery Já',
   slogan: 'Peça das melhores lojas',
   logo_url: '',
+  mostrar_nome: true,
   favicon_url: '',
   cor_primaria: '#dc2640',
   cor_secundaria: '',

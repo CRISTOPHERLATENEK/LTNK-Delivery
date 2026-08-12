@@ -114,6 +114,35 @@ export function TelaMarca() {
           <Secao icone={ImageIcon} titulo="Imagens">
             <ImageUpload label="Logo" value={form.logo_url}
               onChange={v => up('logo_url', v)} aspectRatio="square" />
+
+            {/*
+              MOSTRAR O NOME AO LADO DA LOGO.
+              Existe porque as duas situações são comuns e opostas: logo só de
+              símbolo precisa do nome ao lado, e logo com o nome escrito
+              (wordmark) fica repetindo — ou pior, mostrando dois nomes
+              diferentes, se a logo e o cadastro não combinarem.
+            */}
+            {form.logo_url && (
+              <button
+                type="button"
+                onClick={() => up('mostrar_nome', !(form.mostrar_nome !== false))}
+                className="flex w-full items-start gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:bg-accent/40"
+              >
+                <span className={cn('relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors',
+                  form.mostrar_nome !== false ? 'bg-primary' : 'bg-muted-foreground/30')}>
+                  <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-all',
+                    form.mostrar_nome !== false ? 'left-[19px]' : 'left-[3px]')} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold">Mostrar o nome ao lado da logo</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {form.mostrar_nome !== false
+                      ? 'Desligue se a sua logo já traz o nome escrito — senão ele aparece duas vezes.'
+                      : 'Só a logo aparece no cabeçalho. Bom pra logo que já tem o nome.'}
+                  </span>
+                </span>
+              </button>
+            )}
             <ImageUpload label="Favicon (ícone da aba)" value={form.favicon_url}
               onChange={v => up('favicon_url', v)} aspectRatio="square" />
             <div>

@@ -15,15 +15,20 @@ export function PreviewApp({ form }: { form: TemaMarca }) {
       <div className="rounded-xl overflow-hidden border border-border bg-background shadow-sm">
         {/* Header da marca */}
         <div className="flex items-center gap-2.5 p-3 border-b border-border">
+          {/* Mesmas classes do cabeçalho real (app-layout): object-contain e
+              largura livre, senão a prévia mostraria a logo inteira e a loja
+              mostraria ela recortada. */}
           {form.logo_url ? (
-            <img src={form.logo_url} alt="" className="size-9 rounded-xl object-cover" />
+            <img src={form.logo_url} alt="" className="h-9 w-auto max-w-[120px] object-contain" />
           ) : (
             <div className="flex size-9 items-center justify-center rounded-xl bg-primary text-primary-foreground font-extrabold">
               {(form.nome || 'D').charAt(0)}
             </div>
           )}
           <div className="min-w-0">
-            <div className="font-extrabold leading-tight truncate text-sm">{form.nome || 'Nome da marca'}</div>
+            {(form.mostrar_nome !== false || !form.logo_url) && (
+              <div className="font-extrabold leading-tight truncate text-sm">{form.nome || 'Nome da marca'}</div>
+            )}
             <div className="text-[11px] text-muted-foreground truncate">{form.slogan || 'Seu slogan aqui'}</div>
           </div>
         </div>

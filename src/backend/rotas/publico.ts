@@ -63,6 +63,7 @@ router.get('/tema', async (req, res, next) => {
     let nome = await valor('marca_nome', 'Delivery Já');
     let slogan = await valor('marca_slogan', 'Peça das melhores lojas da sua região');
     let logo = await valor('marca_logo_url');
+    const mostrarNome = (await valor('marca_mostrar_nome', '1')) !== '0';
     let descricao = await valor('marca_descricao');
 
     if (lojaId > 0) {
@@ -105,6 +106,7 @@ router.get('/tema', async (req, res, next) => {
       nome,
       slogan,
       logo_url:          logo,
+      mostrar_nome:      mostrarNome,
       favicon_url:       favicon,
       cor_primaria:      corPrimaria,
       cor_secundaria:    corSecundaria,

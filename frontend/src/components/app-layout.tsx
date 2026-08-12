@@ -108,10 +108,17 @@ export function AppLayout({ children, itens, grupos, titulo, subtitulo }: Props)
   const Logo = (
     <Link to={raiz} className="flex items-center gap-2.5 group min-w-0">
       {marca.logo_url ? (
+        /*
+         * `object-contain` com largura livre, NÃO `object-cover` num quadrado.
+         * O cover recortava a logo em 40x40: numa logo larga (símbolo + nome
+         * escrito, que é a maioria) isso decepava as laterais e cortava
+         * justamente o nome da marca. Agora a proporção é respeitada e a
+         * largura acompanha, com teto pra não empurrar o resto do cabeçalho.
+         */
         <img
           src={marca.logo_url}
           alt={nomeMarca}
-          className="size-10 rounded-2xl object-cover shadow-sm group-hover:shadow-md transition-shadow shrink-0"
+          className="h-10 w-auto max-w-[150px] object-contain shrink-0"
         />
       ) : (
         <div className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground shadow-sm group-hover:shadow-md transition-shadow shrink-0">
@@ -119,7 +126,10 @@ export function AppLayout({ children, itens, grupos, titulo, subtitulo }: Props)
         </div>
       )}
       <div className="flex flex-col leading-tight min-w-0">
-        <span className="font-extrabold tracking-tight truncate">{nomeMarca}</span>
+        {/* Nome escondido quando a logo já o traz — ver marca_mostrar_nome. */}
+        {(marca.mostrar_nome !== false || !marca.logo_url) && (
+          <span className="font-extrabold tracking-tight truncate">{nomeMarca}</span>
+        )}
         {(subtitulo || usuario || marca.slogan) && (
           <span className="text-xs text-muted-foreground truncate">
             {subtitulo || (usuario ? `Olá, ${usuario.nome.split(' ')[0]}` : marca.slogan)}

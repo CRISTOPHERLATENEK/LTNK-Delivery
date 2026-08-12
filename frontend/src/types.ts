@@ -188,6 +188,8 @@ export interface TemaMarca {
   nome: string;
   slogan: string;
   logo_url: string;
+  /** Mostrar o nome da marca ao lado da logo. Falso quando a logo já traz o nome. */
+  mostrar_nome?: boolean;
   favicon_url: string;
   cor_primaria: string;
   /** Cor de destaque secundária (botões alternativos, links). Vazio = derivada da primária. */
