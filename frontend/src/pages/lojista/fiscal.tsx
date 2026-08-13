@@ -432,17 +432,17 @@ export function FiscalLoja() {
 
   if (!cfg) return <Skeleton className="h-96" />;
 
-  const ETAPAS: Array<{ n: Etapa; titulo: string; status: string }> = [
-    {
-      n: 1, titulo: 'Certificado A1',
-      status: cert?.instalado
-        ? (diasCert !== null && diasCert >= 0 ? `Válido · ${diasCert} dias` : 'Vencido')
-        : 'Não instalado',
-    },
-    { n: 2, titulo: 'Dados do emitente', status: feitas[2] ? 'Confirmado' : 'Pendente' },
-    { n: 3, titulo: 'CSC e numeração', status: feitas[3] ? 'Configurado' : 'Pendente' },
-    { n: 4, titulo: 'Tributação padrão', status: 'Revisar com contador' },
-    { n: 5, titulo: 'Teste e ativação', status: testeAprovado ? 'Teste aprovado' : 'Aguardando teste' },
+  /*
+   * Nas abas horizontais cabe só o título — o "pronto/pendente" vira o visto
+   * verde. O detalhe de cada etapa (validade do certificado, se o teste passou)
+   * já aparece dentro dela, então repetir na aba seria ruído.
+   */
+  const ETAPAS: Array<{ n: Etapa; titulo: string }> = [
+    { n: 1, titulo: 'Certificado A1' },
+    { n: 2, titulo: 'Dados do emitente' },
+    { n: 3, titulo: 'CSC e numeração' },
+    { n: 4, titulo: 'Tributação padrão' },
+    { n: 5, titulo: 'Teste e ativação' },
   ];
 
   return (
@@ -453,58 +453,48 @@ export function FiscalLoja() {
           <FileText className="size-5 text-primary" />
           <h1 className="text-lg font-extrabold">Emissão de NFC-e</h1>
         </div>
-        {cfg.ambiente === 1
-          ? <Badge variant="success">produção</Badge>
-          : <Badge variant="warning">homologação</Badge>}
-      </div>
-
-      <div className="lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-4">
-        {/* Etapas. No celular vira uma faixa rolável; no desktop, lista vertical
-            igual à navegação das Configurações. */}
-        <nav className="mb-4 lg:mb-0" aria-label="Etapas da configuração fiscal">
-          <div className="mb-1.5 hidden px-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground lg:block">
-            Configuração
-          </div>
-          <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:gap-0 lg:overflow-visible lg:pb-0">
-            {ETAPAS.map(e => {
-              const ativa = etapa === e.n;
-              return (
-                <button
-                  key={e.n}
-                  type="button"
-                  onClick={() => setEtapa(e.n)}
-                  aria-current={ativa ? 'step' : undefined}
-                  className={cn(
-                    'flex shrink-0 items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors lg:w-full lg:shrink',
-                    ativa ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
-                  )}
-                >
-                  <span className="mt-px font-mono text-[11px] opacity-70">{String(e.n).padStart(2, '0')}</span>
-                  <span className="min-w-0">
-                    <span className="block whitespace-nowrap text-sm font-semibold lg:whitespace-normal">{e.titulo}</span>
-                    <span className={cn('mt-0.5 block whitespace-nowrap text-[11px] lg:whitespace-normal',
-                      feitas[e.n] ? 'text-success' : 'opacity-70')}>
-                      {e.status}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Progresso: um traço por etapa. Barra contínua sugeriria meio-termo
-              onde só existe feito ou não feito. */}
-          <div className="mt-3 hidden px-2 lg:block">
+        <div className="flex items-center gap-3">
+          {/* Progresso: um traço por etapa. Barra contínua sugeriria
+              meio-termo onde só existe feito ou não feito. */}
+          <div className="hidden sm:block">
             <div className="text-[11px] font-semibold text-muted-foreground">Concluído {concluidas}/5</div>
-            <div className="mt-1.5 flex gap-1">
+            <div className="mt-1 flex gap-1">
               {[1, 2, 3, 4, 5].map(i => (
-                <span key={i} className={cn('h-1 flex-1 rounded-full', i <= concluidas ? 'bg-primary' : 'bg-muted')} />
+                <span key={i} className={cn('h-1 w-6 rounded-full', i <= concluidas ? 'bg-primary' : 'bg-muted')} />
               ))}
             </div>
           </div>
-        </nav>
+          {cfg.ambiente === 1
+            ? <Badge variant="success">produção</Badge>
+            : <Badge variant="warning">homologação</Badge>}
+        </div>
+      </div>
 
-        <div className="min-w-0 space-y-4">
+      {/* Etapas em abas horizontais, mesmo padrão das outras telas com abas.
+          Rolam de lado no celular; o visto verde marca o que já está pronto. */}
+      <nav className="flex gap-1 overflow-x-auto border-b border-border" aria-label="Etapas da configuração fiscal">
+        {ETAPAS.map(e => {
+          const ativa = etapa === e.n;
+          return (
+            <button
+              key={e.n}
+              type="button"
+              onClick={() => setEtapa(e.n)}
+              aria-current={ativa ? 'step' : undefined}
+              className={cn(
+                'relative -mb-px flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-semibold transition-colors',
+                ativa ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <span className="font-mono text-[11px] opacity-70">{String(e.n).padStart(2, '0')}</span>
+              {e.titulo}
+              {feitas[e.n] && <CheckCircle2 className="size-3.5 text-success" />}
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="min-w-0 space-y-4">
           {etapa === 1 && (
             <Passo
               icone={ShieldCheck}
@@ -1163,7 +1153,6 @@ export function FiscalLoja() {
               )}
             </CardContent>
           </Card>
-        </div>
       </div>
 
       {/*
