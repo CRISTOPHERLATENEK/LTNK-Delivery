@@ -6,14 +6,23 @@
  * anterior mostrava as cinco de uma vez, num rolo de uns quarenta campos. Quem
  * abria não sabia por onde começar nem o que já estava pronto.
  *
- * A estética é de instrumento e não de painel de marketing: sem cor decorativa
- * (o único destaque é o próprio branco), raio de 3px e TODO dado técnico em
- * fonte mono — número fiscal é conferido dígito a dígito contra um papel, e em
- * fonte proporcional 0/O e 1/l se confundem. A escala está em index.css
- * (`.fiscal-shell`), com o espelho claro do mesmo desenho.
+ * Usa o MESMO desenho do resto do painel (Card, Button, Input, cor primária,
+ * cantos arredondados). Uma tela com estética própria destoaria de todas as
+ * outras abas de Configurações, que ficam a um clique de distância.
+ *
+ * Dado técnico continua em `font-mono`: número fiscal é conferido dígito a
+ * dígito contra um papel, e em fonte proporcional 0/O e 1/l se confundem.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import {
+  FileText, ShieldCheck, Upload, AlertTriangle, CheckCircle2, Save, FlaskConical,
+  Download, Package, Ban, RefreshCw, Receipt, Loader2, FolderArchive, Mail, Landmark,
+} from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, tokenSessao } from '@/lib/api';
@@ -54,6 +63,12 @@ interface ProdutoFiscal {
 const NOTA_ROTULO: Record<NotaFiscal['status'], string> = {
   autorizada: 'Autorizada', cancelada: 'Cancelada', rejeitada: 'Rejeitada',
   erro: 'Erro', pendente: 'Pendente',
+};
+
+/** Cor do selo por situação, nas mesmas variantes usadas no resto do painel. */
+const NOTA_BADGE: Record<NotaFiscal['status'], 'success' | 'secondary' | 'danger' | 'warning'> = {
+  autorizada: 'success', cancelada: 'secondary', rejeitada: 'danger',
+  erro: 'warning', pendente: 'secondary',
 };
 
 const ORIGENS = [
@@ -431,92 +446,68 @@ export function FiscalLoja() {
   ];
 
   return (
-    /*
-      Superfície própria, dentro da coluna das Configurações — e não sangrando
-      pra tela inteira. Esta tela mora ao lado do menu de configurações; margem
-      negativa pra "full bleed" passaria por cima dele.
-    */
-    <div className="fiscal-shell border" style={{ borderColor: 'var(--f-line)', borderRadius: 3 }}>
-      {/* Cabeçalho */}
-      <header className="flex flex-wrap items-end justify-between gap-4 px-5 pb-5 pt-6 sm:px-8">
-        <div>
-          <div className="f-mono text-[11px] uppercase tracking-[.14em]" style={{ color: 'var(--f-text-3)' }}>Fiscal</div>
-          <h1 className="mt-1 text-[26px] font-semibold leading-tight">Emissão de NFC-e</h1>
+    <div className="space-y-4">
+      {/* Cabeçalho: título da tela + ambiente, no mesmo desenho das outras abas */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <FileText className="size-5 text-primary" />
+          <h1 className="text-lg font-extrabold">Emissão de NFC-e</h1>
         </div>
-        {/* Ambiente: dot + texto com borda fina. Badge preenchido colorido seria
-            a única mancha de cor da tela, e justamente no canto. */}
-        <div className="flex items-center gap-2 rounded-[4px] border px-2.5 py-1.5 text-xs"
-          style={{ borderColor: 'var(--f-line-2)' }}>
-          <span className="size-[5px] rounded-full"
-            style={{ background: cfg.ambiente === 1 ? 'var(--f-green)' : 'var(--f-amber)' }} />
-          <span style={{ color: cfg.ambiente === 1 ? 'var(--f-green)' : 'var(--f-amber)' }}>
-            {cfg.ambiente === 1 ? 'Produção' : 'Homologação'}
-          </span>
-        </div>
-      </header>
+        {cfg.ambiente === 1
+          ? <Badge variant="success">produção</Badge>
+          : <Badge variant="warning">homologação</Badge>}
+      </div>
 
-      <div className="border-t" style={{ borderColor: 'var(--f-line)' }} />
-
-      {/* Stepper + conteúdo */}
-      <div className="lg:grid lg:grid-cols-[232px_1fr]">
-        {/* Coluna esquerda — no celular vira barra horizontal rolável */}
-        <nav className="border-b lg:border-b-0 lg:border-r" style={{ borderColor: 'var(--f-line)' }}>
-          <div className="hidden px-5 pb-3 pt-5 text-[11px] uppercase tracking-[.14em] lg:block"
-            style={{ color: 'var(--f-text-3)' }}>
+      <div className="lg:grid lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-4">
+        {/* Etapas. No celular vira uma faixa rolável; no desktop, lista vertical
+            igual à navegação das Configurações. */}
+        <nav className="mb-4 lg:mb-0" aria-label="Etapas da configuração fiscal">
+          <div className="mb-1.5 hidden px-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground lg:block">
             Configuração
           </div>
-          <ul className="flex overflow-x-auto lg:block">
-            {ETAPAS.map(e => (
-              <li key={e.n} className="shrink-0 lg:shrink">
+          <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:gap-0 lg:overflow-visible lg:pb-0">
+            {ETAPAS.map(e => {
+              const ativa = etapa === e.n;
+              return (
                 <button
+                  key={e.n}
                   type="button"
                   onClick={() => setEtapa(e.n)}
+                  aria-current={ativa ? 'step' : undefined}
                   className={cn(
-                    'flex w-full items-start gap-3 border-l-2 px-5 py-3 text-left transition-colors',
+                    'flex shrink-0 items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors lg:w-full lg:shrink',
+                    ativa ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                   )}
-                  style={{
-                    borderLeftColor: etapa === e.n ? 'var(--f-accent)' : 'transparent',
-                    background: etapa === e.n ? 'var(--f-surface-2)' : 'transparent',
-                  }}
                 >
-                  <span className="f-mono mt-[3px] text-[11px]"
-                    style={{ color: etapa === e.n ? 'var(--f-text-2)' : 'var(--f-text-3)' }}>
-                    {String(e.n).padStart(2, '0')}
-                  </span>
+                  <span className="mt-px font-mono text-[11px] opacity-70">{String(e.n).padStart(2, '0')}</span>
                   <span className="min-w-0">
-                    <span className="block whitespace-nowrap text-[13.5px] lg:whitespace-normal"
-                      style={{ color: etapa === e.n ? 'var(--f-text)' : 'var(--f-text-2)' }}>
-                      {e.titulo}
-                    </span>
-                    <span className="mt-0.5 block whitespace-nowrap text-[11.5px] lg:whitespace-normal"
-                      style={{ color: feitas[e.n] ? 'var(--f-green)' : 'var(--f-text-3)' }}>
+                    <span className="block whitespace-nowrap text-sm font-semibold lg:whitespace-normal">{e.titulo}</span>
+                    <span className={cn('mt-0.5 block whitespace-nowrap text-[11px] lg:whitespace-normal',
+                      feitas[e.n] ? 'text-success' : 'opacity-70')}>
                       {e.status}
                     </span>
                   </span>
                 </button>
-              </li>
-            ))}
-          </ul>
+              );
+            })}
+          </div>
 
-          {/* Progresso em filetes: cinco traços, um por etapa. Barra com
-              gradiente sugeriria continuidade onde só existe feito/não feito. */}
-          <div className="hidden px-5 py-5 lg:block">
-            <div className="f-mono text-[11px]" style={{ color: 'var(--f-text-3)' }}>
-              Concluído {concluidas}/5
-            </div>
-            <div className="mt-2 flex gap-1">
+          {/* Progresso: um traço por etapa. Barra contínua sugeriria meio-termo
+              onde só existe feito ou não feito. */}
+          <div className="mt-3 hidden px-2 lg:block">
+            <div className="text-[11px] font-semibold text-muted-foreground">Concluído {concluidas}/5</div>
+            <div className="mt-1.5 flex gap-1">
               {[1, 2, 3, 4, 5].map(i => (
-                <span key={i} className="h-[2px] flex-1"
-                  style={{ background: i <= concluidas ? 'var(--f-filete)' : 'var(--f-filete-off)' }} />
+                <span key={i} className={cn('h-1 flex-1 rounded-full', i <= concluidas ? 'bg-primary' : 'bg-muted')} />
               ))}
             </div>
           </div>
         </nav>
 
-        {/* Painel de conteúdo */}
-        <div className="px-5 py-7 sm:px-8">
+        <div className="min-w-0 space-y-4">
           {etapa === 1 && (
             <Passo
+              icone={ShieldCheck}
               titulo="Certificado digital A1"
               texto="O certificado assina cada nota emitida. É um arquivo .pfx ou .p12 emitido por uma certificadora, com validade de um ano — vencido, a emissão para no mesmo dia."
             >
@@ -524,21 +515,21 @@ export function FiscalLoja() {
                 <>
                   <Tabela linhas={[
                     ['Titular', cert.titular || '—'],
-                    ['CNPJ', <span key="c" className="f-mono">{mascararCnpj(cnpjDoCertificado(cert.titular) || cfg.cnpj)}</span>],
-                    ['Validade', <span key="v">
-                      <span className="f-mono">{cert.validade ? new Date(cert.validade).toLocaleDateString('pt-BR') : '—'}</span>
-                      {diasCert !== null && (
-                        <span className="ml-2" style={{ color: diasCert <= 30 ? 'var(--f-amber)' : 'var(--f-text-3)' }}>
-                          {diasCert >= 0 ? `${diasCert} dias restantes` : 'vencido'}
-                        </span>
-                      )}
+                    ['CNPJ', <span key="c" className="font-mono">{mascararCnpj(cnpjDoCertificado(cert.titular) || cfg.cnpj)}</span>],
+                    ['Validade', <span key="v" className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono">{cert.validade ? new Date(cert.validade).toLocaleDateString('pt-BR') : '—'}</span>
+                      {diasCert !== null && (diasCert < 0
+                        ? <Badge variant="danger">vencido</Badge>
+                        : diasCert <= 30
+                          ? <Badge variant="warning">{diasCert} dias restantes</Badge>
+                          : <span className="text-xs text-muted-foreground">{diasCert} dias restantes</span>)}
                     </span>],
                   ]} />
-                  <div className="mt-5">
-                    <button type="button" className="f-btn" onClick={() => setTrocandoCert(true)}>
-                      Substituir certificado
-                    </button>
-                    <p className="mt-2 text-[12.5px]" style={{ color: 'var(--f-text-3)' }}>
+                  <div className="mt-4">
+                    <Button type="button" variant="outline" onClick={() => setTrocandoCert(true)}>
+                      <Upload className="size-4" /> Substituir certificado
+                    </Button>
+                    <p className="mt-2 text-xs text-muted-foreground">
                       Envie um novo antes do vencimento para não parar de emitir.
                     </p>
                   </div>
@@ -546,11 +537,9 @@ export function FiscalLoja() {
               )}
 
               {(!cert?.instalado || trocandoCert) && (
-                <div className="max-w-[520px] space-y-4">
+                <div className="max-w-[520px] space-y-3">
                   {!cert?.instalado && (
-                    <p className="text-[13px]" style={{ color: 'var(--f-text-3)' }}>
-                      Nenhum certificado instalado.
-                    </p>
+                    <p className="text-sm text-muted-foreground">Nenhum certificado instalado.</p>
                   )}
 
                   <label
@@ -558,50 +547,44 @@ export function FiscalLoja() {
                     onDragLeave={() => setArrastando(false)}
                     onDrop={e => {
                       e.preventDefault(); setArrastando(false);
-                      const f = e.dataTransfer.files?.[0];
-                      if (f) setArquivo(f);
+                      const arq = e.dataTransfer.files?.[0];
+                      if (arq) setArquivo(arq);
                     }}
-                    className="flex cursor-pointer flex-col items-center justify-center gap-1 border border-dashed px-6 py-9 text-center"
-                    style={{
-                      borderColor: arrastando ? 'var(--f-text-3)' : 'var(--f-line-2)',
-                      borderRadius: 3,
-                      background: 'var(--f-surface)',
-                    }}
+                    className={cn(
+                      'flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors',
+                      arrastando ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50',
+                    )}
                   >
                     <input type="file" accept=".pfx,.p12" className="sr-only"
                       onChange={e => setArquivo(e.target.files?.[0] || null)} />
+                    <Upload className="size-5 text-muted-foreground" />
                     {arquivo
-                      ? <span className="f-mono text-[13px]">{arquivo.name}</span>
+                      ? <span className="font-mono text-sm">{arquivo.name}</span>
                       : <>
-                        <span className="text-[13.5px]">Arraste o arquivo .pfx ou .p12</span>
-                        <span className="text-[12.5px]" style={{ color: 'var(--f-text-3)' }}>
-                          ou <u>escolha do computador</u>
-                        </span>
+                        <span className="text-sm font-medium">Arraste o arquivo .pfx ou .p12</span>
+                        <span className="text-xs text-muted-foreground">ou clique para escolher do computador</span>
                       </>}
                   </label>
 
                   <div>
-                    <Rotulo>Senha do certificado</Rotulo>
-                    <input type="password" value={senhaCert} onChange={e => setSenhaCert(e.target.value)}
-                      className="f-campo f-mono" placeholder="••••••" autoComplete="off" />
+                    <Label htmlFor="cert-senha">Senha do certificado</Label>
+                    <Input id="cert-senha" type="password" className="font-mono" autoComplete="off"
+                      value={senhaCert} onChange={e => setSenhaCert(e.target.value)} placeholder="••••••" />
                   </div>
 
-                  <p className="text-[12px]" style={{ color: 'var(--f-text-3)' }}>
-                    O arquivo fica em pasta protegida no servidor e a senha é guardada criptografada.
-                    Não é compartilhado com ninguém.
+                  <p className="text-[11px] text-muted-foreground">
+                    O arquivo fica em pasta protegida no servidor e a senha é guardada criptografada. Não é compartilhado.
                   </p>
 
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" className="f-btn f-btn--solido"
-                      onClick={enviarCertificado} disabled={subindoCert || !arquivo || !senhaCert}>
-                      {subindoCert && <Loader2 className="size-3.5 animate-spin" />}
-                      {subindoCert ? 'Validando…' : 'Enviar e validar'}
-                    </button>
+                    <Button type="button" onClick={enviarCertificado} disabled={subindoCert || !arquivo || !senhaCert}>
+                      {subindoCert ? <><Loader2 className="size-4 animate-spin" /> Validando…</> : <><Upload className="size-4" /> Enviar e validar</>}
+                    </Button>
                     {cert?.instalado && (
-                      <button type="button" className="f-btn"
+                      <Button type="button" variant="outline"
                         onClick={() => { setTrocandoCert(false); setArquivo(null); setSenhaCert(''); }}>
                         Cancelar
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>
@@ -611,73 +594,97 @@ export function FiscalLoja() {
 
           {etapa === 2 && (
             <Passo
+              icone={Landmark}
               titulo="Dados do emitente"
               texto="É o que sai impresso na nota e o que a SEFAZ confere. Consulte pelo CNPJ para trazer os dados oficiais da Receita — a inscrição estadual ela não fornece, essa você preenche."
             >
               <div className="max-w-[420px]">
-                <Rotulo>CNPJ</Rotulo>
+                <Label htmlFor="emit-cnpj">CNPJ</Label>
                 <div className="flex gap-2">
                   <div className="relative flex-1">
-                    <input
-                      value={formatarCnpj(cfg.cnpj)}
-                      onChange={e => aoDigitarCnpj(e.target.value)}
-                      maxLength={18}
-                      inputMode="numeric"
-                      placeholder="00.000.000/0000-00"
-                      className="f-campo f-mono"
-                    />
+                    <Input id="emit-cnpj" value={formatarCnpj(cfg.cnpj)} onChange={e => aoDigitarCnpj(e.target.value)}
+                      maxLength={18} inputMode="numeric" placeholder="00.000.000/0000-00" className="font-mono" />
                     {buscandoCnpj && (
-                      <Loader2 className="absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 animate-spin"
-                        style={{ color: 'var(--f-text-3)' }} />
+                      <Loader2 className="absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
                     )}
                   </div>
-                  <button type="button" className="f-btn" onClick={() => aoDigitarCnpj(cfg.cnpj)}
+                  <Button type="button" variant="outline" onClick={() => aoDigitarCnpj(cfg.cnpj)}
                     disabled={buscandoCnpj || cnpjDigitos(cfg.cnpj).length !== 14}>
                     Consultar
-                  </button>
+                  </Button>
                 </div>
               </div>
 
-              <div className="mt-7 flex items-center justify-between gap-3">
-                <span className="text-[11px] uppercase tracking-[.14em]" style={{ color: 'var(--f-text-3)' }}>
+              <div className="mt-6 flex flex-wrap items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
                   {editandoEmitente ? 'Edição manual' : 'Retornado pela Receita'}
                 </span>
                 <button type="button" onClick={() => setEditandoEmitente(v => !v)}
-                  className="text-[12.5px] underline underline-offset-2" style={{ color: 'var(--f-text-2)' }}>
+                  className="text-xs font-semibold text-primary hover:underline">
                   {editandoEmitente ? 'Voltar à leitura' : 'Editar manualmente'}
                 </button>
               </div>
 
-              {/* Leitura por padrão. Abrir doze inputs de cara transforma uma
+              {/* Leitura por padrão. Abrir doze inputs de cara transformava uma
                   conferência de trinta segundos num formulário. */}
               {!editandoEmitente ? (
-                <div className="mt-3">
+                <div className="mt-2">
                   <Tabela linhas={[
                     ['Razão social', cfg.razao_social || '—'],
                     ['Nome fantasia', cfg.nome_fantasia || '—'],
-                    ['Inscrição estadual', <span key="ie" className="f-mono">{cfg.ie || '—'}</span>],
+                    ['Inscrição estadual', <span key="ie" className="font-mono">{cfg.ie || '—'}</span>],
                     ['Município', `${cfg.municipio || '—'}${cfg.uf ? ` / ${cfg.uf}` : ''}`],
-                    ['Código IBGE', <span key="ib" className="f-mono">{cfg.cmun || '—'}</span>],
+                    ['Código IBGE', <span key="ib" className="font-mono">{cfg.cmun || '—'}</span>],
                     ['Endereço', [cfg.logradouro, cfg.numero, cfg.bairro].filter(Boolean).join(', ') || '—'],
-                    ['CEP', <span key="cep" className="f-mono">{cfg.cep || '—'}</span>],
+                    ['CEP', <span key="cep" className="font-mono">{cfg.cep || '—'}</span>],
                   ]} />
                 </div>
               ) : (
-                <div className="mt-4 grid max-w-[720px] gap-4 sm:grid-cols-2">
-                  <Campo rotulo="Razão social" className="sm:col-span-2"
-                    valor={cfg.razao_social} onChange={v => campo('razao_social', v)} />
-                  <Campo rotulo="Nome fantasia" valor={cfg.nome_fantasia} onChange={v => campo('nome_fantasia', v)} />
-                  <Campo rotulo="Inscrição estadual" mono valor={cfg.ie} onChange={v => campo('ie', v)}
-                    placeholder="ISENTO ou número" />
-                  <Campo rotulo="Município" valor={cfg.municipio} onChange={v => campo('municipio', v)} />
-                  <Campo rotulo="UF" valor={cfg.uf} onChange={v => campo('uf', v.toUpperCase().slice(0, 2))} maxLength={2} />
-                  <Campo rotulo="Código IBGE" mono valor={cfg.cmun} maxLength={7}
-                    onChange={v => campo('cmun', v.replace(/\D/g, ''))} />
-                  <Campo rotulo="CEP" mono valor={cfg.cep} maxLength={8}
-                    onChange={v => campo('cep', v.replace(/\D/g, ''))} />
-                  <Campo rotulo="Logradouro" valor={cfg.logradouro} onChange={v => campo('logradouro', v)} />
-                  <Campo rotulo="Número" valor={cfg.numero} onChange={v => campo('numero', v)} />
-                  <Campo rotulo="Bairro" valor={cfg.bairro} onChange={v => campo('bairro', v)} />
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <Label htmlFor="e-razao">Razão social</Label>
+                    <Input id="e-razao" value={cfg.razao_social} onChange={e => campo('razao_social', e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="e-fantasia">Nome fantasia</Label>
+                    <Input id="e-fantasia" value={cfg.nome_fantasia} onChange={e => campo('nome_fantasia', e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="e-ie">Inscrição estadual</Label>
+                    <Input id="e-ie" className="font-mono" value={cfg.ie} onChange={e => campo('ie', e.target.value)}
+                      placeholder="ISENTO ou número" />
+                  </div>
+                  <div>
+                    <Label htmlFor="e-mun">Município</Label>
+                    <Input id="e-mun" value={cfg.municipio} onChange={e => campo('municipio', e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="e-uf">UF</Label>
+                    <Input id="e-uf" maxLength={2} className="uppercase" value={cfg.uf}
+                      onChange={e => campo('uf', e.target.value.toUpperCase().slice(0, 2))} />
+                  </div>
+                  <div>
+                    <Label htmlFor="e-ibge">Código IBGE</Label>
+                    <Input id="e-ibge" maxLength={7} className="font-mono" value={cfg.cmun}
+                      onChange={e => campo('cmun', e.target.value.replace(/\D/g, ''))} />
+                  </div>
+                  <div>
+                    <Label htmlFor="e-cep">CEP</Label>
+                    <Input id="e-cep" maxLength={8} className="font-mono" value={cfg.cep}
+                      onChange={e => campo('cep', e.target.value.replace(/\D/g, ''))} />
+                  </div>
+                  <div>
+                    <Label htmlFor="e-log">Logradouro</Label>
+                    <Input id="e-log" value={cfg.logradouro} onChange={e => campo('logradouro', e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="e-num">Número</Label>
+                    <Input id="e-num" value={cfg.numero} onChange={e => campo('numero', e.target.value)} />
+                  </div>
+                  <div>
+                    <Label htmlFor="e-bairro">Bairro</Label>
+                    <Input id="e-bairro" value={cfg.bairro} onChange={e => campo('bairro', e.target.value)} />
+                  </div>
                 </div>
               )}
             </Passo>
@@ -685,61 +692,56 @@ export function FiscalLoja() {
 
           {etapa === 3 && (
             <Passo
+              icone={ShieldCheck}
               titulo="CSC e numeração"
               texto="O CSC é o código de segurança do contribuinte, gerado por você no portal da SEFAZ do seu estado. Sem ele, o QR Code da nota não valida e a SEFAZ rejeita a emissão."
             >
-              <ol className="max-w-[46ch] border-l pl-5" style={{ borderColor: 'var(--f-line-2)' }}>
+              <ol className="space-y-2 border-l-2 border-border pl-4">
                 {[
                   'Entre no portal da SEFAZ do seu estado com o certificado digital.',
-                  'Procure "CSC" ou "Código de Segurança do Contribuinte" e gere um código para produção.',
+                  'Procure "CSC" ou "Código de Segurança do Contribuinte" e gere um código.',
                   'Copie o ID (um número curto) e o código em si — os dois vão nos campos abaixo.',
                 ].map((t, i) => (
-                  <li key={i} className="relative py-2">
-                    <span className="f-mono mr-2 text-[11px]" style={{ color: 'var(--f-text-3)' }}>
-                      {String(i + 1).padStart(2, '0')}
-                    </span>
-                    <span className="text-[13.5px]" style={{ color: 'var(--f-text-2)' }}>{t}</span>
+                  <li key={i} className="text-sm text-muted-foreground">
+                    <span className="mr-2 font-mono text-[11px] text-primary">{String(i + 1).padStart(2, '0')}</span>
+                    {t}
                   </li>
                 ))}
               </ol>
-              <p className="mt-3">
-                <a href="https://www.sef.sc.gov.br/" target="_blank" rel="noreferrer"
-                  className="text-[12.5px] underline underline-offset-2" style={{ color: 'var(--f-text-2)' }}>
-                  Abrir portal da SEFAZ-SC
-                </a>
-              </p>
+              <a href="https://www.sef.sc.gov.br/" target="_blank" rel="noreferrer"
+                className="mt-3 inline-block text-xs font-semibold text-primary hover:underline">
+                Abrir portal da SEFAZ-SC
+              </a>
 
-              <div className="mt-7 grid max-w-[520px] grid-cols-[140px_1fr] items-center gap-x-4 gap-y-3">
-                <Rotulo>ID do CSC</Rotulo>
-                <input value={cfg.csc_id} onChange={e => campo('csc_id', e.target.value.replace(/\D/g, ''))}
-                  className="f-campo f-mono" placeholder="000001" />
-
-                <Rotulo>Código CSC</Rotulo>
+              <div className="mt-6 grid max-w-[560px] gap-3 sm:grid-cols-2">
                 <div>
-                  <input type="password" value={csc} onChange={e => setCsc(e.target.value)}
-                    className="f-campo f-mono" autoComplete="off"
-                    placeholder={cfg.tem_csc ? 'Salvo — deixe vazio para manter' : 'Cole o código gerado na SEFAZ'} />
+                  <Label htmlFor="csc-id">ID do CSC</Label>
+                  <Input id="csc-id" className="font-mono" placeholder="000001" value={cfg.csc_id}
+                    onChange={e => campo('csc_id', e.target.value.replace(/\D/g, ''))} />
+                </div>
+                <div>
+                  <Label htmlFor="csc-cod">Código CSC</Label>
+                  <Input id="csc-cod" type="password" className="font-mono" autoComplete="off" value={csc}
+                    onChange={e => setCsc(e.target.value)}
+                    placeholder={cfg.tem_csc ? 'Salvo — deixe vazio para manter' : 'Cole o código da SEFAZ'} />
                   {cfg.tem_csc && (
-                    <p className="mt-1 text-[12px]" style={{ color: 'var(--f-green)' }}>
-                      Já há um código salvo. Ele nunca é exibido de volta.
+                    <p className="mt-1 flex items-center gap-1 text-[11px] text-success">
+                      <CheckCircle2 className="size-3" /> Já há um código salvo. Ele nunca é exibido de volta.
                     </p>
                   )}
                 </div>
-              </div>
-
-              <div className="mt-6 grid max-w-[320px] grid-cols-[140px_140px] gap-4">
                 <div>
-                  <Rotulo>Série</Rotulo>
-                  <input type="number" min={1} value={cfg.serie}
-                    onChange={e => campo('serie', Number(e.target.value) || 1)} className="f-campo f-mono" />
+                  <Label htmlFor="n-serie">Série</Label>
+                  <Input id="n-serie" type="number" min={1} className="font-mono" value={cfg.serie}
+                    onChange={e => campo('serie', Number(e.target.value) || 1)} />
                 </div>
                 <div>
-                  <Rotulo>Próximo nº</Rotulo>
-                  <input type="number" min={1} value={cfg.proximo_numero}
-                    onChange={e => campo('proximo_numero', Number(e.target.value) || 1)} className="f-campo f-mono" />
+                  <Label htmlFor="n-prox">Próximo número</Label>
+                  <Input id="n-prox" type="number" min={1} className="font-mono" value={cfg.proximo_numero}
+                    onChange={e => campo('proximo_numero', Number(e.target.value) || 1)} />
                 </div>
               </div>
-              <p className="mt-2 max-w-[46ch] text-[12px]" style={{ color: 'var(--f-text-3)' }}>
+              <p className="mt-2 text-xs text-muted-foreground">
                 A numeração é contínua e não pode repetir. Só mexa aqui se estiver migrando de outro sistema.
               </p>
             </Passo>
@@ -747,63 +749,45 @@ export function FiscalLoja() {
 
           {etapa === 4 && (
             <Passo
+              icone={FileText}
               titulo="Tributação padrão"
               texto="Estes valores entram em todo produto que não tiver os seus. Confirme com seu contador antes de emitir em produção — NCM ou situação tributária errada é rejeição na SEFAZ ou imposto pago a mais."
             >
-              <div className="max-w-[420px]">
-                <Rotulo>Regime tributário</Rotulo>
-                {/* Segmented com bordas compartilhadas: um container, duas
-                    opções, sem pill flutuante nem cor de preenchimento. */}
-                <div className="inline-flex overflow-hidden border"
-                  style={{ borderColor: 'var(--f-line-2)', borderRadius: 3 }}>
-                  {([[1, 'Simples Nacional'], [3, 'Regime normal']] as const).map(([v, txt], i) => (
+              <div>
+                <Label>Regime tributário</Label>
+                <div className="flex max-w-[420px] gap-2">
+                  {([[1, 'Simples Nacional'], [3, 'Regime normal']] as const).map(([v, txt]) => (
                     <button key={v} type="button" onClick={() => campo('crt', v)}
-                      className="px-4 py-2 text-[13px] transition-colors"
-                      style={{
-                        borderLeft: i === 1 ? '1px solid var(--f-line-2)' : undefined,
-                        background: cfg.crt === v ? 'var(--f-line-2)' : 'transparent',
-                        fontWeight: cfg.crt === v ? 600 : 400,
-                        color: cfg.crt === v ? 'var(--f-text)' : 'var(--f-text-2)',
-                      }}>
+                      className={cn('flex-1 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors',
+                        cfg.crt === v ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:border-primary/40')}>
                       {txt}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="mt-6 flex flex-wrap gap-4">
-                <div className="w-[150px]">
-                  <Rotulo>NCM padrão</Rotulo>
-                  <input value={cfg.ncm_padrao} maxLength={8} className="f-campo f-mono"
-                    onChange={e => campo('ncm_padrao', e.target.value.replace(/\D/g, '').slice(0, 8))}
-                    placeholder="21069090" />
+              <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                <div>
+                  <Label htmlFor="t-ncm">NCM padrão</Label>
+                  <Input id="t-ncm" className="font-mono" maxLength={8} placeholder="21069090" value={cfg.ncm_padrao}
+                    onChange={e => campo('ncm_padrao', e.target.value.replace(/\D/g, '').slice(0, 8))} />
+                  <p className="mt-1 text-[11px] text-muted-foreground">Ex.: 21069090 = prep. alimentícia n.e.</p>
                 </div>
-                <div className="w-[150px]">
+                <div>
                   {/* O rótulo E a lista trocam com o regime: CSOSN é do Simples,
-                      CST é do regime normal. Mandar um no lugar do outro é
-                      rejeição certa. */}
-                  <Rotulo>{simples ? 'CSOSN' : 'CST do ICMS'}</Rotulo>
-                  <select value={cfg.csosn_padrao} className="f-campo f-mono"
-                    onChange={e => campo('csosn_padrao', e.target.value)}>
-                    {(simples ? CSOSNS : CSTS).map(c => <option key={c.v} value={c.v}>{c.v}</option>)}
+                      CST é do regime normal. */}
+                  <Label htmlFor="t-sit">{simples ? 'CSOSN padrão' : 'CST do ICMS'}</Label>
+                  <select id="t-sit" value={cfg.csosn_padrao} onChange={e => campo('csosn_padrao', e.target.value)}
+                    className="flex h-12 w-full rounded-xl border border-input bg-background px-4 font-mono text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    {(simples ? CSOSNS : CSTS).map(c => <option key={c.v} value={c.v}>{c.l}</option>)}
                   </select>
-                  <p className="mt-1 text-[11.5px]" style={{ color: 'var(--f-text-3)' }}>
-                    {(simples ? CSOSNS : CSTS).find(c => c.v === cfg.csosn_padrao)?.l.split('–')[1]?.trim() || '—'}
-                  </p>
                 </div>
-                <div className="w-[150px]">
-                  <Rotulo>CFOP</Rotulo>
-                  <select value={cfg.cfop_padrao} className="f-campo f-mono"
-                    onChange={e => campo('cfop_padrao', e.target.value)}>
-                    <option value="5102">5102</option>
-                    <option value="5405">5405</option>
-                    <option value="6102">6102</option>
-                    <option value="6108">6108</option>
-                    <option value="5949">5949</option>
+                <div>
+                  <Label htmlFor="t-cfop">CFOP padrão</Label>
+                  <select id="t-cfop" value={cfg.cfop_padrao} onChange={e => campo('cfop_padrao', e.target.value)}
+                    className="flex h-12 w-full rounded-xl border border-input bg-background px-4 font-mono text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                    {Object.entries(CFOP_TEXTO).map(([v, t]) => <option key={v} value={v}>{v} – {t}</option>)}
                   </select>
-                  <p className="mt-1 text-[11.5px]" style={{ color: 'var(--f-text-3)' }}>
-                    {CFOP_TEXTO[cfg.cfop_padrao] || '—'}
-                  </p>
                 </div>
               </div>
 
@@ -816,14 +800,16 @@ export function FiscalLoja() {
                 que ele escolheu.
               */}
               {!simples && (
-                <p className="mt-6 max-w-[46ch] border-l-2 py-1 pl-3 text-[12.5px]"
-                  style={{ borderColor: 'var(--f-amber)', color: 'var(--f-amber)' }}>
-                  A emissão ainda monta o ICMS no formato do Simples Nacional. Em regime normal, a nota
-                  seria rejeitada pela SEFAZ — fale com o suporte antes de emitir.
+                <p className="mt-4 flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                  <span>
+                    A emissão ainda monta o ICMS no formato do Simples Nacional. Em regime normal, a nota
+                    seria rejeitada pela SEFAZ — fale com o suporte antes de emitir.
+                  </span>
                 </p>
               )}
 
-              <p className="mt-6 max-w-[46ch] text-[12.5px]" style={{ color: 'var(--f-text-3)' }}>
+              <p className="mt-4 text-xs text-muted-foreground">
                 Produtos com NCM ou CEST preenchidos na própria ficha ignoram estes valores.
               </p>
             </Passo>
@@ -831,24 +817,22 @@ export function FiscalLoja() {
 
           {etapa === 5 && (
             <Passo
+              icone={FlaskConical}
               titulo="Teste e ativação"
               texto="Homologação é o ambiente de ensaio da SEFAZ: a nota é transmitida de verdade, mas não tem valor fiscal. Passe por ele antes de ligar produção — em produção, cada nota emitida é definitiva."
             >
-              <div className="border-t" style={{ borderColor: 'var(--f-line)' }}>
+              <div className="divide-y divide-border border-y border-border">
                 <LinhaAcao
                   titulo="Nota de teste"
-                  descricao={testeAprovado
-                    ? 'Última emissão autorizada pela SEFAZ.'
-                    : 'Nenhuma nota de teste autorizada ainda.'}
+                  descricao={testeAprovado ? 'Última emissão autorizada pela SEFAZ.' : 'Nenhuma nota de teste autorizada ainda.'}
                   acao={
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" className="f-btn" onClick={testarSefaz} disabled={testandoSefaz}>
-                        {testandoSefaz && <Loader2 className="size-3.5 animate-spin" />}
-                        {testandoSefaz ? 'Transmitindo…' : 'Emitir em homologação'}
-                      </button>
-                      <button type="button" className="f-btn" onClick={gerarTeste} disabled={gerandoTeste}>
+                      <Button type="button" variant="outline" onClick={testarSefaz} disabled={testandoSefaz}>
+                        {testandoSefaz ? <><Loader2 className="size-4 animate-spin" /> Transmitindo…</> : <><ShieldCheck className="size-4" /> Emitir em homologação</>}
+                      </Button>
+                      <Button type="button" variant="ghost" onClick={gerarTeste} disabled={gerandoTeste}>
                         {gerandoTeste ? 'Gerando…' : 'Só conferir o XML'}
-                      </button>
+                      </Button>
                     </div>
                   }
                 />
@@ -860,42 +844,46 @@ export function FiscalLoja() {
                       ? 'Teste aprovado. Pode ligar quando quiser começar a emitir de verdade.'
                       : 'Disponível depois de uma nota autorizada em homologação.'}
                   acao={
-                    <button
+                    <Button
                       type="button"
-                      className={cn('f-btn', cfg.ambiente !== 1 && testeAprovado && 'f-btn--solido')}
+                      variant={cfg.ambiente === 1 ? 'outline' : 'default'}
                       disabled={cfg.ambiente !== 1 && !testeAprovado}
                       onClick={() => campo('ambiente', cfg.ambiente === 1 ? 2 : 1)}
                     >
                       {cfg.ambiente === 1 ? 'Voltar à homologação' : 'Ativar produção'}
-                    </button>
+                    </Button>
                   }
                 />
                 <LinhaAcao
                   titulo="Emitir nas vendas"
                   descricao="Com isso desligado, nada é emitido automaticamente — nem em homologação."
                   acao={
-                    <button type="button" className="f-btn" onClick={() => campo('ativo', cfg.ativo ? 0 : 1)}>
-                      {cfg.ativo ? 'Emissão ligada · desligar' : 'Emissão desligada · ligar'}
+                    <button type="button" onClick={() => campo('ativo', cfg.ativo ? 0 : 1)}
+                      className={cn('relative h-6 w-11 shrink-0 rounded-full transition-colors',
+                        cfg.ativo ? 'bg-primary' : 'bg-muted-foreground/30')}>
+                      <span className={cn('absolute top-0.5 size-5 rounded-full bg-white shadow transition-all',
+                        cfg.ativo ? 'left-[22px]' : 'left-0.5')} />
                     </button>
                   }
                 />
               </div>
 
               {resultadoSefaz && (
-                <div className="mt-6 border-l-2 py-2 pl-4"
-                  style={{ borderColor: resultadoSefaz.autorizada ? 'var(--f-green)' : 'var(--f-amber)' }}>
-                  <div className="text-[13.5px]"
-                    style={{ color: resultadoSefaz.autorizada ? 'var(--f-green)' : 'var(--f-amber)' }}>
+                <div className={cn('mt-4 rounded-xl border p-3 text-sm',
+                  resultadoSefaz.autorizada ? 'border-success/40 bg-success/5' : 'border-destructive/40 bg-destructive/5')}>
+                  <div className="flex items-center gap-2 font-bold">
                     {resultadoSefaz.autorizada
-                      ? <>Autorizada em homologação{resultadoSefaz.protocolo && <> · protocolo <span className="f-mono">{resultadoSefaz.protocolo}</span></>}</>
-                      : <>Rejeitada{resultadoSefaz.c_stat && <> · <span className="f-mono">{resultadoSefaz.c_stat}</span></>}</>}
+                      ? <><CheckCircle2 className="size-4 text-success" /> <span className="text-success">Autorizada em homologação</span></>
+                      : <><AlertTriangle className="size-4 text-destructive" /> <span className="text-destructive">Rejeitada</span></>}
                   </div>
-                  {resultadoSefaz.motivo && (
-                    <p className="mt-1 text-[12.5px]" style={{ color: 'var(--f-text-3)' }}>{resultadoSefaz.motivo}</p>
+                  {resultadoSefaz.c_stat && (
+                    <div className="mt-1 text-xs"><span className="text-muted-foreground">cStat: </span><span className="font-mono">{resultadoSefaz.c_stat}</span></div>
                   )}
-                  {resultadoSefaz.chave && (
-                    <p className="f-mono mt-1 break-all text-[11px]" style={{ color: 'var(--f-text-3)' }}>{resultadoSefaz.chave}</p>
+                  {resultadoSefaz.motivo && <div className="text-xs text-muted-foreground">{resultadoSefaz.motivo}</div>}
+                  {resultadoSefaz.protocolo && (
+                    <div className="text-xs"><span className="text-muted-foreground">Protocolo: </span><span className="font-mono">{resultadoSefaz.protocolo}</span></div>
                   )}
+                  {resultadoSefaz.chave && <div className="mt-1 break-all font-mono text-[10px] text-muted-foreground">{resultadoSefaz.chave}</div>}
                 </div>
               )}
             </Passo>
@@ -905,60 +893,56 @@ export function FiscalLoja() {
               Fora do stepper de propósito: as cinco etapas são a instalação,
               feita uma vez. O que vem abaixo é rotina de todo mês, e não teria
               sentido virar "etapa 06" que nunca se conclui. */}
-          <div className="mt-14 border-t pt-8" style={{ borderColor: 'var(--f-line)' }}>
-            <div className="text-[11px] uppercase tracking-[.14em]" style={{ color: 'var(--f-text-3)' }}>Operação</div>
 
-            {/* Notas emitidas */}
-            <section className="mt-6">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-[18px] font-semibold">
-                  Notas emitidas
-                  {notas.length > 0 && <span className="f-mono ml-2 text-[12px]" style={{ color: 'var(--f-text-3)' }}>{notas.length}</span>}
-                </h2>
-                <button type="button" onClick={carregarNotas} className="f-btn text-[12px]">
-                  {notasCarregando ? 'Atualizando…' : 'Atualizar'}
+          <Card>
+            <CardContent className="p-5">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Receipt className="size-4 text-primary" />
+                  <span className="text-sm font-bold">Notas emitidas</span>
+                  {notas.length > 0 && (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">{notas.length}</span>
+                  )}
+                </div>
+                <button type="button" onClick={carregarNotas} title="Atualizar"
+                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent">
+                  <RefreshCw className={cn('size-4', notasCarregando && 'animate-spin')} />
                 </button>
               </div>
 
               {notas.length === 0 ? (
-                <p className="mt-4 text-[13px]" style={{ color: 'var(--f-text-3)' }}>
-                  Nenhuma NFC-e emitida ainda.
+                <p className="py-4 text-center text-sm text-muted-foreground">
+                  Nenhuma NFC-e emitida ainda. Emita a partir de uma venda concluída.
                 </p>
               ) : (
-                <div className="mt-4 border-t" style={{ borderColor: 'var(--f-line)' }}>
+                <div className="divide-y divide-border/60">
                   {notas.map(n => (
-                    <div key={n.id} className="flex flex-wrap items-center gap-3 border-b py-3"
-                      style={{ borderColor: 'var(--f-line)' }}>
+                    <div key={n.id} className="flex items-center gap-3 py-2.5">
                       <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2 text-[13px]">
-                          <span className="f-mono">nº {n.numero}/{n.serie}</span>
-                          <span style={{
-                            color: n.status === 'autorizada' ? 'var(--f-green)'
-                              : n.status === 'cancelada' ? 'var(--f-text-3)' : 'var(--f-amber)',
-                          }}>
-                            {NOTA_ROTULO[n.status]}
-                          </span>
-                          {n.ambiente === 2 && <span style={{ color: 'var(--f-text-3)' }}>homologação</span>}
-                          {n.pedido_id && <span style={{ color: 'var(--f-text-3)' }}>pedido #{n.pedido_id}</span>}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold">nº {n.numero}/{n.serie}</span>
+                          <Badge variant={NOTA_BADGE[n.status]}>{NOTA_ROTULO[n.status]}</Badge>
+                          {n.ambiente === 2 && <span className="text-[10px] text-muted-foreground">homolog.</span>}
+                          {n.pedido_id && <span className="text-[10px] text-muted-foreground">pedido #{n.pedido_id}</span>}
                         </div>
-                        <div className="f-mono mt-0.5 truncate text-[10.5px]" style={{ color: 'var(--f-text-3)' }}>{n.chave}</div>
+                        <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">{n.chave}</div>
                         {(n.status === 'rejeitada' || n.status === 'erro') && n.motivo && (
-                          <div className="mt-0.5 line-clamp-1 text-[11.5px]" style={{ color: 'var(--f-amber)' }}>
-                            {n.c_stat} — {n.motivo}
-                          </div>
+                          <div className="mt-0.5 line-clamp-1 text-[11px] text-destructive">{n.c_stat} — {n.motivo}</div>
                         )}
                       </div>
-                      <span className="f-mono shrink-0 text-[13px]">
+                      <div className="shrink-0 text-sm font-bold tabular-nums">
                         R$ {(n.total_centavos / 100).toFixed(2).replace('.', ',')}
-                      </span>
-                      <div className="flex shrink-0 gap-2">
-                        <button type="button" className="f-btn text-[12px]" onClick={() => baixarXmlNota(n.id, n.chave)}>
-                          XML
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button type="button" onClick={() => baixarXmlNota(n.id, n.chave)} title="Baixar XML"
+                          className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent">
+                          <Download className="size-4" />
                         </button>
                         {n.status === 'autorizada' && (
-                          <button type="button" className="f-btn text-[12px]" onClick={() => cancelarNota(n)}
-                            disabled={cancelando === n.id}>
-                            Cancelar
+                          <button type="button" onClick={() => cancelarNota(n)} disabled={cancelando === n.id}
+                            title="Cancelar NFC-e"
+                            className="rounded-lg p-1.5 text-destructive hover:bg-destructive/10 disabled:opacity-40">
+                            <Ban className="size-4" />
                           </button>
                         )}
                       </div>
@@ -966,78 +950,82 @@ export function FiscalLoja() {
                   ))}
                 </div>
               )}
-            </section>
+            </CardContent>
+          </Card>
 
-            {/* XMLs do mês + contador */}
-            <section className="mt-10">
-              <h2 className="text-[18px] font-semibold">XMLs do mês para o contador</h2>
-              <p className="mt-1.5 max-w-[46ch] text-[13.5px]" style={{ color: 'var(--f-text-4)' }}>
-                Um arquivo por nota, nomeado pela chave de acesso, mais o evento de cancelamento quando
-                houver e uma relação em CSV para conferência. Só notas de produção — homologação não tem
-                valor fiscal.
+          <Card>
+            <CardContent className="space-y-3 p-5">
+              <div className="flex items-center gap-2">
+                <FolderArchive className="size-4 text-primary" />
+                <span className="text-sm font-bold">XMLs do mês para o contador</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Um arquivo por nota, nomeado pela chave de acesso, mais o evento de cancelamento quando houver
+                e uma relação em CSV para conferência. Só notas de produção — homologação não tem valor fiscal.
               </p>
 
               {competencias.length === 0 ? (
-                <p className="mt-4 text-[13px]" style={{ color: 'var(--f-text-3)' }}>
-                  Nenhuma nota de produção emitida ainda.
-                </p>
+                <p className="text-xs text-muted-foreground">Nenhuma nota de produção emitida ainda.</p>
               ) : (
-                <div className="mt-5 flex flex-wrap items-end gap-3">
-                  <div className="min-w-[240px]">
-                    <Rotulo>Mês</Rotulo>
-                    <select value={mesEscolhido} onChange={e => setMesEscolhido(e.target.value)} className="f-campo">
-                      {competencias.map(c => (
-                        <option key={c.competencia} value={c.competencia}>
-                          {mesPorExtenso(c.competencia)} — {c.autorizadas} autorizada(s)
-                          {c.canceladas > 0 ? `, ${c.canceladas} cancelada(s)` : ''}
-                        </option>
-                      ))}
-                    </select>
+                <>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <div className="min-w-[220px] flex-1">
+                      <Label htmlFor="xml-mes">Mês</Label>
+                      <select id="xml-mes" value={mesEscolhido} onChange={e => setMesEscolhido(e.target.value)}
+                        className="flex h-12 w-full rounded-xl border border-input bg-background px-4 text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                        {competencias.map(c => (
+                          <option key={c.competencia} value={c.competencia}>
+                            {mesPorExtenso(c.competencia)} — {c.autorizadas} autorizada(s)
+                            {c.canceladas > 0 ? `, ${c.canceladas} cancelada(s)` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <Button type="button" onClick={baixarXmlsDoMes} disabled={baixandoZip || !mesEscolhido}>
+                      {baixandoZip ? <><Loader2 className="size-4 animate-spin" /> Preparando…</> : <><Download className="size-4" /> Baixar ZIP</>}
+                    </Button>
                   </div>
-                  <button type="button" className="f-btn" onClick={baixarXmlsDoMes} disabled={baixandoZip || !mesEscolhido}>
-                    {baixandoZip && <Loader2 className="size-3.5 animate-spin" />}
-                    {baixandoZip ? 'Preparando…' : 'Baixar ZIP'}
-                  </button>
                   {escolhida && (
-                    <span className="pb-2 text-[12.5px]" style={{ color: 'var(--f-text-3)' }}>
-                      total autorizado <span className="f-mono">R$ {(escolhida.total_centavos / 100).toFixed(2).replace('.', ',')}</span>
-                    </span>
+                    <p className="text-xs text-muted-foreground">
+                      {escolhida.autorizadas} nota(s) autorizada(s)
+                      {escolhida.canceladas > 0 && <>, {escolhida.canceladas} cancelada(s)</>}
+                      {' · '}total autorizado R$ {(escolhida.total_centavos / 100).toFixed(2).replace('.', ',')}
+                    </p>
                   )}
-                </div>
+                </>
               )}
 
               {contador && (
-                <div className="mt-8 max-w-[520px] space-y-4 border-t pt-6" style={{ borderColor: 'var(--f-line)' }}>
-                  <div className="text-[11px] uppercase tracking-[.14em]" style={{ color: 'var(--f-text-3)' }}>
-                    Envio automático
+                <div className="space-y-3 border-t border-border pt-4">
+                  <div className="flex items-center gap-2">
+                    <Mail className="size-4 text-primary" />
+                    <span className="text-sm font-bold">Enviar direto pro contador</span>
                   </div>
 
                   <div>
-                    <Rotulo>E-mail do contador</Rotulo>
-                    <input value={contador.email} className="f-campo"
-                      onChange={e => setContador(c => c && ({ ...c, email: e.target.value }))}
-                      placeholder="contador@escritorio.com.br" />
-                    <p className="mt-1 text-[12px]" style={{ color: 'var(--f-text-3)' }}>
-                      Mais de um? Separe por vírgula (até 5).
-                    </p>
+                    <Label htmlFor="contador-email">E-mail do contador</Label>
+                    <Input id="contador-email" value={contador.email} placeholder="contador@escritorio.com.br"
+                      onChange={e => setContador(c => c && ({ ...c, email: e.target.value }))} />
+                    <p className="mt-1 text-[11px] text-muted-foreground">Mais de um? Separe por vírgula (até 5).</p>
                   </div>
 
                   <label className="flex cursor-pointer items-start gap-2.5">
-                    <input type="checkbox" checked={contador.envio_auto} className="mt-[3px] size-3.5 shrink-0"
+                    <input type="checkbox" checked={contador.envio_auto} className="mt-0.5 size-4 shrink-0 accent-primary"
                       onChange={e => setContador(c => c && ({ ...c, envio_auto: e.target.checked }))} />
-                    <span className="text-[13.5px]">
-                      Enviar todo mês, sem eu precisar entrar aqui
-                      <span className="mt-0.5 block text-[12px]" style={{ color: 'var(--f-text-3)' }}>
-                        No dia escolhido, manda os XMLs do mês anterior, já fechado.
+                    <span className="text-sm">
+                      Enviar automaticamente todo mês
+                      <span className="block text-[11px] text-muted-foreground">
+                        No dia escolhido, manda os XMLs do <b>mês anterior</b> (fechado) sem você precisar entrar aqui.
                       </span>
                     </span>
                   </label>
 
                   {contador.envio_auto && (
-                    <div className="w-[150px]">
-                      <Rotulo>Dia do envio</Rotulo>
-                      <select value={contador.dia_envio} className="f-campo f-mono"
-                        onChange={e => setContador(c => c && ({ ...c, dia_envio: Number(e.target.value) }))}>
+                    <div className="w-40">
+                      <Label htmlFor="contador-dia">Dia do envio</Label>
+                      <select id="contador-dia" value={contador.dia_envio}
+                        onChange={e => setContador(c => c && ({ ...c, dia_envio: Number(e.target.value) }))}
+                        className="flex h-12 w-full rounded-xl border border-input bg-background px-4 text-base shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                         {/* Até 28: dia 29-31 não existe em todo mês, e um envio
                             que pula fevereiro é pior que um dia antes. */}
                         {Array.from({ length: 28 }, (_, i) => i + 1).map(d => (
@@ -1050,178 +1038,182 @@ export function FiscalLoja() {
                   {/* Sem SMTP o automático nunca sai. Dizer isso ANTES é o que
                       evita o lojista ligar a chave e achar que resolveu. */}
                   {contador.envio_auto && !contador.email_configurado && (
-                    <p className="border-l-2 py-1 pl-3 text-[12.5px]"
-                      style={{ borderColor: 'var(--f-amber)', color: 'var(--f-amber)' }}>
+                    <p className="flex items-start gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+                      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
                       O envio de e-mail da plataforma não está configurado — nada será enviado até o suporte ligar o SMTP.
                     </p>
                   )}
 
                   {contador.ultimo_erro && (
-                    <p className="border-l-2 py-1 pl-3 text-[12.5px]"
-                      style={{ borderColor: 'var(--f-amber)', color: 'var(--f-amber)' }}>
+                    <p className="flex items-start gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                      <AlertTriangle className="mt-0.5 size-4 shrink-0" />
                       Último envio falhou: {contador.ultimo_erro}
                     </p>
                   )}
 
                   {contador.ultima_competencia && !contador.ultimo_erro && (
-                    <p className="text-[12.5px]" style={{ color: 'var(--f-green)' }}>
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <CheckCircle2 className="size-3.5 text-success" />
                       Último envio: {mesPorExtenso(contador.ultima_competencia)}
                     </p>
                   )}
 
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" className="f-btn f-btn--solido" onClick={salvarContador} disabled={salvandoContador}>
-                      {salvandoContador ? 'Salvando…' : 'Salvar'}
-                    </button>
+                    <Button type="button" onClick={salvarContador} disabled={salvandoContador}>
+                      <Save className="size-4" /> {salvandoContador ? 'Salvando…' : 'Salvar'}
+                    </Button>
                     {competencias.length > 0 && (
-                      <button type="button" className="f-btn" onClick={enviarAgoraAoContador}
+                      <Button type="button" variant="outline" onClick={enviarAgoraAoContador}
                         disabled={enviandoContador || !contador.email}>
-                        {enviandoContador && <Loader2 className="size-3.5 animate-spin" />}
-                        {enviandoContador ? 'Enviando…' : `Enviar ${mesEscolhido ? mesPorExtenso(mesEscolhido) : 'agora'}`}
-                      </button>
+                        {enviandoContador
+                          ? <><Loader2 className="size-4 animate-spin" /> Enviando…</>
+                          : <><Mail className="size-4" /> Enviar {mesEscolhido ? mesPorExtenso(mesEscolhido) : 'agora'}</>}
+                      </Button>
                     )}
                   </div>
                 </div>
               )}
-            </section>
+            </CardContent>
+          </Card>
 
-            {/* Dados fiscais por produto */}
-            <section className="mt-10">
+          <Card>
+            <CardContent className="p-0">
               <button type="button" onClick={() => setProdutosAberto(v => !v)}
-                className="flex w-full items-center justify-between gap-3 text-left">
-                <h2 className="text-[18px] font-semibold">
-                  Tributação por produto
-                  {produtos.length > 0 && <span className="f-mono ml-2 text-[12px]" style={{ color: 'var(--f-text-3)' }}>{produtos.length}</span>}
-                </h2>
-                <span className="text-[12.5px]" style={{ color: 'var(--f-text-3)' }}>
-                  {produtosAberto ? 'ocultar' : 'mostrar'}
-                </span>
+                className="flex w-full items-center justify-between px-5 py-4 text-left">
+                <div className="flex items-center gap-2">
+                  <Package className="size-4 text-primary" />
+                  <span className="text-sm font-bold">Tributação por produto</span>
+                  {produtos.length > 0 && (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold text-muted-foreground">{produtos.length}</span>
+                  )}
+                </div>
+                <span className="text-xs text-muted-foreground">{produtosAberto ? 'ocultar' : 'mostrar'}</span>
               </button>
-              <p className="mt-1.5 max-w-[46ch] text-[13.5px]" style={{ color: 'var(--f-text-4)' }}>
-                Só para os produtos que fogem do padrão da etapa 04. Salva sozinho ao digitar.
-              </p>
 
               {produtosAberto && (
-                <div className="mt-4 overflow-x-auto border-t" style={{ borderColor: 'var(--f-line)' }}>
-                  <table className="w-full text-[12px]">
-                    <thead>
-                      <tr style={{ color: 'var(--f-text-3)' }}>
-                        <th className="min-w-[160px] py-2 text-left font-normal">Produto</th>
-                        <th className="w-[90px] py-2 text-left font-normal">NCM</th>
-                        <th className="w-[70px] py-2 text-left font-normal">CFOP</th>
-                        <th className="w-[70px] py-2 text-left font-normal">{simples ? 'CSOSN' : 'CST'}</th>
-                        <th className="w-[120px] py-2 text-left font-normal">Origem</th>
-                        <th className="w-[60px] py-2 text-left font-normal">Unid.</th>
-                        <th className="w-[80px] py-2 text-left font-normal">CEST</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {produtos.map(p => (
-                        <tr key={p.id} className="border-t" style={{ borderColor: 'var(--f-line)' }}>
-                          <td className="py-1.5 pr-3">
-                            <div className="text-[12.5px] leading-tight">{p.nome}</div>
-                            <div className="text-[10.5px]" style={{ color: 'var(--f-text-3)' }}>{p.categoria}</div>
-                          </td>
-                          <td className="py-1.5 pr-2">
-                            <input value={p.ncm} maxLength={8} className="f-campo f-mono px-1.5 py-1 text-[11.5px]"
-                              placeholder={cfg.ncm_padrao || '21069090'}
-                              onChange={e => editarProduto(p.id, 'ncm', e.target.value.replace(/\D/g, '').slice(0, 8))} />
-                          </td>
-                          <td className="py-1.5 pr-2">
-                            <input value={p.cfop} maxLength={4} className="f-campo f-mono px-1.5 py-1 text-[11.5px]"
-                              placeholder={cfg.cfop_padrao || '5102'}
-                              onChange={e => editarProduto(p.id, 'cfop', e.target.value.replace(/\D/g, '').slice(0, 4))} />
-                          </td>
-                          <td className="py-1.5 pr-2">
-                            <select value={p.csosn} className="f-campo f-mono px-1 py-1 text-[11.5px]"
-                              onChange={e => editarProduto(p.id, 'csosn', e.target.value)}>
-                              <option value="">padrão</option>
-                              {(simples ? CSOSNS : CSTS).map(c => <option key={c.v} value={c.v}>{c.v}</option>)}
-                            </select>
-                          </td>
-                          <td className="py-1.5 pr-2">
-                            <select value={p.origem} className="f-campo px-1 py-1 text-[11.5px]"
-                              onChange={e => editarProduto(p.id, 'origem', e.target.value)}>
-                              {ORIGENS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
-                            </select>
-                          </td>
-                          <td className="py-1.5 pr-2">
-                            <input value={p.unidade_comercial} maxLength={6}
-                              className="f-campo f-mono px-1.5 py-1 text-[11.5px] uppercase" placeholder="UN"
-                              onChange={e => editarProduto(p.id, 'unidade_comercial', e.target.value.toUpperCase().slice(0, 6))} />
-                          </td>
-                          <td className="py-1.5">
-                            <input value={p.cest} maxLength={7} className="f-campo f-mono px-1.5 py-1 text-[11.5px]"
-                              placeholder="—"
-                              onChange={e => editarProduto(p.id, 'cest', e.target.value.replace(/\D/g, '').slice(0, 7))} />
-                          </td>
+                <div className="border-t border-border">
+                  <p className="px-5 py-2 text-xs text-muted-foreground">
+                    Só para os produtos que fogem do padrão da etapa 04. Salva sozinho ao digitar.
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/40 text-muted-foreground">
+                          <th className="min-w-[160px] px-4 py-2 text-left font-semibold">Produto</th>
+                          <th className="w-[90px] px-2 py-2 text-left font-semibold">NCM</th>
+                          <th className="w-[70px] px-2 py-2 text-left font-semibold">CFOP</th>
+                          <th className="w-[70px] px-2 py-2 text-left font-semibold">{simples ? 'CSOSN' : 'CST'}</th>
+                          <th className="w-[120px] px-2 py-2 text-left font-semibold">Origem</th>
+                          <th className="w-[60px] px-2 py-2 text-left font-semibold">Unid.</th>
+                          <th className="w-[80px] px-2 py-2 text-left font-semibold">CEST</th>
                         </tr>
-                      ))}
-                      {produtosCarregando && (
-                        <tr><td colSpan={7} className="py-8 text-center" style={{ color: 'var(--f-text-3)' }}>Carregando…</td></tr>
-                      )}
-                      {!produtosCarregando && produtosCarregados && produtos.length === 0 && (
-                        <tr><td colSpan={7} className="py-8 text-center" style={{ color: 'var(--f-text-3)' }}>Nenhum produto cadastrado.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {produtos.map(p => (
+                          <tr key={p.id} className="transition-colors hover:bg-muted/20">
+                            <td className="px-4 py-2">
+                              <div className="font-medium leading-tight">{p.nome}</div>
+                              <div className="text-[10px] text-muted-foreground">{p.categoria}</div>
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <input value={p.ncm} maxLength={8} placeholder={cfg.ncm_padrao || '21069090'}
+                                onChange={e => editarProduto(p.id, 'ncm', e.target.value.replace(/\D/g, '').slice(0, 8))}
+                                className="w-full rounded border border-border bg-background px-1.5 py-1 font-mono text-xs focus:border-primary focus:outline-none" />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <input value={p.cfop} maxLength={4} placeholder={cfg.cfop_padrao || '5102'}
+                                onChange={e => editarProduto(p.id, 'cfop', e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                className="w-full rounded border border-border bg-background px-1.5 py-1 font-mono text-xs focus:border-primary focus:outline-none" />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <select value={p.csosn} onChange={e => editarProduto(p.id, 'csosn', e.target.value)}
+                                className="w-full rounded border border-border bg-background px-1 py-1 font-mono text-xs focus:border-primary focus:outline-none">
+                                <option value="">padrão</option>
+                                {(simples ? CSOSNS : CSTS).map(c => <option key={c.v} value={c.v}>{c.v}</option>)}
+                              </select>
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <select value={p.origem} onChange={e => editarProduto(p.id, 'origem', e.target.value)}
+                                className="w-full rounded border border-border bg-background px-1 py-1 text-xs focus:border-primary focus:outline-none">
+                                {ORIGENS.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
+                              </select>
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <input value={p.unidade_comercial} maxLength={6} placeholder="UN"
+                                onChange={e => editarProduto(p.id, 'unidade_comercial', e.target.value.toUpperCase().slice(0, 6))}
+                                className="w-full rounded border border-border bg-background px-1.5 py-1 font-mono text-xs uppercase focus:border-primary focus:outline-none" />
+                            </td>
+                            <td className="px-2 py-1.5">
+                              <input value={p.cest} maxLength={7} placeholder="—"
+                                onChange={e => editarProduto(p.id, 'cest', e.target.value.replace(/\D/g, '').slice(0, 7))}
+                                className="w-full rounded border border-border bg-background px-1.5 py-1 font-mono text-xs focus:border-primary focus:outline-none" />
+                            </td>
+                          </tr>
+                        ))}
+                        {produtosCarregando && (
+                          <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Carregando produtos…</td></tr>
+                        )}
+                        {!produtosCarregando && produtosCarregados && produtos.length === 0 && (
+                          <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Nenhum produto cadastrado.</td></tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
-            </section>
-          </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
       {/*
         BARRA DE SALVAR só quando há alteração pendente.
-        O botão solto no fim do formulário obrigava a rolar até o fim pra
-        salvar um campo do começo — e, pior, sumia de vista justamente enquanto
-        se digitava.
+        O botão solto no fim do formulário obrigava a rolar até o fim pra salvar
+        um campo do começo — e sumia de vista justamente enquanto se digitava.
       */}
       {sujo && (
-        <div className="sticky bottom-0 z-40 border-t px-5 py-3 sm:px-8"
-          style={{ borderColor: 'var(--f-line-2)', background: 'var(--f-surface)' }}>
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <span className="mr-auto text-[13px]" style={{ color: 'var(--f-text-2)' }}>Alterações não salvas</span>
-            <button type="button" className="f-btn" onClick={descartar} disabled={enviando}>Descartar</button>
-            <button type="button" className="f-btn f-btn--solido" onClick={salvar} disabled={enviando}>
-              {enviando && <Loader2 className="size-3.5 animate-spin" />}
-              {enviando ? 'Salvando…' : 'Salvar'}
-            </button>
-          </div>
+        <div className="sticky bottom-3 z-30">
+          <Card className="border-primary/40 shadow-lg">
+            <CardContent className="flex flex-wrap items-center gap-3 p-3">
+              <span className="mr-auto text-sm font-semibold">Alterações não salvas</span>
+              <Button type="button" variant="outline" onClick={descartar} disabled={enviando}>Descartar</Button>
+              <Button type="button" onClick={salvar} disabled={enviando}>
+                <Save className="size-4" /> {enviando ? 'Salvando…' : 'Salvar'}
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       )}
 
       {/* XML de teste */}
       {teste && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setTeste(null)}>
-          <div className="fiscal-shell flex max-h-[85vh] w-full max-w-2xl flex-col border"
-            style={{ borderColor: 'var(--f-line-2)', borderRadius: 3, background: 'var(--f-surface)' }}
-            onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b px-5 py-3" style={{ borderColor: 'var(--f-line)' }}>
-              <h3 className="text-[15px] font-semibold">XML de teste</h3>
-              <button type="button" onClick={() => setTeste(null)} className="f-btn text-[12px]">Fechar</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setTeste(null)}>
+          <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl bg-card shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-border p-4">
+              <h3 className="flex items-center gap-2 font-bold">
+                <FlaskConical className="size-4 text-primary" /> NFC-e de teste
+              </h3>
+              <Button variant="ghost" size="sm" onClick={() => setTeste(null)}>Fechar</Button>
             </div>
-            <div className="space-y-3 overflow-auto p-5">
-              <Tabela linhas={[
-                ['Chave', <span key="k" className="f-mono break-all">{teste.chave}</span>],
-                ['Assinatura', <span key="a" style={{ color: teste.assinado ? 'var(--f-green)' : 'var(--f-amber)' }}>
-                  {teste.assinado ? 'Assinado com o certificado' : 'Não assinado'}
-                </span>],
-                ['Ambiente', teste.ambiente === 1 ? 'Produção' : 'Homologação'],
-              ]} />
+            <div className="space-y-2 overflow-auto p-4">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="rounded-full bg-muted px-2.5 py-1 font-mono">chave: {teste.chave}</span>
+                {teste.assinado
+                  ? <Badge variant="success">assinado</Badge>
+                  : <Badge variant="warning">não assinado</Badge>}
+                <span className="rounded-full bg-muted px-2.5 py-1">{teste.ambiente === 1 ? 'Produção' : 'Homologação'}</span>
+              </div>
               {!teste.assinado && teste.motivo_nao_assinado && (
-                <p className="border-l-2 py-1 pl-3 text-[12.5px]"
-                  style={{ borderColor: 'var(--f-amber)', color: 'var(--f-amber)' }}>
-                  {teste.motivo_nao_assinado}
-                </p>
+                <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                  <span>{teste.motivo_nao_assinado}</span>
+                </div>
               )}
-              <pre className="f-mono max-h-[50vh] overflow-auto whitespace-pre-wrap break-all p-3 text-[10.5px]"
-                style={{ background: 'var(--f-surface-2)', borderRadius: 3, color: 'var(--f-text-2)' }}>{teste.xml}</pre>
+              <pre className="max-h-[50vh] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted/50 p-3 text-[10px] leading-tight">{teste.xml}</pre>
             </div>
-            <div className="flex flex-wrap justify-end gap-2 border-t px-5 py-3" style={{ borderColor: 'var(--f-line)' }}>
-              <button type="button" className="f-btn" onClick={baixarXml}>Baixar XML</button>
-              <button type="button" className="f-btn f-btn--solido" onClick={() => imprimirDanfe(teste)}>Imprimir cupom</button>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-border p-4">
+              <Button variant="outline" onClick={baixarXml}><Download className="size-4" /> Baixar XML</Button>
+              <Button onClick={() => imprimirDanfe(teste)}><FlaskConical className="size-4" /> Imprimir cupom</Button>
             </div>
           </div>
         </div>
@@ -1232,52 +1224,43 @@ export function FiscalLoja() {
 
 /* ─────────────────────────────── peças ─────────────────────────────── */
 
-function Passo({ titulo, texto, children }: { titulo: string; texto: string; children: React.ReactNode }) {
+function Passo({ icone: Icone, titulo, texto, children }: {
+  icone: typeof FileText; titulo: string; texto: string; children: React.ReactNode;
+}) {
   return (
-    <section>
-      <h2 className="text-[18px] font-semibold">{titulo}</h2>
-      <p className="mt-1.5 max-w-[46ch] text-[13.5px] leading-relaxed" style={{ color: 'var(--f-text-4)' }}>{texto}</p>
-      <div className="mt-7">{children}</div>
-    </section>
+    <Card>
+      <CardContent className="p-5">
+        <div className="flex items-center gap-2">
+          <Icone className="size-4 text-primary" />
+          <h2 className="font-bold">{titulo}</h2>
+        </div>
+        <p className="mt-1.5 max-w-[60ch] text-sm text-muted-foreground">{texto}</p>
+        <div className="mt-5">{children}</div>
+      </CardContent>
+    </Card>
   );
 }
 
-function Rotulo({ children }: { children: React.ReactNode }) {
-  return <div className="mb-1.5 text-[12px]" style={{ color: 'var(--f-text-3)' }}>{children}</div>;
-}
-
-/** Tabela de hairlines: rótulo à esquerda, valor à direita. */
+/** Par rótulo/valor em linhas — modo leitura, sem abrir formulário. */
 function Tabela({ linhas }: { linhas: Array<[string, React.ReactNode]> }) {
   return (
-    <div className="max-w-[560px] border-t" style={{ borderColor: 'var(--f-line)' }}>
+    <div className="divide-y divide-border/60 rounded-xl border border-border">
       {linhas.map(([rotulo, valor]) => (
-        <div key={rotulo} className="flex gap-4 border-b py-2.5" style={{ borderColor: 'var(--f-line)' }}>
-          <span className="w-[150px] shrink-0 text-[12px]" style={{ color: 'var(--f-text-3)' }}>{rotulo}</span>
-          <span className="min-w-0 flex-1 text-[13px]">{valor}</span>
+        <div key={rotulo} className="flex flex-wrap gap-x-4 gap-y-1 px-3 py-2.5">
+          <span className="w-36 shrink-0 text-xs text-muted-foreground">{rotulo}</span>
+          <span className="min-w-0 flex-1 text-sm">{valor}</span>
         </div>
       ))}
     </div>
   );
 }
 
-function Campo({ rotulo, valor, onChange, mono, className, ...resto }: {
-  rotulo: string; valor: string; onChange: (v: string) => void; mono?: boolean; className?: string;
-} & Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'className'>) {
-  return (
-    <div className={className}>
-      <Rotulo>{rotulo}</Rotulo>
-      <input value={valor} onChange={e => onChange(e.target.value)}
-        className={cn('f-campo', mono && 'f-mono')} {...resto} />
-    </div>
-  );
-}
-
 function LinhaAcao({ titulo, descricao, acao }: { titulo: string; descricao: string; acao: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-4 border-b py-4" style={{ borderColor: 'var(--f-line)' }}>
-      <div className="min-w-[220px] flex-1">
-        <div className="text-[13.5px]">{titulo}</div>
-        <div className="mt-0.5 max-w-[46ch] text-[12.5px]" style={{ color: 'var(--f-text-3)' }}>{descricao}</div>
+    <div className="flex flex-wrap items-center gap-4 py-4">
+      <div className="min-w-[200px] flex-1">
+        <div className="text-sm font-semibold">{titulo}</div>
+        <div className="mt-0.5 max-w-[52ch] text-xs text-muted-foreground">{descricao}</div>
       </div>
       <div className="shrink-0">{acao}</div>
     </div>
