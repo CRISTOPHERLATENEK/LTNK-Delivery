@@ -6,7 +6,7 @@
  * Nunca enxerga faturamento, config ou qualquer dado financeiro.
  */
 import { Router } from 'express';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import rateLimit from 'express-rate-limit';
 import { detalheItem } from '../detalhe-item';
 import db from '../db-mysql';
@@ -41,7 +41,7 @@ router.post('/login', limiteLogin, async (req, res, next) => {
         WHERE c.email = ?`
     ).get(email) as ContaRow | undefined;
 
-    if (!conta || !bcrypt.compareSync(senha, conta.senha_hash)) {
+    if (!conta || !await bcrypt.compare(senha, conta.senha_hash)) {
       throw erroHttp(401, 'E-mail ou senha incorretos.');
     }
     if (conta.bloqueado) throw erroHttp(403, 'Este acesso da cozinha foi desativado.');

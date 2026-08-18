@@ -1,8 +1,25 @@
 /**
  * Rotas de autenticação: cadastro, login (com rate limiting) e dados da sessão.
  */
+/*
+ * BCRYPT ASSÍNCRONO EM TODA ROTA — nunca `hashSync`/`compareSync`.
+ *
+ * O `bcrypt` nativo faz o cálculo no POOL DE THREADS do sistema, fora da thread
+ * que atende requisição. A versão anterior (`bcryptjs`, JavaScript puro) fazia
+ * na mesma — e medido nesta máquina, cinco verificações de senha travavam o
+ * event loop por 384 ms, durante os quais a instância não respondia mais nada,
+ * nem o health check. Com o nativo, a mesma carga trava 11 ms.
+ *
+ * ATENÇÃO: o `bcryptjs` também tem API assíncrona, e ela NÃO resolve — medido:
+ * 77 ms contra 74 ms do síncrono. Ele cede o controle entre rodadas, mas em
+ * pedaços grandes demais pra fazer diferença. Trocar `compareSync` por
+ * `compare` mantendo o bcryptjs daria a impressão de ter consertado.
+ *
+ * Os hashes são os mesmos: um hash gerado pelo bcryptjs é lido pelo nativo
+ * (conferido antes da troca), então ninguém precisou trocar de senha.
+ */
 import { Router, type Response } from 'express';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import { authenticator } from 'otplib';
@@ -113,7 +130,7 @@ router.post('/registrar', limiteRegistro, async (req, res, next) => {
     const jaExiste = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(emailFinal);
     if (jaExiste) throw erroHttp(409, CONFLITO);
 
-    const senhaHash = bcrypt.hashSync(senha, 10);
+    const senhaHash = await bcrypt.hash(senha, 10);
     // Clientes podem ser associados a uma loja específica (white label)
     const lojaId = (ehCliente && req.body.loja_id) ? Number(req.body.loja_id) : null;
     const cpfFinal = ehCliente ? cpf : null;
@@ -156,7 +173,7 @@ async function acharContaNosTenants(email: string, senha: string): Promise<{ ten
       const u = await comTenant(tenant.db_nome, async () =>
         await db.prepare('SELECT * FROM usuarios WHERE email = ?').get(email) as Usuario | undefined);
       if (!u || !PERFIS_2FA.includes(u.perfil)) continue;
-      if (!bcrypt.compareSync(senha, u.senha_hash)) continue;
+      if (!await bcrypt.compare(senha, u.senha_hash)) continue;
       achados.push({ tenant, usuario: u });
     } catch (e) {
       console.error(`[LOGIN CENTRAL] falha ao consultar tenant ${tenant.slug}:`, e);
@@ -206,13 +223,13 @@ router.post('/login', limiteLogin, async (req, res, next) => {
         [email],
       ) as unknown as [Array<{ id: number; senha_hash: string; bloqueado: number }>];
       const rev = revs[0];
-      if (rev && bcrypt.compareSync(senha, rev.senha_hash)) {
+      if (rev && await bcrypt.compare(senha, rev.senha_hash)) {
         if (rev.bloqueado) throw erroHttp(403, 'Seu acesso está bloqueado. Fale com o suporte.');
         return res.json({ token: gerarTokenRevendedor(rev.id), perfil: 'revendedor' });
       }
     }
 
-    if (!usuario || !bcrypt.compareSync(senha, usuario.senha_hash)) {
+    if (!usuario || !await bcrypt.compare(senha, usuario.senha_hash)) {
       // Não achou NESTE tenant. Se a pessoa entrou pelo domínio da plataforma
       // (que cai no tenant padrão), a conta pode simplesmente morar em outra
       // marca — antes disso ela levava "e-mail ou senha incorretos" mesmo
@@ -302,12 +319,15 @@ function usuarioPublico(usuario: Usuario) {
 }
 
 /** Gera N códigos de backup (formato xxxxx-xxxxx), retorna o texto plano (mostrado 1x) + os hashes (salvos). */
-function gerarCodigosBackup(qtd = 8): { texto: string; hash: string }[] {
-  return Array.from({ length: qtd }, () => {
+async function gerarCodigosBackup(qtd = 8): Promise<{ texto: string; hash: string }[]> {
+  // Assíncrona porque o hash agora é assíncrono (ver o porquê no topo do
+  // arquivo). São 8 hashes de uma vez: em `Promise.all` eles se intercalam e o
+  // event loop continua atendendo, em vez de ficar 8 × 95 ms travado.
+  return Promise.all(Array.from({ length: qtd }, async () => {
     const bruto = crypto.randomBytes(5).toString('hex');
     const texto = `${bruto.slice(0, 5)}-${bruto.slice(5, 10)}`;
-    return { texto, hash: bcrypt.hashSync(texto, 10) };
-  });
+    return { texto, hash: await bcrypt.hash(texto, 10) };
+  }));
 }
 
 /**
@@ -351,7 +371,7 @@ router.post('/2fa/confirmar', limite2fa, autenticarPreAuth, async (req, res, nex
       throw erroHttp(400, 'Código inválido. Confira o horário do celular e tente de novo.');
     }
 
-    const codigos = gerarCodigosBackup();
+    const codigos = await gerarCodigosBackup();
     await db.prepare('UPDATE usuarios SET totp_ativo = 1, totp_backup_codes = ? WHERE id = ?')
       .run(JSON.stringify(codigos.map(c => c.hash)), usuario.id);
 
@@ -381,7 +401,14 @@ router.post('/2fa/verificar', limite2fa, autenticarPreAuth, async (req, res, nex
       if (!authenticator.check(codigo, secret)) throw erroHttp(400, 'Código inválido.');
     } else if (codigoBackup) {
       const hashes: string[] = usuario.totp_backup_codes ? JSON.parse(usuario.totp_backup_codes) : [];
-      const idx = hashes.findIndex(h => bcrypt.compareSync(codigoBackup, h));
+      /*
+       * Laço em vez de `findIndex`: o callback dele não pode ser assíncrono.
+       * Sai no primeiro que bater — não compara os 8 à toa.
+       */
+      let idx = -1;
+      for (let k = 0; k < hashes.length; k++) {
+        if (await bcrypt.compare(codigoBackup, hashes[k])) { idx = k; break; }
+      }
       if (idx === -1) throw erroHttp(400, 'Código de backup inválido ou já usado.');
       // Uso único: remove o código usado da lista.
       hashes.splice(idx, 1);
@@ -455,7 +482,7 @@ router.post('/redefinir-senha', async (req, res, next) => {
       throw erroHttp(400, 'Esse link expirou ou já foi usado. Peça uma nova redefinição.');
     }
 
-    const senhaHash = bcrypt.hashSync(senha, 10);
+    const senhaHash = await bcrypt.hash(senha, 10);
     await db.prepare('UPDATE usuarios SET senha_hash = ?, reset_token_hash = NULL, reset_token_expira = NULL WHERE id = ?')
       .run(senhaHash, usuario.id);
     res.json({ ok: true });
@@ -565,7 +592,7 @@ router.get('/oauth/:provedor/callback', async (req, res, next) => {
          * nem previsível (viraria senha universal). Assim nenhuma senha digitada
          * bate, e quem quiser uma usa "esqueci minha senha", que gera de verdade.
          */
-        const inutilizavel = bcrypt.hashSync(crypto.randomBytes(32).toString('hex'), 10);
+        const inutilizavel = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
         const info = await db.prepare(
           `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, criado_em, loja_id, oauth_provedor, oauth_sub)
            VALUES (?, ?, ?, 'cliente', '', ?, ?, ?, ?)`

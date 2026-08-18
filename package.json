@@ -28,7 +28,7 @@
   "type": "commonjs",
   "dependencies": {
     "@sentry/node": "^10.64.0",
-    "@types/bcryptjs": "^2.4.6",
+    "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.1.0",
@@ -37,7 +37,7 @@
     "@types/nodemailer": "^8.0.1",
     "@types/qrcode": "^1.5.6",
     "@types/web-push": "^3.6.4",
-    "bcryptjs": "^3.0.3",
+    "bcrypt": "^6.0.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^8.5.2",

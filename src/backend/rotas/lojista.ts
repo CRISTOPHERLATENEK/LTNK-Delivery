@@ -4,7 +4,7 @@
  */
 import { Router, Request } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -1836,7 +1836,7 @@ router.post('/usuarios', async (req, res, next) => {
     const info = await db.prepare(
       `INSERT INTO usuarios (nome, email, senha_hash, perfil, loja_id, permissoes, criado_em)
        VALUES (?, ?, ?, 'lojista', ?, ?, ?)`
-    ).run(nome, email, bcrypt.hashSync(senha, 10), loja.id, JSON.stringify(permissoes), agoraUTC());
+    ).run(nome, email, await bcrypt.hash(senha, 10), loja.id, JSON.stringify(permissoes), agoraUTC());
     res.status(201).json({ id: Number(info.lastInsertRowid), nome, email, bloqueado: 0, dono: false, permissoes });
   } catch (e) { next(e); }
 });
@@ -1870,7 +1870,7 @@ router.put('/usuarios/:id', async (req, res, next) => {
     }
     if (typeof req.body.senha === 'string' && req.body.senha) {
       if (req.body.senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
-      sets.push('senha_hash = ?'); vals.push(bcrypt.hashSync(req.body.senha, 10));
+      sets.push('senha_hash = ?'); vals.push(await bcrypt.hash(req.body.senha, 10));
     }
     if (req.body.bloqueado !== undefined) {
       sets.push('bloqueado = ?'); vals.push(req.body.bloqueado ? 1 : 0);
@@ -1948,7 +1948,7 @@ router.post('/entregadores/cadastro', async (req, res, next) => {
       }
     }
 
-    const senhaHash = bcrypt.hashSync(senha, 10);
+    const senhaHash = await bcrypt.hash(senha, 10);
     const info = await db.prepare(
       `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, criado_em)
        VALUES (?, ?, ?, 'entregador', ?, ?, ?)`
@@ -1983,7 +1983,7 @@ router.put('/entregadores/cadastro/:id', async (req, res, next) => {
       const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
       if (senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
       await db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?')
-        .run(bcrypt.hashSync(senha, 10), entregador.id);
+        .run(await bcrypt.hash(senha, 10), entregador.id);
     }
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -2062,7 +2062,7 @@ router.post('/cozinha-contas', async (req, res, next) => {
 
     const info = await db.prepare(
       'INSERT INTO cozinha_contas (loja_id, nome, email, senha_hash, criado_em) VALUES (?, ?, ?, ?, ?)'
-    ).run(loja.id, nome, email, bcrypt.hashSync(senha, 10), agoraUTC());
+    ).run(loja.id, nome, email, await bcrypt.hash(senha, 10), agoraUTC());
     res.status(201).json({ id: Number(info.lastInsertRowid), nome, email });
   } catch (e) { next(e); }
 });
@@ -2088,7 +2088,7 @@ router.put('/cozinha-contas/:id', async (req, res, next) => {
       const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
       if (senha.length < 6) throw erroHttp(400, 'A senha precisa ter pelo menos 6 caracteres.');
       await db.prepare('UPDATE cozinha_contas SET senha_hash = ? WHERE id = ?')
-        .run(bcrypt.hashSync(senha, 10), conta.id);
+        .run(await bcrypt.hash(senha, 10), conta.id);
     }
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -2118,7 +2118,7 @@ router.post('/2fa/resetar', async (req, res, next) => {
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
     const usuario = await db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?')
       .get(req.usuario!.id) as { senha_hash: string } | undefined;
-    if (!usuario || !bcrypt.compareSync(senha, usuario.senha_hash)) {
+    if (!usuario || !await bcrypt.compare(senha, usuario.senha_hash)) {
       throw erroHttp(401, 'Senha incorreta.');
     }
     await db.prepare('UPDATE usuarios SET totp_secret = NULL, totp_ativo = 0, totp_backup_codes = NULL WHERE id = ?')

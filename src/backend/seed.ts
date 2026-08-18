@@ -2,7 +2,7 @@
  * Seed — dados de demonstração. Rode com: npm run seed (não duplica nada).
  */
 import 'dotenv/config';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import db from './db-mysql';
 import { agoraUTC } from './util';
 import { Perfil, TipoGrupoOpcao } from '../tipos/modelos';

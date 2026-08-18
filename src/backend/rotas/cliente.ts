@@ -4,7 +4,7 @@
  * REGRA CRÍTICA: preços recalculados no servidor a partir do banco.
  */
 import { Router, Request, Response } from 'express';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
 import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, telefoneDigitos, erroHttp, normalizarBairro } from '../util';
@@ -125,11 +125,11 @@ router.put('/senha', async (req, res, next) => {
 
     const u = await db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?')
       .get(req.usuario!.id) as { senha_hash: string } | undefined;
-    if (!u || !bcrypt.compareSync(atual, u.senha_hash)) {
+    if (!u || !await bcrypt.compare(atual, u.senha_hash)) {
       throw erroHttp(400, 'Senha atual incorreta.');
     }
     await db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?')
-      .run(bcrypt.hashSync(nova, 10), req.usuario!.id);
+      .run(await bcrypt.hash(nova, 10), req.usuario!.id);
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -1167,7 +1167,7 @@ router.post('/conta/excluir', async (req, res, next) => {
                 reset_token_hash = NULL, reset_token_expira = NULL
           WHERE id = ?`
       ).run(anon.nome, anon.email, anon.telefone, anon.cpf,
-        bcrypt.hashSync(`removida-${id}-${agoraUTC()}`, 10), id);
+        await bcrypt.hash(`removida-${id}-${agoraUTC()}`, 10), id);
     });
 
     res.json({ ok: true });

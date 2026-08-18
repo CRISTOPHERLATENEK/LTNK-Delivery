@@ -16,7 +16,7 @@
  */
 import 'dotenv/config';
 import http from 'http';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { comTenant } from './db-mysql';
 import db from './db-mysql';
 import { listarTenants, removerTenant, tenantPorSlug } from './tenants-mysql';

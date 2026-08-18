@@ -6,7 +6,7 @@ import { Router } from 'express';
 import { slugUnico } from '../slug-loja';
 import { contaDoMes, type ClienteNaConta } from '../conta-revendedor';
 import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-mysql';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
 import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, inicioDoDiaBR, dataBrasilia, emailValido, cpfValido, cpfDigitos, telefoneDigitos, reaisParaCentavos } from '../util';
 import { criptografar, descriptografar } from '../cripto';
@@ -383,7 +383,7 @@ router.post('/lojas', exigirSuperAdmin, async (req, res, next) => {
     if (await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email)) {
       throw erroHttp(409, 'Já existe conta com este e-mail.');
     }
-    const hash = bcrypt.hashSync(senha, 10);
+    const hash = await bcrypt.hash(senha, 10);
     const resultado = await comTransacao(async (tx) => {
       const u = await tx.prepare(
         `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, criado_em)
@@ -692,7 +692,7 @@ router.post('/usuarios', exigirSuperAdmin, async (req, res, next) => {
     const info = await db.prepare(
       `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, cpf, criado_em)
        VALUES (?, ?, ?, 'cliente', ?, ?, ?, ?)`
-    ).run(nome, emailFinal, bcrypt.hashSync(senha, 10), telefone, lojaId, cpf, agoraUTC());
+    ).run(nome, emailFinal, await bcrypt.hash(senha, 10), telefone, lojaId, cpf, agoraUTC());
 
     const usuarioId = Number(info.lastInsertRowid);
     await registrarAuditoria(req, 'cliente.criar', { alvoTipo: 'cliente', alvoId: usuarioId, alvoDesc: `${nome} (${emailFinal})` });
@@ -748,7 +748,7 @@ router.post('/usuarios/:id/resetar-senha', exigirSuperAdmin, async (req, res, ne
     if (!alvo) throw erroHttp(404, 'Cliente não encontrado.');
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
     if (senha.length < 6) throw erroHttp(400, 'Senha mínima de 6 caracteres.');
-    await db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?').run(bcrypt.hashSync(senha, 10), alvo.id);
+    await db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?').run(await bcrypt.hash(senha, 10), alvo.id);
     await registrarAuditoria(req, 'cliente.resetar_senha', { alvoTipo: 'cliente', alvoId: alvo.id, alvoDesc: `${alvo.nome} (${alvo.email})` });
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -807,7 +807,7 @@ router.post('/admins', exigirSuperAdmin, async (req, res, next) => {
     const info = await db.prepare(
       `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, super_admin, criado_em)
        VALUES (?, ?, ?, 'admin', ?, 0, ?)`
-    ).run(nome, email, bcrypt.hashSync(senha, 10), telefone, agoraUTC());
+    ).run(nome, email, await bcrypt.hash(senha, 10), telefone, agoraUTC());
     await registrarAuditoria(req, 'admin.criar', { alvoTipo: 'admin', alvoId: Number(info.lastInsertRowid), alvoDesc: `${nome} (${email})` });
     res.status(201).json({ admin_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
@@ -839,7 +839,7 @@ router.post('/admins/:id/promover', exigirSuperAdmin, async (req, res, next) => 
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
     if (!senha) throw erroHttp(400, 'Confirme sua senha para promover outro super admin.');
     const eu = await db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?').get(req.usuario!.id) as { senha_hash: string };
-    if (!bcrypt.compareSync(senha, eu.senha_hash)) throw erroHttp(401, 'Senha incorreta.');
+    if (!await bcrypt.compare(senha, eu.senha_hash)) throw erroHttp(401, 'Senha incorreta.');
 
     const alvo = await db.prepare("SELECT * FROM usuarios WHERE id = ? AND perfil = 'admin'")
       .get(req.params.id) as { id: number; nome: string; email: string; super_admin: number } | undefined;
@@ -862,7 +862,7 @@ router.post('/admins/:id/rebaixar', exigirSuperAdmin, async (req, res, next) => 
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
     if (!senha) throw erroHttp(400, 'Confirme sua senha para rebaixar um super admin.');
     const eu = await db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?').get(req.usuario!.id) as { senha_hash: string };
-    if (!bcrypt.compareSync(senha, eu.senha_hash)) throw erroHttp(401, 'Senha incorreta.');
+    if (!await bcrypt.compare(senha, eu.senha_hash)) throw erroHttp(401, 'Senha incorreta.');
 
     const alvo = await db.prepare("SELECT * FROM usuarios WHERE id = ? AND perfil = 'admin'")
       .get(req.params.id) as { id: number; nome: string; email: string; super_admin: number } | undefined;
@@ -892,11 +892,11 @@ router.put('/minha-senha', exigirPerfil('admin'), async (req, res, next) => {
 
     const eu = await db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?')
       .get(req.usuario!.id) as { senha_hash: string } | undefined;
-    if (!eu || !bcrypt.compareSync(atual, eu.senha_hash)) {
+    if (!eu || !await bcrypt.compare(atual, eu.senha_hash)) {
       throw erroHttp(400, 'Senha atual incorreta.');
     }
     await db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?')
-      .run(bcrypt.hashSync(nova, 10), req.usuario!.id);
+      .run(await bcrypt.hash(nova, 10), req.usuario!.id);
     await registrarAuditoria(req, 'admin.trocar_senha', { alvoTipo: 'admin', alvoId: req.usuario!.id, alvoDesc: req.usuario!.email });
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -913,7 +913,7 @@ router.post('/2fa/resetar', exigirPerfil('admin'), async (req, res, next) => {
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
     const eu = await db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?')
       .get(req.usuario!.id) as { senha_hash: string } | undefined;
-    if (!eu || !bcrypt.compareSync(senha, eu.senha_hash)) {
+    if (!eu || !await bcrypt.compare(senha, eu.senha_hash)) {
       throw erroHttp(401, 'Senha incorreta.');
     }
     await db.prepare('UPDATE usuarios SET totp_secret = NULL, totp_ativo = 0, totp_backup_codes = NULL WHERE id = ?')
@@ -2219,7 +2219,7 @@ router.post('/revendedores', exigirSuperAdmin, async (req, res, next) => {
       const [r] = await pool.query(
         `INSERT INTO revendedores (nome, email, senha_hash, telefone, documento, custo_centavos, criado_em)
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [nome, email, bcrypt.hashSync(senha, 10), textoLimpo(req.body.telefone || '', 30),
+        [nome, email, await bcrypt.hash(senha, 10), textoLimpo(req.body.telefone || '', 30),
          textoLimpo(req.body.documento || '', 20).replace(/\D/g, ''),
          reaisParaCentavos(req.body.custo ?? 0) || 0, agoraUTC()],
       );
@@ -2257,7 +2257,7 @@ router.put('/revendedores/:id', exigirSuperAdmin, async (req, res, next) => {
     // virar uma senha em branco.
     if (typeof req.body.senha === 'string' && req.body.senha.length > 0) {
       if (req.body.senha.length < 6) throw erroHttp(400, 'Senha: mínimo 6 caracteres.');
-      await pool.query('UPDATE revendedores SET senha_hash = ? WHERE id = ?', [bcrypt.hashSync(req.body.senha, 10), req.params.id]);
+      await pool.query('UPDATE revendedores SET senha_hash = ? WHERE id = ?', [await bcrypt.hash(req.body.senha, 10), req.params.id]);
     }
     await registrarAuditoria(req, 'revendedor.editar', { alvoTipo: 'revendedor', alvoId: Number(req.params.id), alvoDesc: nome });
     res.json({ ok: true });
@@ -2418,7 +2418,7 @@ router.post('/tenants', exigirSuperAdmin, async (req, res, next) => {
 
     const { tenant, lojaId } = await provisionarCliente({
       nome, slug, dominio: dominio || null, nomeLoja, categoria,
-      nomeDono, email, telefone, senhaHash: bcrypt.hashSync(senha, 10),
+      nomeDono, email, telefone, senhaHash: await bcrypt.hash(senha, 10),
       revendedorId: req.body.revendedor_id ? inteiroPositivo(req.body.revendedor_id) : null,
     });
 

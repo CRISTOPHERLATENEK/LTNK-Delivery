@@ -10,7 +10,7 @@ import { Router } from 'express';
 import { autenticarRevendedor } from '../auth';
 import { poolCentral } from '../tenants-mysql';
 import { abrirPool } from '../db-mysql';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { erroHttp, inteiroPositivo, textoLimpo, emailValido, agoraUTC, dataBrasilia } from '../util';
 import { problemaNoSlugTenant } from '../tenants-mysql';
 import { contaDoMes } from '../conta-revendedor';
@@ -198,7 +198,7 @@ router.post('/solicitacoes', async (req, res, next) => {
       `INSERT INTO solicitacoes_cliente
          (revendedor_id, nome, slug, nome_loja, categoria, dono_nome, dono_email, dono_telefone, senha_hash, criado_em)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [r.id, nome, slug, nomeLoja, categoria, donoNome, email, telefone, bcrypt.hashSync(senha, 10), agoraUTC()],
+      [r.id, nome, slug, nomeLoja, categoria, donoNome, email, telefone, await bcrypt.hash(senha, 10), agoraUTC()],
     ) as unknown as [{ insertId: number }];
     res.status(201).json({ id: Number(ins.insertId) });
   } catch (e) { next(e); }
@@ -431,11 +431,11 @@ router.put('/senha', async (req, res, next) => {
     const [linhas] = await poolCentral().query(
       'SELECT senha_hash FROM revendedores WHERE id = ?', [r.id],
     ) as unknown as [Array<{ senha_hash: string }>];
-    if (!linhas[0] || !bcrypt.compareSync(atual, linhas[0].senha_hash)) {
+    if (!linhas[0] || !await bcrypt.compare(atual, linhas[0].senha_hash)) {
       throw erroHttp(403, 'Senha atual incorreta.');
     }
     await poolCentral().query(
-      'UPDATE revendedores SET senha_hash = ? WHERE id = ?', [bcrypt.hashSync(nova, 10), r.id],
+      'UPDATE revendedores SET senha_hash = ? WHERE id = ?', [await bcrypt.hash(nova, 10), r.id],
     );
     res.json({ ok: true });
   } catch (e) { next(e); }
