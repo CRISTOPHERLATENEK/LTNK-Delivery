@@ -666,6 +666,26 @@ const PORT = Number(process.env.PORT) || 3000;
    * idempotente (so escreve quando o estado MUDA), entao rodar 4x por dia nao
    * custa nada.
    */
+  /*
+   * TAREFAS DE FUNDO SÓ NA PRIMEIRA INSTÂNCIA.
+   *
+   * Em modo cluster o PM2 sobe N cópias do processo pra usar todos os núcleos.
+   * As rotas HTTP podem (e devem) rodar em todas — mas os jobs, não: N cópias
+   * reconciliando o mesmo Pix, fechando a mesma fatura e mandando o mesmo
+   * e-mail pro contador significam N chamadas à API do PSP e, no pior caso,
+   * cobrança e e-mail duplicados. O `contador_ultima_competencia` protege o
+   * envio, mas depender só disso seria contar com sorte de ordenação.
+   *
+   * `NODE_APP_INSTANCE` é do PM2 e não existe em modo fork nem em `node
+   * server.js` na mão — sem ele, tudo roda, que é o comportamento de sempre.
+   */
+  const instancia = process.env.NODE_APP_INSTANCE;
+  const rodarTarefas = instancia === undefined || instancia === '0';
+  if (!rodarTarefas) {
+    console.log(`[TAREFAS] instância ${instancia}: só atende HTTP (jobs rodam na instância 0).`);
+  }
+
+  if (rodarTarefas) {
   processarVencimentos(poolCentral())
     .then(r => { if (r.suspensos || r.reativados) console.log(`[ASSINATURA] ${r.suspensos} suspenso(s), ${r.reativados} reativado(s) de ${r.verificadas}.`); })
     .catch(e => console.error('[ASSINATURA] falha ao processar vencimentos:', e));
@@ -715,6 +735,8 @@ const PORT = Number(process.env.PORT) || 3000;
 
   gravarFaturasDeTodos().catch(e => console.error('[fatura] falha no fechamento inicial:', e));
   setInterval(() => { gravarFaturasDeTodos().catch(e => console.error('[fatura] falha no fechamento:', e)); }, 60 * 60_000);
+
+  } // fim das tarefas de fundo
 
   app.listen(PORT, () => {
     // Esta mensagem é só informativa (endereço LOCAL do processo). Em produção,
