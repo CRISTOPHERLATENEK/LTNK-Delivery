@@ -661,6 +661,12 @@ const CONFIGS_PADRAO: Array<[string, string]> = [
    */
   ['marca_mostrar_nome', '1'],
   /*
+   * Tamanho da logo numa barra de 0 a 100, onde 50 e o tamanho original.
+   * Guardado como texto porque `configuracoes` e chave/valor em texto; quem
+   * converte e valida a faixa e fatorDaEscala (frontend/src/lib/logo-escala.ts).
+   */
+  ['marca_logo_escala', '50'],
+  /*
    * CRÉDITO NO RODAPÉ do painel de quem contratou ("Desenvolvido por ...").
    *
    * Configurável, e não fixo no código, porque num sistema white-label o

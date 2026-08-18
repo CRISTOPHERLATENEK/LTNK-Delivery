@@ -32,6 +32,7 @@ import {
 import { useTema, reaplicarPaletaTema } from '@/lib/tema';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { alturaLogo } from '@/lib/logo-escala';
 import type { Loja, LandingRecurso, LandingIcone, LandingPlano, LandingFaq, TemaMarca, LandingIconeTituloDesc, LandingStat, LandingAutomacaoItem, LandingCupomItem } from '@/types';
 
 gsap.registerPlugin(ScrollTrigger, DrawSVGPlugin);
@@ -787,7 +788,9 @@ export function PaginaLanding() {
               duas marcas DIFERENTES, se a logo e o cadastro não combinarem).
             */}
             {marca.logo_url ? (
-              <img src={marca.logo_url} alt={marca.nome} className="h-12 w-auto max-w-[230px] object-contain sm:h-14" />
+              <img src={marca.logo_url} alt={marca.nome}
+                style={{ height: alturaLogo(48, marca.logo_escala) }}
+                className="w-auto max-w-[230px] object-contain" />
             ) : (
               <div className="flex size-9 items-center justify-center rounded-lg bg-primary text-primary-foreground"><Store className="h-5 w-5" /></div>
             )}
@@ -1273,7 +1276,11 @@ export function PaginaLanding() {
         <div className="mx-auto grid max-w-6xl gap-8 px-5 py-12 sm:px-6 sm:grid-cols-3">
           <div>
             <div className="flex items-center gap-2 font-extrabold text-white">
-              {marca.logo_url ? <img src={marca.logo_url} alt={marca.nome} className="h-9 w-auto max-w-[170px] object-contain" /> : <Store className="h-5 w-5 text-primary" />}
+              {marca.logo_url
+                ? <img src={marca.logo_url} alt={marca.nome}
+                    style={{ height: alturaLogo(36, marca.logo_escala) }}
+                    className="w-auto max-w-[170px] object-contain" />
+                : <Store className="h-5 w-5 text-primary" />}
               {(marca.mostrar_nome !== false || !marca.logo_url) && marca.nome}
             </div>
             <p className="mt-2 max-w-xs text-sm text-neutral-400">{marca.slogan || 'Seu delivery white label: com a sua marca e o seu domínio.'}</p>

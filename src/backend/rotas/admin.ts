@@ -1309,6 +1309,7 @@ router.get('/tema', async (_req, res, next) => {
       slogan:            await valor('marca_slogan', 'Peça das melhores lojas da sua região'),
       logo_url:          await valor('marca_logo_url'),
       mostrar_nome:      (await valor('marca_mostrar_nome', '1')) !== '0',
+      logo_escala:       Number(await valor('marca_logo_escala', '50')),
       // Do banco central — o crédito é da plataforma, não de cada cliente.
       rodape_credito_texto:    credito.texto,
       rodape_credito_logo_url: credito.logo_url,
@@ -1347,6 +1348,17 @@ router.put('/tema', exigirSuperAdmin, async (req, res, next) => {
     // Nome ao lado da logo. Guardado como '1'/'0' pra ficar igual às outras
     // chaves booleanas de configuracoes (a tabela é chave/valor em texto).
     if (req.body.mostrar_nome !== undefined) await set(req.body.mostrar_nome ? '1' : '0', 'marca_mostrar_nome');
+
+    /*
+     * Tamanho da logo (barra de 0 a 100). Preso na faixa AQUI, e nao so no
+     * componente da tela: valor fora dela viraria logo de altura absurda
+     * cobrindo o cabecalho, e a tela nao e a unica porta pra esta rota.
+     */
+    if (req.body.logo_escala !== undefined) {
+      const bruto = Math.trunc(Number(req.body.logo_escala));
+      const escala = Number.isFinite(bruto) ? Math.min(100, Math.max(0, bruto)) : 50;
+      await set(String(escala), 'marca_logo_escala');
+    }
 
     /*
      * Crédito do rodapé — gravado no banco CENTRAL, não em `configuracoes`.

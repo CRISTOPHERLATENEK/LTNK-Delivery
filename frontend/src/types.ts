@@ -190,6 +190,8 @@ export interface TemaMarca {
   logo_url: string;
   /** Mostrar o nome da marca ao lado da logo. Falso quando a logo já traz o nome. */
   mostrar_nome?: boolean;
+  /** Barra de 0 a 100; 50 = tamanho original. Ver lib/logo-escala.ts. */
+  logo_escala?: number;
   /** Crédito no rodapé do painel: "Desenvolvido por ..." + logo opcional. */
   rodape_credito_texto?: string;
   rodape_credito_logo_url?: string;

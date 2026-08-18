@@ -27,6 +27,7 @@ import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
 import { useTema, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
+import { alturaLogo } from '@/lib/logo-escala';
 import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag, MessageCircle, ShieldCheck, Check } from 'lucide-react';
 import { ImageUpload } from '@/components/ui/image-upload';
 import {
@@ -1371,7 +1372,9 @@ function LoginLojista() {
         */}
         <div className="relative z-10" data-anim="logo">
           {marca.logo_url ? (
-            <img src={marca.logo_url} alt={marca.nome} className="h-11 w-auto object-contain" draggable={false} />
+            <img src={marca.logo_url} alt={marca.nome} draggable={false}
+              style={{ height: alturaLogo(44, marca.logo_escala) }}
+              className="w-auto max-w-[280px] object-contain" />
           ) : (
             <div className="flex items-center gap-3">
               <div className="flex size-11 items-center justify-center rounded-2xl bg-primary-foreground/15">
@@ -1476,7 +1479,9 @@ function LoginLojista() {
               senão a tela abre sem nada que diga de quem ela é. */}
           <div className="mb-7 lg:hidden" data-anim="campo">
             {marca.logo_url ? (
-              <img src={marca.logo_url} alt={marca.nome} className="h-9 w-auto object-contain" draggable={false} />
+              <img src={marca.logo_url} alt={marca.nome} draggable={false}
+                style={{ height: alturaLogo(36, marca.logo_escala) }}
+                className="w-auto max-w-[220px] object-contain" />
             ) : (
               <div className="flex size-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
                 <Store className="size-5" strokeWidth={2.5} />

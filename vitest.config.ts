@@ -2,7 +2,10 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['src/backend/**/*.test.ts'],
+    // Inclui os helpers puros do frontend também. Eles nao tocam DOM nem React
+    // (sao funcoes de calculo, como a escala da logo), e ficar sem teste so
+    // porque moram em frontend/ seria acidente de pasta.
+    include: ['src/backend/**/*.test.ts', 'frontend/src/**/*.test.ts'],
     // Segredos fixos só pra teste — cripto.ts e auth.ts leem na carga do
     // módulo (auth.ts chama process.exit(1) sem JWT_SECRET, o que mataria a
     // suíte inteira antes do primeiro teste rodar).

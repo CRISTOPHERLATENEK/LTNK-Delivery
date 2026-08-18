@@ -6,6 +6,7 @@ import { ThemeToggle } from './theme-toggle';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { cn } from '@/lib/utils';
+import { alturaLogo } from '@/lib/logo-escala';
 import { sessaoUsuario, encerrarSessao } from '@/lib/api';
 import { useTema } from '@/lib/tema';
 import { rotaInicioCliente } from '@/lib/loja-atual';
@@ -115,10 +116,16 @@ export function AppLayout({ children, itens, grupos, titulo, subtitulo }: Props)
          * justamente o nome da marca. Agora a proporção é respeitada e a
          * largura acompanha, com teto pra não empurrar o resto do cabeçalho.
          */
+        /*
+         * ALTURA VEM DA BARRA de 0 a 100 escolhida em Marca; 44px é o valor do
+         * padrão (50). Em `style` e não em classe do Tailwind porque a altura é
+         * um número do banco — classe teria que existir pra cada valor possível.
+         */
         <img
           src={marca.logo_url}
           alt={nomeMarca}
-          className="h-11 w-auto max-w-[180px] object-contain shrink-0"
+          style={{ height: alturaLogo(44, marca.logo_escala) }}
+          className="w-auto max-w-[180px] object-contain shrink-0"
         />
       ) : (
         <div className="flex size-10 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary/70 text-primary-foreground shadow-sm group-hover:shadow-md transition-shadow shrink-0">

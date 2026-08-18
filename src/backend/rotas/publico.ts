@@ -64,6 +64,7 @@ router.get('/tema', async (req, res, next) => {
     let slogan = await valor('marca_slogan', 'Peça das melhores lojas da sua região');
     let logo = await valor('marca_logo_url');
     const mostrarNome = (await valor('marca_mostrar_nome', '1')) !== '0';
+    const logoEscala = Number(await valor('marca_logo_escala', '50'));
     const credito = await lerRodapeCredito();
     let descricao = await valor('marca_descricao');
 
@@ -108,6 +109,7 @@ router.get('/tema', async (req, res, next) => {
       slogan,
       logo_url:          logo,
       mostrar_nome:      mostrarNome,
+      logo_escala:       logoEscala,
       // Do banco CENTRAL, não de `configuracoes`: é o crédito da plataforma e
       // vale igual pra todos os clientes. Ver lerRodapeCredito.
       rodape_credito_texto:    credito.texto,

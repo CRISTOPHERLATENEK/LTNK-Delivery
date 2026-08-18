@@ -18,6 +18,7 @@ import { useToast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
 import { useTema, FONTES, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
+import { alturaLogo, ESCALA_PADRAO } from '@/lib/logo-escala';
 import { PreviewApp } from './PreviewApp';
 import { Secao, CampoCor } from './campos';
 import type { TemaMarca, RaioMarca, FonteMarca } from '@/types';
@@ -75,6 +76,13 @@ export function TelaMarca() {
     }
   }
 
+  /*
+   * `logo_escala` pode não existir em cliente que nunca salvou a marca depois
+   * desta versão — sem o padrão aqui, o `input range` viria sem valor e o React
+   * o trataria como campo não controlado.
+   */
+  const escalaLogo = form.logo_escala ?? ESCALA_PADRAO;
+
   const corFg = foregroundContraste(form.cor_primaria);
   const contrasteClaro = corFg === '0 0% 100%';
 
@@ -114,6 +122,70 @@ export function TelaMarca() {
           <Secao icone={ImageIcon} titulo="Imagens">
             <ImageUpload label="Logo" value={form.logo_url}
               onChange={v => up('logo_url', v)} aspectRatio="square" />
+
+            {/*
+              TAMANHO DA LOGO numa barra de 0 a 100.
+              Antes a altura era fixa no código, e o resultado depende do
+              arquivo: logo com muita margem branca em volta aparece minúscula
+              na mesma altura em que uma logo justa fica grande. Só quem vê o
+              arquivo pronto na tela sabe qual é o certo.
+
+              A prévia ao lado mostra a logo no tamanho real que vai sair, com a
+              altura em px — a barra sozinha não diz nada sobre o resultado.
+            */}
+            {form.logo_url && (
+              <div className="rounded-xl border border-border p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="logo-escala" className="mb-0">Tamanho da logo</Label>
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {escalaLogo} · {alturaLogo(44, escalaLogo)}px
+                  </span>
+                </div>
+
+                <div className="mt-2 flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground">0</span>
+                  <input
+                    id="logo-escala"
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={escalaLogo}
+                    onChange={e => up('logo_escala', Number(e.target.value))}
+                    className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-muted accent-primary"
+                  />
+                  <span className="text-xs text-muted-foreground">100</span>
+                </div>
+
+                {/* Prévia sobre a cor da marca: logo clara em fundo claro
+                    parece sumida, e é justamente onde ela vai ficar. */}
+                <div className="mt-3 flex items-center gap-3 rounded-lg bg-primary p-3">
+                  <img
+                    src={form.logo_url}
+                    alt=""
+                    style={{ height: alturaLogo(44, escalaLogo) }}
+                    className="w-auto max-w-[200px] object-contain"
+                  />
+                  {form.mostrar_nome !== false && (
+                    <span className="truncate text-sm font-extrabold text-primary-foreground">
+                      {form.nome || 'Sua marca'}
+                    </span>
+                  )}
+                </div>
+
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    50 é o tamanho original. Vale no painel, no login e na página pública.
+                  </p>
+                  {escalaLogo !== ESCALA_PADRAO && (
+                    <button type="button" onClick={() => up('logo_escala', ESCALA_PADRAO)}
+                      className="shrink-0 text-xs font-semibold text-primary hover:underline">
+                      Voltar ao padrão
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/*
               MOSTRAR O NOME AO LADO DA LOGO.
