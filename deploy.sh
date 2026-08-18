@@ -22,8 +22,13 @@ npm install
 echo "→ Build (backend + frontend)"
 npm run build
 
-echo "→ Reiniciando o processo (PM2)"
-pm2 restart all
+echo "→ Recarregando o processo (PM2, sem queda)"
+# `reload` e nao `restart`: em modo cluster o PM2 troca UMA instancia por vez e,
+# com wait_ready, so derruba a antiga depois que a nova avisa que terminou de
+# aplicar o schema. `restart` derruba as tres de uma vez — que era a origem dos
+# ~5s de 502 a cada deploy (e de 8s com 100 clientes).
+# Se o app ainda nao estiver rodando, `reload` falha e o `start` assume.
+pm2 reload ecosystem.config.js --update-env || pm2 start ecosystem.config.js
 pm2 save
 
 echo "✓ Deploy concluído."

@@ -342,6 +342,15 @@ app.use('/api/cozinha', cozinhaRoutes);
  *
  * Não expõe nada sensível: devolve só o que o próprio chamador já mandou.
  */
+/**
+ * Prova de vida. Responde 200 só quando o processo já está ouvindo — o que,
+ * dado que o `listen` acontece depois das migrações, significa "pronto pra
+ * atender de verdade", e não "o processo nasceu".
+ */
+app.get('/api/saude', (_req, res) => {
+  res.json({ ok: true, instancia: process.env.NODE_APP_INSTANCE ?? '0', em: new Date().toISOString() });
+});
+
 app.get('/api/diagnostico/ip', (req, res) => {
   res.json({
     ip_visto: req.ip,
@@ -738,14 +747,47 @@ const PORT = Number(process.env.PORT) || 3000;
 
   } // fim das tarefas de fundo
 
-  app.listen(PORT, () => {
+  const servidor = app.listen(PORT, () => {
     // Esta mensagem é só informativa (endereço LOCAL do processo). Em produção,
     // é a plataforma de hospedagem (ex.: Hostinger) que encaminha o SEU DOMÍNIO
     // pra esta porta por trás dos panos — "localhost" aqui não significa que o
     // app está preso à máquina local.
     console.log(`✅ Delivery Multi-lojas ouvindo na porta ${PORT} (acesse pelo seu domínio em produção)`);
     console.log('   Local p/ testes: http://localhost:' + PORT + '/');
+
+    /*
+     * AVISA O PM2 QUE ESTÁ PRONTO — e só aqui, depois do schema de todos os
+     * tenants ter sido aplicado.
+     *
+     * É o que torna o `pm2 reload` sem queda possível: com `wait_ready`, o PM2
+     * segura a instância antiga até a nova mandar este sinal. Sem isso ele
+     * considera "pronta" a instância que apenas nasceu, derruba a antiga, e as
+     * requisições batem num processo que ainda está aplicando migração — que é
+     * exatamente a janela de 8 segundos medida com 100 clientes.
+     */
+    process.send?.('ready');
   });
+
+  /*
+   * DESLIGAMENTO GRACIOSO. O PM2 manda SIGINT antes de matar; sem tratar, o
+   * Node morre na hora e derruba no meio quem estava sendo atendido — inclusive
+   * um checkout já cobrado do cliente.
+   *
+   * `server.close` para de aceitar conexão nova e espera as em andamento
+   * terminarem. O prazo é rede de segurança: requisição pendurada não pode
+   * segurar o deploy pra sempre.
+   */
+  const encerrar = (sinal: string) => {
+    console.log(`[${sinal}] encerrando: parando de aceitar conexões e aguardando as em andamento…`);
+    const prazo = setTimeout(() => {
+      console.warn('[encerramento] prazo esgotado, saindo com requisições ainda abertas.');
+      process.exit(0);
+    }, 10_000);
+    prazo.unref();
+    servidor.close(() => { console.log('[encerramento] tudo concluído.'); process.exit(0); });
+  };
+  process.on('SIGINT', () => encerrar('SIGINT'));
+  process.on('SIGTERM', () => encerrar('SIGTERM'));
 })().catch(e => {
   console.error('❌ Falha fatal ao inicializar (registro central de tenants):', e);
   process.exit(1);
