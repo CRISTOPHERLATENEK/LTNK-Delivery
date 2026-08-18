@@ -15,6 +15,7 @@
  *   node dist/backend/carga.js limpar           # apaga tudo que criou
  */
 import 'dotenv/config';
+import http from 'http';
 import bcrypt from 'bcryptjs';
 import { comTenant } from './db-mysql';
 import db from './db-mysql';
@@ -68,6 +69,30 @@ async function preparar(quantos: number): Promise<void> {
 
 interface Amostra { ms: number; ok: boolean; status: number }
 
+/**
+ * Uma requisição, com o Host do tenant.
+ *
+ * `http.request` e NÃO `fetch`: o fetch do Node (undici) IGNORA o cabeçalho
+ * Host por segurança, sem avisar. A primeira versão desta ferramenta usava
+ * fetch e media 100% de 404 — todas as requisições caíam no tenant padrão, e o
+ * número que saía era o custo de responder "não achei".
+ */
+function pedir(host: string): Promise<number> {
+  return new Promise((resolve) => {
+    const req = http.request(
+      { host: '127.0.0.1', port: PORTA, path: ROTA, method: 'GET', headers: { Host: host } },
+      (res) => {
+        // Consome o corpo: sem ler, o socket fica preso e o teste mede o
+        // tempo até o cabeçalho, não até a resposta inteira.
+        res.resume();
+        res.on('end', () => resolve(res.statusCode ?? 0));
+      },
+    );
+    req.on('error', () => resolve(0));
+    req.end();
+  });
+}
+
 /** Percentil de uma lista JÁ ordenada. */
 function percentil(ordenado: number[], p: number): number {
   if (ordenado.length === 0) return 0;
@@ -99,15 +124,9 @@ async function medir(segundos: number, simultaneas: number): Promise<void> {
        * e a que lê mais linha por requisição (loja + produtos + opções). Medir
        * um endpoint barato daria um número bonito e inútil.
        */
-      const url = `${BASE}${ROTA}`;
       const t0 = Date.now();
-      try {
-        const r = await fetch(url, { headers: { Host: `${t.slug}.maxxpedidos.com.br` } });
-        await r.text();
-        amostras.push({ ms: Date.now() - t0, ok: r.ok, status: r.status });
-      } catch {
-        amostras.push({ ms: Date.now() - t0, ok: false, status: 0 });
-      }
+      const st = await pedir(`${t.slug}.maxxpedidos.com.br`);
+      amostras.push({ ms: Date.now() - t0, ok: st >= 200 && st < 400, status: st });
     }
   };
 
