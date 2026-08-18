@@ -267,20 +267,55 @@ router.get('/lojas/:id', async (req, res, next) => {
         ORDER BY categoria, subcategoria, destaque DESC, nome`
     ).all(loja.id) as (Produto & { grupos?: GrupoComOpcoes[] })[];
 
-    for (const p of produtos) {
-      const gruposBrutos = await db.prepare(
-        `SELECT id, nome, tipo, obrigatorio, max_escolhas
-           FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id`
-      ).all(p.id) as GrupoComOpcoes[];
-      const grupos = [];
-      for (const g of gruposBrutos) {
+    /*
+     * GRUPOS E OPÇÕES EM DUAS CONSULTAS, não em duas por produto.
+     *
+     * Era N+1 em dois níveis: uma consulta de grupos por produto, mais uma de
+     * opções por grupo. Num cardápio de 50 itens com 2 grupos cada isso dava
+     * ~150 idas ao banco para montar UMA página — e esta é a página mais aberta
+     * do sistema inteiro.
+     *
+     * Medido com ApacheBench nesta mesma rota: 439 req/s, contra 3.217 req/s de
+     * uma rota que não toca no banco. O tempo não estava no Express nem no
+     * tamanho da resposta (5,8 KB) — estava na quantidade de consultas.
+     *
+     * Agora: uma consulta traz os grupos de TODOS os produtos, outra traz as
+     * opções de TODOS os grupos, e o agrupamento é feito em memória.
+     */
+    if (produtos.length > 0) {
+      const idsProd = produtos.map(p => p.id);
+      const grupos = await db.prepare(
+        `SELECT id, nome, tipo, obrigatorio, max_escolhas, produto_id
+           FROM grupos_opcoes WHERE produto_id IN (${idsProd.map(() => '?').join(',')})
+          ORDER BY ordem, id`
+      ).all(...idsProd) as Array<GrupoComOpcoes & { produto_id: number }>;
+
+      const opcoesPorGrupo = new Map<number, OpcaoItem[]>();
+      if (grupos.length > 0) {
+        const idsGrupo = grupos.map(g => g.id);
         const opcoes = await db.prepare(
-          `SELECT id, nome, preco_adicional_centavos
-             FROM opcoes_itens WHERE grupo_id = ? AND disponivel = 1 ORDER BY ordem, id`
-        ).all(g.id) as OpcaoItem[];
-        if (opcoes.length > 0) grupos.push({ ...g, opcoes });
+          `SELECT id, nome, preco_adicional_centavos, grupo_id
+             FROM opcoes_itens WHERE grupo_id IN (${idsGrupo.map(() => '?').join(',')}) AND disponivel = 1
+            ORDER BY ordem, id`
+        ).all(...idsGrupo) as Array<OpcaoItem & { grupo_id: number }>;
+        for (const o of opcoes) {
+          const lista = opcoesPorGrupo.get(o.grupo_id) ?? [];
+          lista.push(o);
+          opcoesPorGrupo.set(o.grupo_id, lista);
+        }
       }
-      p.grupos = grupos;
+
+      const gruposPorProduto = new Map<number, GrupoComOpcoes[]>();
+      for (const g of grupos) {
+        // Grupo sem opção disponível não vai pra tela — mesma regra de antes,
+        // senão o cardápio mostraria "Escolha o sabor" com a lista vazia.
+        const opcoes = opcoesPorGrupo.get(g.id);
+        if (!opcoes || opcoes.length === 0) continue;
+        const lista = gruposPorProduto.get(g.produto_id) ?? [];
+        lista.push({ ...g, opcoes });
+        gruposPorProduto.set(g.produto_id, lista);
+      }
+      for (const p of produtos) p.grupos = gruposPorProduto.get(p.id) ?? [];
     }
 
     const cardapio: Record<string, typeof produtos> = {};
