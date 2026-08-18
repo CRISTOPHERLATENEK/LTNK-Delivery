@@ -355,7 +355,13 @@ export async function criarPreferenciaCartao(
 }
 
 /**
- * Estorna um pagamento Pix aprovado NO GATEWAY QUE O PROCESSOU — ponto único
+ * Estorna um pagamento ONLINE aprovado NO GATEWAY QUE O PROCESSOU — ponto único
+ *
+ * VALE PARA PIX E PARA CARTÃO. O nome dizia "Pix" e enganava: o endpoint de
+ * refund do Mercado Pago é o mesmo para os dois, e um cartão recusado pela loja
+ * sempre foi devolvido por aqui. Quem lesse o nome antigo concluiria que falta
+ * um caminho de estorno de cartão e escreveria um segundo — com o risco de
+ * devolver em dobro.
  * de despacho, espelhando `criarCobrancaPix`.
  *
  * POR QUE ISTO EXISTE: o cash-in ganhou dois gateways (Mercado Pago e ONZ),
@@ -368,7 +374,7 @@ export async function criarPreferenciaCartao(
  * gateway depois, os pedidos antigos ainda precisam ser estornados onde foram
  * pagos.
  */
-export async function estornarPagamentoPix(
+export async function estornarPagamentoOnline(
   lojaId: number, gateway: string | null | undefined, pagamentoGatewayId: string,
 ): Promise<void> {
   if (gateway === 'onz') {
@@ -383,7 +389,7 @@ export async function estornarPagamentoPix(
 }
 
 /**
- * Estorna (reembolso total) um pagamento Pix aprovado direto na API do
+ * Estorna (reembolso total) um pagamento aprovado — Pix OU cartão — direto na API do
  * Mercado Pago. Lança com a mensagem de erro do MP se recusar (ex.: prazo de
  * estorno do Pix expirado, ou o pagamento já foi estornado antes).
  */

@@ -53,19 +53,19 @@ vi.mock('../cripto', () => ({
   },
 }));
 
-const { estornarPagamentoPix } = await import('./pagamentos');
+const { estornarPagamentoOnline } = await import('./pagamentos');
 const pagamentos = await import('./pagamentos');
 vi.spyOn(pagamentos, 'estornarPagamentoMercadoPago').mockImplementation(
   (...args: unknown[]) => estornoMP(...args) as Promise<void>,
 );
 
-describe('estornarPagamentoPix — despacho por gateway', () => {
+describe('estornarPagamentoOnline — despacho por gateway', () => {
   beforeEach(() => { devolverCobranca.mockReset(); estornoMP.mockReset(); linhaLoja = undefined; });
 
   it('pedido pago via ONZ é devolvido NA ONZ, nunca no Mercado Pago', async () => {
     devolverCobranca.mockResolvedValue({ devolucoes: [], totalCentavos: 0 });
 
-    await estornarPagamentoPix(1, 'onz', 'PED42abc');
+    await estornarPagamentoOnline(1, 'onz', 'PED42abc');
 
     expect(devolverCobranca).toHaveBeenCalledWith('PED42abc', null);
     expect(estornoMP).not.toHaveBeenCalled();
@@ -85,7 +85,7 @@ describe('estornarPagamentoPix — despacho por gateway', () => {
     };
     devolverCobranca.mockResolvedValue({ devolucoes: [], totalCentavos: 0 });
 
-    await estornarPagamentoPix(7, 'onz', 'PED99xyz');
+    await estornarPagamentoOnline(7, 'onz', 'PED99xyz');
 
     expect(devolverCobranca).toHaveBeenCalledWith('PED99xyz', {
       clientId: 'id-da-loja',
@@ -102,7 +102,7 @@ describe('estornarPagamentoPix — despacho por gateway', () => {
     linhaLoja = { onz_client_id: 'lixo', onz_client_secret: 'lixo', onz_pix_key: 'k' };
     devolverCobranca.mockResolvedValue({ devolucoes: [], totalCentavos: 0 });
 
-    await estornarPagamentoPix(7, 'onz', 'PED55aaa');
+    await estornarPagamentoOnline(7, 'onz', 'PED55aaa');
 
     expect(devolverCobranca).toHaveBeenCalledWith('PED55aaa', null);
   });
@@ -110,7 +110,7 @@ describe('estornarPagamentoPix — despacho por gateway', () => {
   it('pedido sem gateway gravado cai no Mercado Pago (compatibilidade)', async () => {
     // Pedidos anteriores à coluna `pagamento_gateway`: naquela época só existia
     // o MP, então null tem que continuar indo pra lá.
-    await estornarPagamentoPix(1, null, 'MP-123').catch(() => { /* mock do MP */ });
+    await estornarPagamentoOnline(1, null, 'MP-123').catch(() => { /* mock do MP */ });
 
     expect(devolverCobranca).not.toHaveBeenCalled();
   });
@@ -119,7 +119,7 @@ describe('estornarPagamentoPix — despacho por gateway', () => {
     // Defensivo: só a string exata 'onz' deve rotear pra ONZ. Qualquer valor
     // inesperado no banco cai no caminho antigo em vez de devolver dinheiro
     // pelo gateway errado.
-    await estornarPagamentoPix(1, 'gateway_novo_qualquer', 'X-1').catch(() => { /* mock do MP */ });
+    await estornarPagamentoOnline(1, 'gateway_novo_qualquer', 'X-1').catch(() => { /* mock do MP */ });
 
     expect(devolverCobranca).not.toHaveBeenCalled();
   });

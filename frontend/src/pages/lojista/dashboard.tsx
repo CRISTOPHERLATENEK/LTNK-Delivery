@@ -388,7 +388,7 @@ function CardPedidoDash({
   async function estornar() {
     const ok = await confirmar({
       titulo: 'Estornar pagamento e cancelar pedido?',
-      descricao: `O Pix do pedido #${p.id} volta pro cliente e o pedido é cancelado. Essa ação não pode ser desfeita.`,
+      descricao: `O pagamento do pedido #${p.id} volta pro cliente e o pedido é cancelado. Essa ação não pode ser desfeita.`,
       confirmar: 'Estornar e cancelar',
       destrutivo: true,
     });
@@ -562,7 +562,14 @@ function CardPedidoDash({
 
         <div className="flex flex-wrap gap-2">{botoes()}</div>
 
-        {p.forma_pagamento === 'pix' && p.pagamento_status === 'aprovado' && !p.estornado_em
+        {/*
+          PIX **E** CARTÃO ONLINE. O botão só aparecia no Pix, mas o servidor
+          estorna os dois pelo mesmo caminho (ver estornarPagamentoOnline) — e
+          "Recusar", que devolve automaticamente, só existe enquanto o pedido
+          está pendente. Um pedido de cartão já aceito e que precisa ser
+          cancelado ficava sem saída nenhuma no painel: só no site do gateway.
+        */}
+        {['pix', 'cartao_online'].includes(p.forma_pagamento) && p.pagamento_status === 'aprovado' && !p.estornado_em
           && !['entregue', 'em_entrega', 'cancelado'].includes(p.status) && (
           <Button variant="ghost" size="sm" disabled={estornando} onClick={estornar} className="mt-2 text-destructive hover:text-destructive">
             {estornando ? 'Estornando…' : 'Estornar pagamento e cancelar'}
