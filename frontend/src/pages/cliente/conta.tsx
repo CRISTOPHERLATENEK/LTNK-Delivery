@@ -6,9 +6,9 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   UserPlus, User, MapPin, Lock, Pencil, Plus, Trash2, Save, X, Check, Loader2,
-  Eye, EyeOff, ArrowRight, ShieldCheck, Phone, Mail,
+  Eye, EyeOff, ArrowRight, ShieldCheck, Phone, Mail, Download, AlertTriangle,
 } from 'lucide-react';
-import { api, ApiError, salvarSessao, sessaoUsuario, encerrarSessao, tenantDemoAtivo } from '@/lib/api';
+import { api, ApiError, salvarSessao, sessaoUsuario, encerrarSessao, tenantDemoAtivo, tokenSessao } from '@/lib/api';
 import { BotoesLoginSocial } from '@/components/login-social';
 import { useRetornoLoginSocial } from '@/lib/login-social';
 import { useTema } from '@/lib/tema';
@@ -179,6 +179,7 @@ function PainelConta({ usuario, aoSair }: { usuario: UsuarioSessao; aoSair: () =
       <Button variant="outline" size="lg" className="w-full" onClick={aoSair}>
         Sair da conta
       </Button>
+      <DadosPessoaisSecao aoSair={aoSair} />
     </div>
   );
 }
@@ -608,5 +609,113 @@ function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
         {enviando ? 'Criando…' : <><UserPlus className="size-4" /> Cadastrar</>}
       </Button>
     </form>
+  );
+}
+
+/* ─────────────────── Meus dados e exclusão (LGPD) ─────────────────── */
+
+/**
+ * Fica depois do "Sair da conta", no fim da página, de propósito: é a área que
+ * ninguém usa no dia a dia e onde um clique errado custa caro.
+ */
+function DadosPessoaisSecao({ aoSair }: { aoSair: () => void }) {
+  const { mostrar } = useToast();
+  const [baixando, setBaixando] = useState(false);
+  const [abrindoExclusao, setAbrindoExclusao] = useState(false);
+  const [confirmacao, setConfirmacao] = useState('');
+  const [excluindo, setExcluindo] = useState(false);
+
+  /*
+   * Vai por `fetch` e não por link: a rota exige o token da sessão, e um <a>
+   * não manda cabeçalho.
+   */
+  async function baixarDados() {
+    setBaixando(true);
+    try {
+      const resp = await fetch('/api/cliente/meus-dados', {
+        headers: { Authorization: `Bearer ${tokenSessao('cliente')}` },
+      });
+      if (!resp.ok) throw new Error('Não foi possível gerar o arquivo.');
+      const blob = await resp.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'meus-dados.json';
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(a.href);
+    } catch (err) {
+      mostrar({ tipo: 'erro', titulo: err instanceof Error ? err.message : 'Falha ao baixar.' });
+    } finally {
+      setBaixando(false);
+    }
+  }
+
+  async function excluir() {
+    setExcluindo(true);
+    try {
+      await api('POST', '/api/cliente/conta/excluir', { confirmacao });
+      mostrar({ tipo: 'sucesso', titulo: 'Conta excluída.', descricao: 'Seus dados pessoais foram removidos.' });
+      // Sai na hora: a conta está bloqueada, e continuar na tela logada daria
+      // erro em toda ação seguinte.
+      aoSair();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setExcluindo(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <h2 className="text-sm font-bold">Meus dados</h2>
+
+        <Button variant="outline" className="w-full" onClick={baixarDados} disabled={baixando}>
+          {baixando
+            ? <><Loader2 className="size-4 animate-spin" /> Preparando…</>
+            : <><Download className="size-4" /> Baixar meus dados</>}
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          Um arquivo com seu cadastro, endereços, pedidos e avaliações nesta loja.
+        </p>
+
+        {!abrindoExclusao ? (
+          <button type="button" onClick={() => setAbrindoExclusao(true)}
+            className="text-xs font-semibold text-destructive hover:underline">
+            Excluir minha conta
+          </button>
+        ) : (
+          <div className="space-y-2.5 rounded-xl border border-destructive/40 bg-destructive/5 p-3">
+            <p className="flex items-start gap-2 text-sm font-semibold text-destructive">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" /> Excluir minha conta
+            </p>
+            {/*
+              DIZ A VERDADE sobre o que acontece. Prometer "apagamos tudo" seria
+              mentira: os pedidos continuam existindo sem o seu nome, porque
+              nota fiscal emitida não pode ser desfeita.
+            */}
+            <p className="text-xs text-muted-foreground">
+              Seu nome, telefone, e-mail e endereços são removidos, e o acesso é encerrado.
+              Os pedidos já feitos continuam no histórico da loja <b>sem identificar você</b> —
+              a nota fiscal emitida não pode ser desfeita por lei.
+            </p>
+            <p className="text-xs text-muted-foreground">Não tem como voltar atrás.</p>
+            <div>
+              <Label htmlFor="conf-excluir">Digite EXCLUIR para confirmar</Label>
+              <Input id="conf-excluir" value={confirmacao} autoComplete="off"
+                onChange={e => setConfirmacao(e.target.value)} placeholder="EXCLUIR" />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="destructive" onClick={excluir}
+                disabled={excluindo || confirmacao.trim().toUpperCase() !== 'EXCLUIR'}>
+                {excluindo ? <><Loader2 className="size-4 animate-spin" /> Excluindo…</> : 'Excluir definitivamente'}
+              </Button>
+              <Button variant="outline" onClick={() => { setAbrindoExclusao(false); setConfirmacao(''); }}>
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -1759,9 +1759,15 @@ router.get('/entregadores/cadastro', async (req, res, next) => {
 /**
  * Quem tem acesso ao painel desta loja: o dono e os usuários que ele criou.
  *
- * TODOS TÊM O MESMO ACESSO hoje — não existe nível de permissão. O que muda é
- * quem PODE ADMINISTRAR: só o dono cria e remove gente. Isso é dito na tela, pra
- * ninguém achar que criou um "usuário limitado".
+ * CADA USUÁRIO TEM AS SUAS ÁREAS (`usuarios.permissoes`, ver AREAS_PAINEL). A
+ * checagem que vale é a do middleware algumas centenas de linhas acima, que
+ * barra no SERVIDOR — esconder item de menu não é permissão.
+ *
+ * Dois pontos que não são óbvios lendo só esta rota:
+ *  - O DONO tem tudo, sempre, e é quem distribui o resto.
+ *  - `permissoes` NULL significa acesso total, por compatibilidade: quem foi
+ *    criado antes deste recurso não tem a coluna preenchida, e trancar essa
+ *    gente de repente derrubaria quem já estava trabalhando.
  */
 router.get('/usuarios', async (req, res, next) => {
   try {

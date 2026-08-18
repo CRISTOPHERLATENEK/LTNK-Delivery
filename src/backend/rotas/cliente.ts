@@ -17,6 +17,7 @@ import { resolverFrete, type EnderecoParaFrete } from '../frete';
 import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo } from '../opcoes-preco';
 import { criarCobrancaPix, pagamentoOnlineAtivo, cartaoOnlineAtivo, conferirPagamentoAgora, publicKeyMP, criarPagamentoCartao, aplicarResultadoCartao } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
+import { dadosAnonimos, ehAnonimizado, ENDERECO_ANONIMO, TEXTO_ANONIMO } from '../anonimizacao';
 
 const router = Router();
 router.use(autenticar, exigirPerfil('cliente'));
@@ -1043,6 +1044,134 @@ router.delete('/favoritos/:lojaId', async (req, res, next) => {
       .run(req.usuario!.id, lojaId);
     res.json({ ok: true, favorito: false });
   } catch (err) { next(err); }
+});
+
+/* ─────────────────── Dados pessoais (LGPD) ─────────────────── */
+
+/**
+ * Cópia de tudo que o sistema guarda sobre esta pessoa.
+ *
+ * Existe porque a LGPD dá ao titular o direito de ver o que foi coletado, e a
+ * alternativa era o lojista pedir pro suporte consultar o banco à mão — o que
+ * já é, em si, mais gente vendo o dado do que precisa.
+ *
+ * É o dado DESTE cliente neste tenant. Um cliente que pediu em duas lojas de
+ * plataformas diferentes tem dois cadastros separados; não existe visão única, e
+ * prometer isso aqui seria mentira.
+ */
+router.get('/meus-dados', async (req, res, next) => {
+  try {
+    const id = req.usuario!.id;
+    const perfil = await db.prepare(
+      'SELECT id, nome, email, telefone, cpf, criado_em FROM usuarios WHERE id = ?'
+    ).get(id);
+    const enderecos = await db.prepare(
+      'SELECT rotulo, rua, numero, complemento, bairro, cidade, uf, cep, referencia, criado_em FROM enderecos WHERE usuario_id = ? ORDER BY id'
+    ).all(id);
+    const pedidos = await db.prepare(
+      `SELECT p.id, p.status, p.tipo_entrega, p.forma_pagamento, p.endereco_entrega,
+              p.subtotal_centavos, p.taxa_entrega_centavos, p.desconto_centavos,
+              p.total_centavos, p.criado_em, l.nome AS loja
+         FROM pedidos p LEFT JOIN lojas l ON l.id = p.loja_id
+        WHERE p.cliente_id = ? ORDER BY p.id DESC`
+    ).all(id);
+    const avaliacoes = await db.prepare(
+      'SELECT pedido_id, nota, comentario, criado_em FROM avaliacoes WHERE cliente_id = ? ORDER BY id'
+    ).all(id);
+
+    /*
+     * Content-Disposition: o navegador salva como arquivo em vez de abrir JSON
+     * na tela. Quem pede os próprios dados quer guardar, não ler cru.
+     */
+    res.setHeader('Content-Disposition', `attachment; filename="meus-dados-${id}.json"`);
+    res.json({
+      gerado_em: agoraUTC(),
+      aviso: 'Cópia dos seus dados neste estabelecimento. Pedidos aparecem com o valor e o endereço usados na entrega.',
+      perfil, enderecos, pedidos, avaliacoes,
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * EXCLUIR A CONTA — anonimiza, não apaga a linha.
+ *
+ * O pedido é documento fiscal e não pode sumir: há nota emitida, faturamento do
+ * lojista e escrituração apontando pra ele. O que vai embora é tudo que
+ * identifica a pessoa (ver anonimizacao.ts). Sobra a venda sem dono.
+ *
+ * Exige digitar EXCLUIR em vez da senha porque quem entrou pelo Google não tem
+ * senha utilizável — pedir senha trancaria justamente esses de exercer o
+ * direito. A sessão já prova quem é.
+ */
+router.post('/conta/excluir', async (req, res, next) => {
+  try {
+    const id = req.usuario!.id;
+    if (textoLimpo(req.body?.confirmacao, 20).toUpperCase() !== 'EXCLUIR') {
+      throw erroHttp(400, 'Digite EXCLUIR para confirmar.');
+    }
+
+    const eu = await db.prepare('SELECT email FROM usuarios WHERE id = ?').get(id) as { email: string } | undefined;
+    if (!eu) throw erroHttp(404, 'Conta não encontrada.');
+    // Idempotente: pedir de novo não é erro, e não há nada a reprocessar.
+    if (ehAnonimizado(eu.email)) return res.json({ ok: true, ja_removido: true });
+
+    /*
+     * PEDIDO EM ANDAMENTO BLOQUEIA. Anonimizar no meio de uma entrega apagaria
+     * o endereço que o entregador está usando pra chegar — e o cliente ficaria
+     * sem a comida e sem a conta.
+     */
+    const emAndamento = await db.prepare(
+      `SELECT COUNT(*) AS n FROM pedidos
+        WHERE cliente_id = ? AND status NOT IN ('entregue', 'cancelado', 'recusado')`
+    ).get(id) as { n: number };
+    if (Number(emAndamento.n) > 0) {
+      throw erroHttp(409, 'Você tem pedido em andamento. Aguarde a entrega para excluir a conta.');
+    }
+
+    const anon = dadosAnonimos(id);
+    await comTransacao(async (tx) => {
+      // Endereços saem inteiros: não há obrigação legal que dependa deles, e o
+      // endereço de cada entrega já está gravado no próprio pedido.
+      await tx.prepare('DELETE FROM enderecos WHERE usuario_id = ?').run(id);
+      await tx.prepare('DELETE FROM push_inscricoes WHERE usuario_id = ?').run(id);
+      await tx.prepare('DELETE FROM favoritos WHERE usuario_id = ?').run(id);
+      // Códigos de login social pendentes: viram acesso se sobrarem.
+      await tx.prepare('DELETE FROM oauth_codigos WHERE usuario_id = ?').run(id);
+
+      // O endereço gravado no pedido é dado pessoal tanto quanto o cadastro.
+      await tx.prepare('UPDATE pedidos SET endereco_entrega = ? WHERE cliente_id = ?')
+        .run(ENDERECO_ANONIMO, id);
+
+      // Nota e comentário: a nota é estatística da loja e fica; o texto pode
+      // conter qualquer coisa que a pessoa escreveu sobre si.
+      await tx.prepare('UPDATE avaliacoes SET comentario = ? WHERE cliente_id = ? AND comentario IS NOT NULL AND comentario <> ?')
+        .run(TEXTO_ANONIMO, id, '');
+      await tx.prepare('UPDATE avaliacoes_entregador SET comentario = ? WHERE cliente_id = ? AND comentario IS NOT NULL AND comentario <> ?')
+        .run(TEXTO_ANONIMO, id, '');
+
+      // Chat do pedido: só o que a pessoa escreveu.
+      await tx.prepare(
+        `UPDATE mensagens_pedido SET texto = ?
+          WHERE remetente = 'cliente' AND pedido_id IN (SELECT id FROM pedidos WHERE cliente_id = ?)`
+      ).run(TEXTO_ANONIMO, id);
+
+      /*
+       * Senha trocada por um hash aleatório e conta bloqueada: sem isso, quem
+       * soubesse a senha antiga continuaria entrando numa conta "excluída".
+       * Também limpa 2FA e token de recuperação, que são caminhos de volta.
+       */
+      await tx.prepare(
+        `UPDATE usuarios
+            SET nome = ?, email = ?, telefone = ?, cpf = ?, senha_hash = ?, bloqueado = 1,
+                totp_secret = NULL, totp_ativo = 0, totp_backup_codes = NULL,
+                reset_token_hash = NULL, reset_token_expira = NULL
+          WHERE id = ?`
+      ).run(anon.nome, anon.email, anon.telefone, anon.cpf,
+        bcrypt.hashSync(`removida-${id}-${agoraUTC()}`, 10), id);
+    });
+
+    res.json({ ok: true });
+  } catch (e) { next(e); }
 });
 
 export default router;
