@@ -3,6 +3,7 @@
  * produtos com grupos de opções, painel de pedidos e relatórios.
  */
 import { Router, Request } from 'express';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import bcrypt from 'bcryptjs';
 import multer from 'multer';
 import path from 'path';
@@ -3024,6 +3025,27 @@ router.get('/nfce/notas/:id', async (req, res, next) => {
 
 /* ─────────────── XMLs do mês, o pacote que vai pro contador ─────────────── */
 
+/**
+ * Limite nas duas rotas CARAS desta seção.
+ *
+ * Montar o ZIP lê até 5.000 XMLs do banco e comprime tudo em memória, e o envio
+ * ao contador faz isso MAIS uma conexão SMTP. Sem limite, um clique repetido na
+ * tela — ou um script — derruba o processo que atende todas as lojas, e ninguém
+ * precisa de credencial roubada pra isso: basta uma conta de lojista legítima.
+ *
+ * 10 em 10 minutos é folgado pro uso real (baixa-se o mês uma vez, no começo do
+ * mês) e estreito pra abuso. Chave por CONTA e não por IP, como no upload: a
+ * loja inteira costuma sair pelo mesmo IP.
+ */
+const limiteXmlFiscal = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.usuario?.id ? `u:${req.usuario.id}` : ipKeyGenerator(req.ip ?? '')),
+  message: { erro: 'Muitos downloads seguidos. Aguarde alguns minutos e tente de novo.' },
+});
+
 /** Meses que têm nota — é o que a tela oferece pra baixar. */
 router.get('/nfce/competencias', async (req, res, next) => {
   try {
@@ -3033,7 +3055,7 @@ router.get('/nfce/competencias', async (req, res, next) => {
 });
 
 /** ZIP com os XMLs do mês — o pacote que o lojista manda pro contador. */
-router.get('/nfce/xmls', async (req, res, next) => {
+router.get('/nfce/xmls', limiteXmlFiscal, async (req, res, next) => {
   try {
     const loja = await minhaLoja(req) as any;
     const competencia = competenciaValida(req.query.competencia);
@@ -3099,7 +3121,7 @@ router.put('/nfce/contador', async (req, res, next) => {
  * Manda AGORA o mês escolhido. Serve pro lojista testar o cadastro sem esperar
  * a virada, e pra reenviar quando o contador diz que não recebeu.
  */
-router.post('/nfce/contador/enviar', async (req, res, next) => {
+router.post('/nfce/contador/enviar', limiteXmlFiscal, async (req, res, next) => {
   try {
     const loja = await minhaLoja(req) as any;
     const competencia = competenciaValida(req.body.competencia);
