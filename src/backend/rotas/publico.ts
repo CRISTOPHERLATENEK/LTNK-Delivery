@@ -298,22 +298,28 @@ router.get('/lojas/:id', async (req, res, next) => {
              FROM opcoes_itens WHERE grupo_id IN (${idsGrupo.map(() => '?').join(',')}) AND disponivel = 1
             ORDER BY ordem, id`
         ).all(...idsGrupo) as Array<OpcaoItem & { grupo_id: number }>;
-        for (const o of opcoes) {
-          const lista = opcoesPorGrupo.get(o.grupo_id) ?? [];
-          lista.push(o);
-          opcoesPorGrupo.set(o.grupo_id, lista);
+        /*
+         * `grupo_id` e `produto_id` saem do objeto: eles existem só pra agrupar
+         * aqui dentro. Deixá-los na resposta mudaria o contrato da rota pública
+         * — o formato antigo, sem eles, foi conferido campo a campo contra o
+         * novo antes desta correção.
+         */
+        for (const { grupo_id, ...o } of opcoes) {
+          const lista = opcoesPorGrupo.get(grupo_id) ?? [];
+          lista.push(o as OpcaoItem);
+          opcoesPorGrupo.set(grupo_id, lista);
         }
       }
 
       const gruposPorProduto = new Map<number, GrupoComOpcoes[]>();
-      for (const g of grupos) {
+      for (const { produto_id, ...g } of grupos) {
         // Grupo sem opção disponível não vai pra tela — mesma regra de antes,
         // senão o cardápio mostraria "Escolha o sabor" com a lista vazia.
         const opcoes = opcoesPorGrupo.get(g.id);
         if (!opcoes || opcoes.length === 0) continue;
-        const lista = gruposPorProduto.get(g.produto_id) ?? [];
-        lista.push({ ...g, opcoes });
-        gruposPorProduto.set(g.produto_id, lista);
+        const lista = gruposPorProduto.get(produto_id) ?? [];
+        lista.push({ ...g, opcoes } as GrupoComOpcoes);
+        gruposPorProduto.set(produto_id, lista);
       }
       for (const p of produtos) p.grupos = gruposPorProduto.get(p.id) ?? [];
     }
