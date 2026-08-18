@@ -8,7 +8,7 @@ import { contaDoMes, type ClienteNaConta } from '../conta-revendedor';
 import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-mysql';
 import bcrypt from 'bcryptjs';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
-import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, emailValido, cpfValido, cpfDigitos, telefoneDigitos, reaisParaCentavos } from '../util';
+import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, inicioDoDiaBR, dataBrasilia, emailValido, cpfValido, cpfDigitos, telefoneDigitos, reaisParaCentavos } from '../util';
 import { criptografar, descriptografar } from '../cripto';
 import { montarLandingAdmin, salvarLanding } from '../landing-campos';
 import { garantirSessaoPlataforma, obterQrPlataforma, solicitarCodigoPlataforma, statusSessaoPlataforma, desconectarPlataforma } from '../whatsapp-nao-oficial';
@@ -90,9 +90,23 @@ async function agregarClientes<T extends Record<string, unknown>>(
   return listas.flat();
 }
 
+/**
+ * Dia do calendário NO BRASIL a partir de `criado_em`, que é gravado em UTC.
+ *
+ * Sem o desconto de 3h, a venda das 22h entra na estatística do dia seguinte —
+ * e é justamente o horário de pico. Mesmo recurso usado no relatório por hora
+ * do lojista (ver rotas/lojista.ts).
+ */
+const DIA_BR = 'SUBSTRING(DATE_SUB(criado_em, INTERVAL 3 HOUR), 1, 10)';
+
 router.get('/dashboard', async (req, res, next) => {
   try {
-    const hoje = new Date().toISOString().slice(0, 10);
+    /*
+     * "Hoje" é o dia no BRASIL. Em UTC, os números do dia zeravam às 21h e
+     * voltavam a contar do zero — quem olhasse o painel à noite via a
+     * plataforma parada.
+     */
+    const inicioHoje = inicioDoDiaBR();
 
     /*
      * No painel master os números são a SOMA de todos os clientes.
@@ -105,11 +119,11 @@ router.get('/dashboard', async (req, res, next) => {
       pedidos_hoje: await db.prepare(
         `SELECT COUNT(*) AS qtd, COALESCE(SUM(total_centavos), 0) AS faturamento
            FROM pedidos WHERE criado_em >= ? AND status NOT IN ('cancelado','recusado')`
-      ).get(hoje + 'T00:00:00.000Z'),
+      ).get(inicioHoje),
       comissao_hoje: await db.prepare(
         `SELECT COALESCE(SUM(comissao_centavos), 0) AS comissao
            FROM pedidos WHERE criado_em >= ? AND status = 'entregue'`
-      ).get(hoje + 'T00:00:00.000Z'),
+      ).get(inicioHoje),
       lojas: await db.prepare(
         `SELECT
            SUM(CASE WHEN status_aprovacao = 'aprovada' THEN 1 ELSE 0 END) AS ativas,
@@ -122,13 +136,20 @@ router.get('/dashboard', async (req, res, next) => {
         `SELECT COUNT(*) AS qtd FROM pedidos
           WHERE status IN ('pendente','aceito','preparando','pronto','em_entrega')`
       ).get(),
+      /*
+       * AGRUPADO PELO DIA NO BRASIL, não pelo dia UTC. Agrupando por UTC, toda
+       * venda das 21h à meia-noite caía na barra do dia seguinte — e como esse
+       * é o horário de pico de comida, cada dia perdia a própria noite e
+       * recebia a de véspera. Mesmo desconto de 3h que o relatório por hora do
+       * lojista já fazia.
+       */
       serie: await db.prepare(
-        `SELECT SUBSTRING(criado_em, 1, 10) AS dia, COUNT(*) AS pedidos,
+        `SELECT ${DIA_BR} AS dia, COUNT(*) AS pedidos,
                 COALESCE(SUM(total_centavos), 0) AS total
            FROM pedidos
           WHERE criado_em >= ? AND status NOT IN ('cancelado','recusado')
           GROUP BY dia`
-      ).all(new Date(Date.now() - 13 * 864e5).toISOString().slice(0, 10) + 'T00:00:00.000Z'),
+      ).all(inicioDoDiaBR(Date.now() - 13 * 864e5)),
       top: await db.prepare(
         `SELECT l.id, l.nome, COUNT(p.id) AS pedidos,
                 COALESCE(SUM(p.total_centavos), 0) AS total_centavos
@@ -150,7 +171,10 @@ router.get('/dashboard', async (req, res, next) => {
       }
       const serie: Array<{ dia: string; pedidos: number; total_centavos: number }> = [];
       for (let i = 13; i >= 0; i--) {
-        const dia = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10);
+        // MESMA fonte de data que o GROUP BY (DIA_BR): com a chave em UTC e o
+        // agrupamento no fuso do Brasil, das 21h em diante nenhuma das duas
+        // casaria e a última barra apareceria zerada.
+        const dia = dataBrasilia(Date.now() - i * 864e5);
         const b = porDiaAg.get(dia);
         serie.push({ dia, pedidos: b?.pedidos ?? 0, total_centavos: b?.total ?? 0 });
       }
@@ -182,12 +206,12 @@ router.get('/dashboard', async (req, res, next) => {
     const pedidosHoje = await db.prepare(
       `SELECT COUNT(*) AS qtd, COALESCE(SUM(total_centavos), 0) AS faturamento
          FROM pedidos WHERE criado_em >= ? AND status NOT IN ('cancelado','recusado')`
-    ).get(hoje + 'T00:00:00.000Z') as Resumo;
+    ).get(inicioHoje) as Resumo;
 
     const comissaoHoje = await db.prepare(
       `SELECT COALESCE(SUM(comissao_centavos), 0) AS comissao
          FROM pedidos WHERE criado_em >= ? AND status = 'entregue'`
-    ).get(hoje + 'T00:00:00.000Z') as { comissao: number };
+    ).get(inicioHoje) as { comissao: number };
 
     const lojas = await db.prepare(
       `SELECT
@@ -204,18 +228,18 @@ router.get('/dashboard', async (req, res, next) => {
     ).get() as { qtd: number };
 
     // Série de vendas dos últimos 14 dias (preenche dias sem venda com zero).
-    const inicio14 = new Date(Date.now() - 13 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const brutos = await db.prepare(
-      `SELECT SUBSTRING(criado_em, 1, 10) AS dia, COUNT(*) AS pedidos,
+      `SELECT ${DIA_BR} AS dia, COUNT(*) AS pedidos,
               COALESCE(SUM(total_centavos), 0) AS total
          FROM pedidos
         WHERE criado_em >= ? AND status NOT IN ('cancelado','recusado')
         GROUP BY dia`
-    ).all(inicio14 + 'T00:00:00.000Z') as Array<{ dia: string; pedidos: number; total: number }>;
+    ).all(inicioDoDiaBR(Date.now() - 13 * 864e5)) as Array<{ dia: string; pedidos: number; total: number }>;
     const porDia = new Map(brutos.map(b => [b.dia, b]));
     const serie_vendas: Array<{ dia: string; pedidos: number; total_centavos: number }> = [];
     for (let i = 13; i >= 0; i--) {
-      const dia = new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      // Ver o comentário da série agregada: a chave vem da mesma fonte do GROUP BY.
+      const dia = dataBrasilia(Date.now() - i * 864e5);
       const b = porDia.get(dia);
       serie_vendas.push({ dia, pedidos: b?.pedidos ?? 0, total_centavos: b?.total ?? 0 });
     }

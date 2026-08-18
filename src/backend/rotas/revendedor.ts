@@ -11,7 +11,7 @@ import { autenticarRevendedor } from '../auth';
 import { poolCentral } from '../tenants-mysql';
 import { abrirPool } from '../db-mysql';
 import bcrypt from 'bcryptjs';
-import { erroHttp, inteiroPositivo, textoLimpo, emailValido, agoraUTC } from '../util';
+import { erroHttp, inteiroPositivo, textoLimpo, emailValido, agoraUTC, dataBrasilia } from '../util';
 import { problemaNoSlugTenant } from '../tenants-mysql';
 import { contaDoMes } from '../conta-revendedor';
 import { gravarFaturaDoMes } from '../faturas';
@@ -112,7 +112,9 @@ router.get('/clientes', async (req, res, next) => {
       [r.id],
     ) as unknown as [Array<Record<string, unknown>>];
 
-    const inicioMes = new Date().toISOString().slice(0, 7) + '-01T00:00:00.000Z';
+    // Mês pela data do BRASIL: em UTC, das 21h à meia-noite do último dia o
+    // "faturamento do mês" já zeraria antes de o mês acabar.
+    const inicioMes = dataBrasilia().slice(0, 7) + '-01T00:00:00.000Z';
     const clientes = await Promise.all(tenants.map(async (t) => {
       let lojas = 0, pedidos = 0, faturamento = 0;
       try {
@@ -238,7 +240,7 @@ router.get('/clientes/:id', async (req, res, next) => {
       [t.id],
     ) as unknown as [Array<Record<string, unknown>>];
 
-    const inicioMes = competenciaDe(agoraUTC()) + '-01T00:00:00.000Z';
+    const inicioMes = competenciaDe(dataBrasilia()) + '-01T00:00:00.000Z';
     let lojas: Array<Record<string, unknown>> = [];
     let pedidos = 0, faturamento = 0, ticket = 0, usuarios = 0;
     let bancoOk = true;
@@ -302,7 +304,7 @@ router.get('/fatura', async (req, res, next) => {
   try {
     const r = req.revendedor!;
     const f = await gravarFaturaDoMes(r.id, r.custo_centavos);
-    res.json({ competencia: competenciaDe(agoraUTC()), custo_centavos: r.custo_centavos, ...f });
+    res.json({ competencia: competenciaDe(dataBrasilia()), custo_centavos: r.custo_centavos, ...f });
   } catch (e) { next(e); }
 });
 
@@ -310,7 +312,7 @@ router.get('/fatura', async (req, res, next) => {
 router.get('/faturas', async (req, res, next) => {
   try {
     const r = req.revendedor!;
-    const atual = competenciaDe(agoraUTC());
+    const atual = competenciaDe(dataBrasilia());
     const [linhas] = await poolCentral().query(
       `SELECT competencia, clientes_ativos, mensalidades_centavos, modulos_centavos,
               total_centavos, detalhe, fechada_em

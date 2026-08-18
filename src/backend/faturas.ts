@@ -13,7 +13,7 @@
  * passado a partir do estado de hoje: isso seria inventar número.
  */
 import { poolCentral } from './tenants-mysql';
-import { agoraUTC } from './util';
+import { agoraUTC, dataBrasilia } from './util';
 import { competenciaDe, faturaDetalhada, type FaturaDetalhada } from './fatura-revendedor';
 
 /** Estado atual da conta de um revendedor, quebrado por cliente. */
@@ -62,7 +62,9 @@ export async function faturaAtual(revendedorId: number, custoCentavos: number): 
  */
 export async function gravarFaturaDoMes(revendedorId: number, custoCentavos: number): Promise<FaturaDetalhada> {
   const f = await faturaAtual(revendedorId, custoCentavos);
-  const competencia = competenciaDe(agoraUTC());
+  // Competencia pela data do BRASIL: em UTC, as 21h do dia 31 ja seria o mes
+  // seguinte, e o retrato do mes que fecha sairia 3h antes da hora.
+  const competencia = competenciaDe(dataBrasilia());
   await poolCentral().query(
     `INSERT INTO faturas_revendedor
        (revendedor_id, competencia, clientes_ativos, mensalidades_centavos, modulos_centavos, total_centavos, detalhe, fechada_em)

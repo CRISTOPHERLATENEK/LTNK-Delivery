@@ -31,7 +31,7 @@ import { emailHabilitado } from './email';
 import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
-import { ErroHttp, lojaAbertaPorAgenda, agoraUTC, mensagemDeDuplicidade } from './util';
+import { ErroHttp, lojaAbertaPorAgenda, agoraUTC, dataBrasilia, mensagemDeDuplicidade } from './util';
 import db, { comTenant, abrirPool, BANCO_PADRAO } from './db-mysql';
 import { inicializarSchema } from './schema-mysql';
 import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants, poolCentral, tenantDesativadoDoHost, ehMaster } from './tenants-mysql';
@@ -516,7 +516,11 @@ async function enviarXmlsDoTenant(): Promise<void> {
 
   for (const loja of lojas) {
     const { enviar, competencia } = deveEnviar({
-      hojeIso: agoraUTC(),
+      // DATA no fuso do Brasil, nao em UTC: o servidor roda em UTC e das 21h
+      // a meia-noite o UTC ja virou o dia seguinte. Com agoraUTC() aqui, quem
+      // escolhesse dia 1 receberia a fatura as 21h do ultimo dia do mes
+      // anterior — antes de o mes fechar, e sem as vendas do fim da noite.
+      hojeIso: dataBrasilia(),
       auto: true,
       temDestinatario: destinatariosDe(loja.contador_email).length > 0,
       diaEnvio: Number(loja.contador_dia_envio) || 5,

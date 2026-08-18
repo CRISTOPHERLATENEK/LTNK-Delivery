@@ -2,6 +2,37 @@
  * Utilitários compartilhados: datas em UTC, validação e saneamento de entradas.
  */
 
+/**
+ * DATA do calendário no Brasil (YYYY-MM-DD).
+ *
+ * O servidor roda em UTC, e quem decide "que dia é hoje" com `agoraUTC()` erra
+ * das 21h à meia-noite: nesse intervalo o UTC já virou o dia seguinte. Para
+ * horário de funcionamento isso já era tratado (ver agoraBrasilia); para
+ * qualquer regra ligada ao DIA do mês — fechamento de competência, envio
+ * mensal — o erro é de um dia inteiro.
+ *
+ * Offset fixo de -3h porque o Brasil não tem mais horário de verão desde 2019.
+ * Se voltar, esta função é o único lugar a mudar.
+ *
+ * `agoraMs` é parâmetro para dar teste: sem ele a função só seria testável
+ * mexendo no relógio da máquina.
+ */
+export function dataBrasilia(agoraMs: number = Date.now()): string {
+  return new Date(agoraMs - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * Instante UTC da MEIA-NOITE de hoje no Brasil, em ISO.
+ *
+ * É o corte para "hoje" em consulta: `criado_em` é gravado em UTC, então o dia
+ * do lojista começa às 03:00Z. Comparar com `<data>T00:00:00.000Z` cru zera o
+ * "vendas de hoje" às 21h — no meio do movimento, e justo quando o caixa vai
+ * fechar.
+ */
+export function inicioDoDiaBR(agoraMs: number = Date.now()): string {
+  return `${dataBrasilia(agoraMs)}T03:00:00.000Z`;
+}
+
 /** Data/hora atual em UTC, formato ISO 8601 (ex.: 2026-06-12T14:30:00.000Z). */
 export function agoraUTC(): string {
   return new Date().toISOString();

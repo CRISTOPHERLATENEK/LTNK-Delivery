@@ -10,7 +10,7 @@ import fs from 'fs';
 import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
 import { tenantPorDbNome } from '../tenants-mysql';
 import { autenticar, exigirPerfil } from '../auth';
-import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido, normalizarBairro } from '../util';
+import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido, normalizarBairro } from '../util';
 import { resolverCanais } from '../disponibilidade-produto';
 import { transicionarStatus } from '../fluxoPedido';
 import { enviarPush } from '../push';
@@ -1537,13 +1537,17 @@ router.post('/balcao', async (req, res, next) => {
 router.get('/balcao/hoje', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
-    const hoje = new Date().toISOString().slice(0, 10);
+    /*
+     * O dia começa à meia-noite NO BRASIL, não em UTC. Com o corte em UTC, às
+     * 21h a lista esvaziava e o total zerava — no meio do movimento, e na hora
+     * em que o caixa confere o fechamento.
+     */
     const vendas = await db.prepare(
       `SELECT id, total_centavos, forma_pagamento, criado_em
          FROM pedidos
         WHERE loja_id = ? AND origem = 'balcao' AND criado_em >= ?
         ORDER BY id DESC LIMIT 50`
-    ).all(loja.id, hoje + 'T00:00:00.000Z') as Array<{ total_centavos: number }>;
+    ).all(loja.id, inicioDoDiaBR()) as Array<{ total_centavos: number }>;
     const total = vendas.reduce((s, v) => s + v.total_centavos, 0);
     res.json({ vendas, total_centavos: total, quantidade: vendas.length });
   } catch (e) { next(e); }
