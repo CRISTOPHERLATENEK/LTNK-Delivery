@@ -22,6 +22,7 @@ import db from './db-mysql';
 import { listarTenants, removerTenant, tenantPorSlug } from './tenants-mysql';
 import { provisionarCliente } from './rotas/admin';
 import { agoraUTC } from './util';
+import { gerarToken } from './auth';
 
 /** Todo tenant de teste começa com isto. A limpeza confia nesta regra. */
 const PREFIXO = 'carga';
@@ -55,6 +56,20 @@ async function preparar(quantos: number): Promise<void> {
              VALUES (?, ?, ?, ?, ?, 1, ?)`
           ).run(lojaId, `Produto ${p}`, 'Item de teste de carga', 'Testes', 1000 + p * 100, agoraUTC());
         }
+        // Loja FECHADA recusa pedido com 409 — e aí a medição de escrita viraria
+        // a medição de quão rápido dizemos "estamos fechados".
+        await db.prepare('UPDATE lojas SET aberta = 1 WHERE id = ?').run(lojaId);
+
+        // Um cliente com endereço por tenant: sem endereço o pedido de ENTREGA
+        // é recusado antes de tocar no banco de itens.
+        const cli = await db.prepare(
+          `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, criado_em)
+           VALUES (?, ?, ?, 'cliente', '', ?)`
+        ).run(`Cliente Carga ${i}`, `cliente${i}@${PREFIXO}.invalid`, senhaHash, agoraUTC());
+        await db.prepare(
+          `INSERT INTO enderecos (usuario_id, rotulo, rua, numero, complemento, bairro, cidade, uf, cep, referencia, criado_em)
+           VALUES (?, 'Casa', 'Rua de Teste', '100', '', 'Centro', 'Florianópolis', 'SC', '88000000', '', ?)`
+        ).run(Number(cli.lastInsertRowid), agoraUTC());
       });
       criados++;
       console.log(`✓ ${slug} em ${Date.now() - t0}ms`);
@@ -77,10 +92,14 @@ interface Amostra { ms: number; ok: boolean; status: number }
  * fetch e media 100% de 404 — todas as requisições caíam no tenant padrão, e o
  * número que saía era o custo de responder "não achei".
  */
-function pedir(host: string): Promise<number> {
+function pedir(host: string, opcoes: { rota?: string; metodo?: string; corpo?: unknown; token?: string } = {}): Promise<number> {
+  const corpo = opcoes.corpo === undefined ? null : Buffer.from(JSON.stringify(opcoes.corpo));
+  const cabecalhos: Record<string, string> = { Host: host };
+  if (corpo) { cabecalhos['Content-Type'] = 'application/json'; cabecalhos['Content-Length'] = String(corpo.length); }
+  if (opcoes.token) cabecalhos.Authorization = `Bearer ${opcoes.token}`;
   return new Promise((resolve) => {
     const req = http.request(
-      { host: '127.0.0.1', port: PORTA, path: ROTA, method: 'GET', headers: { Host: host } },
+      { host: '127.0.0.1', port: PORTA, path: opcoes.rota ?? ROTA, method: opcoes.metodo ?? 'GET', headers: cabecalhos },
       (res) => {
         // Consome o corpo: sem ler, o socket fica preso e o teste mede o
         // tempo até o cabeçalho, não até a resposta inteira.
@@ -89,6 +108,7 @@ function pedir(host: string): Promise<number> {
       },
     );
     req.on('error', () => resolve(0));
+    if (corpo) req.write(corpo);
     req.end();
   });
 }
@@ -135,6 +155,11 @@ async function medir(segundos: number, simultaneas: number): Promise<void> {
   parar = true;
   const duracao = (Date.now() - inicio) / 1000;
 
+  relatorio(amostras, duracao);
+}
+
+/** Resumo de uma rodada. Igual pros dois modos, pra dar pra comparar. */
+function relatorio(amostras: Amostra[], duracao: number): void {
   const tempos = amostras.map(a => a.ms).sort((a, b) => a - b);
   const erros = amostras.filter(a => !a.ok);
   const porStatus = new Map<number, number>();
@@ -147,6 +172,73 @@ async function medir(segundos: number, simultaneas: number): Promise<void> {
   console.log(`p99 / máx   : ${percentil(tempos, 99)}ms / ${tempos[tempos.length - 1] ?? 0}ms`);
   console.log(`erros       : ${erros.length} (${((erros.length / Math.max(1, amostras.length)) * 100).toFixed(1)}%)`);
   for (const [s, n] of porStatus) console.log(`   status ${s || 'conexão caiu'}: ${n}`);
+}
+
+/* ───────────────────────── medir criação de pedido ───────────────────── */
+
+/** Cliente, endereço e produtos de um tenant — o que um checkout precisa. */
+interface Cenario { host: string; token: string; lojaId: number; enderecoId: number; produtos: number[] }
+
+async function montarCenarios(): Promise<Cenario[]> {
+  const tenants = (await listarTenants()).filter(t => t.slug.startsWith(PREFIXO));
+  const cenarios: Cenario[] = [];
+  for (const t of tenants) {
+    const c = await comTenant(t.db_nome, async () => {
+      const loja = await db.prepare('SELECT id FROM lojas ORDER BY id LIMIT 1').get() as { id: number } | undefined;
+      const cli = await db.prepare("SELECT id FROM usuarios WHERE perfil = 'cliente' ORDER BY id LIMIT 1").get() as { id: number } | undefined;
+      if (!loja || !cli) return null;
+      const end = await db.prepare('SELECT id FROM enderecos WHERE usuario_id = ? LIMIT 1').get(cli.id) as { id: number } | undefined;
+      const prods = await db.prepare('SELECT id FROM produtos WHERE loja_id = ? AND disponivel = 1 LIMIT 5').all(loja.id) as Array<{ id: number }>;
+      if (!end || prods.length === 0) return null;
+      /*
+       * Token gerado direto, sem passar pelo login: o custo do bcrypt no login
+       * é proposital (defesa contra força bruta) e domina qualquer medição. O
+       * que se quer medir aqui é o CHECKOUT.
+       */
+      return {
+        host: `${t.slug}.maxxpedidos.com.br`,
+        token: gerarToken({ id: cli.id, perfil: 'cliente' }),
+        lojaId: loja.id, enderecoId: end.id, produtos: prods.map(p => p.id),
+      } as Cenario;
+    });
+    if (c) cenarios.push(c);
+  }
+  return cenarios;
+}
+
+async function medirPedidos(segundos: number, simultaneas: number): Promise<void> {
+  const cenarios = await montarCenarios();
+  if (cenarios.length === 0) { console.error('Nenhum cenário pronto. Rode "preparar" antes.'); return; }
+  console.log(`Criando pedidos em ${cenarios.length} tenant(s) · ${simultaneas} simultâneas · ${segundos}s
+`);
+
+  const amostras: Amostra[] = [];
+  const fim = Date.now() + segundos * 1000;
+
+  const worker = async (n: number) => {
+    let volta = n;
+    while (Date.now() < fim) {
+      const c = cenarios[volta++ % cenarios.length];
+      // 'dinheiro' de propósito: Pix e cartão chamam a API do gateway, e aí a
+      // medição viraria o tempo do Mercado Pago, não o do nosso checkout.
+      const corpo = {
+        loja_id: c.lojaId,
+        endereco_id: c.enderecoId,
+        forma_pagamento: 'dinheiro',
+        itens: [
+          { produto_id: c.produtos[volta % c.produtos.length], quantidade: 1 },
+          { produto_id: c.produtos[(volta + 1) % c.produtos.length], quantidade: 2 },
+        ],
+      };
+      const t0 = Date.now();
+      const st = await pedir(c.host, { rota: '/api/cliente/pedidos', metodo: 'POST', corpo, token: c.token });
+      amostras.push({ ms: Date.now() - t0, ok: st >= 200 && st < 400, status: st });
+    }
+  };
+
+  const inicio = Date.now();
+  await Promise.all(Array.from({ length: simultaneas }, (_, i) => worker(i)));
+  relatorio(amostras, (Date.now() - inicio) / 1000);
 }
 
 /* ─────────────────────────────── limpar ─────────────────────────────── */
@@ -170,7 +262,8 @@ async function limpar(): Promise<void> {
   const [acao, a1, a2] = process.argv.slice(2);
   if (acao === 'preparar') await preparar(Math.max(1, Number(a1) || 5));
   else if (acao === 'medir') await medir(Math.max(1, Number(a1) || 30), Math.max(1, Number(a2) || 50));
+  else if (acao === 'pedidos') await medirPedidos(Math.max(1, Number(a1) || 30), Math.max(1, Number(a2) || 50));
   else if (acao === 'limpar') await limpar();
-  else console.log('Use: preparar <n> | medir <segundos> <simultaneas> | limpar');
+  else console.log('Use: preparar <n> | medir <s> <n> | pedidos <s> <n> | limpar');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });
