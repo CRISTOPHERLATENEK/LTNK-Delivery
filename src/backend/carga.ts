@@ -241,6 +241,80 @@ async function medirPedidos(segundos: number, simultaneas: number): Promise<void
   relatorio(amostras, (Date.now() - inicio) / 1000);
 }
 
+/* ──────────────────────── pico: taxa fixa de chegada ─────────────────── */
+
+/**
+ * Dispara N requisições POR SEGUNDO, sem esperar as anteriores terminarem.
+ *
+ * É o oposto do modo `medir`. Ali cada worker só pede de novo quando a resposta
+ * chega, então a máquina nunca recebe mais do que aguenta — bom pra achar o
+ * teto, inútil pra prever pico real. Gente de verdade não espera: se mil pessoas
+ * abrem o cardápio no mesmo minuto, as mil requisições chegam, e o que se quer
+ * saber é se a resposta continua rápida ou se a fila começa a crescer.
+ *
+ * O sinal de que passou do ponto não é erro, é a latência subindo a cada
+ * segundo — quando isso aparece, a chegada superou a vazão e a fila só cresce.
+ */
+async function pico(segundos: number, porSegundo: number, escrita: boolean): Promise<void> {
+  const cenarios = escrita ? await montarCenarios() : [];
+  const tenants = (await listarTenants()).filter(t => t.slug.startsWith(PREFIXO));
+  if (tenants.length === 0) { console.error('Nenhum tenant de carga.'); return; }
+  if (escrita && cenarios.length === 0) { console.error('Cenários de pedido não prontos.'); return; }
+
+  console.log(`${escrita ? 'PEDIDOS' : 'CARDÁPIO'} · ${porSegundo} req/s durante ${segundos}s · ${tenants.length} tenants\n`);
+  console.log('  s   enviadas  concluídas   p50     p95    erros');
+
+  const amostras: Amostra[] = [];
+  const emVoo = new Set<Promise<void>>();
+  let enviadas = 0;
+  const intervalo = 1000 / porSegundo;
+
+  const disparar = () => {
+    const i = enviadas++;
+    const t0 = Date.now();
+    const p = (async () => {
+      let st: number;
+      if (escrita) {
+        const c = cenarios[i % cenarios.length];
+        st = await pedir(c.host, {
+          rota: '/api/cliente/pedidos', metodo: 'POST', token: c.token,
+          corpo: { loja_id: c.lojaId, endereco_id: c.enderecoId, forma_pagamento: 'dinheiro',
+                   itens: [{ produto_id: c.produtos[i % c.produtos.length], quantidade: 1 }] },
+        });
+      } else {
+        st = await pedir(`${tenants[i % tenants.length].slug}.maxxpedidos.com.br`);
+      }
+      amostras.push({ ms: Date.now() - t0, ok: st >= 200 && st < 400, status: st });
+    })();
+    emVoo.add(p);
+    void p.finally(() => emVoo.delete(p));
+  };
+
+  // Relatório por segundo: é a curva que denuncia a fila crescendo.
+  let ultimo = 0;
+  const porSeg = setInterval(() => {
+    const novas = amostras.slice(ultimo);
+    ultimo = amostras.length;
+    const t = novas.map(a => a.ms).sort((a, b) => a - b);
+    const err = novas.filter(a => !a.ok).length;
+    console.log(`${String(Math.round((Date.now() - inicio) / 1000)).padStart(3)}  ${String(enviadas).padStart(8)}  ${String(amostras.length).padStart(10)}  ${String(percentil(t, 50)).padStart(5)}ms ${String(percentil(t, 95)).padStart(6)}ms ${String(err).padStart(6)}`);
+  }, 1000);
+
+  const inicio = Date.now();
+  const fim = inicio + segundos * 1000;
+  while (Date.now() < fim) {
+    disparar();
+    await new Promise(r => setTimeout(r, intervalo));
+  }
+  await Promise.all([...emVoo]);
+  clearInterval(porSeg);
+
+  console.log('\n─── total ───');
+  relatorio(amostras, (Date.now() - inicio) / 1000);
+  const perdidas = enviadas - amostras.length;
+  if (perdidas > 0) console.log(`ficaram em voo no fim: ${perdidas}`);
+}
+
 /* ─────────────────────────────── limpar ─────────────────────────────── */
 
 async function limpar(): Promise<void> {
@@ -263,7 +337,8 @@ async function limpar(): Promise<void> {
   if (acao === 'preparar') await preparar(Math.max(1, Number(a1) || 5));
   else if (acao === 'medir') await medir(Math.max(1, Number(a1) || 30), Math.max(1, Number(a2) || 50));
   else if (acao === 'pedidos') await medirPedidos(Math.max(1, Number(a1) || 30), Math.max(1, Number(a2) || 50));
+  else if (acao === 'pico') await pico(Math.max(1, Number(a1) || 20), Math.max(1, Number(a2) || 50), process.argv[5] === 'escrita');
   else if (acao === 'limpar') await limpar();
-  else console.log('Use: preparar <n> | medir <s> <n> | pedidos <s> <n> | limpar');
+  else console.log('Use: preparar <n> | medir <s> <n> | pedidos <s> <n> | pico <s> <req/s> [escrita] | limpar');
   process.exit(0);
 })().catch(e => { console.error(e); process.exit(1); });
