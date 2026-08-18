@@ -4288,17 +4288,37 @@ router.post('/caixa/abrir', async (req, res, next) => {
      * abertos ao mesmo tempo dariam duas respostas pra "quanto deve ter aqui",
      * cada uma contando as MESMAS vendas.
      */
-    if (await caixaAbertoDaLoja(loja.id)) {
-      throw erroHttp(409, 'Já existe um caixa aberto nesta loja. Feche o atual antes de abrir outro.');
-    }
     const abertura = Math.max(0, inteiroPositivo(req.body?.valor_abertura_centavos) || 0);
-    const info = await db.prepare(
-      `INSERT INTO caixas (loja_id, usuario_abertura_id, usuario_abertura_nome, aberto_em,
-                           valor_abertura_centavos, status, observacoes)
-       VALUES (?, ?, ?, ?, ?, 'aberto', ?)`
-    ).run(loja.id, req.usuario!.id, req.usuario!.nome, agoraUTC(), abertura,
-          textoLimpo(req.body?.observacoes, 300));
-    res.status(201).json({ id: Number(info.lastInsertRowid) });
+    const obsAbertura = textoLimpo(req.body?.observacoes, 300);
+
+    /*
+     * CHECAR E INSERIR NA MESMA TRANSAÇÃO, com a linha da loja travada.
+     *
+     * Sem o mutex era checa-depois-insere: dois caixas clicando "abrir" ao mesmo
+     * tempo — ou um duplo clique no PDV — liam "nenhum aberto" antes de qualquer
+     * INSERT terminar, e os dois passavam. O resultado é exatamente o que o
+     * comentário acima diz que não pode existir: dois caixas abertos contando as
+     * MESMAS vendas, cada um com o seu "quanto deve ter na gaveta".
+     *
+     * O índice (loja_id, status) não é único e não impede — travar a linha da
+     * loja é o mesmo recurso já usado no limite de banners.
+     */
+    const id = await comTransacao(async (tx) => {
+      await tx.prepare('SELECT id FROM lojas WHERE id = ? FOR UPDATE').get(loja.id);
+      const aberto = await tx.prepare(
+        "SELECT id FROM caixas WHERE loja_id = ? AND status = 'aberto' LIMIT 1"
+      ).get(loja.id);
+      if (aberto) {
+        throw erroHttp(409, 'Já existe um caixa aberto nesta loja. Feche o atual antes de abrir outro.');
+      }
+      const info = await tx.prepare(
+        `INSERT INTO caixas (loja_id, usuario_abertura_id, usuario_abertura_nome, aberto_em,
+                             valor_abertura_centavos, status, observacoes)
+         VALUES (?, ?, ?, ?, ?, 'aberto', ?)`
+      ).run(loja.id, req.usuario!.id, req.usuario!.nome, agoraUTC(), abertura, obsAbertura);
+      return Number(info.lastInsertRowid);
+    });
+    res.status(201).json({ id });
   } catch (e) { next(e); }
 });
 

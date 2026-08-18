@@ -774,6 +774,16 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['notas_fiscais', 'xml_cancelamento', 'xml_cancelamento MEDIUMTEXT'],
     /*
+     * MESA DUPLICADA era possivel: POST /mesas checava "ja existe?" e inseria
+     * depois, sem transacao. Dois toques no botao criavam duas "Mesa 5", o
+     * garcom abria comanda numa e a cozinha via a outra.
+     *
+     * NULL quando excluida, pra o indice unico nao brigar com a exclusao logica:
+     * uma "Mesa 5" apagada tem que poder ser recriada. Mesmo recurso de
+     * cpf_unico/telefone_unico/dominio_unico.
+     */
+    ['mesas', 'numero_unico', "numero_unico VARCHAR(20) GENERATED ALWAYS AS (IF(excluida = 0, numero, NULL)) VIRTUAL"],
+    /*
      * ENVIO DOS XMLs PRO CONTADOR.
      *
      * `contador_ultima_competencia` é o que impede o envio em dobro: o job roda
@@ -797,6 +807,28 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     if (existe.length === 0) {
       await pool.query(`ALTER TABLE \`${tabela}\` ADD COLUMN ${ddl}`);
     }
+  }
+
+  /*
+   * ÍNDICE ÚNICO DAS MESAS por (loja, número).
+   *
+   * Depende da coluna gerada `numero_unico` do laço acima, então vem depois
+   * dele. É o que fecha a corrida do POST /mesas: checar "já existe?" em SQL
+   * antes do INSERT nunca resolve sozinho, porque entre ler e gravar cabe outra
+   * requisição — dois toques no botão criavam duas "Mesa 5", o garçom abria
+   * comanda numa e a cozinha via a outra.
+   *
+   * O erro de chave duplicada já sai como mensagem amigável (ver
+   * mensagemDeDuplicidade em util.ts), então a checagem no código continua
+   * valendo como caminho normal e o índice é a garantia.
+   */
+  const [jaTemMesaUnica] = await pool.query(
+    `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'mesas' AND INDEX_NAME = 'uq_mesa_numero'
+      LIMIT 1`,
+  ) as any;
+  if (jaTemMesaUnica.length === 0) {
+    await pool.query('ALTER TABLE mesas ADD UNIQUE KEY uq_mesa_numero (loja_id, numero_unico)');
   }
 
   /**
