@@ -694,8 +694,9 @@ export function ProdutosLoja() {
                     >
                       {form.controla_estoque && (
                         <div className="mt-3">
-                          <Label>Quantidade disponível</Label>
+                          <Label htmlFor="p-estoque">Quantidade disponível</Label>
                           <Input
+                            id="p-estoque"
                             type="number" min="0" step="1"
                             value={form.estoque} onChange={set('estoque')} placeholder="Ex.: 20"
                             className={CAMPO_MODAL}
@@ -725,11 +726,12 @@ export function ProdutosLoja() {
                       />
                     </div>
                     <div className="mt-4">
-                      <Label>
+                      <Label htmlFor="p-descricao">
                         Descrição
                         <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
                       </Label>
                       <textarea
+                        id="p-descricao"
                         value={form.descricao}
                         onChange={set('descricao')}
                         rows={2}
@@ -766,13 +768,18 @@ export function ProdutosLoja() {
                     {/* SEGMENTED CONTROL: duas opções exclusivas do mesmo atributo. O
                         trilho com a ativa em branco diz isso sem precisar de rótulo. */}
                     <div>
-                      <Label>Como é vendido?</Label>
-                      <div className="mt-1.5 flex rounded-xl bg-muted p-1">
+                      {/* Nao aponta pra um campo porque nao existe campo: sao dois
+                          botoes exclusivos. Entao o rotulo nomeia o GRUPO e cada botao
+                          diz se esta escolhido. Sem isso o leitor de tela anuncia
+                          "Por unidade, botao" sem dizer do que e a escolha. */}
+                      <Label id="p-vendido-rotulo">Como é vendido?</Label>
+                      <div role="group" aria-labelledby="p-vendido-rotulo" className="mt-1.5 flex rounded-xl bg-muted p-1">
                         {([['un', 'Por unidade'], ['kg', 'Por peso (kg)']] as const).map(([v, txt]) => (
                           <button
                             key={v}
                             type="button"
                             onClick={() => setForm(f => ({ ...f, vendido_por: v }))}
+                            aria-pressed={form.vendido_por === v}
                             className={cn(
                               'h-10 flex-1 rounded-lg text-sm font-semibold transition-all',
                               form.vendido_por === v
@@ -785,7 +792,7 @@ export function ProdutosLoja() {
                         ))}
                       </div>
                       {form.vendido_por === 'kg' && (
-                        <p className="mt-1.5 text-[12.5px] text-muted-foreground">
+                        <p role="status" className="mt-1.5 text-[12.5px] text-muted-foreground">
                           No PDV o operador informa o peso (ou lê a etiqueta da balança) e o preço é calculado por kg.
                         </p>
                       )}
@@ -795,10 +802,11 @@ export function ProdutosLoja() {
                       <div>
                         {/* O rótulo muda com a unidade: "Preço" num produto por peso é
                             ambíguo entre o preço do quilo e o da peça. */}
-                        <Label>{form.vendido_por === 'kg' ? 'Preço por kg (R$) *' : 'Preço (R$) *'}</Label>
+                        <Label htmlFor="p-preco">{form.vendido_por === 'kg' ? 'Preço por kg (R$) *' : 'Preço (R$) *'}</Label>
                         <div className="relative mt-1.5">
                           <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
                           <Input
+                            id="p-preco"
                             required type="number" step="0.01" min="0.01"
                             value={form.preco} onChange={set('preco')} placeholder="0,00"
                             className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
@@ -806,13 +814,14 @@ export function ProdutosLoja() {
                         </div>
                       </div>
                       <div>
-                        <Label>
+                        <Label htmlFor="p-preco-promo">
                           Preço promocional
                           <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
                         </Label>
                         <div className="relative mt-1.5">
                           <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
                           <Input
+                            id="p-preco-promo"
                             type="number" step="0.01" min="0.01"
                             value={form.preco_promocional} onChange={set('preco_promocional')} placeholder="—"
                             className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
@@ -823,11 +832,17 @@ export function ProdutosLoja() {
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_180px]">
                       <div>
-                        <Label>
+                        <Label htmlFor="p-ean">
                           Código de barras
                           <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
                         </Label>
                         <Input
+                          id="p-ean"
+                          /* As duas linhas de ajuda (o que o campo faz, e se o codigo
+                             vale como GTIN) ficam LIGADAS ao campo: o leitor de tela le
+                             ao focar, em vez de deixa-las como texto solto que so quem
+                             enxerga associa ao campo de cima. */
+                          aria-describedby={'p-ean-dica' + (form.codigo_barras.trim() !== '' ? ' p-ean-gtin' : '')}
                           value={form.codigo_barras}
                           onChange={e => setForm(f => ({ ...f, codigo_barras: e.target.value.replace(/\D/g, '') }))}
                           inputMode="numeric"
@@ -835,7 +850,7 @@ export function ProdutosLoja() {
                           className={cn(CAMPO_MODAL, 'font-mono')}
                           maxLength={20}
                         />
-                        <p className="mt-1 text-[12.5px] text-muted-foreground">
+                        <p id="p-ean-dica" className="mt-1 text-[12.5px] text-muted-foreground">
                           Permite bipar no PDV. Por peso, use o PLU da balança.
                         </p>
                         {/*
@@ -846,7 +861,7 @@ export function ProdutosLoja() {
                           legítimo e não é um GTIN.
                         */}
                         {form.codigo_barras.trim() !== '' && (
-                          <p className={cn('mt-1 text-[12.5px]',
+                          <p id="p-ean-gtin" className={cn('mt-1 text-[12.5px]',
                             gtinValido(form.codigo_barras) ? 'text-emerald-600' : 'text-amber-600')}>
                             {gtinValido(form.codigo_barras)
                               ? '✓ EAN válido — vai na nota fiscal como código do produto.'
@@ -856,11 +871,12 @@ export function ProdutosLoja() {
                         )}
                       </div>
                       <div>
-                        <Label>
+                        <Label htmlFor="p-serve">
                           Serve pessoas
                           <span className="ml-1 text-xs font-normal text-muted-foreground">(opc.)</span>
                         </Label>
                         <Input
+                          id="p-serve"
                           type="number" min="1" max="20"
                           value={form.serve_pessoas} onChange={set('serve_pessoas')} placeholder="Ex.: 2"
                           className={CAMPO_MODAL}
@@ -897,8 +913,10 @@ export function ProdutosLoja() {
                           ['Unidade', form.unidade_comercial, (v: string) => setForm(f => ({ ...f, unidade_comercial: v.toUpperCase().slice(0, 6) })), 6, 'UN'],
                         ] as Array<[string, string, (v: string) => void, number, string]>).map(([rotulo, valor, aoMudar, max, dica]) => (
                           <div key={rotulo}>
-                            <Label>{rotulo}</Label>
+                            <Label htmlFor={'p-fiscal-' + rotulo.toLowerCase()}>{rotulo}</Label>
                             <Input
+                              id={'p-fiscal-' + rotulo.toLowerCase()}
+                              aria-describedby="p-fiscal-dica"
                               value={valor}
                               onChange={e => aoMudar(e.target.value)}
                               maxLength={max}
@@ -907,7 +925,7 @@ export function ProdutosLoja() {
                             />
                           </div>
                         ))}
-                        <p className="col-span-2 text-[12.5px] text-muted-foreground sm:col-span-3">
+                        <p id="p-fiscal-dica" className="col-span-2 text-[12.5px] text-muted-foreground sm:col-span-3">
                           Já vem com valores padrão genéricos. Se seu contador pedir códigos específicos, ajuste aqui.
                         </p>
                       </div>
@@ -2098,8 +2116,9 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                   </button>
                 </div>
                 <div>
-                  <Label>Nome do grupo *</Label>
+                  <Label htmlFor="grupo-nome">Nome do grupo *</Label>
                   <Input
+                    id="grupo-nome"
                     autoFocus
                     placeholder="Ex.: Tamanho, Borda, Adicionais, Ponto da carne…"
                     value={novoGrupo.nome}

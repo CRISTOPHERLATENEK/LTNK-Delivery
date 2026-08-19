@@ -108,14 +108,14 @@ export function ImageUpload({ value, onChange, label, aspectRatio = 'free', clas
         <div className={cn('flex gap-3',
           isQuadradoGrande ? 'flex-col items-start' : isQuadrado ? 'items-center' : 'flex-col')}>
           <img src={value} alt="Preview" className={cn(previewClasse, 'border border-border object-cover bg-muted shrink-0')} />
-          <div className="flex flex-wrap gap-1.5">
-            <Button type="button" size="sm" variant="outline" onClick={() => inputRef.current?.click()} disabled={carregando}>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="outline" className="min-h-11 sm:min-h-9" onClick={() => inputRef.current?.click()} disabled={carregando}>
               {carregando ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />} Trocar
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => { setUrlAberta(v => !v); setUrlDigitada(value); }}>
+            <Button type="button" size="sm" variant="outline" className="min-h-11 sm:min-h-9" onClick={() => { setUrlAberta(v => !v); setUrlDigitada(value); }}>
               <Link2 className="size-3.5" /> URL
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => onChange('')} className="text-destructive hover:text-destructive">
+            <Button type="button" size="sm" variant="outline" onClick={() => onChange('')} className="min-h-11 text-destructive hover:text-destructive sm:min-h-9">
               <X className="size-3.5" /> Remover
             </Button>
           </div>
@@ -123,12 +123,11 @@ export function ImageUpload({ value, onChange, label, aspectRatio = 'free', clas
       ) : (
         // ── Sem imagem: dropzone compacto ──
         <div
-          onClick={() => !carregando && inputRef.current?.click()}
           onDrop={onDrop}
           onDragOver={e => { e.preventDefault(); setArrastandoSobre(true); }}
           onDragLeave={() => setArrastandoSobre(false)}
           className={cn(
-            'relative flex cursor-pointer items-center justify-center gap-2.5 border-2 border-dashed transition-colors',
+            'relative flex items-center justify-center gap-2.5 border-2 border-dashed transition-colors',
             // Vazio no MESMO formato do preview: assim a área não muda de tamanho ao
             // subir a imagem, e dá pra ver desde o início o espaço que ela vai ocupar.
             isQuadradoGrande ? 'size-64 max-w-full flex-col rounded-2xl p-4 text-center' : 'rounded-xl p-3.5',
@@ -136,6 +135,19 @@ export function ImageUpload({ value, onChange, label, aspectRatio = 'free', clas
             carregando && 'pointer-events-none opacity-60',
           )}
         >
+          {/*
+            O botao cobre a area inteira em vez de a `div` de fora ter o
+            `onClick`: era uma `div` clicavel, ou seja, o mouse funcionava mas o
+            Tab nunca parava ali e o leitor de tela nao anunciava nada. O
+            `<button>` traz foco visivel, Enter/Espaco e o papel certo de graca —
+            e o arrastar-e-soltar continua na `div`, que e quem recebe o arquivo.
+          */}
+          <button
+            type="button"
+            onClick={() => !carregando && inputRef.current?.click()}
+            aria-label={label ? `Escolher imagem: ${label}` : 'Escolher imagem'}
+            className="absolute inset-0 cursor-pointer rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          />
           {carregando ? (
             <>
               <Loader2 className="size-4 text-primary animate-spin shrink-0" />
@@ -155,14 +167,18 @@ export function ImageUpload({ value, onChange, label, aspectRatio = 'free', clas
           <button
             type="button"
             onClick={e => { e.stopPropagation(); setUrlAberta(v => !v); }}
-            className="ml-auto shrink-0 flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            className="relative z-10 ml-auto flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
             <Link2 className="size-3" /> URL
           </button>
         </div>
       )}
 
-      <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={onInputChange} />
+      <input
+        ref={inputRef} type="file" accept="image/*" className="hidden"
+        aria-label={label ? `Arquivo de imagem: ${label}` : 'Arquivo de imagem'}
+        onChange={onInputChange}
+      />
 
       {urlAberta && (
         <div className="flex gap-2">
@@ -174,11 +190,11 @@ export function ImageUpload({ value, onChange, label, aspectRatio = 'free', clas
             onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), confirmarUrl())}
             placeholder="https://exemplo.com/foto.jpg"
           />
-          <Button type="button" size="sm" onClick={confirmarUrl} className="shrink-0">OK</Button>
+          <Button type="button" size="sm" onClick={confirmarUrl} className="min-h-11 shrink-0 sm:min-h-9">OK</Button>
         </div>
       )}
 
-      {erro && <p className="text-xs text-destructive">{erro}</p>}
+      {erro && <p role="alert" className="text-xs text-destructive">{erro}</p>}
     </div>
   );
 }
