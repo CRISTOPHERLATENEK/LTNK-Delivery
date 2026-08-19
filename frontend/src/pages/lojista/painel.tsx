@@ -24,9 +24,10 @@ import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, sessaoUsuario, salvarSessao, abrirSessaoLojistaImpersonada, lerRepasseImpersonacao, desviouParaRevendedor } from '@/lib/api';
 import { Portal2FA } from '@/components/duplo-fator';
 import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
-import { brl, dataLocal, tempoRelativo } from '@/lib/format';
+import { brl, dataLocal } from '@/lib/format';
 import { useTema, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
+import { urgenciaPedido } from '@/lib/urgencia-pedido';
 import { alturaLogo } from '@/lib/logo-escala';
 import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag, MessageCircle, ShieldCheck, Check } from 'lucide-react';
 import { ImageUpload } from '@/components/ui/image-upload';
@@ -867,6 +868,17 @@ ${p.observacoes ? `<div class="note">📝 ${escapar(p.observacoes)}</div>` : ''}
 function PedidosLoja() {
   const [aba, setAba] = useState<'ativos' | 'historico'>('ativos');
 
+  /*
+   * UM relógio pra lista inteira, batendo a cada segundo — é o que faz o
+   * cronômetro de espera correr (ver lib/urgencia-pedido.ts). Um setState por
+   * segundo é irrelevante; um timer por card, não.
+   */
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setAgora(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
   const ativos_q = usePedidosLojaAtivos();
 
   const historico_q = useQuery({
@@ -931,7 +943,7 @@ function PedidosLoja() {
           )}
           <div className="space-y-3">
             {pedidosAtivos.map(p => (
-              <CardPedidoLojista key={p.id} pedido={p} aoAtualizar={() => ativos_q.refetch()} />
+              <CardPedidoLojista key={p.id} pedido={p} agora={agora} aoAtualizar={() => ativos_q.refetch()} />
             ))}
           </div>
         </>
@@ -1027,7 +1039,14 @@ function CardHistoricoPedido({ pedido }: { pedido: PedidoComItens }) {
   );
 }
 
-function CardPedidoLojista({ pedido, aoAtualizar }: { pedido: PedidoComItens; aoAtualizar: () => void }) {
+function CardPedidoLojista({ pedido, aoAtualizar, agora }: {
+  pedido: PedidoComItens; aoAtualizar: () => void; agora: number;
+}) {
+  /*
+   * O relógio vem da LISTA, não de um intervalo por card: com 20 pedidos na
+   * tela seriam 20 timers fazendo a mesma coisa. Mesma decisão do KDS.
+   */
+  const urg = urgenciaPedido(pedido.criado_em, agora);
   const { mostrar } = useToast();
   const [recusando, setRecusando] = useState(false);
   const [motivoRecusa, setMotivoRecusa] = useState('');
@@ -1111,35 +1130,54 @@ function CardPedidoLojista({ pedido, aoAtualizar }: { pedido: PedidoComItens; ao
 
   return (
     <Card className={cn(
+      // Pedido atrasado ganha a MESMA borda do KDS — quem olha o balcão e quem
+      // olha a cozinha veem o mesmo alerta.
+      urg.atrasado && 'border-red-500/50 shadow-sm shadow-red-500/10',
       isPendente && 'border-amber-500/70 bg-amber-500/5 shadow-sm shadow-amber-500/20',
     )}>
-      <CardContent className="p-5">
+      <CardContent className="p-4 sm:p-5">
         <div className="flex items-start justify-between gap-2">
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold">#{pedido.id} · {pedido.cliente_nome}</span>
-              {isPendente && (
-                <span className="animate-pulse rounded-full bg-amber-500 px-2 py-0.5 text-[10px] font-bold text-white">
-                  NOVO
-                </span>
-              )}
+              {isPendente && <Badge variant="warning" className="animate-pulse">NOVO</Badge>}
             </div>
-            <div className="text-xs text-muted-foreground mt-0.5">
-              {tempoRelativo(pedido.criado_em)} · {dataLocal(pedido.criado_em)}
-              {' · '}
-              {pedido.forma_pagamento === 'pix' && 'Pix'}
-              {pedido.forma_pagamento === 'dinheiro' && 'Dinheiro'}
-              {pedido.forma_pagamento === 'cartao_entrega' && 'Cartão na entrega'}
-              {pedido.forma_pagamento === 'cartao_online' && 'Cartão (pago)'}
+            {/*
+              TEMPO DE ESPERA EM LINHA PRÓPRIA, com o mesmo semáforo do KDS
+              (ver lib/urgencia-pedido.ts). Antes ele dividia uma linha de
+              `text-xs` cinza com a data e a forma de pagamento — a informação
+              que decide "atender agora ou depois" tinha o mesmo peso visual da
+              data, e um pedido parado há 15 minutos não se distinguia de um que
+              acabou de entrar.
+            */}
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span
+                className={cn('inline-flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-bold tabular-nums', urg.faixa)}
+                title={`Esperando há ${urg.rotulo}`}
+              >
+                <Clock className={cn('size-3.5', urg.atrasado && 'animate-pulse')} />
+                {urg.rotulo}
+                <span className="sr-only">{urg.descricao}</span>
+              </span>
+              <span className="text-sm text-muted-foreground">
+                {pedido.forma_pagamento === 'pix' && 'Pix'}
+                {pedido.forma_pagamento === 'dinheiro' && 'Dinheiro'}
+                {pedido.forma_pagamento === 'cartao_entrega' && 'Cartão na entrega'}
+                {pedido.forma_pagamento === 'cartao_online' && 'Cartão (pago)'}
+              </span>
             </div>
+            <div className="mt-0.5 text-xs text-muted-foreground">{dataLocal(pedido.criado_em)}</div>
           </div>
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
+            {/* 44×44 reais: antes eram 28×28 (p-1.5 + ícone de 16px), abaixo do
+                mínimo tocável, e `title` não é lido como nome do botão. */}
             <button
+              type="button"
               onClick={() => imprimirPedidoPainel(pedido)}
-              className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground"
-              title="Imprimir"
+              aria-label={`Imprimir pedido #${pedido.id}`}
+              className="flex size-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent"
             >
-              <Printer className="size-4" />
+              <Printer className="size-5" />
             </button>
             <StatusBadge status={pedido.status} />
           </div>

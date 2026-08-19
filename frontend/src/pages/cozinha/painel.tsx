@@ -20,6 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario, salvarSessao, encerrarSessao } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { urgenciaPedido } from '@/lib/urgencia-pedido';
 import { useTema } from '@/lib/tema';
 
 type FonteCozinha = 'delivery' | 'mesa' | 'balcao';
@@ -466,37 +467,6 @@ function TelaKDS() {
   );
 }
 
-/**
- * Cor e rótulo por tempo de espera.
- *
- * O rótulo é `m:ss` (cronômetro), não "5 min": com granularidade de minuto o
- * número ficava parado por 60s e a tela parecia travada — numa cozinha, ver o
- * tempo correndo é o que cria senso de urgência.
- *
- * As cores aqui são fixas (verde/âmbar/vermelho) de propósito: é semáforo,
- * convenção universal de urgência, não identidade visual da marca.
- */
-function urgencia(criadoEm: string, agora: number) {
-  const seg = Math.max(0, Math.floor((agora - new Date(criadoEm).getTime()) / 1000));
-  const min = Math.floor(seg / 60);
-  const rotulo = `${min}:${String(seg % 60).padStart(2, '0')}`;
-  if (min >= 10) return {
-    min, rotulo, atrasado: true,
-    faixa: 'bg-red-500/15 text-red-700 dark:text-red-300',
-    borda: 'border-red-500/50',
-  };
-  if (min >= 5) return {
-    min, rotulo, atrasado: false,
-    faixa: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
-    borda: 'border-amber-500/40',
-  };
-  return {
-    min, rotulo, atrasado: false,
-    faixa: 'bg-green-500/15 text-green-700 dark:text-green-300',
-    borda: 'border-green-500/40',
-  };
-}
-
 const FONTE_INFO: Record<FonteCozinha, { icone: typeof Bike; rotulo: string }> = {
   delivery: { icone: Bike, rotulo: 'Delivery' },
   mesa:     { icone: UtensilsCrossed, rotulo: 'Salão' },
@@ -511,7 +481,7 @@ function TicketCozinha({
   onAcao: (p: PedidoCozinha, tipo: 'preparar' | 'pronto') => void;
   selecionado?: boolean;
 }) {
-  const u = urgencia(pedido.criado_em, agora);
+  const u = urgenciaPedido(pedido.criado_em, agora);
   const emPreparo = pedido.etapa === 'preparando';
   const Fonte = FONTE_INFO[pedido.fonte] ?? FONTE_INFO.delivery;
   const IconeFonte = Fonte.icone;
