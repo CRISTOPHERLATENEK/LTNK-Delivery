@@ -8,32 +8,28 @@
 import { useState } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { Mail, KeyRound, CheckCircle2, ArrowLeft } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
 import { useTema } from '@/lib/tema';
+import { TelaLogin, CampoSenha, ErroLogin } from '@/components/ui/tela-login';
 
+/**
+ * A moldura daqui era uma cópia da moldura dos logins, e as duas divergiram: a
+ * dos logins ganhou `min-h-dvh` (o `vh` do celular conta a barra do navegador
+ * que some ao rolar, e o formulário ficava cortado) e esta ficou no `min-h-screen`.
+ * Agora as duas são a mesma — quem vem do login não sente troca de tela.
+ */
 function Moldura({ icone, titulo, subtitulo, children }: {
   icone: React.ReactNode; titulo: string; subtitulo: string; children: React.ReactNode;
 }) {
   const { marca } = useTema();
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-background">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="text-center space-y-1">
-          <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-            {icone}
-          </div>
-          <h1 className="text-xl font-extrabold mt-2">{titulo}</h1>
-          <p className="text-sm text-muted-foreground">{subtitulo}</p>
-          {marca.nome && <p className="text-xs text-muted-foreground/70">{marca.nome}</p>}
-        </div>
-        <Card><CardContent className="p-6">{children}</CardContent></Card>
-      </div>
-    </div>
+    <TelaLogin icone={icone} titulo={titulo} subtitulo={subtitulo} rodape={marca.nome || undefined}>
+      {children}
+    </TelaLogin>
   );
 }
 
@@ -41,16 +37,18 @@ export function EsqueciSenha() {
   const [email, setEmail] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [enviado, setEnviado] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
   const { mostrar } = useToast();
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
     setEnviando(true);
     try {
+      setErro(null);
       await api('POST', '/api/auth/esqueci-senha', { email });
       setEnviado(true);
     } catch (err) {
-      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+      if (err instanceof ApiError) { setErro(err.message); mostrar({ tipo: 'erro', titulo: err.message }); }
     } finally {
       setEnviando(false);
     }
@@ -58,7 +56,7 @@ export function EsqueciSenha() {
 
   if (enviado) {
     return (
-      <Moldura icone={<CheckCircle2 className="size-7" />} titulo="Verifique seu e-mail"
+      <Moldura icone={<CheckCircle2 className="size-8" />} titulo="Verifique seu e-mail"
         subtitulo="Se esse e-mail estiver cadastrado, o link de redefinição já está a caminho.">
         <div className="text-center space-y-4">
           <p className="text-sm text-muted-foreground">
@@ -71,16 +69,18 @@ export function EsqueciSenha() {
   }
 
   return (
-    <Moldura icone={<Mail className="size-7" />} titulo="Esqueceu sua senha?"
+    <Moldura icone={<Mail className="size-8" />} titulo="Esqueceu sua senha?"
       subtitulo="Informe o e-mail da sua conta pra receber o link de redefinição.">
       <form onSubmit={enviar} className="space-y-4">
+        <ErroLogin mensagem={erro} />
         <div>
           <Label htmlFor="email-recuperar">E-mail cadastrado</Label>
           <Input id="email-recuperar" type="email" required autoFocus
+            autoComplete="email" inputMode="email" enterKeyHint="go"
             placeholder="seu@email.com" value={email} onChange={e => setEmail(e.target.value)} />
         </div>
-        <Button type="submit" size="lg" className="w-full" disabled={enviando}>
-          {enviando ? 'Enviando…' : 'Enviar link de redefinição'}
+        <Button type="submit" size="lg" className="w-full" loading={enviando} loadingText="Enviando…">
+          Enviar link de redefinição
         </Button>
         <Button asChild variant="ghost" className="w-full"><Link to="/"><ArrowLeft className="size-4" /> Voltar</Link></Button>
       </form>
@@ -96,18 +96,24 @@ export function RedefinirSenha() {
   const [confirmar, setConfirmar] = useState('');
   const [enviando, setEnviando] = useState(false);
   const [concluido, setConcluido] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
   const { mostrar } = useToast();
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
-    if (senha !== confirmar) { mostrar({ tipo: 'erro', titulo: 'As senhas não coincidem.' }); return; }
+    if (senha !== confirmar) {
+      setErro('As senhas não coincidem.');
+      mostrar({ tipo: 'erro', titulo: 'As senhas não coincidem.' });
+      return;
+    }
     setEnviando(true);
+    setErro(null);
     try {
       await api('POST', '/api/auth/redefinir-senha', { token, senha });
       setConcluido(true);
       setTimeout(() => navigate('/'), 2500);
     } catch (err) {
-      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+      if (err instanceof ApiError) { setErro(err.message); mostrar({ tipo: 'erro', titulo: err.message }); }
     } finally {
       setEnviando(false);
     }
@@ -115,7 +121,7 @@ export function RedefinirSenha() {
 
   if (!token) {
     return (
-      <Moldura icone={<KeyRound className="size-7" />} titulo="Link inválido"
+      <Moldura icone={<KeyRound className="size-8" />} titulo="Link inválido"
         subtitulo="Esse link de redefinição está incompleto ou expirou.">
         <Button asChild className="w-full"><Link to="/esqueci-senha">Pedir um novo link</Link></Button>
       </Moldura>
@@ -124,7 +130,7 @@ export function RedefinirSenha() {
 
   if (concluido) {
     return (
-      <Moldura icone={<CheckCircle2 className="size-7" />} titulo="Senha redefinida!"
+      <Moldura icone={<CheckCircle2 className="size-8" />} titulo="Senha redefinida!"
         subtitulo="Já pode entrar com a nova senha. Redirecionando…">
         <Button asChild className="w-full"><Link to="/">Ir para o login agora</Link></Button>
       </Moldura>
@@ -132,21 +138,18 @@ export function RedefinirSenha() {
   }
 
   return (
-    <Moldura icone={<KeyRound className="size-7" />} titulo="Escolha uma nova senha"
+    <Moldura icone={<KeyRound className="size-8" />} titulo="Escolha uma nova senha"
       subtitulo="Mínimo de 6 caracteres.">
       <form onSubmit={enviar} className="space-y-4">
-        <div>
-          <Label htmlFor="nova-senha">Nova senha</Label>
-          <Input id="nova-senha" type="password" required minLength={6}
-            placeholder="••••••••" value={senha} onChange={e => setSenha(e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="confirmar-senha">Confirmar nova senha</Label>
-          <Input id="confirmar-senha" type="password" required minLength={6}
-            placeholder="••••••••" value={confirmar} onChange={e => setConfirmar(e.target.value)} />
-        </div>
-        <Button type="submit" size="lg" className="w-full" disabled={enviando}>
-          {enviando ? 'Salvando…' : 'Redefinir senha'}
+        <ErroLogin mensagem={erro} />
+        {/* `new-password` nos dois: sem isso o gerenciador de senhas oferece a
+            senha ANTIGA justamente na tela de trocar de senha. */}
+        <CampoSenha id="nova-senha" rotulo="Nova senha" autoComplete="new-password"
+          valor={senha} aoMudar={setSenha} required minLength={6} placeholder="••••••••" />
+        <CampoSenha id="confirmar-senha" rotulo="Confirmar nova senha" autoComplete="new-password"
+          valor={confirmar} aoMudar={setConfirmar} required minLength={6} placeholder="••••••••" />
+        <Button type="submit" size="lg" className="w-full" loading={enviando} loadingText="Salvando…">
+          Redefinir senha
         </Button>
       </form>
     </Moldura>

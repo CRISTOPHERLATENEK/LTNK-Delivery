@@ -27,6 +27,7 @@ import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
 import { brl, dataLocal } from '@/lib/format';
 import { useTema, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
+import { ErroLogin } from '@/components/ui/tela-login';
 import { urgenciaPedido } from '@/lib/urgencia-pedido';
 import { alturaLogo } from '@/lib/logo-escala';
 import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag, MessageCircle, ShieldCheck, Check } from 'lucide-react';
@@ -1284,6 +1285,7 @@ function LoginLojista() {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [mostrarSenha, setMostrarSenha] = useState(false);
+  const [erroLogin, setErroLogin] = useState<string | null>(null);
   const [lembrar, setLembrar] = useState(true);
   const [enviando, setEnviando] = useState(false);
   const [duploFator, setDuploFator] = useState<{ tokenPreAuth: string; modo: 'configurar' | 'verificar' } | null>(null);
@@ -1326,13 +1328,19 @@ function LoginLojista() {
         return;
       }
       if (r.usuario.perfil !== 'lojista') {
+        setErroLogin('Esta conta não é de lojista.');
         mostrar({ tipo: 'erro', titulo: 'Esta conta não é de lojista.' });
         return;
       }
       salvarSessao(r.token, r.usuario, undefined, lembrar);
       window.location.reload();
     } catch (err) {
-      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+      if (err instanceof ApiError) {
+        // Junto do formulário além do toast: o toast some sozinho e nasce no
+        // canto da tela, longe de onde a pessoa está olhando ao errar a senha.
+        setErroLogin(err.message);
+        mostrar({ tipo: 'erro', titulo: err.message });
+      }
     } finally {
       setEnviando(false);
     }
@@ -1561,6 +1569,7 @@ function LoginLojista() {
           </p>
 
           <form onSubmit={enviar} className="mt-7 space-y-4">
+            <ErroLogin mensagem={erroLogin} />
             <div data-anim="campo">
               <Label htmlFor="email-lojista">E-mail</Label>
               {/* Sem ícone dentro do campo: com o placeholder já explicando o que vai
@@ -1570,6 +1579,8 @@ function LoginLojista() {
                 type="email"
                 required
                 autoComplete="email"
+                inputMode="email"
+                enterKeyHint="next"
                 placeholder="seu@email.com"
                 className={CAMPO_LOGIN}
                 value={email}
@@ -1585,6 +1596,7 @@ function LoginLojista() {
                   type={mostrarSenha ? 'text' : 'password'}
                   required
                   autoComplete="current-password"
+                  enterKeyHint="go"
                   placeholder="Sua senha"
                   className={cn(CAMPO_LOGIN, 'mt-0 pr-12')}
                   value={senha}
@@ -1593,7 +1605,7 @@ function LoginLojista() {
                 <button
                   type="button"
                   onClick={() => setMostrarSenha(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground"
+                  className="absolute right-0 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground"
                   aria-label={mostrarSenha ? 'Esconder senha' : 'Mostrar senha'}
                 >
                   {mostrarSenha ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}

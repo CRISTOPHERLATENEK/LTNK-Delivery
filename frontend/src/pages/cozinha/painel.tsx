@@ -6,7 +6,7 @@
  * cards grandes, cor por tempo de espera e alerta sonoro em pedido novo.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChefHat, Clock, AlarmClock, Check, Play, Volume2, VolumeX, LogOut, Soup,
@@ -20,6 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario, salvarSessao, encerrarSessao } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { TelaLogin, CampoSenha, ErroLogin } from '@/components/ui/tela-login';
 import { urgenciaPedido } from '@/lib/urgencia-pedido';
 import { useTema } from '@/lib/tema';
 
@@ -58,11 +59,13 @@ function LoginCozinha() {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
   const { mostrar } = useToast();
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
     setEnviando(true);
+    setErro(null);
     try {
       const r = await api<{ token: string; conta: any }>('POST', '/api/cozinha/login', { email, senha });
       salvarSessao(r.token, {
@@ -71,46 +74,45 @@ function LoginCozinha() {
       }, 'cozinha');
       window.location.reload();
     } catch (err) {
-      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+      if (err instanceof ApiError) {
+        // Junto do formulário E no toast: o toast some sozinho e fica no canto,
+        // longe de onde a pessoa está olhando.
+        setErro(err.message);
+        mostrar({ tipo: 'erro', titulo: err.message });
+      }
     } finally {
       setEnviando(false);
     }
   }
 
   return (
-    <div className="min-h-dvh bg-background text-foreground flex items-center justify-center p-4">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="text-center space-y-2">
-          <div className="mx-auto flex size-16 items-center justify-center rounded-3xl bg-primary text-primary-foreground">
-            <ChefHat className="size-8" />
-          </div>
-          <h2 className="text-2xl font-extrabold">Cozinha</h2>
-          <p className="text-sm text-muted-foreground">Entre com a conta da cozinha da sua loja.</p>
+    <TelaLogin
+      icone={<ChefHat className="size-8" />}
+      titulo="Cozinha"
+      subtitulo="Entre com a conta da cozinha da sua loja."
+      rodape={<>A conta da cozinha é criada pelo lojista no painel da loja.</>}
+    >
+      <form onSubmit={enviar} className="space-y-4">
+        <ErroLogin mensagem={erro} />
+        <div>
+          <Label htmlFor="email-cozinha">E-mail</Label>
+          <Input
+            id="email-cozinha" type="email" required placeholder="cozinha@sualoja.com"
+            value={email} onChange={e => setEmail(e.target.value)}
+            autoComplete="email" inputMode="email" enterKeyHint="next"
+          />
         </div>
-        <Card>
-          <CardContent className="p-6">
-            <form onSubmit={enviar} className="space-y-4">
-              <div>
-                <Label htmlFor="email-cozinha">E-mail</Label>
-                <Input id="email-cozinha" type="email" required placeholder="cozinha@sualoja.com"
-                  value={email} onChange={e => setEmail(e.target.value)} />
-              </div>
-              <div>
-                <Label htmlFor="senha-cozinha">Senha</Label>
-                <Input id="senha-cozinha" type="password" required placeholder="••••••••"
-                  value={senha} onChange={e => setSenha(e.target.value)} />
-              </div>
-              <Button type="submit" size="lg" className="w-full" disabled={enviando}>
-                {enviando ? 'Entrando…' : 'Entrar'}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-        <p className="text-center text-xs text-muted-foreground">
-          A conta da cozinha é criada pelo lojista no painel da loja.
-        </p>
-      </div>
-    </div>
+        <CampoSenha id="senha-cozinha" valor={senha} aoMudar={setSenha} required placeholder="••••••••" />
+        <Button type="submit" size="lg" className="w-full" loading={enviando} loadingText="Entrando…">
+          Entrar
+        </Button>
+        {/* Faltava aqui, e só aqui: quem esquecia a senha do tablet da cozinha
+            dependia do lojista pra voltar a trabalhar. */}
+        <Link to="/esqueci-senha" className="block text-center text-sm font-semibold text-primary hover:underline">
+          Esqueci minha senha
+        </Link>
+      </form>
+    </TelaLogin>
   );
 }
 

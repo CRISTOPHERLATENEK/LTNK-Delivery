@@ -25,6 +25,7 @@ import { api, ApiError, sessaoUsuario, salvarSessao, desviouParaRevendedor } fro
 import { brl, dataLocal } from '@/lib/format';
 import { suportaPush, ativarPush } from '@/lib/push';
 import { cn } from '@/lib/utils';
+import { TelaLogin, CampoSenha, ErroLogin } from '@/components/ui/tela-login';
 import { Falha } from '@/components/ui/estado';
 import { lazySeguro } from '@/lib/lazy-seguro';
 
@@ -1119,62 +1120,58 @@ function LoginEntregador() {
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
   const { mostrar } = useToast();
 
   async function entrar(e: React.FormEvent) {
     e.preventDefault();
     setEnviando(true);
+    setErro(null);
     try {
       const r = await api<{ token: string; usuario: any }>('POST', '/api/auth/login', { email, senha });
       // Revendedor entra pela mesma tela e vai pro painel dele.
       if (desviouParaRevendedor(r)) return;
       if (r.usuario.perfil !== 'entregador') {
+        setErro('Esta conta não é de entregador.');
         mostrar({ tipo: 'erro', titulo: 'Esta conta não é de entregador.' });
         return;
       }
       salvarSessao(r.token, r.usuario);
       window.location.reload();
     } catch (err) {
-      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+      if (err instanceof ApiError) {
+        setErro(err.message);
+        mostrar({ tipo: 'erro', titulo: err.message });
+      }
     } finally {
       setEnviando(false);
     }
   }
 
   return (
-    <div className="min-h-dvh bg-gradient-to-br from-primary/5 via-background to-background flex flex-col items-center justify-center p-5">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="text-center space-y-3">
-          <div className="inline-flex size-20 items-center justify-center rounded-3xl bg-primary text-primary-foreground shadow-xl shadow-primary/30 mx-auto">
-            <Bike className="size-10" />
-          </div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Área do entregador</h1>
-          <p className="text-sm text-muted-foreground">Entre para ver as corridas disponíveis.</p>
+    <TelaLogin
+      icone={<Bike className="size-8" />}
+      titulo="Área do entregador"
+      subtitulo="Entre para ver as corridas disponíveis."
+    >
+      <form onSubmit={entrar} className="space-y-4">
+        <ErroLogin mensagem={erro} />
+        <div>
+          <Label htmlFor="email">E-mail</Label>
+          <Input
+            id="email" type="email" required className="h-12"
+            value={email} onChange={e => setEmail(e.target.value)}
+            autoComplete="email" inputMode="email" enterKeyHint="next"
+          />
         </div>
-
-        <Card>
-          <CardContent className="p-6">
-            <form onSubmit={entrar} className="space-y-3">
-              <div>
-                <Label htmlFor="email">E-mail</Label>
-                <Input id="email" type="email" required autoComplete="email"
-                  value={email} onChange={e => setEmail(e.target.value)} className="h-12" />
-              </div>
-              <div>
-                <Label htmlFor="senha">Senha</Label>
-                <Input id="senha" type="password" required autoComplete="current-password"
-                  value={senha} onChange={e => setSenha(e.target.value)} className="h-12" />
-              </div>
-              <Button type="submit" size="lg" className="w-full rounded-2xl mt-2" disabled={enviando}>
-                {enviando ? 'Entrando…' : 'Entrar'}
-              </Button>
-              <Link to="/esqueci-senha" className="block text-center text-sm text-muted-foreground hover:text-primary">
-                Esqueci minha senha
-              </Link>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
+        <CampoSenha id="senha" valor={senha} aoMudar={setSenha} required />
+        <Button type="submit" size="lg" className="w-full" loading={enviando} loadingText="Entrando…">
+          Entrar
+        </Button>
+        <Link to="/esqueci-senha" className="block text-center text-sm font-semibold text-primary hover:underline">
+          Esqueci minha senha
+        </Link>
+      </form>
+    </TelaLogin>
   );
 }

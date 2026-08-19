@@ -16,6 +16,7 @@ import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario, ehSuperAdmin, salvarSessao, desviouParaRevendedor } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { ErroLogin } from '@/components/ui/tela-login';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Portal2FA } from '@/components/duplo-fator';
@@ -303,6 +304,7 @@ function LoginAdmin() {
   const [senha, setSenha] = useState('');
   const [carregando, setCarregando] = useState(false);
   const [mostrarSenha, setMostrarSenha] = useState(false);
+  const [erroLogin, setErroLogin] = useState<string | null>(null);
   const [duploFator, setDuploFator] = useState<{ tokenPreAuth: string; modo: 'configurar' | 'verificar' } | null>(null);
   const { mostrar } = useToast();
 
@@ -336,13 +338,18 @@ function LoginAdmin() {
         return;
       }
       if (r.usuario.perfil !== 'admin') {
+        setErroLogin('Esta conta não é de admin.');
         mostrar({ tipo: 'erro', titulo: 'Esta conta não é de admin.' });
         return;
       }
       salvarSessao(r.token, r.usuario);
       window.location.reload();
     } catch (e) {
-      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+      if (e instanceof ApiError) {
+        // Erro junto do formulário, não só no toast do canto (ver tela-login.tsx).
+        setErroLogin(e.message);
+        mostrar({ tipo: 'erro', titulo: e.message });
+      }
     } finally {
       setCarregando(false);
     }
@@ -419,12 +426,14 @@ function LoginAdmin() {
           </div>
 
           <form onSubmit={entrar} className="space-y-4">
+            <ErroLogin mensagem={erroLogin} />
             <div>
               <Label htmlFor="email-admin">E-mail</Label>
               <div className="relative mt-1.5">
                 <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="email-admin" type="email" required autoComplete="email"
+                  inputMode="email" enterKeyHint="next"
                   placeholder="voce@empresa.com.br" className="pl-9"
                   value={email} onChange={e => setEmail(e.target.value)}
                 />
@@ -441,13 +450,14 @@ function LoginAdmin() {
                 <Lock className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="senha-admin" type={mostrarSenha ? 'text' : 'password'} required autoComplete="current-password"
-                  placeholder="••••••••" className="pl-9 pr-10"
+                  enterKeyHint="go"
+                  placeholder="••••••••" className="pl-9 pr-12"
                   value={senha} onChange={e => setSenha(e.target.value)}
                 />
                 <button
                   type="button"
                   onClick={() => setMostrarSenha(v => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  className="absolute right-0 top-1/2 flex size-11 -translate-y-1/2 items-center justify-center text-muted-foreground hover:text-foreground"
                   aria-label={mostrarSenha ? 'Esconder senha' : 'Mostrar senha'}
                 >
                   {mostrarSenha ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
