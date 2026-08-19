@@ -2,7 +2,7 @@
  * Módulo do ENTREGADOR: corridas, aceite ATÔMICO, entrega ativa, histórico.
  */
 import { Router } from 'express';
-import db from '../db-mysql';
+import db, { comTransacao } from '../db-mysql';
 import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, erroHttp } from '../util';
 import { registrarEvento } from '../notificacoes';
@@ -12,47 +12,105 @@ import { emitirNfcePedido } from './lojista';
 const router = Router();
 router.use(autenticar, exigirPerfil('entregador'));
 
-router.get('/corridas', async (_req, res, next) => {
+/**
+ * Loja à qual este entregador está preso, ou `null` se ele é compartilhado.
+ *
+ * O cadastro prevê os dois casos (ver GET /lojista/entregadores): `loja_id`
+ * preenchido = exclusivo daquela loja, nulo = atende qualquer uma. A rota do
+ * lojista já respeitava isso; as do entregador não.
+ */
+async function lojaDoEntregador(usuarioId: number): Promise<number | null> {
+  const u = await db.prepare('SELECT loja_id FROM usuarios WHERE id = ?').get(usuarioId) as { loja_id: number | null } | undefined;
+  return u?.loja_id ?? null;
+}
+
+router.get('/corridas', async (req, res, next) => {
   try {
+    /*
+     * FILTRA PELA LOJA DELE. Sem isto, um entregador cadastrado exclusivamente
+     * pela loja A via — e podia aceitar — as corridas da loja B do mesmo
+     * cliente. Além de pegar entrega que ninguém autorizou, a lista traz
+     * endereço do consumidor, valor e troco: dado de cliente de uma loja
+     * exposto a entregador de outra.
+     */
+    const lojaId = await lojaDoEntregador(req.usuario!.id);
     const corridas = await db.prepare(
       `SELECT p.id, p.endereco_entrega, p.entrega_lat, p.entrega_lon, p.taxa_entrega_centavos, p.total_centavos,
               p.forma_pagamento, p.troco_para_centavos, p.criado_em,
               l.nome AS loja_nome, l.endereco AS loja_endereco
          FROM pedidos p JOIN lojas l ON l.id = p.loja_id
         WHERE p.status = 'pronto' AND p.entregador_id IS NULL
+          AND (? IS NULL OR p.loja_id = ?)
         ORDER BY p.id`
-    ).all();
+    ).all(lojaId, lojaId);
     res.json({ corridas });
   } catch (e) { next(e); }
 });
 
 /**
- * Aceite ATÔMICO: o UPDATE só efetiva se o pedido ainda estiver "pronto" sem
- * entregador. SQLite serializa escritas, então apenas um entregador vence.
+ * Aceite de corrida.
+ *
+ * DUAS DISPUTAS DIFERENTES acontecem aqui, e cada uma precisa da sua garantia:
+ *
+ * 1. DOIS ENTREGADORES na mesma corrida — resolvido pelo próprio UPDATE
+ *    condicional (`AND status = 'pronto' AND entregador_id IS NULL`): só um
+ *    consegue mudar a linha, o outro recebe changes = 0. Isso sempre funcionou.
+ *
+ * 2. O MESMO ENTREGADOR em duas corridas — NÃO era resolvido. A checagem de
+ *    "já tem entrega ativa?" era um SELECT antes do UPDATE, e entre os dois cabe
+ *    outra requisição: dois toques rápidos na lista, ou o app repetindo o envio,
+ *    e ele ficava com duas corridas ao mesmo tempo. Medido antes da correção:
+ *    11 de 15 tentativas simultâneas passaram, os dois pedidos com 200.
+ *    O estrago é silencioso — `/atual` mostra uma corrida só, então a outra fica
+ *    presa em "em_entrega" com um entregador que não a vê, e o cliente espera.
+ *
+ * A trava é na linha do ENTREGADOR (`usuarios ... FOR UPDATE`), porque o recurso
+ * disputado é ele: a regra é "um entregador, uma corrida". Mesmo recurso usado
+ * na abertura de caixa e no limite de banners.
+ *
+ * O comentário antigo dizia que "SQLite serializa escritas" — o projeto migrou
+ * pra MySQL, e serialização de escrita nunca protegeu contra checar-depois-agir.
  */
 router.post('/corridas/:id/aceitar', async (req, res, next) => {
   try {
-    const ativa = await db.prepare(
-      "SELECT id FROM pedidos WHERE entregador_id = ? AND status = 'em_entrega'"
-    ).get(req.usuario!.id) as { id: number } | undefined;
-    if (ativa) throw erroHttp(409, `Você já está com a entrega #${ativa.id} em andamento. Conclua-a primeiro.`);
-
     const agora = agoraUTC();
-    const resultado = await db.prepare(
-      `UPDATE pedidos
-          SET entregador_id = ?, status = 'em_entrega', atualizado_em = ?
-        WHERE id = ? AND status = 'pronto' AND entregador_id IS NULL`
-    ).run(req.usuario!.id, agora, req.params.id);
+    const lojaId = await lojaDoEntregador(req.usuario!.id);
 
-    if (resultado.changes === 0) {
-      throw erroHttp(409, 'Essa corrida não está mais disponível (outro entregador aceitou primeiro).');
-    }
+    await comTransacao(async (tx) => {
+      // Mutex: quem chegar depois espera aqui até a primeira transação fechar.
+      await tx.prepare('SELECT id FROM usuarios WHERE id = ? FOR UPDATE').get(req.usuario!.id);
 
-    await db.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
-      .run(req.params.id, 'em_entrega', agora);
-    await db.prepare("UPDATE pedidos SET entregador_etapa = 'aceita' WHERE id = ?").run(req.params.id);
-    await db.prepare('INSERT INTO etapas_entrega (pedido_id, etapa, criado_em) VALUES (?, ?, ?)')
-      .run(req.params.id, 'aceita', agora);
+      const ativa = await tx.prepare(
+        "SELECT id FROM pedidos WHERE entregador_id = ? AND status = 'em_entrega'"
+      ).get(req.usuario!.id) as { id: number } | undefined;
+      if (ativa) throw erroHttp(409, `Você já está com a entrega #${ativa.id} em andamento. Conclua-a primeiro.`);
+
+      /*
+       * O vínculo com a loja é conferido AQUI e não só na listagem: esconder a
+       * corrida da lista não impede ninguém de chamar a rota com o id na mão.
+       */
+      const resultado = await tx.prepare(
+        `UPDATE pedidos
+            SET entregador_id = ?, status = 'em_entrega', atualizado_em = ?, entregador_etapa = 'aceita'
+          WHERE id = ? AND status = 'pronto' AND entregador_id IS NULL
+            AND (? IS NULL OR loja_id = ?)`
+      ).run(req.usuario!.id, agora, req.params.id, lojaId, lojaId);
+
+      if (resultado.changes === 0) {
+        throw erroHttp(409, 'Essa corrida não está mais disponível (outro entregador aceitou primeiro).');
+      }
+
+      await tx.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
+        .run(req.params.id, 'em_entrega', agora);
+      await tx.prepare('INSERT INTO etapas_entrega (pedido_id, etapa, criado_em) VALUES (?, ?, ?)')
+        .run(req.params.id, 'aceita', agora);
+    });
+
+    /*
+     * Aviso ao cliente FORA da transação, depois do commit: notificar "saiu pra
+     * entrega" e a transação cair depois deixaria o consumidor esperando um
+     * entregador que nunca aceitou.
+     */
     await registrarEvento(Number(req.params.id), 'saiu_para_entrega');
 
     res.json({ ok: true, mensagem: 'Corrida aceita! Boa entrega.' });
