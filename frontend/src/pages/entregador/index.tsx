@@ -823,17 +823,30 @@ function EntregaAtiva() {
 
       {/* Rastreador de etapas da entrega */}
       <Card>
-        <CardContent className="p-5 overflow-x-auto">
-          <div className="flex items-center min-w-[560px]">
+        {/*
+          VERTICAL NO CELULAR, horizontal a partir de sm.
+          Antes era sempre horizontal com `min-w-[560px]` e `overflow-x-auto`:
+          em tela de 360px as seis etapas rolavam de lado, e a etapa atual muitas
+          vezes ficava fora da vista — o entregador tinha que arrastar o passo a
+          passo pra descobrir em que passo estava.
+        */}
+        <CardContent className="p-4 sm:p-5 sm:overflow-x-auto">
+          <ol className="flex flex-col sm:flex-row sm:items-center sm:min-w-[560px]">
             {ETAPAS_STEPPER.map((etapa, i) => {
               const estado = i < indiceAtualStepper ? 'feito' : i === indiceAtualStepper ? 'atual' : 'futuro';
               const isLast = i === ETAPAS_STEPPER.length - 1;
               const horario = i < 4 ? tempoEtapa(ETAPAS_STEPPER[i].chave as EtapaEntrega) : undefined;
               return (
-                <div key={etapa.chave} className="flex items-center" style={{ flex: isLast ? '0 0 auto' : '1 1 0%' }}>
-                  <div className="flex flex-col items-center gap-1.5 shrink-0">
+                <li
+                  key={etapa.chave}
+                  aria-current={estado === 'atual' ? 'step' : undefined}
+                  className="flex items-start sm:items-center sm:flex-1 sm:last:flex-none"
+                >
+                  {/* No vertical o marcador e o traço formam a coluna da esquerda;
+                      no horizontal voltam a ser marcador + rótulo embaixo. */}
+                  <div className="flex flex-col items-center self-stretch sm:self-auto sm:shrink-0 sm:gap-1.5">
                     <div className={cn(
-                      'flex size-8 items-center justify-center rounded-full border-2 shrink-0 transition-all',
+                      'flex size-8 shrink-0 items-center justify-center rounded-full border-2 transition-all',
                       estado === 'feito' && 'border-emerald-500 bg-emerald-500 text-white',
                       estado === 'atual' && 'border-primary bg-primary text-primary-foreground',
                       estado === 'futuro' && 'border-border bg-muted text-muted-foreground/50',
@@ -842,56 +855,85 @@ function EntregaAtiva() {
                       {estado === 'atual' && <Bike className="size-4" />}
                       {estado === 'futuro' && <div className="size-2 rounded-full bg-current" />}
                     </div>
-                    <div className="text-center">
+                    {!isLast && (
                       <div className={cn(
-                        'text-[11px] font-bold whitespace-nowrap',
-                        estado === 'futuro' ? 'text-muted-foreground' : estado === 'atual' ? 'text-primary' : 'text-emerald-600 dark:text-emerald-400',
-                      )}>
-                        {etapa.rotulo}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {horario ? new Date(horario).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : ''}
-                      </div>
+                        'w-0.5 flex-1 rounded-full sm:hidden',
+                        i < indiceAtualStepper ? 'bg-emerald-500' : 'bg-border',
+                      )} />
+                    )}
+                  </div>
+
+                  <div className="ml-3 pb-4 sm:ml-0 sm:pb-0 sm:text-center">
+                    <div className={cn(
+                      'text-sm font-bold sm:whitespace-nowrap sm:text-xs',
+                      estado === 'futuro' ? 'text-muted-foreground' : estado === 'atual' ? 'text-primary' : 'text-emerald-600 dark:text-emerald-400',
+                    )}>
+                      {etapa.rotulo}
+                    </div>
+                    <div className="text-xs text-muted-foreground sm:text-[11px]">
+                      {horario
+                        ? new Date(horario).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                        : estado === 'atual' ? 'agora' : ''}
                     </div>
                   </div>
+
+                  {/* Traço horizontal só existe a partir de sm. */}
                   {!isLast && (
-                    <div className={cn('h-0.5 flex-1 mx-1 rounded-full mb-5', i < indiceAtualStepper ? 'bg-emerald-500' : 'bg-border')} />
+                    <div className={cn(
+                      'hidden h-0.5 flex-1 rounded-full mx-1 mb-5 sm:block',
+                      i < indiceAtualStepper ? 'bg-emerald-500' : 'bg-border',
+                    )} />
                   )}
-                </div>
+                </li>
               );
             })}
-          </div>
+          </ol>
         </CardContent>
       </Card>
 
-      {/* Ações */}
-      <div className="space-y-2">
+      {/*
+        UMA AÇÃO PRIMÁRIA POR ETAPA, fixa acima da barra de navegação.
+        Antes ela rolava junto com mapa e passo a passo: numa corrida o
+        entregador está de capacete na mão, e ter que rolar pra achar o botão é
+        o pior momento possível pra procurar coisa na tela.
+        Na última etapa havia DOIS botões `xl` competindo — "avisar que estou
+        chegando" (default) e "confirmar entrega" (success), ambos flex-1.
+        Avisar chegada é apoio: virou secundário acima da primária.
+      */}
+      <div className="sticky bottom-0 z-20 -mx-4 space-y-2 border-t border-border bg-background/95 px-4 pt-3 pb-safe backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:pt-0 lg:backdrop-blur-none">
         {!chegouAoCliente ? (
           <Button
             size="xl" className="w-full rounded-2xl h-14 text-base font-bold"
             onClick={() => avancarEtapa(p.id, proximaAcao.proxima)}
-            disabled={avancando}
+            loading={avancando} loadingText="Atualizando…"
           >
-            <ArrowRight className="size-5" /> {avancando ? 'Atualizando…' : proximaAcao.rotulo}
+            <ArrowRight className="size-5" /> {proximaAcao.rotulo}
           </Button>
         ) : (
-          <div className="flex flex-col sm:flex-row gap-2">
-            <Button
-              variant={avisou ? 'outline' : 'default'}
-              size="xl"
-              className="flex-1 rounded-2xl h-14 text-base font-bold"
-              onClick={() => avisarChegada(p.id)}
-              disabled={avisando || avisou}
-            >
-              <Bell className="size-4" />
-              {avisou ? 'Cliente já avisado ✓' : avisando ? 'Avisando…' : 'Avisar que estou chegando'}
-            </Button>
-            <Button variant="success" size="xl" className="flex-1 rounded-2xl h-14 text-base font-bold" onClick={() => confirmar(p.id, p.forma_pagamento)}>
+          <>
+            {/* Secundário, e some depois de avisado — a partir daí só atrapalha. */}
+            {!avisou && (
+              <Button
+                variant="outline"
+                className="w-full rounded-2xl"
+                onClick={() => avisarChegada(p.id)}
+                loading={avisando} loadingText="Avisando…"
+              >
+                <Bell className="size-4" /> Avisar que estou chegando
+              </Button>
+            )}
+            {avisou && (
+              <p className="text-center text-sm text-muted-foreground">Cliente já avisado ✓</p>
+            )}
+            <Button variant="success" size="xl" className="w-full rounded-2xl h-14 text-base font-bold"
+              onClick={() => confirmar(p.id, p.forma_pagamento)}>
               <CheckCircle2 className="size-5" /> Confirmar entrega realizada
             </Button>
-          </div>
+          </>
         )}
+      </div>
 
+      <div className="space-y-2">
         <button
           type="button"
           onClick={() => setProblemaAberto(v => !v)}
