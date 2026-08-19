@@ -356,14 +356,21 @@ export const autenticarCozinha: RequestHandler = async (req, _res, next) => {
   if (dados.tipo !== 'cozinha') return next(erroHttp(403, 'Este acesso é exclusivo da cozinha.'));
 
   /*
-   * O TOKEN TEM QUE SER DESTE CLIENTE. O banco desta requisição foi resolvido
-   * pelo Host; se o token nasceu em outro cliente, ele não vale aqui — mesmo que
-   * exista uma conta com o mesmo id no banco de agora (e existe: os ids começam
-   * em 1 em todos).
+   * O TOKEN TEM QUE SER DESTE CLIENTE.
    *
-   * Token antigo (emitido antes deste claim existir) é recusado de propósito:
-   * aceitar "sem tenant" como curinga manteria o furo aberto. O custo é um login
-   * a mais no tablet da cozinha, uma vez.
+   * COMO A PROTEÇÃO FUNCIONA DE FATO: o `server.ts` lê o claim `tenant` de
+   * qualquer token Bearer e resolve a requisição para ESSE banco (ver o middleware
+   * de resolução de tenant). Então, com o claim presente, a conta da cozinha só
+   * alcança o banco onde nasceu, mesmo que o tablet aponte para o domínio de
+   * outro cliente — foi assim que o furo fechou, e é o mesmo mecanismo que já
+   * protegia o token de usuário comum.
+   *
+   * A comparação abaixo é rede de segurança, não a defesa principal: se algum dia
+   * outro caminho resolver o banco por conta própria, ela ainda barra.
+   *
+   * O 401 do token SEM claim, por outro lado, é essencial e alcançável: token
+   * antigo cai no banco do Host, e aceitá-lo como curinga manteria o furo
+   * aberto. O custo é um login a mais no tablet, uma vez.
    */
   const tenantAtual = bancoTenantAtual();
   if (typeof dados.tenant !== 'string' || !dados.tenant) {
