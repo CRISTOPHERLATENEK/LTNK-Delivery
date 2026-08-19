@@ -109,6 +109,22 @@ export async function inicializarCentral(): Promise<void> {
   await garantirColuna(pool, BANCO_CENTRAL, 'tenants', 'revendedor_id', 'revendedor_id INT NULL');
 
   /*
+   * POR QUE o cliente está desligado — e não só QUE está.
+   *
+   * `ativo` tem quatro donos: o job de vencimentos, o registro de pagamento, o
+   * revendedor suspendendo um cliente dele e a edição do tenant aqui. Guardando
+   * só "está ligado", quem escrevia por último vencia: o revendedor suspendia um
+   * cliente em dia com a plataforma e o job da madrugada religava, porque via
+   * assinatura 'ativa' e concluía que o alvo era ligado.
+   *
+   * Valores: '' (ligado, ou desligado antes desta coluna existir), 'assinatura',
+   * 'revendedor', 'admin'. Só faz sentido quando `ativo = 0`.
+   *
+   * A regra que sai disso: cada dono só religa o que ELE desligou.
+   */
+  await garantirColuna(pool, BANCO_CENTRAL, 'tenants', 'suspenso_por', "suspenso_por VARCHAR(20) NOT NULL DEFAULT ''");
+
+  /*
    * MÓDULOS ADICIONAIS — os valores extras além da mensalidade.
    *
    * Isto é COBRANÇA, não permissão. Ligar um módulo num cliente soma na conta
@@ -522,12 +538,22 @@ export async function atualizarTenant(id: number, campos: Partial<Pick<Tenant, '
     await inicializarSchema(abrirPool(atual.db_nome));
   }
 
-  await poolCentral().query('UPDATE tenants SET nome = ?, dominio = ?, ativo = ? WHERE id = ?', [
-    campos.nome ?? atual.nome,
-    campos.dominio !== undefined ? (campos.dominio?.trim().toLowerCase() || null) : atual.dominio,
-    campos.ativo !== undefined ? campos.ativo : atual.ativo,
-    id,
-  ]);
+  /*
+   * Carimba o motivo junto com o `ativo`: desligado por aqui é decisão do admin,
+   * e o job de assinaturas não pode desfazer (ver `suspenso_por` no schema).
+   * Religar limpa o carimbo, seja qual for quem tinha desligado — o admin é a
+   * palavra final e pode reverter suspensão de qualquer origem.
+   */
+  const ativoFinal = campos.ativo !== undefined ? campos.ativo : atual.ativo;
+  const motivo = ativoFinal === 0 ? 'admin' : '';
+  await poolCentral().query(
+    'UPDATE tenants SET nome = ?, dominio = ?, ativo = ?, suspenso_por = ? WHERE id = ?', [
+      campos.nome ?? atual.nome,
+      campos.dominio !== undefined ? (campos.dominio?.trim().toLowerCase() || null) : atual.dominio,
+      ativoFinal,
+      motivo,
+      id,
+    ]);
 }
 
 /**

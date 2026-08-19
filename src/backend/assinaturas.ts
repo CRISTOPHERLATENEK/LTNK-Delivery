@@ -142,7 +142,7 @@ export function deveSuspenderAcesso(status: StatusAssinatura): boolean {
 
 /* ─────────────────── Operações (banco central) ─────────────────── */
 
-type LinhaAssinatura = Assinatura & { tenant_nome?: string; tenant_slug?: string; tenant_ativo?: 0 | 1 };
+type LinhaAssinatura = Assinatura & { tenant_nome?: string; tenant_slug?: string; tenant_ativo?: 0 | 1; suspenso_por?: string };
 
 /** Assinaturas + dados do tenant, pra tela do admin. */
 export async function listarAssinaturas(pool: Pool): Promise<LinhaAssinatura[]> {
@@ -233,9 +233,23 @@ export async function registrarPagamento(pool: Pool, dados: {
     "UPDATE assinaturas SET vence_em = ?, pago_em = ?, status = 'ativa', atualizado_em = ? WHERE id = ?",
     [proximo, agora, agora, a.id],
   );
-  // Pagou: o acesso volta na hora, sem esperar o job da madrugada. Um lojista
-  // esperando o dia virar pra voltar a vender é suporte na certa.
-  await pool.query('UPDATE tenants SET ativo = 1 WHERE id = ?', [a.tenant_id]);
+  /*
+   * Pagou: o acesso volta na hora, sem esperar o job da madrugada. Um lojista
+   * esperando o dia virar pra voltar a vender é suporte na certa.
+   *
+   * Mas só religa o que foi desligado POR FALTA DE PAGAMENTO. Cliente suspenso
+   * pelo revendedor ou pelo admin continua suspenso mesmo pagando — pagar a
+   * plataforma não desfaz uma suspensão que nunca foi sobre dinheiro.
+   *
+   * O `''` entra na lista porque é o que têm as linhas desligadas antes da
+   * coluna `suspenso_por` existir: sem ele, um cliente antigo pagaria e
+   * continuaria fora do ar sem ninguém entender por quê. Aqui vale porque é ato
+   * humano e deliberado do operador; o job da madrugada é mais restrito.
+   */
+  await pool.query(
+    "UPDATE tenants SET ativo = 1, suspenso_por = '' WHERE id = ? AND suspenso_por IN ('assinatura', '')",
+    [a.tenant_id],
+  );
 }
 
 export async function historicoPagamentos(pool: Pool, assinaturaId: number): Promise<PagamentoAssinatura[]> {
@@ -253,14 +267,21 @@ export async function historicoPagamentos(pool: Pool, assinaturaId: number): Pro
  * Só escreve quando o valor MUDA, pra não sujar `atualizado_em` de todo mundo
  * todo dia e deixar de ser útil pra depurar.
  *
- * NUNCA reativa tenant que está suspenso por outro motivo: só mexe em `ativo`
- * quando o estado desejado difere, e o único caminho que volta a ligar aqui é a
- * assinatura ter saído de suspensa (o que só acontece via pagamento).
+ * NUNCA reativa tenant suspenso por outro motivo — e isso agora é verdade.
+ * Antes o comentário afirmava isso mas o código não fazia: bastava o estado
+ * desejado diferir pra religar, então o revendedor suspendia um cliente em dia
+ * com a plataforma e este job desfazia na madrugada seguinte, em silêncio.
+ *
+ * O que decide é `tenants.suspenso_por`: este job só religa o que ele mesmo
+ * desligou ('assinatura'). Linha antiga com o carimbo vazio fica onde está —
+ * job automático não deve religar ninguém por dedução, e admin e revendedor
+ * continuam podendo religar na mão.
  */
 export async function processarVencimentos(pool: Pool): Promise<{ verificadas: number; suspensos: number; reativados: number }> {
   const hoje = hojeISO();
   const [linhas] = await pool.query(
-    `SELECT a.*, t.ativo AS tenant_ativo FROM assinaturas a JOIN tenants t ON t.id = a.tenant_id`,
+    `SELECT a.*, t.ativo AS tenant_ativo, t.suspenso_por
+       FROM assinaturas a JOIN tenants t ON t.id = a.tenant_id`,
   ) as [LinhaAssinatura[], unknown];
 
   let suspensos = 0, reativados = 0;
@@ -271,15 +292,25 @@ export async function processarVencimentos(pool: Pool): Promise<{ verificadas: n
         [novo, agoraUTC(), a.id]);
     }
     const deveCortar = deveSuspenderAcesso(novo);
-    const alvoAtivo = deveCortar ? 0 : 1;
-    if (a.tenant_ativo !== alvoAtivo) {
-      await pool.query('UPDATE tenants SET ativo = ? WHERE id = ?', [alvoAtivo, a.tenant_id]);
-      if (alvoAtivo === 0) {
-        suspensos++;
-        console.warn(`[ASSINATURA] tenant ${a.tenant_id} SUSPENSO — ${diasDeAtraso(a.vence_em, hoje)} dia(s) de atraso (vencia ${a.vence_em}).`);
-      } else {
+    if (deveCortar && a.tenant_ativo === 1) {
+      await pool.query(
+        "UPDATE tenants SET ativo = 0, suspenso_por = 'assinatura' WHERE id = ?", [a.tenant_id]);
+      suspensos++;
+      console.warn(`[ASSINATURA] tenant ${a.tenant_id} SUSPENSO — ${diasDeAtraso(a.vence_em, hoje)} dia(s) de atraso (vencia ${a.vence_em}).`);
+      continue;
+    }
+    if (!deveCortar && a.tenant_ativo === 0) {
+      // O `AND suspenso_por = 'assinatura'` é o conserto: sem ele, este UPDATE
+      // religava quem o revendedor ou o admin tinha desligado.
+      const [r] = await pool.query(
+        "UPDATE tenants SET ativo = 1, suspenso_por = '' WHERE id = ? AND suspenso_por = 'assinatura'",
+        [a.tenant_id],
+      ) as unknown as [{ affectedRows: number }];
+      if (r.affectedRows > 0) {
         reativados++;
         console.log(`[ASSINATURA] tenant ${a.tenant_id} reativado.`);
+      } else {
+        console.log(`[ASSINATURA] tenant ${a.tenant_id} está em dia, mas segue desligado por "${a.suspenso_por || 'motivo não registrado'}" — não é este job que religa.`);
       }
     }
   }

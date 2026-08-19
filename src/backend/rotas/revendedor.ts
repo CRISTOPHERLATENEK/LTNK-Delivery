@@ -151,7 +151,27 @@ router.post('/clientes/:id/suspender', async (req, res, next) => {
     const r = req.revendedor!;
     const t = await meuCliente(r.id, req.params.id);
     const novo = t.ativo ? 0 : 1;
-    await poolCentral().query('UPDATE tenants SET ativo = ? WHERE id = ?', [novo, t.id]);
+    /*
+     * Carimba QUEM desligou. Sem isso, o job de vencimentos via o cliente em dia
+     * com a plataforma e religava na madrugada — a suspensão do revendedor não
+     * passava da primeira noite. Ver `suspenso_por` em tenants-mysql.ts.
+     *
+     * Religar limpa o carimbo: o revendedor desfaz a própria suspensão. Se quem
+     * desligou foi o admin ou a falta de pagamento, o revendedor não alcança —
+     * a linha continua desligada e o carimbo, de quem desligou.
+     */
+    if (novo === 0) {
+      await poolCentral().query(
+        "UPDATE tenants SET ativo = 0, suspenso_por = 'revendedor' WHERE id = ?", [t.id]);
+    } else {
+      const [r] = await poolCentral().query(
+        "UPDATE tenants SET ativo = 1, suspenso_por = '' WHERE id = ? AND suspenso_por IN ('revendedor', '')",
+        [t.id],
+      ) as unknown as [{ affectedRows: number }];
+      if (r.affectedRows === 0) {
+        throw erroHttp(409, 'Este cliente foi suspenso pela plataforma, não por você. Fale com o suporte.');
+      }
+    }
     res.json({ ok: true, ativo: novo });
   } catch (e) { next(e); }
 });

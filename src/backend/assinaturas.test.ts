@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  proximoVencimento, diasDeAtraso, statusCalculado, deveSuspenderAcesso,
+  proximoVencimento, diasDeAtraso, statusCalculado, deveSuspenderAcesso, processarVencimentos,
   type Assinatura,
 } from './assinaturas';
 
@@ -105,48 +105,78 @@ function poolFalso(linhas: Array<Record<string, unknown>>) {
   const pool = {
     query: async (sql: string, params: unknown[] = []) => {
       if (/^\s*SELECT/i.test(sql)) return [linhas, undefined];
-      escritas.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
-      return [{ affectedRows: 1 }, undefined];
+      const limpo = sql.replace(/\s+/g, ' ').trim();
+      escritas.push({ sql: limpo, params });
+      /*
+       * Simula o WHERE: um UPDATE com `AND suspenso_por = 'x'` só casa linha se
+       * a linha tiver aquele carimbo. Sem isso o teste passaria mesmo com a
+       * trava errada, porque todo UPDATE diria "mexi numa linha".
+       */
+      // Só o que vem DEPOIS do WHERE filtra. Antes eu casava o
+      // `SET suspenso_por = ''` e o teste dava falso negativo.
+      // `indexOf` e nao regex de proposito: a primeira versao usava uma borda
+      // de palavra que virou caractere de controle na geracao do arquivo. O regex
+      // nunca casava, `onde` vinha vazio e o pool falso liberava TODO UPDATE —
+      // o teste passava com o bug presente. Sem escape, sem susto.
+      const iw = limpo.toUpperCase().indexOf(' WHERE ');
+      const onde = iw === -1 ? '' : limpo.slice(iw + 7);
+      const exige = onde.match(/suspenso_por (?:=|IN) \(?\s*'([^']*)'(?:\s*,\s*'([^']*)')?/);
+      const aceitos = exige ? [exige[1], exige[2]].filter(v => v !== undefined) : null;
+      const casa = !aceitos || linhas.some(l => aceitos.includes(l.suspenso_por as string));
+      return [{ affectedRows: casa ? 1 : 0 }, undefined];
     },
   };
   return { pool, escritas };
 }
 
-describe('processarVencimentos e a coluna tenants.ativo', () => {
-  it('suspende quem passou da tolerância', async () => {
+describe('processarVencimentos e quem pode religar o cliente', () => {
+  it('suspende quem passou da tolerância, carimbando o motivo', async () => {
     const { pool, escritas } = poolFalso([
-      { id: 1, tenant_id: 7, status: 'ativa', vence_em: '2026-03-01', dias_tolerancia: 5, tenant_ativo: 1 },
+      { id: 1, tenant_id: 7, status: 'ativa', vence_em: '2026-03-01', dias_tolerancia: 5, tenant_ativo: 1, suspenso_por: '' },
     ]);
-    const { processarVencimentos } = await import('./assinaturas');
     const r = await processarVencimentos(pool as never);
     expect(r.suspensos).toBe(1);
-    expect(escritas.some(e => /UPDATE tenants SET ativo = \?/.test(e.sql) && e.params[0] === 0)).toBe(true);
+    expect(escritas.some(e => /ativo = 0, suspenso_por = 'assinatura'/.test(e.sql))).toBe(true);
   });
 
   /*
-   * O QUE ESTE TESTE DENUNCIA.
+   * O BUG QUE ESTE TESTE FECHA.
    *
    * `tenants.ativo` tem quatro donos: este job, o registro de pagamento, o
-   * revendedor suspendendo um cliente dele (rotas/revendedor.ts:154) e a edição
-   * do tenant pelo admin (tenants-mysql.ts:525). A coluna guarda "está ligado",
-   * mas não guarda POR QUE — então quem escreve por último vence.
+   * revendedor e a edição do tenant pelo admin. Guardando só "está ligado", quem
+   * escrevia por último vencia — o revendedor suspendia um cliente em dia com a
+   * plataforma e o job religava na madrugada seguinte, em silêncio.
    *
-   * Resultado: revendedor suspende um cliente que está em dia com a plataforma,
-   * e na madrugada seguinte este job vê assinatura 'ativa', conclui que o alvo é
-   * ligado, e reativa. A suspensão do revendedor dura até o job rodar.
-   *
-   * A documentação da função afirma o contrário — "NUNCA reativa tenant que está
-   * suspenso por outro motivo". Este teste mostra que reativa.
+   * O conserto é o `AND suspenso_por = 'assinatura'`: cada dono só religa o que
+   * ele mesmo desligou. Se este teste voltar a falhar, a suspensão do revendedor
+   * parou de sobreviver à noite de novo.
    */
-  it('REATIVA cliente que o revendedor suspendeu — a suspensão do revendedor não sobrevive à madrugada', async () => {
+  it('NÃO religa cliente que o revendedor suspendeu, mesmo estando em dia', async () => {
     const { pool, escritas } = poolFalso([
-      // Em dia com a plataforma, mas desligado pelo revendedor (tenant_ativo: 0).
-      { id: 1, tenant_id: 7, status: 'ativa', vence_em: '2099-01-01', dias_tolerancia: 5, tenant_ativo: 0 },
+      { id: 1, tenant_id: 7, status: 'ativa', vence_em: '2099-01-01', dias_tolerancia: 5, tenant_ativo: 0, suspenso_por: 'revendedor' },
     ]);
-    const { processarVencimentos } = await import('./assinaturas');
     const r = await processarVencimentos(pool as never);
-    const religou = escritas.some(e => /UPDATE tenants SET ativo = \?/.test(e.sql) && e.params[0] === 1);
-    expect(religou).toBe(true);
+    // O UPDATE até sai, mas com a trava que faz o banco não casar nenhuma linha.
+    const religouSemTrava = escritas.some(
+      e => /UPDATE tenants SET ativo = 1/.test(e.sql) && !/suspenso_por = 'assinatura'/.test(e.sql));
+    expect(religouSemTrava).toBe(false);
+    expect(r.reativados).toBe(0);
+  });
+
+  it('religa quem ELE mesmo desligou, quando volta a ficar em dia', async () => {
+    const { pool, escritas } = poolFalso([
+      { id: 1, tenant_id: 7, status: 'suspensa', vence_em: '2099-01-01', dias_tolerancia: 5, tenant_ativo: 0, suspenso_por: 'assinatura' },
+    ]);
+    const r = await processarVencimentos(pool as never);
     expect(r.reativados).toBe(1);
+    expect(escritas.some(e => /ativo = 1, suspenso_por = ''/.test(e.sql))).toBe(true);
+  });
+
+  it('não escreve nada quando já está no estado certo', async () => {
+    const { pool, escritas } = poolFalso([
+      { id: 1, tenant_id: 7, status: 'ativa', vence_em: '2099-01-01', dias_tolerancia: 5, tenant_ativo: 1, suspenso_por: '' },
+    ]);
+    await processarVencimentos(pool as never);
+    expect(escritas.filter(e => /UPDATE tenants/.test(e.sql))).toHaveLength(0);
   });
 });
