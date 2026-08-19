@@ -953,7 +953,20 @@ function PedidosLoja() {
               </CardContent>
             </Card>
           )}
-          <div className="space-y-3">
+          {/*
+            Uma coluna no celular, mais colunas conforme a tela cresce.
+
+            A lista era sempre de uma coluna só, herdada do desenho pra
+            telefone. Numa tela de 27" do balcão isso vira uma faixa estreita no
+            meio com dois palmos de branco dos lados, e o lojista rola pra ver o
+            quarto pedido de uma hora de pico — que é exatamente quando ele não
+            pode rolar.
+
+            `items-start` é o que faz a diferença aqui: sem ele o grid estica
+            todos os cards da linha até a altura do maior, e um pedido de 1 item
+            fica com um vão vazio do tamanho de um pedido de 12 itens.
+          */}
+          <div className="grid items-start gap-3 lg:grid-cols-2 xl:grid-cols-3">
             {pedidosAtivos.map(p => (
               <CardPedidoLojista key={p.id} pedido={p} agora={agora} aoAtualizar={() => ativos_q.refetch()} />
             ))}
