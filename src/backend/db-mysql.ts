@@ -89,6 +89,9 @@ async function conferirTetoDeConexoes(pool: Pool): Promise<void> {
       const [linhas] = await pool.query("SHOW VARIABLES LIKE 'max_connections'") as any;
       maxConexoesServidor = Number(linhas?.[0]?.Value) || 151;
     }
+    // `pools.size` conta os bancos já tocados; com maxIdle 0 as conexões deles
+    // são devolvidas quando ficam paradas, então isto é o PIOR CASO (todos
+    // ativos ao mesmo tempo) — que é justamente o que um aviso deve projetar.
     const projetado = pools.size * CONEXOES_POR_TENANT;
     if (projetado > maxConexoesServidor * 0.8) {
       avisouTeto = true;
@@ -110,6 +113,27 @@ export function abrirPool(database: string): Pool {
     database,
     waitForConnections: true,
     connectionLimit: CONEXOES_POR_TENANT,
+    /*
+     * DEVOLVE A CONEXÃO OCIOSA em vez de segurar pra sempre.
+     *
+     * Sem `maxIdle`, o mysql2 mantém abertas todas as conexões que o pool já
+     * abriu — e como o cache de pools nunca libera, um cliente que recebeu UM
+     * pedido em janeiro continuava ocupando conexão em dezembro. Era isso que
+     * fazia o teto ser "clientes que existem" em vez de "clientes usando
+     * agora": medido, 100 clientes sob carga tomavam 713 conexões e não
+     * devolviam.
+     *
+     * Com `maxIdle: 0` + `idleTimeout`, conexão parada há mais de um minuto é
+     * fechada. Loja com movimento nunca fica um minuto parada, então na prática
+     * ela não paga nada por isso; loja dormindo passa a custar zero.
+     *
+     * O QUE ISSO CUSTA: a primeira requisição depois de um período parado paga
+     * a reconexão (handshake + autenticação, poucos milissegundos na mesma
+     * máquina). É o preço certo — vale para quem está ocioso, não para quem
+     * está vendendo.
+     */
+    maxIdle: 0,
+    idleTimeout: 60_000,
     // Datas viajam como string (nosso schema guarda ISO-8601 em VARCHAR de
     // qualquer forma, mas isso protege caso alguma coluna vire DATETIME).
     dateStrings: true,
