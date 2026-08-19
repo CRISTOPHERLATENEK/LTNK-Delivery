@@ -893,33 +893,44 @@ function PedidosLoja() {
 
   return (
     <div className="space-y-4">
-      {/* Abas */}
+      {/*
+        ABAS FIXAS AO ROLAR. Numa lista de 15 pedidos o lojista rolava até o fim
+        e perdia de vista tanto a troca de aba quanto o contador de pendentes —
+        que é justamente o que diz se chegou pedido novo enquanto ele lia.
+        `top-14` desce abaixo do header do celular (h-14 em app-layout).
+      */}
+      <div className="sticky top-14 z-20 -mx-4 bg-background/95 px-4 py-2 backdrop-blur lg:top-0 lg:mx-0 lg:px-0">
       <div className="flex gap-1 rounded-xl bg-muted p-1">
         <button
           onClick={() => setAba('ativos')}
           className={cn(
-            'flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-semibold transition-all',
+            'flex h-11 flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold transition-all',
             aba === 'ativos' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground',
           )}
         >
           <Bell className="size-4" />
           Em andamento
           {pendentes > 0 && (
-            <span className="flex size-5 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-white">
+            <span
+              className="flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 text-xs font-bold text-white"
+              aria-live="polite"
+            >
               {pendentes}
+              <span className="sr-only"> pedido(s) aguardando</span>
             </span>
           )}
         </button>
         <button
           onClick={() => setAba('historico')}
           className={cn(
-            'flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-semibold transition-all',
+            'flex h-11 flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-semibold transition-all',
             aba === 'historico' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground',
           )}
         >
           <History className="size-4" />
           Histórico
         </button>
+      </div>
       </div>
 
       {/* ABA: Ativos */}
@@ -1084,12 +1095,12 @@ function CardPedidoLojista({ pedido, aoAtualizar, agora }: {
               />
               <div className="flex gap-2">
                 <Button
-                  variant="destructive" size="sm" className="flex-1" disabled={carregando}
+                  variant="destructive" className="flex-1" loading={carregando} loadingText="Recusando…"
                   onClick={() => acao('recusar', motivoRecusa || 'Pedido recusado.')}
                 >
-                  <XCircle className="size-3.5" /> Confirmar recusa
+                  <XCircle className="size-4" /> Confirmar recusa
                 </Button>
-                <Button variant="outline" size="sm" disabled={carregando}
+                <Button variant="outline" disabled={carregando}
                   onClick={() => { setRecusando(false); setMotivoRecusa(''); }}>
                   Cancelar
                 </Button>
@@ -1097,25 +1108,40 @@ function CardPedidoLojista({ pedido, aoAtualizar, agora }: {
             </div>
           );
         }
+        /*
+         * ACEITAR É A PRIMÁRIA e ocupa a linha inteira no celular; RECUSAR sai
+         * do caminho, como texto abaixo. Antes as duas eram `size="sm"` (36px)
+         * lado a lado com o mesmo peso — a ação que se toma em 95% dos pedidos
+         * disputava espaço e atenção com a que se toma em 5%, e ambas abaixo do
+         * mínimo tocável.
+         */
         return (
-          <>
-            <Button variant="success" size="sm" disabled={carregando} onClick={() => acao('aceitar')}>
-              <CheckCircle2 className="size-4" /> Aceitar
+          <div className="w-full space-y-2">
+            <Button variant="success" className="w-full" loading={carregando} loadingText="Aceitando…"
+              onClick={() => acao('aceitar')}>
+              <CheckCircle2 className="size-4" /> Aceitar pedido
             </Button>
-            <Button variant="destructive" size="sm" disabled={carregando} onClick={() => setRecusando(true)}>
-              <XCircle className="size-4" /> Recusar
-            </Button>
-          </>
+            <button
+              type="button"
+              disabled={carregando}
+              onClick={() => setRecusando(true)}
+              className="flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-sm font-semibold text-destructive hover:bg-destructive/10 disabled:opacity-50"
+            >
+              <XCircle className="size-4" /> Recusar pedido
+            </button>
+          </div>
         );
       case 'aceito':
         return (
-          <Button size="sm" disabled={carregando} onClick={() => acao('preparar')}>
+          <Button className="w-full sm:w-auto" loading={carregando} loadingText="Iniciando…"
+            onClick={() => acao('preparar')}>
             <ChefHat className="size-4" /> Iniciar preparo
           </Button>
         );
       case 'preparando':
         return (
-          <Button variant="success" size="sm" disabled={carregando} onClick={() => acao('pronto')}>
+          <Button variant="success" className="w-full sm:w-auto" loading={carregando} loadingText="Marcando…"
+            onClick={() => acao('pronto')}>
             <Package className="size-4" /> Marcar como pronto
           </Button>
         );
