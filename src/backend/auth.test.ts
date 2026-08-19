@@ -19,7 +19,7 @@ import jwt from 'jsonwebtoken';
 import type { Request, Response, NextFunction } from 'express';
 import {
   gerarTokenPreAuth, autenticarPreAuth, autenticar,
-  gerarTokenCozinha, tenantDoToken,
+  gerarTokenCozinha, autenticarCozinha, tenantDoToken,
 } from './auth';
 import { comTenant, bancoTenantAtual } from './db-mysql';
 
@@ -117,7 +117,9 @@ describe('autenticar — tokens que NÃO podem virar sessão', () => {
   it('recusa token de cozinha (sub é id de cozinha_contas, não de usuarios)', async () => {
     // Sem esta guarda, um token de cozinha viraria o usuário de mesmo id —
     // escalonamento de privilégio dentro do próprio tenant.
-    const cozinha = gerarTokenCozinha({ id: 1, loja_id: 1 });
+    // Dentro de `comTenant` como na vida real: o token da cozinha carrega o
+    // tenant de emissão (ver gerarTokenCozinha), então precisa de contexto.
+    const cozinha = comTenant(TENANT_A, () => gerarTokenCozinha({ id: 1, loja_id: 1 }));
     const { erro } = await comTenant(TENANT_A, async () => rodarMiddleware(autenticar as any, cozinha));
     expect(erro?.statusHttp).toBe(401);
   });
@@ -126,6 +128,34 @@ describe('autenticar — tokens que NÃO podem virar sessão', () => {
     const semPerfil = jwt.sign({ sub: 1, tenant: TENANT_A }, SEGREDO, { expiresIn: '1h' });
     const { erro } = await comTenant(TENANT_A, async () => rodarMiddleware(autenticar as any, semPerfil));
     expect(erro?.statusHttp).toBe(401);
+  });
+});
+
+describe('autenticarCozinha — isolamento entre clientes', () => {
+  it('token da cozinha de um cliente NÃO vale no domínio de outro', async () => {
+    /*
+     * Era o furo: o token só tinha `sub`, e o banco vinha do Host. Como o id da
+     * primeira conta de cozinha é 1 em TODOS os clientes, o token de um entrava
+     * como a conta de mesmo id do outro. Verificado em servidor real antes da
+     * correção: respondeu 200 e devolveu os pedidos do vizinho.
+     */
+    const doA = comTenant(TENANT_A, () => gerarTokenCozinha({ id: 1, loja_id: 1 }));
+    const { erro } = await comTenant(TENANT_B, async () => rodarMiddleware(autenticarCozinha as any, doA));
+    expect(erro?.statusHttp).toBe(403);
+  });
+
+  it('token sem o claim de tenant é recusado, não tratado como curinga', async () => {
+    // Token emitido antes deste claim existir. Aceitá-lo manteria o furo aberto;
+    // o custo é um login a mais no tablet da cozinha, uma vez.
+    const antigo = jwt.sign({ sub: 1, tipo: 'cozinha', loja_id: 1 }, SEGREDO);
+    const { erro } = await comTenant(TENANT_A, async () => rodarMiddleware(autenticarCozinha as any, antigo));
+    expect(erro?.statusHttp).toBe(401);
+  });
+
+  it('recusa token que não é de cozinha', async () => {
+    const deUsuario = comTenant(TENANT_A, () => gerarTokenPreAuth({ id: 1, perfil: 'lojista' }));
+    const { erro } = await comTenant(TENANT_A, async () => rodarMiddleware(autenticarCozinha as any, deUsuario));
+    expect(erro?.statusHttp).toBe(403);
   });
 });
 
