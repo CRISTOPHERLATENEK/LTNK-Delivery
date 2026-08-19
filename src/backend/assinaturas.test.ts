@@ -92,3 +92,61 @@ describe('statusCalculado', () => {
     expect(deveSuspenderAcesso(s)).toBe(false);
   });
 });
+
+/**
+ * `processarVencimentos` é quem de fato liga e desliga o cliente, e era a única
+ * parte deste arquivo sem teste — as 15 provas acima cobrem só as funções puras.
+ *
+ * Pool falso em vez de banco: o que se quer travar aqui é QUAIS comandos saem,
+ * e um banco de verdade tornaria o teste lento e dependente de estado.
+ */
+function poolFalso(linhas: Array<Record<string, unknown>>) {
+  const escritas: Array<{ sql: string; params: unknown[] }> = [];
+  const pool = {
+    query: async (sql: string, params: unknown[] = []) => {
+      if (/^\s*SELECT/i.test(sql)) return [linhas, undefined];
+      escritas.push({ sql: sql.replace(/\s+/g, ' ').trim(), params });
+      return [{ affectedRows: 1 }, undefined];
+    },
+  };
+  return { pool, escritas };
+}
+
+describe('processarVencimentos e a coluna tenants.ativo', () => {
+  it('suspende quem passou da tolerância', async () => {
+    const { pool, escritas } = poolFalso([
+      { id: 1, tenant_id: 7, status: 'ativa', vence_em: '2026-03-01', dias_tolerancia: 5, tenant_ativo: 1 },
+    ]);
+    const { processarVencimentos } = await import('./assinaturas');
+    const r = await processarVencimentos(pool as never);
+    expect(r.suspensos).toBe(1);
+    expect(escritas.some(e => /UPDATE tenants SET ativo = \?/.test(e.sql) && e.params[0] === 0)).toBe(true);
+  });
+
+  /*
+   * O QUE ESTE TESTE DENUNCIA.
+   *
+   * `tenants.ativo` tem quatro donos: este job, o registro de pagamento, o
+   * revendedor suspendendo um cliente dele (rotas/revendedor.ts:154) e a edição
+   * do tenant pelo admin (tenants-mysql.ts:525). A coluna guarda "está ligado",
+   * mas não guarda POR QUE — então quem escreve por último vence.
+   *
+   * Resultado: revendedor suspende um cliente que está em dia com a plataforma,
+   * e na madrugada seguinte este job vê assinatura 'ativa', conclui que o alvo é
+   * ligado, e reativa. A suspensão do revendedor dura até o job rodar.
+   *
+   * A documentação da função afirma o contrário — "NUNCA reativa tenant que está
+   * suspenso por outro motivo". Este teste mostra que reativa.
+   */
+  it('REATIVA cliente que o revendedor suspendeu — a suspensão do revendedor não sobrevive à madrugada', async () => {
+    const { pool, escritas } = poolFalso([
+      // Em dia com a plataforma, mas desligado pelo revendedor (tenant_ativo: 0).
+      { id: 1, tenant_id: 7, status: 'ativa', vence_em: '2099-01-01', dias_tolerancia: 5, tenant_ativo: 0 },
+    ]);
+    const { processarVencimentos } = await import('./assinaturas');
+    const r = await processarVencimentos(pool as never);
+    const religou = escritas.some(e => /UPDATE tenants SET ativo = \?/.test(e.sql) && e.params[0] === 1);
+    expect(religou).toBe(true);
+    expect(r.reativados).toBe(1);
+  });
+});
