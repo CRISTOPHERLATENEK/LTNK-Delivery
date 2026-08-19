@@ -97,7 +97,23 @@ router.post('/corridas/:id/aceitar', async (req, res, next) => {
       ).run(req.usuario!.id, agora, req.params.id, lojaId, lojaId);
 
       if (resultado.changes === 0) {
-        throw erroHttp(409, 'Essa corrida não está mais disponível (outro entregador aceitou primeiro).');
+        /*
+         * DIZ O MOTIVO CERTO. O UPDATE falha por três razões diferentes e a
+         * mensagem única culpava sempre "outro entregador" — o que faz o
+         * entregador exclusivo de uma loja ficar tentando de novo, sem entender,
+         * e depois ligar pro suporte.
+         */
+        const p = await tx.prepare(
+          'SELECT status, entregador_id, loja_id FROM pedidos WHERE id = ?'
+        ).get(req.params.id) as { status: string; entregador_id: number | null; loja_id: number } | undefined;
+        if (!p) throw erroHttp(404, 'Corrida não encontrada.');
+        if (lojaId !== null && p.loja_id !== lojaId) {
+          throw erroHttp(403, 'Essa corrida é de uma loja que você não atende.');
+        }
+        if (p.entregador_id !== null) {
+          throw erroHttp(409, 'Essa corrida não está mais disponível (outro entregador aceitou primeiro).');
+        }
+        throw erroHttp(409, `Essa corrida não está pronta pra sair (situação atual: ${p.status}).`);
       }
 
       await tx.prepare('INSERT INTO historico_status (pedido_id, status, criado_em) VALUES (?, ?, ?)')
