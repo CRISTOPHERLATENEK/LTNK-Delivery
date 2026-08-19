@@ -320,8 +320,20 @@ export function gerarTokenCozinha(conta: { id: number; loja_id: number }): strin
   // tablet fixo na cozinha e não pode cair no meio do serviço. Quem revoga é o
   // lojista, desativando o acesso da cozinha (autenticarCozinha checa `bloqueado`
   // a cada requisição). Antes expirava em 12h e a cozinha relogava toda manhã.
+  /*
+   * O `tenant` NO TOKEN é o que amarra a conta ao cliente dela.
+   *
+   * Sem ele, o banco vinha só do Host da requisição — e como `sub` é um id
+   * pequeno que começa em 1 em todo cliente, o token da cozinha de um cliente
+   * autenticava como a conta de MESMO ID de outro. Verificado antes da correção:
+   * token da cozinha do `demo` apontado pro domínio de outro cliente respondeu
+   * 200 e devolveu a conta e os pedidos do vizinho.
+   *
+   * O token de usuário comum já carregava esse claim; o da cozinha ficou de fora
+   * e ninguém notou porque o teste natural (usar no próprio domínio) passa.
+   */
   return jwt.sign(
-    { sub: conta.id, tipo: 'cozinha', loja_id: conta.loja_id },
+    { sub: conta.id, tipo: 'cozinha', loja_id: conta.loja_id, tenant: bancoTenantAtual() },
     JWT_SECRET as string,
   );
 }
@@ -342,6 +354,24 @@ export const autenticarCozinha: RequestHandler = async (req, _res, next) => {
     return next(erroHttp(401, 'Sessão inválida ou expirada. Faça login novamente.'));
   }
   if (dados.tipo !== 'cozinha') return next(erroHttp(403, 'Este acesso é exclusivo da cozinha.'));
+
+  /*
+   * O TOKEN TEM QUE SER DESTE CLIENTE. O banco desta requisição foi resolvido
+   * pelo Host; se o token nasceu em outro cliente, ele não vale aqui — mesmo que
+   * exista uma conta com o mesmo id no banco de agora (e existe: os ids começam
+   * em 1 em todos).
+   *
+   * Token antigo (emitido antes deste claim existir) é recusado de propósito:
+   * aceitar "sem tenant" como curinga manteria o furo aberto. O custo é um login
+   * a mais no tablet da cozinha, uma vez.
+   */
+  const tenantAtual = bancoTenantAtual();
+  if (typeof dados.tenant !== 'string' || !dados.tenant) {
+    return next(erroHttp(401, 'Sessão antiga. Faça login novamente na cozinha.'));
+  }
+  if (dados.tenant !== tenantAtual) {
+    return next(erroHttp(403, 'Este acesso da cozinha não pertence a este estabelecimento.'));
+  }
 
   const conta = await db.prepare(
     'SELECT id, nome, loja_id, bloqueado FROM cozinha_contas WHERE id = ?'
