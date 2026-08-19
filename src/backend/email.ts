@@ -1,6 +1,12 @@
 /**
- * Envio de e-mail transacional (recuperação de senha, por enquanto) via SMTP
- * genérico — funciona com qualquer provedor (Gmail, Hostinger, Brevo, Resend,
+ * Envio de e-mail transacional via SMTP genérico.
+ *
+ * Dois usos hoje: recuperação de senha (rotas/autenticacao.ts) e o pacote de
+ * XMLs da NFC-e para o contador, este COM ANEXO (xml-contador.ts). O cabeçalho
+ * dizia "recuperação de senha, por enquanto" e ficou desatualizado no dia em que
+ * o segundo uso entrou — quem lesse concluiria que anexo não é suportado.
+ *
+ * Funciona com qualquer provedor (Gmail, Hostinger, Brevo, Resend,
  * SES...). Configurado por variáveis de ambiente; se não configurado, os
  * envios falham de forma controlada (log + retorno false), sem derrubar o
  * servidor — mesmo padrão defensivo usado no push.ts para o VAPID.

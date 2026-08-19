@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   resolverPeriodo, intervaloUtcDeDatas, dataLocalDe, dataValida, rotuloPeriodo,
+  inicioUtcDaData, fimUtcDaData,
   periodoAnterior, variacaoPercentual,
 } from './periodo';
 
@@ -178,5 +179,30 @@ describe('variacaoPercentual', () => {
 
   it('zero a zero de faturamento igual é 0%, não null', () => {
     expect(variacaoPercentual(100, 100)).toBe(0);
+  });
+});
+
+describe('inicioUtcDaData / fimUtcDaData', () => {
+  it('a borda inicial é meia-noite de Brasília, não de UTC', () => {
+    // O bug que isso evita: '2026-08-19T00:00:00.000Z' é 18/08 21:00 no Brasil,
+    // então o filtro "a partir de 19/08" trazia o jantar do dia 18.
+    expect(inicioUtcDaData('2026-08-19')).toBe('2026-08-19T03:00:00.000Z');
+  });
+
+  it('a borda final inclui a noite inteira do dia', () => {
+    // Com 'T23:59:59.999Z' o filtro terminava às 20:59 locais e PERDIA o jantar
+    // do próprio dia — o horário de pico de um delivery.
+    expect(fimUtcDaData('2026-08-19')).toBe('2026-08-20T02:59:59.999Z');
+  });
+
+  it('uma venda das 22h cai DENTRO do dia dela', () => {
+    const venda = new Date(Date.parse('2026-08-19T22:00:00-03:00')).toISOString();
+    expect(venda >= inicioUtcDaData('2026-08-19')).toBe(true);
+    expect(venda <= fimUtcDaData('2026-08-19')).toBe(true);
+  });
+
+  it('e NÃO cai no dia seguinte', () => {
+    const venda = new Date(Date.parse('2026-08-19T22:00:00-03:00')).toISOString();
+    expect(venda >= inicioUtcDaData('2026-08-20')).toBe(false);
   });
 });

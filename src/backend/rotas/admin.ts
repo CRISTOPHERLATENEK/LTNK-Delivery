@@ -8,6 +8,7 @@ import { contaDoMes, type ClienteNaConta } from '../conta-revendedor';
 import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-mysql';
 import bcrypt from 'bcrypt';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
+import { dataValida, inicioUtcDaData, fimUtcDaData } from '../periodo';
 import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, inicioDoDiaBR, dataBrasilia, emailValido, cpfValido, cpfDigitos, telefoneDigitos, reaisParaCentavos } from '../util';
 import { criptografar, descriptografar } from '../cripto';
 import { montarLandingAdmin, salvarLanding } from '../landing-campos';
@@ -482,8 +483,14 @@ router.get('/lojas/:id/vendas', async (req, res, next) => {
 
     const params: (string | number)[] = [lojaId];
     let filtro = '';
-    if (req.query.de)  { filtro += ' AND p.criado_em >= ?'; params.push(textoLimpo(req.query.de, 10) + 'T00:00:00.000Z'); }
-    if (req.query.ate) { filtro += ' AND p.criado_em <= ?'; params.push(textoLimpo(req.query.ate, 10) + 'T23:59:59.999Z'); }
+    /*
+     * Bordas pelo FUSO DO BRASIL (ver periodo.ts). Montadas à mão com
+     * 'T00:00:00.000Z', elas pegavam as 21h do dia anterior e perdiam as 21h do
+     * próprio dia — o pico do delivery caía no relatório errado. O módulo que
+     * resolve isso já existia e era usado só pelos relatórios do lojista.
+     */
+    if (dataValida(req.query.de))  { filtro += ' AND p.criado_em >= ?'; params.push(inicioUtcDaData(req.query.de)); }
+    if (dataValida(req.query.ate)) { filtro += ' AND p.criado_em <= ?'; params.push(fimUtcDaData(req.query.ate)); }
 
     const entregues = await db.prepare(
       `SELECT COUNT(*) AS pedidos,
@@ -538,8 +545,9 @@ function consultaPedidos(req: import('express').Request, limite: number) {
   const params: (string | number)[] = [];
   if (req.query.loja_id) { sql += ' AND p.loja_id = ?'; params.push(String(req.query.loja_id)); }
   if (req.query.status)  { sql += ' AND p.status = ?'; params.push(textoLimpo(req.query.status, 20)); }
-  if (req.query.de)      { sql += ' AND p.criado_em >= ?'; params.push(textoLimpo(req.query.de, 10) + 'T00:00:00.000Z'); }
-  if (req.query.ate)     { sql += ' AND p.criado_em <= ?'; params.push(textoLimpo(req.query.ate, 10) + 'T23:59:59.999Z'); }
+  // Bordas no fuso do Brasil — ver o comentário em GET /lojas/:id/relatorio.
+  if (dataValida(req.query.de))      { sql += ' AND p.criado_em >= ?'; params.push(inicioUtcDaData(req.query.de)); }
+  if (dataValida(req.query.ate))     { sql += ' AND p.criado_em <= ?'; params.push(fimUtcDaData(req.query.ate)); }
   sql += ' ORDER BY p.id DESC';
   if (limite) sql += ` LIMIT ${limite}`;
   return { sql, params };
@@ -870,11 +878,25 @@ router.post('/admins/:id/rebaixar', exigirSuperAdmin, async (req, res, next) => 
     if (alvo.id === req.usuario!.id) throw erroHttp(400, 'Você não pode rebaixar a si mesmo.');
     if (!alvo.super_admin) throw erroHttp(400, 'Este admin já não é super admin.');
 
-    const restantes = (await db.prepare("SELECT COUNT(*) AS n FROM usuarios WHERE perfil = 'admin' AND super_admin = 1")
-      .get() as { n: number }).n;
-    if (restantes <= 1) throw erroHttp(400, 'Não é possível rebaixar o único super admin restante.');
-
-    await db.prepare('UPDATE usuarios SET super_admin = 0 WHERE id = ?').run(alvo.id);
+    /*
+     * CONTA E REBAIXA NA MESMA TRANSAÇÃO, travando as linhas dos super admins.
+     *
+     * Era checar-depois-agir, e aqui não existe índice único que salve: dois
+     * rebaixamentos simultâneos dos dois últimos super admins liam "restam 2",
+     * os dois passavam, e sobrava ZERO. Promover alguém exige ser super admin,
+     * então a plataforma ficaria trancada — sem saída pela interface, só mexendo
+     * no banco à mão.
+     *
+     * O `FOR UPDATE` sobre o CONJUNTO de super admins é o que serializa: a
+     * segunda transação espera, relê a contagem já atualizada e é recusada.
+     */
+    await comTransacao(async (tx) => {
+      const supers = await tx.prepare(
+        "SELECT id FROM usuarios WHERE perfil = 'admin' AND super_admin = 1 FOR UPDATE"
+      ).all() as Array<{ id: number }>;
+      if (supers.length <= 1) throw erroHttp(400, 'Não é possível rebaixar o único super admin restante.');
+      await tx.prepare('UPDATE usuarios SET super_admin = 0 WHERE id = ?').run(alvo.id);
+    });
     await registrarAuditoria(req, 'admin.rebaixar', { alvoTipo: 'admin', alvoId: alvo.id, alvoDesc: `${alvo.nome} (${alvo.email})` });
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -958,8 +980,9 @@ function consultaRepasses(req: import('express').Request) {
                LEFT JOIN pedidos p ON p.loja_id = l.id AND p.status = 'entregue'`;
   const params: string[] = [];
   const filtros: string[] = [];
-  if (req.query.de)  { filtros.push('p.criado_em >= ?'); params.push(textoLimpo(req.query.de, 10) + 'T00:00:00.000Z'); }
-  if (req.query.ate) { filtros.push('p.criado_em <= ?'); params.push(textoLimpo(req.query.ate, 10) + 'T23:59:59.999Z'); }
+  // Bordas no fuso do Brasil — ver o comentário em GET /lojas/:id/relatorio.
+  if (dataValida(req.query.de))  { filtros.push('p.criado_em >= ?'); params.push(inicioUtcDaData(req.query.de)); }
+  if (dataValida(req.query.ate)) { filtros.push('p.criado_em <= ?'); params.push(fimUtcDaData(req.query.ate)); }
   if (filtros.length) sql += ' AND ' + filtros.join(' AND ');
   sql += ' GROUP BY l.id, l.nome ORDER BY faturamento_centavos DESC';
   return { sql, params };
@@ -2538,8 +2561,9 @@ router.get('/auditoria', exigirSuperAdmin, async (req, res, next) => {
     const params: (string | number)[] = [];
     if (req.query.admin_id) { sql += ' AND admin_id = ?'; params.push(Number(req.query.admin_id)); }
     if (req.query.acao)     { sql += ' AND acao LIKE ?'; params.push(`${String(req.query.acao)}%`); }
-    if (req.query.de)       { sql += ' AND criado_em >= ?'; params.push(textoLimpo(req.query.de, 10) + 'T00:00:00.000Z'); }
-    if (req.query.ate)      { sql += ' AND criado_em <= ?'; params.push(textoLimpo(req.query.ate, 10) + 'T23:59:59.999Z'); }
+    // Bordas no fuso do Brasil — ver o comentário em GET /lojas/:id/relatorio.
+    if (dataValida(req.query.de))       { sql += ' AND criado_em >= ?'; params.push(inicioUtcDaData(req.query.de)); }
+    if (dataValida(req.query.ate))      { sql += ' AND criado_em <= ?'; params.push(fimUtcDaData(req.query.ate)); }
     sql += ' ORDER BY id DESC LIMIT 500';
     res.json({ registros: await db.prepare(sql).all(...params) });
   } catch (e) { next(e); }

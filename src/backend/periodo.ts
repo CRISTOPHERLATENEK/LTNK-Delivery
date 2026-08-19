@@ -65,6 +65,21 @@ export function intervaloUtcDeDatas(de: string, ate: string): IntervaloUtc {
   return { inicio: inicio.toISOString(), fim: fim.toISOString(), de, ate };
 }
 
+/**
+ * Bordas UTC de UM dia local, para filtro com apenas um dos lados preenchido.
+ *
+ * Existem porque vários filtros aceitam só "de" ou só "até", e montar a borda à
+ * mão (`data + 'T00:00:00.000Z'`) é exatamente o bug que este módulo existe pra
+ * evitar: em UTC−3, esse corte pega as 21h do dia anterior e perde as 21h do
+ * próprio dia — o horário de pico de um delivery.
+ */
+export function inicioUtcDaData(dataLocal: string): string {
+  return intervaloUtcDeDatas(dataLocal, dataLocal).inicio;
+}
+export function fimUtcDaData(dataLocal: string): string {
+  return intervaloUtcDeDatas(dataLocal, dataLocal).fim;
+}
+
 /** Dias que um intervalo cobre, contando as duas pontas. */
 function diasDoIntervalo(de: string, ate: string): number {
   const ms = Date.parse(ate + 'T00:00:00Z') - Date.parse(de + 'T00:00:00Z');

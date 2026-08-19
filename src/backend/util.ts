@@ -235,6 +235,8 @@ const MENSAGENS_INDICE: Array<[RegExp, string]> = [
   [/usuarios\.email|for key 'email'/i, 'Já existe uma conta com este e-mail.'],
   [/idx_pedidos_idempotencia/i,    'Esta venda já foi registrada.'],
   [/uq_mesa_numero/i,              'Já existe uma mesa com esse número.'],
+  [/uq_avaliacao_pedido/i,         'Você já avaliou este pedido.'],
+  [/uq_avaliacao_entregador_pedido/i, 'Você já avaliou o entregador deste pedido.'],
   [/dominio_personalizado/i,       'Este domínio já está sendo usado por outra loja.'],
   [/lojas\.slug|for key 'slug'/i,  'Este endereço (slug) já está em uso por outra loja.'],
 ];
