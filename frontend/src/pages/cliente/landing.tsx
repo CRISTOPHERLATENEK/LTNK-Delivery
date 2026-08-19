@@ -808,14 +808,16 @@ export function PaginaLanding() {
           <div className="flex items-center gap-1.5">
             <button
               onClick={alternar}
-              className="inline-flex size-9 items-center justify-center rounded-full text-foreground transition-colors hover:bg-accent"
+              /* 44px no celular, 36 de volta no desktop: são os dois únicos
+                 controles do cabeçalho no telefone, e no dedo 36 erra. */
+              className="inline-flex size-11 items-center justify-center rounded-full text-foreground transition-colors hover:bg-accent sm:size-9"
               aria-label={escuro ? 'Modo claro' : 'Modo escuro'}
             >
               {escuro ? <Moon className="size-[18px]" /> : <Sun className="size-[18px]" />}
             </button>
             <Link to="/lojista" className="hidden px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground sm:block">Sou lojista</Link>
             <div className="hidden sm:block"><BotaoDemo size="sm" /></div>
-            <button onClick={() => setMenuAberto(v => !v)} className="inline-flex size-9 items-center justify-center rounded-full text-foreground hover:bg-accent lg:hidden" aria-label="Menu">
+            <button onClick={() => setMenuAberto(v => !v)} className="inline-flex size-11 items-center justify-center rounded-full text-foreground hover:bg-accent sm:size-9 lg:hidden" aria-label="Menu">
               {menuAberto ? <X className="size-5" /> : <Menu className="size-5" />}
             </button>
           </div>
@@ -825,9 +827,9 @@ export function PaginaLanding() {
           <div className="border-t border-border bg-background px-5 py-3 lg:hidden">
             <div className="flex flex-col gap-1">
               {ANCORAS.map(a => (
-                <a key={a.href} href={a.href} onClick={() => setMenuAberto(false)} className="rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground">{a.label}</a>
+                <a key={a.href} href={a.href} onClick={() => setMenuAberto(false)} className="flex min-h-11 items-center rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground">{a.label}</a>
               ))}
-              <Link to="/lojista" onClick={() => setMenuAberto(false)} className="rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground">Sou lojista</Link>
+              <Link to="/lojista" onClick={() => setMenuAberto(false)} className="flex min-h-11 items-center rounded-lg px-3 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground">Sou lojista</Link>
               <div className="pt-1"><BotaoDemo size="sm" className="w-full" /></div>
             </div>
           </div>

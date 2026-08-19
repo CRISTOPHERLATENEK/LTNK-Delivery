@@ -1164,13 +1164,14 @@ function SeletorChips({
                 if (e.key === 'Escape') { setCriando(false); setNovo(''); }
               }}
               placeholder={placeholderNovo}
-              className="h-9 w-52 text-sm rounded-full"
+              className="h-11 w-52 rounded-full text-sm sm:h-9"
             />
             <button
               type="button"
               onClick={confirmarNovo}
               disabled={!novo.trim()}
-              className="flex size-9 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40"
+              aria-label="Confirmar"
+              className="flex size-11 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40 sm:size-9"
             >
               <Check className="size-4" />
             </button>

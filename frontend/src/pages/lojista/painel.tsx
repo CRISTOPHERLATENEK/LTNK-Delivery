@@ -1625,7 +1625,8 @@ function LoginLojista() {
                 />
                 Manter conectado
               </label>
-              <Link to="/esqueci-senha" className="text-sm font-semibold text-primary hover:underline">
+              {/* -my-3 + py-3: o alvo cresce pra 44px sem a linha crescer junto. */}
+              <Link to="/esqueci-senha" className="-my-3 flex min-h-11 items-center text-sm font-semibold text-primary hover:underline">
                 Esqueci minha senha
               </Link>
             </div>

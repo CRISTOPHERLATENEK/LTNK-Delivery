@@ -108,7 +108,7 @@ function LoginCozinha() {
         </Button>
         {/* Faltava aqui, e só aqui: quem esquecia a senha do tablet da cozinha
             dependia do lojista pra voltar a trabalhar. */}
-        <Link to="/esqueci-senha" className="block text-center text-sm font-semibold text-primary hover:underline">
+        <Link to="/esqueci-senha" className="mx-auto flex min-h-11 items-center justify-center text-sm font-semibold text-primary hover:underline">
           Esqueci minha senha
         </Link>
       </form>

@@ -597,7 +597,13 @@ function NfceModal({ nfce, onFechar }: { nfce: NfceResultado; onFechar: () => vo
       <div className="w-full max-w-md rounded-2xl bg-card shadow-xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b p-4">
           <h3 className="flex items-center gap-2 font-bold"><Receipt className="size-4 text-primary" /> NFC-e da venda</h3>
-          <button onClick={onFechar} className="p-1 rounded-lg hover:bg-accent text-muted-foreground"><X className="size-4" /></button>
+          <button
+            onClick={onFechar}
+            aria-label="Fechar"
+            className="-mr-2 flex size-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent"
+          >
+            <X className="size-4" />
+          </button>
         </div>
         <div className="p-4 space-y-3">
           <div className="flex items-center gap-2">
@@ -655,7 +661,11 @@ function PesoModal({
           <h3 className="flex items-center gap-2 font-bold">
             <Scale className="size-4 text-primary" /> Pesar produto
           </h3>
-          <button onClick={onCancelar} className="p-1 rounded-lg hover:bg-accent text-muted-foreground">
+          <button
+            onClick={onCancelar}
+            aria-label="Cancelar a pesagem"
+            className="-mr-2 flex size-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent"
+          >
             <X className="size-4" />
           </button>
         </div>

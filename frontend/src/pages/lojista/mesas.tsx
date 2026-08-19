@@ -282,7 +282,8 @@ function MesaCriadaModal({
       >
         <button
           onClick={onFechar}
-          className="absolute top-4 right-4 z-10 flex size-8 items-center justify-center rounded-full text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          aria-label="Fechar"
+          className="absolute right-2 top-2 z-10 flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
         >
           <X className="size-5" />
         </button>

@@ -224,3 +224,31 @@ summary,
 label[for] {
   cursor: pointer;
 }
+
+/* ====================================================================
+   Reduzir movimento — a rede de segurança.
+
+   Cada animação nomeada acima já se desliga sozinha em
+   `prefers-reduced-motion`, e essa é a parte boa: a intenção fica junto da
+   animação. O problema é o que NÃO passa por aqui — `animate-pulse` do
+   Tailwind, os `data-[state]` do Radix (modal, dropdown, sheet), e a próxima
+   animação que alguém escrever sem lembrar de adicionar o bloco. Regra
+   individual é regra esquecida no próximo commit.
+
+   Não zera: 0.01ms faz o `transitionend`/`animationend` disparar, e há código
+   que espera por ele (fechar modal, por exemplo) — zerar de verdade travaria
+   o componente aberto pra sempre.
+
+   O `animate-spin` fica de FORA porque não é enfeite: é o único sinal de que
+   o upload/pagamento está em andamento. Parado, ele mente dizendo "travou".
+   ==================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin),
+  *:not(.animate-spin)::before,
+  *:not(.animate-spin)::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

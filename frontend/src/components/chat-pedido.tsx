@@ -94,7 +94,11 @@ export function ChatPedido({
                   Chat do pedido
                 </div>
               </div>
-              <button onClick={onFechar} className="p-2 rounded-full hover:bg-accent text-muted-foreground transition-colors">
+              <button
+                onClick={onFechar}
+                aria-label="Fechar o chat"
+                className="flex size-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent"
+              >
                 <X className="size-4.5" />
               </button>
             </div>
@@ -158,6 +162,7 @@ export function ChatPedido({
               />
               <button
                 type="submit"
+                aria-label="Enviar mensagem"
                 disabled={enviando || !texto.trim()}
                 className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:brightness-105 active:scale-95 transition-all shadow-sm"
               >

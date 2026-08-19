@@ -1168,7 +1168,7 @@ function LoginEntregador() {
         <Button type="submit" size="lg" className="w-full" loading={enviando} loadingText="Entrando…">
           Entrar
         </Button>
-        <Link to="/esqueci-senha" className="block text-center text-sm font-semibold text-primary hover:underline">
+        <Link to="/esqueci-senha" className="mx-auto flex min-h-11 items-center justify-center text-sm font-semibold text-primary hover:underline">
           Esqueci minha senha
         </Link>
       </form>

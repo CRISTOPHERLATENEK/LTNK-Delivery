@@ -434,7 +434,13 @@ function ModalEditarCliente({ cliente, tenantId, onFechar, onSalvo }: { cliente:
         <CardContent className="p-5 space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-extrabold">Editar cliente</h2>
-            <button onClick={onFechar} className="p-1 rounded-lg hover:bg-muted text-muted-foreground"><X className="size-4" /></button>
+            <button
+              onClick={onFechar}
+              aria-label="Fechar"
+              className="-mr-2 flex size-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
+            >
+              <X className="size-4" />
+            </button>
           </div>
           <form onSubmit={salvar} className="space-y-3">
             <div>
