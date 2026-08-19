@@ -32,7 +32,7 @@ import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
 import { ErroHttp, lojaAbertaPorAgenda, agoraUTC, dataBrasilia, mensagemDeDuplicidade } from './util';
-import db, { comTenant, abrirPool, BANCO_PADRAO } from './db-mysql';
+import db, { comTenant, abrirPool, bancoTenantAtual, BANCO_PADRAO } from './db-mysql';
 import { inicializarSchema } from './schema-mysql';
 import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants, poolCentral, tenantDesativadoDoHost, ehMaster } from './tenants-mysql';
 import { inicializarAssinaturas, processarVencimentos } from './assinaturas';
@@ -485,7 +485,27 @@ const tratadorErros: ErrorRequestHandler = (erro, req, res, _next) => {
   if (dup) return res.status(409).json({ erro: dup });
 
   console.error('[ERRO INTERNO]', erro);
-  capturarErro(erro, { metodo: req.method, rota: req.path });
+  /*
+   * CONTEXTO SUFICIENTE PRA AGIR. "Erro em /api/lojista/pedidos" não diz nada
+   * numa plataforma com muitos clientes: sem saber DE QUEM é o banco, não há
+   * como reproduzir nem avisar o afetado.
+   *
+   * Vai o id e o perfil do usuário, NÃO o nome nem o e-mail: o id basta pra
+   * achar a pessoa no banco, e dado pessoal não precisa sair daqui pra um
+   * serviço de terceiro.
+   *
+   * A instância entra porque, em cluster, erro que só acontece numa delas
+   * costuma ser estado em memória — e isso muda onde procurar.
+   */
+  capturarErro(erro, {
+    metodo: req.method,
+    rota: req.path,
+    tenant: bancoTenantAtual() || 'indefinido',
+    host: req.headers.host ?? '',
+    usuario_id: req.usuario?.id ?? null,
+    usuario_perfil: req.usuario?.perfil ?? null,
+    instancia: process.env.NODE_APP_INSTANCE ?? '0',
+  });
   res.status(500).json({ erro: 'Erro interno do servidor. Tente novamente em instantes.' });
 };
 app.use(tratadorErros);
