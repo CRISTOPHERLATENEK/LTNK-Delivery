@@ -127,6 +127,19 @@ const ORIGENS_ANALYTICS = [
   'https://connect.facebook.net',       // Meta Pixel
   'https://analytics.tiktok.com',       // TikTok Pixel
   'https://www.clarity.ms',             // Microsoft Clarity
+  /*
+   * Cloudflare Web Analytics. NÃO É UM SCRIPT NOSSO: a Cloudflare INJETA o
+   * beacon na resposta HTML quando "Web Analytics" está ligado no painel dela.
+   * Como a injeção acontece depois do nosso servidor, não há como o nosso HTML
+   * declarar nada — a CSP bloqueava, o console de todo visitante acusava
+   * violação e o beacon não rodava.
+   *
+   * Se você não usa esses dados, o certo é DESLIGAR no painel da Cloudflare em
+   * vez de liberar aqui: menos um script de terceiro em cada página. Está
+   * liberado porque o recurso está ligado hoje — se desligar, esta linha e a de
+   * connect-src podem sair.
+   */
+  'https://static.cloudflareinsights.com',
 ];
 const CSP_BASE = [
   "default-src 'self'",
@@ -170,6 +183,9 @@ const CSP_BASE = [
     'https://*.analytics.google.com',
     'https://*.facebook.com',
     'https://*.clarity.ms',
+    // O beacon POSTa o resultado pra cá (ver ORIGENS_ANALYTICS). Sem esta
+    // linha, o script carrega e falha no envio — troca uma violação por outra.
+    'https://cloudflareinsights.com',
   ].join(' '),
   'upgrade-insecure-requests',
 ].join('; ');
