@@ -1,6 +1,6 @@
 {
   "name": "delivery-agente-impressao",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Agente local de impressão térmica (ESC/POS) do Delivery — janela + bandeja (Electron).",
   "main": "main.js",
   "scripts": {
@@ -34,7 +34,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "runAfterFinish": true,
-      "artifactName": "AgenteImpressao-Instalador.exe",
+      "artifactName": "AgenteImpressao-Instalador-${version}.exe",
       "shortcutName": "LTNK"
     }
   },

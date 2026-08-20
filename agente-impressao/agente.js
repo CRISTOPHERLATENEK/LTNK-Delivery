@@ -20,7 +20,15 @@ const { paginaStatus } = require('./paginas/status');
 const { paginaManual } = require('./paginas/manual');
 
 const PORTA = Number(process.env.AGENTE_PORTA) || 9110;
-const VERSAO = '1.2.0';
+/*
+ * A versão vem do package.json, não de uma constante aqui.
+ *
+ * Eram dois números pra manter em sincronia, e no dia em que divergissem o
+ * lojista veria uma versão na tela Sobre e outra no instalador — e o suporte
+ * pediria "qual sua versão?" pra receber a resposta errada. package.json está
+ * na lista `files` do electron-builder, então funciona também dentro do asar.
+ */
+const VERSAO = require('./package.json').version;
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');

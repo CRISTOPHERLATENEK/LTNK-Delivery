@@ -34,13 +34,25 @@ export const URL_EDITOR_FISCAL = `${BASE}/#cupom`;
 
 /**
  * Versão mais recente do Software de Impressão e onde baixar o instalador.
- * Atualize os dois juntos a cada `npm run dist` no agente-impressao — o
- * instalador é publicado como asset de uma GitHub Release (não fica
- * versionado no repo, o .exe passa de 90MB).
+ *
+ * Atualize os dois juntos a cada `npm run dist` no agente-impressao, e mantenha
+ * igual ao `version` do package.json de lá — é esse número que a tela Sobre do
+ * agente mostra, e é por ele que o suporte pergunta.
+ *
+ * SERVIDO PELO NOSSO VPS, não mais por Release do GitHub: o download não
+ * depende de repositório de terceiro nem de o repo estar público, e a URL não
+ * muda de forma a cada release. O arquivo mora em /var/www/downloads (fora de
+ * /opt/delivery, senão o `git reset --hard` do deploy o apagaria) e é entregue
+ * direto pelo nginx — 96MB atravessando o Express ocupariam um dos 3 processos
+ * do cluster durante todo o download.
+ *
+ * O nome do arquivo carrega a versão de propósito: navegador e Cloudflare
+ * cacheiam por URL, e um nome fixo entregaria o instalador velho pra quem já
+ * baixou uma vez.
  */
-export const VERSAO_INSTALADOR = '1.2.0';
+export const VERSAO_INSTALADOR = '1.3.0';
 export const URL_INSTALADOR =
-  'https://github.com/CRISTOPHERLATENEK/LTNK-Delivery/releases/download/agente-impressao-v1.2.0/AgenteImpressao-Instalador.exe';
+  'https://maxxpedidos.com.br/download/AgenteImpressao-Instalador-1.3.0.exe';
 
 /** Heurística p/ reconhecer impressora térmica pelo nome. */
 const RE_TERMICA = /elgin|bematech|epson|daruma|sweda|tanca|pos\b|term|58mm|80mm|i[789]\b/i;
