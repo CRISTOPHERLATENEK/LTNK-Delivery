@@ -1217,6 +1217,53 @@ async function minhaOpcao(loja: Loja, opcaoId: number | string): Promise<OpcaoIt
   return opcao;
 }
 
+/**
+ * GET /opcoes/sugestoes — os nomes de opção que ESTA LOJA já usa, por grupo.
+ *
+ * POR QUE EXISTE. Os chips de sugestão ("Bacon, Queijo extra, Ovo…") eram uma
+ * constante no código do front. O "Molho especial" que o lojista criava ficava
+ * salvo naquele grupo, daquele produto, e nunca voltava — no produto seguinte
+ * ele digitava de novo. Numa pizzaria com dezenas de itens, o sistema estava
+ * criando trabalho manual.
+ *
+ * E RESOLVE MELHOR QUE ADIVINHAR PELA CATEGORIA. A tentativa óbvia seria
+ * deduzir a família do produto pelo nome — mas "Pizza Gigante +1 Refrigerante
+ * 2LT" casa com bebida antes de pizza, e o sistema esconderia justamente Borda
+ * e Sabores. Aprender do histórico não precisa interpretar nome nenhum: a
+ * pizzaria tem Catupiry no histórico dela, a hamburgueria tem Bacon.
+ *
+ * Agrupado por NOME do grupo e não por id: o lojista tem um grupo "Adicionais"
+ * por produto, e o que interessa é o conjunto de nomes que ele usa em todos.
+ *
+ * `p.excluido = 0` porque produto na lixeira não deve ditar sugestão. O teto de
+ * 400 linhas é pra resposta não crescer sem limite numa loja grande — o corte
+ * por grupo acontece no front, que é quem sabe quantos chips cabem na tela.
+ */
+router.get('/opcoes/sugestoes', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const linhas = await db.prepare(
+      `SELECT g.nome AS grupo, o.nome AS opcao, COUNT(*) AS usos
+         FROM opcoes_itens o
+         JOIN grupos_opcoes g ON g.id = o.grupo_id
+         JOIN produtos p ON p.id = g.produto_id
+        WHERE p.loja_id = ? AND p.excluido = 0
+        GROUP BY g.nome, o.nome
+        ORDER BY usos DESC, o.nome ASC
+        LIMIT 400`
+    ).all(loja.id) as Array<{ grupo: string; opcao: string; usos: number }>;
+
+    const sugestoes: Record<string, string[]> = {};
+    for (const l of linhas) {
+      const grupo = String(l.grupo || '').trim();
+      const opcao = String(l.opcao || '').trim();
+      if (!grupo || !opcao) continue;
+      (sugestoes[grupo] ||= []).push(opcao);
+    }
+    res.json({ sugestoes });
+  } catch (e) { next(e); }
+});
+
 router.get('/produtos/:id/grupos', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);

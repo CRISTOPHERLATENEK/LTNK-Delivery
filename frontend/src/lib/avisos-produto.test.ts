@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes,
+  erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes,
 } from './avisos-produto';
 
 const LISTA = [
@@ -118,5 +118,47 @@ describe('sugestoesFaltantes', () => {
 
   it('opção com nome nulo não atrapalha o casamento', () => {
     expect(sugestoesFaltantes(BORDAS, [{ nome: null }])).toEqual(BORDAS);
+  });
+});
+
+/**
+ * O que a loja já usa vem primeiro. Os chips eram uma constante no código: o
+ * "Molho especial" que o lojista criava nunca voltava, e no produto seguinte ele
+ * digitava de novo.
+ */
+describe('mesclarSugestoes', () => {
+  it('histórico primeiro, padrão depois', () => {
+    expect(mesclarSugestoes(['Molho especial'], ['Bacon', 'Ovo']))
+      .toEqual(['Molho especial', 'Bacon', 'Ovo']);
+  });
+
+  it('loja sem histórico continua vendo os padrões', () => {
+    expect(mesclarSugestoes([], ['Bacon', 'Ovo'])).toEqual(['Bacon', 'Ovo']);
+    expect(mesclarSugestoes(undefined, ['Bacon'])).toEqual(['Bacon']);
+  });
+
+  it('grupo sem padrão mostra só o histórico', () => {
+    expect(mesclarSugestoes(['Cheiro verde'], undefined)).toEqual(['Cheiro verde']);
+  });
+
+  /* Duplicar o chip seria oferecer um botão que cria item repetido no grupo. */
+  it('não repete o mesmo nome em caixa diferente', () => {
+    expect(mesclarSugestoes(['bacon', 'Ovo'], ['Bacon', 'Queijo']))
+      .toEqual(['bacon', 'Ovo', 'Queijo']);
+  });
+
+  it('ignora vazio e espaço solto', () => {
+    expect(mesclarSugestoes(['  ', 'Bacon'], ['', '  Ovo  '])).toEqual(['Bacon', 'Ovo']);
+  });
+
+  /* O histórico vem ordenado por uso, então o corte descarta o menos usado. */
+  it('respeita o teto, mantendo a ordem de prioridade', () => {
+    const hist = ['A', 'B', 'C'];
+    const padrao = ['D', 'E', 'F'];
+    expect(mesclarSugestoes(hist, padrao, 4)).toEqual(['A', 'B', 'C', 'D']);
+  });
+
+  it('nada de nada não quebra', () => {
+    expect(mesclarSugestoes(undefined, undefined)).toEqual([]);
   });
 });

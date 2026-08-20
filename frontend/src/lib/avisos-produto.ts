@@ -90,3 +90,38 @@ export function sugestoesFaltantes(
   const jaTem = new Set(opcoes.map(o => (o.nome || '').trim().toLowerCase()));
   return (sugestoes || []).filter(s => !jaTem.has(s.trim().toLowerCase()));
 }
+
+/**
+ * Junta o que a LOJA já usa com os chips padrão do sistema.
+ *
+ * Ordem: histórico primeiro, padrão depois. Quem já cadastrou "Molho especial"
+ * quer ele à mão; os padrões viram complemento pra quem está começando, e loja
+ * nova (sem histórico) continua vendo exatamente o que via antes.
+ *
+ * O teto existe porque a fileira de chips é uma linha que embrulha: uma loja com
+ * 60 adicionais diferentes viraria um bloco de texto que ninguém varre. O
+ * histórico vem ordenado por uso no backend, então cortar no fim descarta o que
+ * a loja menos usa — não o que chegou depois.
+ *
+ * Deduplica sem caixa e sem espaço: "molho especial" do histórico e "Molho
+ * especial" do padrão são o mesmo chip, e mostrar os dois seria oferecer um
+ * botão que cria item duplicado.
+ */
+export function mesclarSugestoes(
+  doHistorico: string[] | undefined,
+  padrao: string[] | undefined,
+  teto = 12,
+): string[] {
+  const vistos = new Set<string>();
+  const saida: string[] = [];
+  for (const nome of [...(doHistorico || []), ...(padrao || [])]) {
+    const limpo = (nome || '').trim();
+    if (!limpo) continue;
+    const chave = limpo.toLowerCase();
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+    saida.push(limpo);
+    if (saida.length >= teto) break;
+  }
+  return saida;
+}

@@ -19,7 +19,7 @@ import { api, ApiError } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { gtinValido } from '@/lib/gtin';
-import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes } from '@/lib/avisos-produto';
+import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes } from '@/lib/avisos-produto';
 import type { Produto } from '@/types';
 
 /* ─────────────────────── tipos ──────────────────────── */
@@ -1568,6 +1568,25 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
   /** Índice sendo arrastado, pra saber o que soltar onde. */
   const [arrastando, setArrastando] = useState<number | null>(null);
 
+  /*
+   * As opções que ESTA LOJA já usa, por nome de grupo.
+   *
+   * `staleTime` longo porque isso muda devagar (só quando o lojista cria uma
+   * opção nova) e o modal abre e fecha muitas vezes numa sessão de cadastro —
+   * refazer a consulta a cada abertura seria pedir a mesma lista de novo.
+   *
+   * Falha em silêncio de propósito: sem histórico, os chips padrão continuam
+   * valendo, e um erro aqui não pode impedir de cadastrar complemento.
+   */
+  const { data: historico } = useQuery({
+    queryKey: ['lojista-sugestoes-opcoes'],
+    queryFn: () =>
+      api<{ sugestoes: Record<string, string[]> }>('GET', '/api/lojista/opcoes/sugestoes')
+        .then(r => r.sugestoes)
+        .catch((): Record<string, string[]> => ({})),
+    staleTime: 5 * 60_000,
+  });
+
   const { data, isLoading } = useQuery({
     queryKey,
     queryFn: () =>
@@ -1729,6 +1748,9 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
     try {
       await api('POST', `/api/lojista/grupos/${grupoId}/opcoes`, { nome, preco_adicional: '0' });
       await qc.refetchQueries({ queryKey });
+      // O histórico ganhou um nome novo — sem invalidar, o chip só apareceria
+      // pro próximo produto depois do staleTime.
+      qc.invalidateQueries({ queryKey: ['lojista-sugestoes-opcoes'] });
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao adicionar opção.';
       mostrar({ tipo: 'erro', titulo: msg });
@@ -2033,7 +2055,9 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                           sozinha em vez de virar uma linha vazia.
                         */}
                         {(() => {
-                          const faltam = sugestoesFaltantes(SUGESTOES[grupo.nome], grupo.opcoes);
+                          const disponiveis = mesclarSugestoes(
+                            historico?.[grupo.nome], SUGESTOES[grupo.nome]);
+                          const faltam = sugestoesFaltantes(disponiveis, grupo.opcoes);
                           if (faltam.length === 0) return null;
                           return (
                             <div className="px-4 pt-3">
