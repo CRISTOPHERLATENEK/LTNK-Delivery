@@ -77,7 +77,22 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
       {children}
       <AnimatePresence>
         {opts && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          /*
+           * `pointer-events-auto` NÃO É DETALHE — é o que faz os botões
+           * funcionarem quando a confirmação abre de DENTRO de um modal.
+           *
+           * O Modal e o Sheet do projeto são Radix Dialog em modo `modal`, e o
+           * Radix põe `pointer-events: none` no <body> enquanto está aberto,
+           * reabilitando só dentro do conteúdo DELE. Este diálogo é renderizado
+           * no ConfirmProvider, na raiz do app — portanto fora daquele conteúdo,
+           * herdando o `none`.
+           *
+           * O sintoma era cruel: o diálogo aparecia normalmente e o clique não
+           * fazia nada, sem erro no console. E Esc/Enter funcionavam, porque são
+           * atalhos no `window` — o que fazia parecer que o botão é que estava
+           * quebrado, e não o clique inteiro.
+           */
+          <div className="pointer-events-auto fixed inset-0 z-[110] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
               onClick={() => fechar(false)}
