@@ -1,5 +1,5 @@
 /**
- * AVISOS DO CADASTRO DE PRODUTO — o que a tela diz antes de enviar.
+ * AJUDANTES DO CADASTRO DE PRODUTO — o que a tela diz e oferece antes de enviar.
  *
  * O backend é a autoridade e continua validando tudo. Isto existe pra a pessoa
  * descobrir o problema ENQUANTO digita, e não depois de enviar um formulário
@@ -69,4 +69,24 @@ export function outrosProdutos<T extends { id: number }>(
   lista: T[] | undefined, editando: number | 'novo' | null,
 ): T[] {
   return (lista ?? []).filter(p => p.id !== editando);
+}
+
+/**
+ * Quais sugestões ainda NÃO estão no grupo.
+ *
+ * A fileira de chips ("Sem borda, Catupiry, Cheddar…") sumia inteira quando a
+ * primeira opção era adicionada — pra montar três bordas, o lojista clicava uma
+ * e digitava as outras duas. Numa pizzaria, repetido por dezenas de produtos,
+ * era trabalho manual que o próprio sistema criava.
+ *
+ * O casamento ignora caixa e espaço porque a opção pode ter sido digitada à
+ * mão: quem escreveu "catupiry" já tem catupiry, e oferecer o chip de novo
+ * geraria item duplicado no grupo.
+ */
+export function sugestoesFaltantes(
+  sugestoes: string[] | undefined,
+  opcoes: Array<{ nome?: string | null }>,
+): string[] {
+  const jaTem = new Set(opcoes.map(o => (o.nome || '').trim().toLowerCase()));
+  return (sugestoes || []).filter(s => !jaTem.has(s.trim().toLowerCase()));
 }

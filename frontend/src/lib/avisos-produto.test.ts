@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos,
+  erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes,
 } from './avisos-produto';
 
 const LISTA = [
@@ -86,5 +86,37 @@ describe('outrosProdutos', () => {
 
   it('lista ainda carregando não quebra', () => {
     expect(outrosProdutos(undefined, 'novo')).toEqual([]);
+  });
+});
+
+describe('sugestoesFaltantes', () => {
+  const BORDAS = ['Sem borda', 'Catupiry', 'Cheddar'];
+
+  it('grupo vazio oferece todas', () => {
+    expect(sugestoesFaltantes(BORDAS, [])).toEqual(BORDAS);
+  });
+
+  /* O comportamento que o lojista pediu: continuar oferecendo o resto. */
+  it('depois de adicionar uma, as outras CONTINUAM na lista', () => {
+    expect(sugestoesFaltantes(BORDAS, [{ nome: 'Catupiry' }]))
+      .toEqual(['Sem borda', 'Cheddar']);
+  });
+
+  /* Opção digitada à mão também tira o chip, senão o botão gera duplicata. */
+  it('casa ignorando caixa e espaço', () => {
+    expect(sugestoesFaltantes(BORDAS, [{ nome: '  catupiry ' }, { nome: 'CHEDDAR' }]))
+      .toEqual(['Sem borda']);
+  });
+
+  it('com todas usadas, não sobra nada (a fileira some sozinha)', () => {
+    expect(sugestoesFaltantes(BORDAS, BORDAS.map(nome => ({ nome })))).toEqual([]);
+  });
+
+  it('grupo sem sugestões cadastradas não quebra', () => {
+    expect(sugestoesFaltantes(undefined, [{ nome: 'X' }])).toEqual([]);
+  });
+
+  it('opção com nome nulo não atrapalha o casamento', () => {
+    expect(sugestoesFaltantes(BORDAS, [{ nome: null }])).toEqual(BORDAS);
   });
 });

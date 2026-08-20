@@ -19,7 +19,7 @@ import { api, ApiError } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { gtinValido } from '@/lib/gtin';
-import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos } from '@/lib/avisos-produto';
+import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes } from '@/lib/avisos-produto';
 import type { Produto } from '@/types';
 
 /* ─────────────────────── tipos ──────────────────────── */
@@ -2016,23 +2016,45 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                           </button>
                         </div>
 
-                        {grupo.opcoes.length === 0 && SUGESTOES[grupo.nome] && (
-                          <div className="px-4 pt-3">
-                            <p className="mb-2 text-xs text-muted-foreground">Clique para adicionar:</p>
-                            <div className="flex flex-wrap gap-2">
-                              {SUGESTOES[grupo.nome].map(s => (
-                                <button
-                                  key={s}
-                                  type="button"
-                                  onClick={() => adicionarSugestao(grupo.id, s)}
-                                  className="flex items-center gap-1 rounded-full border border-dashed border-border px-3 py-1.5 text-xs font-semibold transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary active:scale-95"
-                                >
-                                  <Plus className="size-3" />{s}
-                                </button>
-                              ))}
+                        {/*
+                          AS SUGESTÕES FICAM NA TELA ATÉ ACABAREM.
+                          A condição era `grupo.opcoes.length === 0`: a fileira
+                          inteira sumia no instante em que a primeira opção
+                          entrava. Pra montar "Sem borda, Catupiry, Cheddar" o
+                          lojista clicava uma e digitava as outras duas — numa
+                          pizzaria, isso repetido por dezenas de produtos é
+                          trabalho manual que o sistema estava criando.
+
+                          Cada chip sai da lista quando JÁ EXISTE no grupo
+                          (comparando sem caixa e sem espaço, porque "catupiry"
+                          digitado à mão é o mesmo item). Assim não vira botão
+                          que gera duplicata, e a fileira encolhe conforme o
+                          grupo enche — quando a última é usada, ela desaparece
+                          sozinha em vez de virar uma linha vazia.
+                        */}
+                        {(() => {
+                          const faltam = sugestoesFaltantes(SUGESTOES[grupo.nome], grupo.opcoes);
+                          if (faltam.length === 0) return null;
+                          return (
+                            <div className="px-4 pt-3">
+                              <p className="mb-2 text-xs text-muted-foreground">
+                                {grupo.opcoes.length === 0 ? 'Clique para adicionar:' : 'Adicionar mais:'}
+                              </p>
+                              <div className="flex flex-wrap gap-2">
+                                {faltam.map(sug => (
+                                  <button
+                                    key={sug}
+                                    type="button"
+                                    onClick={() => adicionarSugestao(grupo.id, sug)}
+                                    className="flex items-center gap-1 rounded-full border border-dashed border-border px-3 py-1.5 text-xs font-semibold transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary active:scale-95"
+                                  >
+                                    <Plus className="size-3" />{sug}
+                                  </button>
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        )}
+                          );
+                        })()}
 
                         <div className={cn('space-y-1 px-3', grupo.opcoes.length > 0 ? 'py-2' : 'pt-2')}>
                           {grupo.opcoes.map(o => (
