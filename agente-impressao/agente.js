@@ -5,7 +5,7 @@
  * OU app) envia o cupom em "blocos"; o agente gera ESC/POS e manda DIRETO na
  * térmica pelo spooler do Windows (RAW), sem diálogo.
  *
- * Módulos: lib/config (persistência do editor), lib/impressora (Windows/RAW),
+ * Módulos: lib/config (persistência do cupom fiscal), lib/impressora (Windows/RAW),
  * lib/fiscal (aplica a config no cupom fiscal), paginas/* (HTML servido).
  */
 'use strict';
@@ -17,7 +17,6 @@ definirRaizApp(__dirname); // __dirname aqui é confiável (agente.js = entry po
 const { aplicarConfigFiscal } = require('./lib/fiscal');
 const inicializacao = require('./lib/inicializacao');
 const { paginaStatus } = require('./paginas/status');
-const { paginaEditor } = require('./paginas/editor');
 const { paginaManual } = require('./paginas/manual');
 
 const PORTA = Number(process.env.AGENTE_PORTA) || 9110;
@@ -42,8 +41,17 @@ const servidor = http.createServer((req, res) => {
   if (req.method === 'GET' && (req.url === '/' || req.url === '')) {
     return html(res, paginaStatus({ versao: VERSAO }));
   }
+  /*
+   * /editor era uma SEGUNDA tela pra editar o mesmo config.json que a aba
+   * "Cupom fiscal" da janela já edita — duas telas, duas prévias, um arquivo.
+   * A página saiu; a rota fica porque tem dois consumidores fora daqui: o menu
+   * da bandeja (main.js) e o botão "Editar cupom fiscal" do painel do lojista
+   * (frontend/src/lib/agente.ts). Redirecionar é o que mantém os dois
+   * funcionando, inclusive nas versões do agente já instaladas por aí.
+   */
   if (req.method === 'GET' && req.url === '/editor') {
-    return html(res, paginaEditor());
+    res.writeHead(302, { Location: '/#cupom' });
+    return res.end();
   }
   if (req.method === 'GET' && req.url === '/manual') {
     return html(res, paginaManual({ versao: VERSAO }));

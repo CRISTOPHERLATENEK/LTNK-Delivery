@@ -96,7 +96,12 @@ if (!temLock) {
     bandeja.setToolTip('LTNK — Software de Impressão (ativo)');
     bandeja.setContextMenu(Menu.buildFromTemplate([
       { label: 'Abrir', click: () => { janela.show(); janela.focus(); } },
-      { label: 'Editor do cupom fiscal', click: () => shell.openExternal(`http://localhost:${PORTA}/editor`) },
+      // Abre a própria janela na aba do cupom, em vez de mandar pro navegador:
+      // é a mesma tela, e uma tela só é mais fácil de explicar no suporte.
+      { label: 'Cupom fiscal', click: () => {
+        janela.show(); janela.focus();
+        janela.webContents.executeJavaScript("location.hash='#cupom'").catch(() => {});
+      } },
       { type: 'separator' },
       { label: 'Sair', click: () => { saindoDeVerdade = true; app.quit(); } },
     ]));

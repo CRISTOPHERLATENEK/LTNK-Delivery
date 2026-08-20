@@ -21,8 +21,16 @@ export type BlocoImpressao =
 const BASE = 'http://localhost:9110';
 const CHAVE = 'agente_impressora';
 
-/** URL do editor do cupom fiscal (rodapé, QR, fonte) — aberto no navegador padrão. */
-export const URL_EDITOR_FISCAL = `${BASE}/editor`;
+/**
+ * Tela do cupom fiscal (rodapé, QR, fonte) — abre no navegador padrão.
+ *
+ * Aponta pro `#cupom` da tela única do agente. Antes existia uma página
+ * separada em /editor, que editava o MESMO arquivo com uma prévia diferente —
+ * o lojista via uma forma ali, outra na janela e uma terceira no papel. A
+ * página saiu e /editor virou redirecionamento, então agente antigo já
+ * instalado continua atendendo este link.
+ */
+export const URL_EDITOR_FISCAL = `${BASE}/#cupom`;
 
 /**
  * Versão mais recente do Software de Impressão e onde baixar o instalador.

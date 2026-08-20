@@ -414,6 +414,23 @@ function mostrarView(nome){
   if (nome === 'impressoras') carregarImpressoras();
 }
 
+/*
+ * A tela abre pelo endereço: /#cupom cai direto na aba do cupom fiscal.
+ *
+ * Existe porque a página /editor foi removida — ela era uma segunda tela pro
+ * mesmo config.json. Quem apontava pra lá (o menu da bandeja e o botão
+ * "Editar cupom fiscal" do painel do lojista) agora aponta pra cá, e sem isto
+ * os dois cairiam no Início e a pessoa teria que adivinhar o próximo clique.
+ *
+ * 'hashchange' além do load: o menu da bandeja troca o hash de uma janela que
+ * já está aberta, então não há carregamento pra disparar nada.
+ */
+function abrirPeloHash(){
+  var nome = (location.hash || '').replace('#', '');
+  if (document.querySelector('.view[data-view=' + JSON.stringify(nome) + ']')) mostrarView(nome);
+}
+window.addEventListener('hashchange', abrirPeloHash);
+
 /* ─────────────────────────────────────────────────────────────
  * HISTÓRICO DA SESSÃO — e por que a métrica não se chama "hoje".
  *
@@ -746,6 +763,7 @@ carregarImpressoras();
 carregarConfig();
 carregarInicializacao();
 desenharHistorico();
+abrirPeloHash();
 </script>
 </body></html>`;
 }
