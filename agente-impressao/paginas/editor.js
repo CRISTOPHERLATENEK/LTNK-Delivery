@@ -1,187 +1,231 @@
 /**
- * Página do Editor do Cupom Fiscal — HTML autocontido (sem build step),
- * servido pelo próprio agente em GET /editor. Preview segue FIELMENTE o
- * layout OFICIAL da NFC-e do sistema (mesmo do DANFE real impresso), pra não
- * divergir do que sai na térmica de verdade — ver montarBlocosDanfe no painel
- * e lib/fiscal.js (mesmo ponto de inserção de cabeçalho/rodapé aqui usado).
+ * Editor do Cupom Fiscal — GET /editor. HTML autocontido, sem build step.
+ *
+ * ESTA PÁGINA E A ABA "CUPOM FISCAL" DA JANELA fazem a mesma coisa: editam o
+ * config.json deste computador. A página existe pra ser aberta direto pelo
+ * navegador, sem depender da janela do Electron (útil no suporte remoto e quando
+ * o agente roda via `npm run servidor`, sem interface).
+ *
+ * A prévia NÃO é escrita aqui: vem de paginas/cupom-previa.js, a mesma que a
+ * janela usa. Antes eram duas prévias do mesmo documento — e como as duas telas
+ * salvam no MESMO arquivo, o lojista via uma forma aqui, outra na janela e uma
+ * terceira no papel. Prévia que não bate com a impressão é pior que não ter
+ * prévia, porque ela promete.
+ *
+ * Visual igual ao do resto do app (ver paginas/status.js): sem emoji, grafite em
+ * vez de laranja, monoespaçada em todo dado técnico, aviso com filete à esquerda
+ * em vez de caixa amarela — caixa amarela grita "erro" numa frase que é só uma
+ * observação.
  */
 'use strict';
 
-function paginaEditor() {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Editor do Cupom Fiscal</title>
-<style>
-  :root{ --laranja:#ea580c; --laranja-esc:#c2410c; }
-  *{box-sizing:border-box}
-  body{font-family:system-ui,sans-serif;background:#f4f4f2;margin:0;padding:32px 16px;color:#1f1f1f}
-  .wrap{max-width:920px;margin:0 auto;display:grid;grid-template-columns:1fr 340px;gap:32px;align-items:start}
-  @media (max-width:820px){.wrap{grid-template-columns:1fr}}
-  h1{font-size:20px;margin:0 0 4px;display:flex;align-items:center;gap:8px}
-  .sub{color:#666;font-size:13px;margin:0 0 24px}
-  .card{background:#fff;border-radius:14px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08);border:1px solid #ececec}
-  label{display:block;font-weight:600;font-size:13px;margin:18px 0 6px}
-  label:first-of-type{margin-top:0}
-  textarea,input[type=text]{width:100%;padding:9px 10px;border:1px solid #d8d8d8;border-radius:9px;font-size:14px;font-family:inherit}
-  textarea{resize:vertical;min-height:56px}
-  textarea:focus,input:focus{outline:2px solid var(--laranja);outline-offset:1px;border-color:var(--laranja)}
-  .linha{display:flex;align-items:center;gap:9px;margin:14px 0}
-  .linha label{margin:0;font-weight:500}
-  .linha input[type=checkbox]{width:18px;height:18px;accent-color:var(--laranja);cursor:pointer}
-  .dica{font-size:11.5px;color:#8a8a8a;margin-top:3px}
-  button{margin-top:22px;background:var(--laranja);color:#fff;border:0;padding:11px 20px;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;transition:background .15s}
-  button:hover{background:var(--laranja-esc)}
-  #msg{margin-top:12px;font-size:13px;font-weight:600;min-height:18px}
-  .avisin{background:#fff7ed;border:1px solid #fed7aa;border-radius:9px;padding:10px 12px;font-size:12px;color:#9a3412;margin-bottom:18px}
+const { PREVIA_CSS, previaCupomHtml, PREVIA_JS } = require('./cupom-previa');
 
-  /* Preview — segue o layout OFICIAL do DANFE (bobina térmica) */
-  .preview-titulo{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#999;margin:0 0 10px;text-align:center}
-  .receipt{width:300px;margin:0 auto;background:#fffdf7;padding:18px 16px 4px;
-    font-family:'Courier New',monospace;font-size:11.5px;line-height:1.55;color:#111;
-    box-shadow:0 6px 18px rgba(0,0,0,.14);}
-  .receipt.grande{font-size:13px}
-  .r-center{text-align:center}
-  .r-b{font-weight:700}
-  .r-nome{font-size:15px}
-  .receipt.grande .r-nome{font-size:16.5px}
-  .r-sep{border:0;border-top:1.5px dashed #b8b8b0;margin:7px 0}
-  .r-row{display:flex;justify-content:space-between;gap:8px}
-  .r-total{font-weight:700;font-size:13.5px}
-  .receipt.grande .r-total{font-size:15px}
-  .r-qr{width:70px;height:70px;margin:8px auto 4px;
-    background:repeating-conic-gradient(#111 0% 25%, transparent 0% 50%) 0 0/9px 9px;
-    border:6px solid #fffdf7;outline:1px solid #ddd}
-  .r-item-desc{margin-top:5px}
-  .r-item-linha{color:#333}
-  .r-quebra{word-break:break-all}
-  .zigzag{height:11px;width:300px;margin:0 auto;
-    background:linear-gradient(-45deg,transparent 8px,#f4f4f2 0) 0 0,linear-gradient(45deg,transparent 8px,#f4f4f2 0) 0 0;
-    background-size:16px 16px;background-repeat:repeat-x;background-color:#fffdf7}
+function paginaEditor() {
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cupom fiscal — LTNK</title>
+<style>
+  :root{
+    --fundo:#E8E6E1;      --superficie:#FFFFFF;
+    --barra:#FBFAF9;      --hairline:#E7E5E1;   --hairline-fraca:#F5F4F1;
+    --texto:#1C1917;      --sec:#78716C;        --sec-2:#8C8783;
+    --terc:#A8A29E;       --grafite:#1C1917;
+    --ok:#3F8F62;         --inativo:#C6C1BB;
+    --ui:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;
+    --mono:'JetBrains Mono','Cascadia Mono','Consolas','DejaVu Sans Mono',monospace;
+    --cupom-larg:300px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:34px 18px 60px;font-family:var(--ui);background:var(--fundo);
+    color:var(--texto);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  button,input,textarea{font-family:inherit;font-size:inherit;color:inherit}
+
+  .wrap{max-width:900px;margin:0 auto;display:grid;grid-template-columns:1fr 340px;gap:30px;
+    align-items:start}
+  @media (max-width:820px){ .wrap{grid-template-columns:1fr} }
+
+  .eyebrow{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--terc);margin:0 0 6px}
+  h1{font-size:22px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .sub{color:var(--sec);font-size:13px;margin:7px 0 0;max-width:52ch}
+
+  .nota{border-left:2px solid var(--hairline);padding:2px 0 2px 13px;margin:18px 0 22px;
+    color:var(--sec);font-size:12.5px;max-width:56ch}
+
+  .card{background:var(--superficie);border:1px solid var(--hairline);border-radius:6px;padding:20px}
+  .campo{margin-bottom:18px}
+  .campo > label{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--terc);margin-bottom:6px}
+  textarea{width:100%;padding:8px 10px;border:1px solid var(--hairline);border-radius:4px;
+    resize:vertical;min-height:56px;background:var(--superficie)}
+  textarea:focus{outline:0;border-color:var(--grafite)}
+  .hint{font-size:11px;color:var(--sec-2);margin:5px 0 0}
+
+  .toggle-linha{display:flex;align-items:center;justify-content:space-between;gap:14px;
+    padding:12px 0;border-top:1px solid var(--hairline-fraca)}
+  .toggle-linha .txt b{display:block;font-size:12.5px;font-weight:500}
+  .toggle-linha .txt span{display:block;font-size:11px;color:var(--sec-2)}
+  .switch{position:relative;width:32px;height:18px;border-radius:99px;background:var(--inativo);
+    border:0;cursor:pointer;flex:none;transition:background .13s}
+  .switch::after{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;
+    border-radius:50%;background:#fff;transition:left .13s}
+  .switch.on{background:var(--grafite)}
+  .switch.on::after{left:16px}
+
+  /* Aqui o Salvar FICA no formulário, ao contrário da janela.
+     Na janela ele foi pra barra de status porque existe uma barra de status
+     permanente; esta página não tem barra nenhuma, e botão flutuando no rodapé
+     de uma página que rola é pior que botão no fim do formulário. */
+  .acoes{display:flex;align-items:center;gap:10px;margin-top:20px;
+    padding-top:18px;border-top:1px solid var(--hairline-fraca)}
+  .btn{display:inline-flex;align-items:center;justify-content:center;background:var(--grafite);
+    color:#fff;border:1px solid var(--grafite);padding:0 14px;height:32px;border-radius:4px;
+    font-weight:500;font-size:12.5px;cursor:pointer;white-space:nowrap}
+  .btn:hover{background:#332E2B;border-color:#332E2B}
+  .btn.outline{background:transparent;color:var(--texto);border-color:var(--hairline)}
+  .btn.outline:hover{background:var(--hairline-fraca)}
+  .btn:disabled{opacity:.45;cursor:default}
+  .aviso{font-size:12px;white-space:nowrap}
+  .aviso.ok{color:var(--ok)} .aviso.erro{color:#A33A32}
+
+  .previa-cab{display:flex;align-items:center;justify-content:space-between;
+    font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--terc);margin:0 auto 10px;width:var(--cupom-larg)}
+${PREVIA_CSS}
 </style></head><body>
 <div class="wrap">
 
   <div>
-    <h1>🧾 Editor do Cupom Fiscal</h1>
-    <p class="sub">Personaliza o DANFE (cupom fiscal) desta impressora/PC — segue o layout oficial da NFC-e do sistema.</p>
-    <div class="avisin">A prévia ao lado é o mesmo layout que sai na SEFAZ/impressora real — cabeçalho e rodapé entram nos mesmos pontos aqui e na impressão de verdade.</div>
+    <p class="eyebrow">DANFE NFC-e</p>
+    <h1>Cupom fiscal</h1>
+    <p class="sub">O que aparece impresso no cupom deste computador. Vale a partir da próxima
+      impressão fiscal.</p>
+
+    <p class="nota">A prévia ao lado segue o layout oficial da NFC-e — cabeçalho e rodapé entram
+      nos mesmos pontos aqui e na impressão de verdade.</p>
 
     <div class="card">
-      <label>Mensagem extra no cabeçalho</label>
-      <textarea id="cabecalho" placeholder="Ex.: Promoção: compre 2, leve 3!"></textarea>
-      <p class="dica">Aparece logo abaixo dos dados da loja, antes do título "DANFE NFC-e".</p>
+      <div class="campo">
+        <label for="cabecalho">Mensagem no cabeçalho</label>
+        <textarea id="cabecalho" placeholder="Ex.: Promoção: compre 2, leve 3"></textarea>
+        <p class="hint">Entra abaixo dos dados da loja, antes do título DANFE NFC-e.</p>
+      </div>
+      <div class="campo">
+        <label for="rodape">Mensagem no rodapé</label>
+        <textarea id="rodape" placeholder="Ex.: Siga @sualoja no Instagram"></textarea>
+        <p class="hint">Entra no fim do cupom, depois do QR Code, antes do corte.</p>
+      </div>
 
-      <label>Mensagem extra no rodapé</label>
-      <textarea id="rodape" placeholder="Ex.: Siga-nos no Instagram @sualoja"></textarea>
-      <p class="dica">Aparece no fim do cupom, depois do QR Code, antes do corte.</p>
+      <div class="toggle-linha">
+        <div class="txt"><b>Endereço da loja</b><span>Imprime o endereço do emitente no topo.</span></div>
+        <button class="switch" id="sw-endereco" role="switch" aria-checked="false" aria-label="Endereço da loja"></button>
+      </div>
+      <div class="toggle-linha">
+        <div class="txt"><b>QR Code</b><span>Permite consultar a nota no site da Sefaz.</span></div>
+        <button class="switch" id="sw-qr" role="switch" aria-checked="false" aria-label="QR Code"></button>
+      </div>
+      <div class="toggle-linha">
+        <div class="txt"><b>Fonte maior</b><span>Recomendado para bobina de 80mm.</span></div>
+        <button class="switch" id="sw-fonte" role="switch" aria-checked="false" aria-label="Fonte maior"></button>
+      </div>
 
-      <div class="linha"><input type="checkbox" id="mostrarEndereco"><label for="mostrarEndereco">Imprimir endereço da loja</label></div>
-      <div class="linha"><input type="checkbox" id="mostrarQr"><label for="mostrarQr">Imprimir QR Code de consulta</label></div>
-      <div class="linha"><input type="checkbox" id="fonteGrande"><label for="fonteGrande">Fonte maior (recomendado bobina 80mm)</label></div>
-
-      <button onclick="salvar()">Salvar</button>
-      <div id="msg"></div>
+      <div class="acoes">
+        <button class="btn" id="btn-salvar">Salvar</button>
+        <button class="btn outline" id="btn-descartar">Descartar</button>
+        <span class="aviso" id="aviso"></span>
+      </div>
     </div>
   </div>
 
   <div>
-    <p class="preview-titulo">Prévia do DANFE NFC-e</p>
-    <div class="receipt" id="receipt">
-      <div class="r-center r-b r-nome">Sua Loja</div>
-      <div class="r-center">Sua Loja LTDA - ME</div>
-      <div class="r-center">CNPJ 00.000.000/0001-00</div>
-      <div class="r-center" id="pv-endereco">Rua Exemplo, 123 — Centro — Cidade/UF</div>
-      <div class="r-center r-b" id="pv-cabecalho"></div>
-      <hr class="r-sep">
-      <div class="r-center">DANFE NFC-e - Documento Auxiliar da</div>
-      <div class="r-center">Nota Fiscal de Consumidor Eletrônica</div>
-      <hr class="r-sep">
-
-      <div class="r-item-desc">1 Produto exemplo</div>
-      <div class="r-item-linha">1 UN x R$ 10,00 = R$ 10,00</div>
-      <div class="r-item-desc">2 Refrigerante 350ml</div>
-      <div class="r-item-linha">2 UN x R$ 4,00 = R$ 8,00</div>
-      <hr class="r-sep">
-
-      <div class="r-row"><span>Qtde. total de itens</span><span>2</span></div>
-      <div class="r-row r-total"><span>VALOR TOTAL</span><span>R$ 18,00</span></div>
-      <hr class="r-sep">
-      <div class="r-center">FORMA DE PAGAMENTO</div>
-      <div class="r-row"><span>Dinheiro</span><span>R$ 18,00</span></div>
-      <hr class="r-sep">
-
-      <div class="r-center">NFC-e nº 22 série 110</div>
-      <hr class="r-sep">
-      <div class="r-center r-b">EMITIDA EM AMBIENTE DE HOMOLOGAÇÃO</div>
-      <div class="r-center r-b">SEM VALOR FISCAL</div>
-      <hr class="r-sep">
-
-      <div class="r-center">Consulte pela chave de acesso em:</div>
-      <div class="r-center r-quebra">https://hom.sat.sef.sc.gov.br/nfce/consulta</div>
-      <div class="r-center r-quebra">4226 0748 9353 2800 0126 6511 0000 0000 2219 3396 8794</div>
-      <div class="r-center" id="pv-qr-wrap"><div class="r-qr"></div></div>
-      <hr class="r-sep">
-      <div class="r-center r-b">TESTE LOCAL - NAO TRANSMITIDA A SEFAZ</div>
-      <hr class="r-sep">
-
-      <div class="r-center" id="pv-rodape" style="margin-top:2px"></div>
-      <div style="height:10px"></div>
-    </div>
-    <div class="zigzag"></div>
+    <div class="previa-cab"><span>Prévia</span><span>80mm</span></div>
+    ${previaCupomHtml()}
   </div>
 
 </div>
 
 <script>
+${PREVIA_JS}
 function el(id){ return document.getElementById(id); }
+var switches = { mostrarEndereco:'sw-endereco', mostrarQr:'sw-qr', fonteGrande:'sw-fonte' };
+var salvo = null;
 
-async function carregar() {
-  const c = await (await fetch('/config')).json();
-  el('cabecalho').value = c.cabecalho || '';
-  el('rodape').value = c.rodape || '';
-  el('mostrarQr').checked = c.mostrarQr !== false;
-  el('mostrarEndereco').checked = c.mostrarEndereco !== false;
-  el('fonteGrande').checked = !!c.fonteGrande;
-  atualizarPreview();
-}
-
-async function salvar() {
-  const corpo = lerFormulario();
-  const r = await fetch('/config', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(corpo) });
-  el('msg').textContent = r.ok ? '✔ Salvo! Vale para a próxima impressão fiscal.' : 'Erro ao salvar.';
-  el('msg').style.color = r.ok ? '#0a7a3d' : '#c0392b';
-}
-
-function lerFormulario() {
+function lerFormulario(){
   return {
     cabecalho: el('cabecalho').value,
     rodape: el('rodape').value,
-    mostrarQr: el('mostrarQr').checked,
-    mostrarEndereco: el('mostrarEndereco').checked,
-    fonteGrande: el('fonteGrande').checked,
+    mostrarEndereco: el('sw-endereco').classList.contains('on'),
+    mostrarQr: el('sw-qr').classList.contains('on'),
+    fonteGrande: el('sw-fonte').classList.contains('on'),
   };
 }
-
-function atualizarPreview() {
-  const c = lerFormulario();
-  el('receipt').className = 'receipt' + (c.fonteGrande ? ' grande' : '');
-
-  el('pv-endereco').style.display = c.mostrarEndereco ? '' : 'none';
-
-  const cab = el('pv-cabecalho');
-  cab.textContent = c.cabecalho.trim();
-  cab.style.display = c.cabecalho.trim() ? '' : 'none';
-
-  el('pv-qr-wrap').style.display = c.mostrarQr ? '' : 'none';
-
-  const rod = el('pv-rodape');
-  rod.textContent = c.rodape.trim();
-  rod.style.display = c.rodape.trim() ? '' : 'none';
+function escreverFormulario(c){
+  el('cabecalho').value = c.cabecalho || '';
+  el('rodape').value = c.rodape || '';
+  Object.keys(switches).forEach(function(k){
+    // mostrarQr e mostrarEndereco são ligados por padrão (só desligam se vierem
+    // explicitamente false); fonteGrande é o contrário.
+    var ligado = k === 'fonteGrande' ? !!c[k] : c[k] !== false;
+    var b = el(switches[k]);
+    b.classList.toggle('on', ligado);
+    b.setAttribute('aria-checked', ligado ? 'true' : 'false');
+  });
 }
+function aoMudar(){ atualizarPreviaCupom(lerFormulario()); }
 
-['cabecalho','rodape','mostrarQr','mostrarEndereco','fonteGrande'].forEach(id => {
-  el(id).addEventListener('input', atualizarPreview);
-  el(id).addEventListener('change', atualizarPreview);
+['cabecalho','rodape'].forEach(function(id){ el(id).addEventListener('input', aoMudar); });
+Object.keys(switches).forEach(function(k){
+  var b = el(switches[k]);
+  b.addEventListener('click', function(){
+    var ligado = !b.classList.contains('on');
+    b.classList.toggle('on', ligado);
+    b.setAttribute('aria-checked', ligado ? 'true' : 'false');
+    aoMudar();
+  });
 });
 
-carregar();
+el('btn-descartar').addEventListener('click', function(){
+  if (salvo) escreverFormulario(salvo);
+  aoMudar();
+  el('aviso').textContent = '';
+});
+
+el('btn-salvar').addEventListener('click', async function(){
+  var b = el('btn-salvar');
+  var aviso = el('aviso');
+  b.disabled = true; b.textContent = 'Salvando…';
+  try {
+    var corpo = lerFormulario();
+    var r = await fetch('/config', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(corpo) });
+    if (r.ok){
+      salvo = corpo;
+      aviso.textContent = 'Salvo. Vale da próxima impressão fiscal em diante.';
+      aviso.className = 'aviso ok';
+    } else {
+      aviso.textContent = 'Não foi possível salvar (HTTP ' + r.status + ').';
+      aviso.className = 'aviso erro';
+    }
+  } catch (e) {
+    aviso.textContent = 'Não foi possível salvar: ' + e.message;
+    aviso.className = 'aviso erro';
+  } finally {
+    b.disabled = false; b.textContent = 'Salvar';
+  }
+});
+
+(async function carregar(){
+  try {
+    var c = await (await fetch('/config')).json();
+    escreverFormulario(c);
+  } catch (e) {
+    el('aviso').textContent = 'Não foi possível ler a configuração deste computador.';
+    el('aviso').className = 'aviso erro';
+  }
+  salvo = lerFormulario();
+  aoMudar();
+})();
 </script>
 </body></html>`;
 }

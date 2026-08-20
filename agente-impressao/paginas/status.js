@@ -35,6 +35,8 @@
  * estático: só existem as rotas de JSON e as três páginas HTML. Servir o arquivo
  * exigiria uma rota nova, e a regra aqui é não mexer em rota.
  */
+const { PREVIA_CSS, previaCupomHtml, PREVIA_JS } = require('./cupom-previa');
+
 const LOGO_SVG = `<svg viewBox="0 0 256 256" width="19" height="19" aria-hidden="true">
   <rect x="48" y="96" width="160" height="88" rx="14" fill="#ffffff"/>
   <rect x="72" y="56" width="112" height="56" rx="6" fill="#ffffff"/>
@@ -59,6 +61,7 @@ function paginaStatus({ versao }) {
     --inativo:#C6C1BB;
     --ui:'Inter','Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;
     --mono:'JetBrains Mono','Cascadia Mono','Consolas','DejaVu Sans Mono',monospace;
+    --cupom-larg:252px;
   }
   *{box-sizing:border-box}
   html,body{height:100%}
@@ -188,20 +191,11 @@ function paginaStatus({ versao }) {
   .split{display:flex;gap:20px;align-items:flex-start}
   .split .form{flex:1;min-width:0}
   .previa{width:284px;flex:none;border:1px solid var(--hairline);border-radius:6px;
-    background:var(--barra);overflow:hidden}
+    background:var(--barra);overflow:hidden;padding-bottom:12px}
   .previa-cab{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;
     border-bottom:1px solid var(--hairline);font-family:var(--mono);font-size:10px;
-    letter-spacing:.08em;color:var(--terc)}
-  .cupom{font-family:var(--mono);font-size:9.5px;line-height:1.5;color:var(--texto);
-    padding:14px 16px;background:var(--superficie);margin:10px;border:1px solid var(--hairline-fraca)}
-  .cupom.grande{font-size:11px;line-height:1.55}
-  .cupom .c{text-align:center}
-  .cupom .sep{color:var(--terc);white-space:nowrap;overflow:hidden}
-  .cupom .item{display:flex;justify-content:space-between;gap:8px;white-space:nowrap}
-  .cupom .total{display:flex;justify-content:space-between;font-weight:600;white-space:nowrap}
-  .cupom .qr{width:64px;height:64px;margin:6px auto;border:1px solid var(--hairline);
-    display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--terc)}
-
+    letter-spacing:.08em;color:var(--terc);margin-bottom:12px}
+${PREVIA_CSS}
   .campo{margin-bottom:18px}
   .campo > label{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.06em;
     text-transform:uppercase;color:var(--terc);margin-bottom:6px}
@@ -354,7 +348,7 @@ function paginaStatus({ versao }) {
 
           <div class="previa">
             <div class="previa-cab"><span>Prévia</span><span>80mm</span></div>
-            <div class="cupom" id="cupom-previa"></div>
+            ${previaCupomHtml()}
           </div>
         </div>
       </section>
@@ -398,6 +392,7 @@ function paginaStatus({ versao }) {
 </div></div>
 
 <script>
+${PREVIA_JS}
 function el(id){ return document.getElementById(id); }
 function escapar(s){ return String(s).replace(/[&<>"]/g, function(c){
   return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]; }); }
@@ -636,7 +631,7 @@ function atualizarBarra(){
   el('sb-sujo').classList.toggle('on', s);
   el('sb-versao').classList.toggle('escondida', s);
 }
-function aoMudar(){ atualizarBarra(); desenharPrevia(); }
+function aoMudar(){ atualizarBarra(); atualizarPreviaCupom(lerFormulario()); }
 
 ['cabecalho','rodape'].forEach(function(id){ el(id).addEventListener('input', aoMudar); });
 Object.keys(switches).forEach(function(k){
@@ -670,30 +665,6 @@ el('btn-salvar').addEventListener('click', async function(){
   }
 });
 
-/* Cupom de exemplo: dado de amostra, e rotulado como tal na loja e no CNPJ —
-   a prévia mostra a FORMA do cupom, não os dados reais da loja (que o agente
-   não conhece: eles chegam junto com cada pedido). */
-function desenharPrevia(){
-  var c = lerFormulario();
-  var alvo = el('cupom-previa');
-  alvo.className = 'cupom' + (c.fonteGrande ? ' grande' : '');
-  var linhas = [];
-  linhas.push('<div class="c"><b>LOJA DE EXEMPLO</b></div>');
-  linhas.push('<div class="c">CNPJ 00.000.000/0001-00</div>');
-  if (c.mostrarEndereco) linhas.push('<div class="c">Rua das Flores, 123 - Centro</div>');
-  if (c.cabecalho.trim()) linhas.push('<div class="c">' + escapar(c.cabecalho.trim()) + '</div>');
-  linhas.push('<div class="sep">--------------------------------</div>');
-  linhas.push('<div class="c">DANFE NFC-e</div>');
-  linhas.push('<div class="sep">--------------------------------</div>');
-  linhas.push('<div class="item"><span>1 X-Salada</span><span>28,00</span></div>');
-  linhas.push('<div class="item"><span>2 Refrigerante</span><span>16,00</span></div>');
-  linhas.push('<div class="sep">--------------------------------</div>');
-  linhas.push('<div class="total"><span>TOTAL</span><span>44,00</span></div>');
-  if (c.mostrarQr) linhas.push('<div class="qr">QR</div>');
-  if (c.rodape.trim()) linhas.push('<div class="c">' + escapar(c.rodape.trim()) + '</div>');
-  alvo.innerHTML = linhas.join('');
-}
-
 async function carregarConfig(){
   try {
     var c = await (await fetch('/config')).json();
@@ -705,7 +676,7 @@ async function carregarConfig(){
     salvo = lerFormulario();
   }
   atualizarBarra();
-  desenharPrevia();
+  aoMudar();
 }
 
 /* ───── Abrir com o Windows ───── */
