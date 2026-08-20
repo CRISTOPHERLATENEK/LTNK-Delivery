@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   proximoVencimento, diasDeAtraso, statusCalculado, deveSuspenderAcesso, processarVencimentos,
+  registrarPagamento, ErroPagamentoDuplicado,
   type Assinatura,
 } from './assinaturas';
 
@@ -178,5 +179,60 @@ describe('processarVencimentos e quem pode religar o cliente', () => {
     ]);
     await processarVencimentos(pool as never);
     expect(escritas.filter(e => /UPDATE tenants/.test(e.sql))).toHaveLength(0);
+  });
+});
+
+/**
+ * `registrarPagamento` avança o vencimento a cada chamada. Dois cliques no botão
+ * davam um mês grátis, em silêncio. A trava é o índice único
+ * (assinatura_id, competencia) no banco — aqui se verifica que o código REAGE a
+ * ela: erro claro, e vencimento NÃO avançado.
+ */
+describe('registrarPagamento — competência repetida', () => {
+  function poolQueDuplica(duplicar: boolean) {
+    const escritas: string[] = [];
+    const pool = {
+      query: async (sql: string) => {
+        if (/^\s*SELECT/i.test(sql)) {
+          return [[{ id: 1, tenant_id: 7, vence_em: '2026-03-05', dia_vencimento: 5 }], undefined];
+        }
+        escritas.push(sql.replace(/\s+/g, ' ').trim());
+        if (duplicar && /INSERT INTO assinatura_pagamentos/i.test(sql)) {
+          const e: Error & { code?: string } = new Error(
+            "Duplicate entry '1-2026-03' for key 'uq_pag_competencia'");
+          e.code = 'ER_DUP_ENTRY';
+          throw e;
+        }
+        return [{ affectedRows: 1 }, undefined];
+      },
+    };
+    return { pool, escritas };
+  }
+
+  it('primeiro registro grava e avança o vencimento', async () => {
+    const { pool, escritas } = poolQueDuplica(false);
+    await registrarPagamento(pool as never, {
+      assinaturaId: 1, valorCentavos: 9900, forma: 'pix', referencia: 'e2e',
+    });
+    expect(escritas.some(q => /INSERT INTO assinatura_pagamentos/i.test(q))).toBe(true);
+    expect(escritas.some(q => /UPDATE assinaturas SET vence_em/i.test(q))).toBe(true);
+  });
+
+  it('segundo registro do MESMO mês é recusado e NÃO avança o vencimento', async () => {
+    const { pool, escritas } = poolQueDuplica(true);
+    await expect(registrarPagamento(pool as never, {
+      assinaturaId: 1, valorCentavos: 9900, forma: 'pix', referencia: 'duplicado',
+    })).rejects.toThrow(ErroPagamentoDuplicado);
+    // O que importa: o vencimento ficou onde estava. Se avançasse, era mês grátis.
+    expect(escritas.some(q => /UPDATE assinaturas SET vence_em/i.test(q))).toBe(false);
+    // E o tenant não foi religado de tabela por um pagamento que não existiu.
+    expect(escritas.some(q => /UPDATE tenants/i.test(q))).toBe(false);
+  });
+
+  it('a mensagem do erro diz qual competência já estava paga', async () => {
+    const { pool } = poolQueDuplica(true);
+    await expect(registrarPagamento(pool as never, {
+      assinaturaId: 1, valorCentavos: 100, forma: 'manual', referencia: '',
+    })).rejects.toThrow('2026-03');
   });
 });

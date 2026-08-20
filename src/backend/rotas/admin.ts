@@ -23,8 +23,7 @@ import os from 'os';
 import { Tenant, lerRodapeCredito, salvarRodapeCredito, listarTenants, criarTenant, atualizarTenant, tenantPorId, removerTenant, ehMaster, urlDoTenant, problemaNoSlugTenant, poolCentral } from '../tenants-mysql';
 import {
   listarAssinaturas, salvarAssinatura, registrarPagamento, historicoPagamentos,
-  processarVencimentos, statusCalculado, diasDeAtraso,
-} from '../assinaturas';
+  processarVencimentos, statusCalculado, diasDeAtraso, ErroPagamentoDuplicado } from '../assinaturas';
 import { geocodificarTexto } from '../geo';
 
 /**
@@ -2642,12 +2641,19 @@ router.post('/assinaturas/:id/pagamento', exigirSuperAdmin, async (req, res, nex
     if (!valor) throw erroHttp(400, 'Informe o valor recebido.');
     const forma = ['pix', 'manual'].includes(req.body?.forma) ? req.body.forma : 'manual';
 
-    await registrarPagamento(poolCentral(), {
-      assinaturaId: id,
-      valorCentavos: valor,
-      forma,
-      referencia: textoLimpo(req.body?.referencia, 120),
-    });
+    try {
+      await registrarPagamento(poolCentral(), {
+        assinaturaId: id,
+        valorCentavos: valor,
+        forma,
+        referencia: textoLimpo(req.body?.referencia, 120),
+      });
+    } catch (e) {
+      // 409 e não 500: repetido não é falha do servidor, e a mensagem já diz
+      // qual competência foi. Sem isso, o operador via "erro" e clicava de novo.
+      if (e instanceof ErroPagamentoDuplicado) throw erroHttp(409, e.message);
+      throw e;
+    }
     await registrarAuditoria(req, 'assinatura.pagamento', {
       alvoTipo: 'assinatura', alvoId: id,
       alvoDesc: `R$ ${(valor / 100).toFixed(2)} · ${forma}`,

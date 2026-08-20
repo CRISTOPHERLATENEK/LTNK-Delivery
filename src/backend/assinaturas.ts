@@ -21,6 +21,19 @@ import { agoraUTC } from './util';
 
 export type StatusAssinatura = 'teste' | 'ativa' | 'inadimplente' | 'suspensa' | 'cancelada';
 
+/**
+ * Competência já paga. Erro próprio e não string solta: a rota precisa
+ * distinguir "repetido" (409, e a resposta certa é não fazer nada) de "deu
+ * erro" (500), e um `instanceof` é mais difícil de quebrar sem perceber que
+ * comparar mensagem.
+ */
+export class ErroPagamentoDuplicado extends Error {
+  constructor(public readonly competencia: string) {
+    super(`O pagamento de ${competencia} já foi registrado para esta assinatura.`);
+    this.name = 'ErroPagamentoDuplicado';
+  }
+}
+
 export interface Assinatura {
   id: number;
   tenant_id: number;
@@ -88,6 +101,36 @@ export async function inicializarAssinaturas(pool: Pool): Promise<void> {
       KEY idx_pag_assinatura (assinatura_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+
+  /*
+   * UM PAGAMENTO POR COMPETÊNCIA, garantido pelo banco.
+   *
+   * `registrarPagamento` avança o vencimento a cada chamada. Dois cliques no
+   * botão "registrar pagamento" — ou um duplo clique, ou a página reenviada —
+   * davam um mês grátis, em silêncio, sem nada no sistema denunciando. Com o
+   * índice, a segunda tentativa falha alto e o operador vê "já registrado" em
+   * vez de nada.
+   *
+   * Fora do CREATE TABLE porque a tabela já existe em base publicada. E em
+   * try/catch porque, se houver duplicata GRAVADA de antes, o CREATE INDEX
+   * falha — e derrubar o boot da plataforma inteira por causa disso seria
+   * desproporcional. O aviso diz exatamente o que rodar pra encontrar as linhas
+   * repetidas.
+   */
+  try {
+    await pool.query(
+      'CREATE UNIQUE INDEX uq_pag_competencia ON assinatura_pagamentos (assinatura_id, competencia)',
+    );
+  } catch (e) {
+    const err = e as { code?: string };
+    if (err.code !== 'ER_DUP_KEYNAME') {
+      console.warn(
+        '[ASSINATURA] não foi possível criar uq_pag_competencia (%s). Se for duplicata antiga, procure com: ' +
+        'SELECT assinatura_id, competencia, COUNT(*) c FROM assinatura_pagamentos GROUP BY 1,2 HAVING c > 1;',
+        err.code || e,
+      );
+    }
+  }
 }
 
 /** Hoje em YYYY-MM-DD (UTC), o mesmo formato de `vence_em`. */
@@ -222,11 +265,26 @@ export async function registrarPagamento(pool: Pool, dados: {
   if (!a) throw new Error('Assinatura não encontrada.');
 
   const competencia = (a.vence_em || hojeISO()).slice(0, 7);
-  await pool.query(
-    `INSERT INTO assinatura_pagamentos (assinatura_id, valor_centavos, forma, referencia, competencia, criado_em)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [a.id, dados.valorCentavos, dados.forma, dados.referencia, competencia, agora],
-  );
+  /*
+   * O INSERT vem ANTES de avançar o vencimento de propósito: é ele que carrega
+   * a trava de duplicidade (uq_pag_competencia). Se a competência já foi
+   * registrada, ele falha e o vencimento NÃO é avançado — que é justamente o
+   * mês grátis que a gente quer evitar. Na ordem inversa, o vencimento andava
+   * antes de alguém descobrir que era repetido.
+   */
+  try {
+    await pool.query(
+      `INSERT INTO assinatura_pagamentos (assinatura_id, valor_centavos, forma, referencia, competencia, criado_em)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [a.id, dados.valorCentavos, dados.forma, dados.referencia, competencia, agora],
+    );
+  } catch (e) {
+    const err = e as { code?: string };
+    if (err.code === 'ER_DUP_ENTRY') {
+      throw new ErroPagamentoDuplicado(competencia);
+    }
+    throw e;
+  }
 
   const proximo = proximoVencimento(a.vence_em || hojeISO(), a.dia_vencimento);
   await pool.query(

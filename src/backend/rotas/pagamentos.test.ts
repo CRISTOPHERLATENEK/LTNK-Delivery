@@ -35,8 +35,15 @@ vi.mock('../onz', () => ({
 // `linhaLoja` deixa cada teste decidir o que o SELECT da loja devolve (usado
 // pra simular loja com/sem credenciais próprias da ONZ).
 let linhaLoja: Record<string, unknown> | undefined;
+// SQL visto pelo mock — usado pelo teste da varredura de reconciliação.
+const sqlVisto: string[] = [];
 vi.mock('../db-mysql', () => ({
-  default: { prepare: () => ({ get: async () => linhaLoja, all: async () => [], run: async () => ({}) }) },
+  default: {
+    prepare: (sql: string) => {
+      sqlVisto.push(String(sql).replace(/\s+/g, ' ').trim());
+      return { get: async () => linhaLoja, all: async () => [], run: async () => ({}) };
+    },
+  },
   comTenant: (_b: string, fn: () => unknown) => fn(),
   bancoTenantAtual: () => 'tenant_teste_a',
   abrirPool: () => ({}),
@@ -122,5 +129,31 @@ describe('estornarPagamentoOnline — despacho por gateway', () => {
     await estornarPagamentoOnline(1, 'gateway_novo_qualquer', 'X-1').catch(() => { /* mock do MP */ });
 
     expect(devolverCobranca).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A VARREDURA DE RECONCILIAÇÃO PRECISA INCLUIR O PIX DO MERCADO PAGO.
+ *
+ * O filtro era só `forma_pagamento = 'cartao_online'`. Pix pago pelo MP
+ * dependia do webhook chegar ou de o cliente reabrir a tela do pedido — se ele
+ * pagasse e fechasse o app, ninguém mais perguntava ao MP e o pedido pago ficava
+ * invisível pro lojista.
+ *
+ * O teste olha o SQL porque é o filtro que decide quem é resgatado. Não prova
+ * que o MySQL casa as linhas certas (pra isso precisaria de banco de verdade),
+ * mas prova que ninguém tirou o Pix da varredura sem perceber, e que a ONZ
+ * continua de fora — ela tem varredura própria, com a API dela.
+ */
+describe('reconciliarCartoesMP — o que entra na varredura', () => {
+  it('cobre cartão E pix do Mercado Pago, e deixa a ONZ de fora', async () => {
+    sqlVisto.length = 0;
+    await pagamentos.reconciliarCartoesMP();
+    const varredura = sqlVisto.find(q => /FROM pedidos/i.test(q) && /aguardando/i.test(q));
+    expect(varredura).toBeDefined();
+    expect(varredura).toMatch(/forma_pagamento = 'cartao_online'/);
+    expect(varredura).toMatch(/forma_pagamento = 'pix'/);
+    // A ONZ não pode ser varrida aqui: o token e a API são outros.
+    expect(varredura).toMatch(/pagamento_gateway IS NULL OR pagamento_gateway IN \('', 'mercadopago'\)/);
   });
 });

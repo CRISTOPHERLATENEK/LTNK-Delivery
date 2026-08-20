@@ -15,6 +15,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { montarManifest, lerCabecalhoAssinatura, conferirAssinatura } from './assinatura-mp';
+import { escolherSegredoWebhook } from './rotas/pagamentos';
 
 const SEGREDO = 'segredo-de-teste';
 // HMAC-SHA256 de 'id:123456789;request-id:abc-123;ts:1704908010;' com SEGREDO.
@@ -104,5 +105,53 @@ describe('conferirAssinatura', () => {
     expect(conferirAssinatura({ ...base, secret: null })).toEqual({
       valida: true, motivo: 'sem-segredo',
     });
+  });
+});
+
+/**
+ * QUAL SEGREDO VALE PRA CADA LOJA.
+ *
+ * Este é o teste que torna seguro colar MERCADOPAGO_WEBHOOK_SECRET no .env.
+ * Antes, a reserva do .env valia pra qualquer loja sem segredo próprio — e o MP
+ * assina por APLICAÇÃO, então a notificação de um lojista com conta própria
+ * jamais bateria com o segredo da plataforma. Ligar o .env recusava 100% das
+ * notificações legítimas dessas lojas, e o pedido pago delas parava de ser
+ * confirmado.
+ */
+describe('escolherSegredoWebhook — de quem é o segredo', () => {
+  it('loja com segredo próprio usa o dela, mesmo havendo o do .env', () => {
+    expect(escolherSegredoWebhook(
+      { segredoProprio: 'da-loja', temContaPropria: true }, 'do-env')).toBe('da-loja');
+  });
+
+  /* O caso que era o bug. */
+  it('conta própria SEM segredo próprio NÃO cai no .env — devolve null (aceita)', () => {
+    expect(escolherSegredoWebhook(
+      { segredoProprio: null, temContaPropria: true }, 'do-env')).toBeNull();
+  });
+
+  it('loja na conta da plataforma usa o segredo do .env', () => {
+    expect(escolherSegredoWebhook(
+      { segredoProprio: null, temContaPropria: false }, 'do-env')).toBe('do-env');
+  });
+
+  it('sem loja identificada, vale o do .env (conta da plataforma)', () => {
+    expect(escolherSegredoWebhook(null, 'do-env')).toBe('do-env');
+  });
+
+  it('sem nada configurado, null — o comportamento de hoje', () => {
+    expect(escolherSegredoWebhook({ segredoProprio: null, temContaPropria: false }, null)).toBeNull();
+  });
+
+  /*
+   * O elo com a validação: null significa "sem segredo", e `conferirAssinatura`
+   * precisa ACEITAR nesse caso. Se algum dia isso virar recusa, esta linha
+   * quebra junto — e é bom que quebre, porque seria a mudança que derruba a
+   * confirmação de pagamento das lojas com conta própria.
+   */
+  it('null significa aceitar, não recusar', () => {
+    const secret = escolherSegredoWebhook({ segredoProprio: null, temContaPropria: true }, 'do-env');
+    expect(conferirAssinatura({ cabecalho: undefined, requestId: undefined, dataId: '1', secret }))
+      .toEqual({ valida: true, motivo: 'sem-segredo' });
   });
 });

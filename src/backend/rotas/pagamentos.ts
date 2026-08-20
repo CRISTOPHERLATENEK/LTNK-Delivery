@@ -486,16 +486,66 @@ async function processarWebhookMP(pagamentoId: string, lojaIdDica?: number): Pro
  * O do `.env` continua valendo como reserva pra loja que ainda não colou o
  * dela — e pra conta da própria plataforma, que não tem loja associada.
  */
-async function segredoWebhookDaLoja(lojaId?: number): Promise<string | null> {
-  if (lojaId) {
-    try {
-      const row = await db.prepare('SELECT mercadopago_webhook_secret FROM lojas WHERE id = ?')
-        .get(lojaId) as { mercadopago_webhook_secret: string | null } | undefined;
-      if (row?.mercadopago_webhook_secret) return descriptografar(row.mercadopago_webhook_secret);
-    } catch { /* segue pro .env */ }
-  }
-  return process.env.MERCADOPAGO_WEBHOOK_SECRET || null;
+/**
+ * Qual segredo vale pra esta loja — a DECISÃO, separada do acesso ao banco pra
+ * poder ser testada (assinatura-mp.test.ts).
+ *
+ * Três casos, e o do meio é o que existe por causa de um bug:
+ *
+ *  1. Loja colou o segredo dela  → usa o dela.
+ *  2. Loja tem CONTA PRÓPRIA do MP e não colou segredo → `null`, ou seja "sem
+ *     segredo": aceita, como aceitava antes de existir qualquer segredo.
+ *  3. Loja usa a conta da plataforma → usa o segredo do .env.
+ *
+ * O caso 2 é o conserto. O Mercado Pago assina por APLICAÇÃO: o segredo do .env
+ * é o da aplicação da plataforma e nunca vai bater com a assinatura emitida
+ * pelo app do lojista. Cair na reserva ali não protegia nada — recusava 100%
+ * das notificações legítimas daquela loja, e o pedido pago dela deixava de ser
+ * confirmado. Aceitar continua protegido pelo que sempre protegeu: o status é
+ * reconsultado na API do MP antes de valer.
+ *
+ * Consequência prática: configurar MERCADOPAGO_WEBHOOK_SECRET protege a conta
+ * da plataforma SEM quebrar ninguém. Cada lojista com conta própria ganha
+ * proteção quando colar o segredo dele (Config → Pagamento).
+ */
+export function escolherSegredoWebhook(
+  loja: { segredoProprio: string | null; temContaPropria: boolean } | null,
+  segredoDoEnv: string | null,
+): string | null {
+  if (loja?.segredoProprio) return loja.segredoProprio;
+  if (loja?.temContaPropria) return null;
+  return segredoDoEnv || null;
 }
+
+/** Lê a loja e delega a decisão pra `escolherSegredoWebhook`. */
+async function segredoWebhookDaLoja(lojaId?: number): Promise<string | null> {
+  const doEnv = process.env.MERCADOPAGO_WEBHOOK_SECRET || null;
+  if (!lojaId) return doEnv;
+  try {
+    const row = await db.prepare(
+      `SELECT mercadopago_webhook_secret, mercadopago_token,
+              mercadopago_token_teste, mercadopago_token_producao
+         FROM lojas WHERE id = ?`
+    ).get(lojaId) as {
+      mercadopago_webhook_secret: string | null; mercadopago_token: string | null;
+      mercadopago_token_teste: string | null; mercadopago_token_producao: string | null;
+    } | undefined;
+    if (!row) return doEnv;
+
+    let segredoProprio: string | null = null;
+    if (row.mercadopago_webhook_secret) {
+      try { segredoProprio = descriptografar(row.mercadopago_webhook_secret); }
+      catch { /* chave trocada: trata como se não tivesse */ }
+    }
+    return escolherSegredoWebhook({
+      segredoProprio,
+      temContaPropria: !!(row.mercadopago_token_producao || row.mercadopago_token_teste || row.mercadopago_token),
+    }, doEnv);
+  } catch {
+    return doEnv;
+  }
+}
+
 
 /** Comparação de token resistente a timing (mesmo padrão do webhook do WhatsApp). */
 function tokenConfere(recebido: string, esperado: string): boolean {
@@ -872,13 +922,30 @@ export async function conferirCartaoAgora(pedidoId: number): Promise<boolean> {
  * pedido sem pagamento nenhum é indistinguível de "o cliente ainda está com o
  * checkout aberto numa aba", e cancelar por baixo dele seria pior que deixar
  * pendente.
+ *
+ * COBRE PIX DO MERCADO PAGO TAMBÉM, e não só cartão. O filtro era
+ * `forma_pagamento = 'cartao_online'`, então um Pix pago pelo MP dependia do
+ * webhook chegar ou de o cliente reabrir a tela do pedido — se ele pagasse e
+ * fechasse o app, ninguém mais perguntava. O caminho de confirmação é idêntico
+ * nos dois casos (busca por `external_reference` e `processarWebhookMP`), então
+ * o que muda é só quem entra na lista.
+ *
+ * O filtro por gateway existe pra não varrer Pix da ONZ aqui: aquele tem
+ * varredura própria, com as credenciais e a API dele. `pagamento_gateway` pode
+ * estar vazio em pedido antigo, e nesse caso o Mercado Pago é o padrão histórico
+ * — daí aceitar NULL e string vazia.
  */
 export async function reconciliarCartoesMP(horasParaTras = 48): Promise<{ conferidos: number; confirmados: number }> {
   const limite = new Date(Date.now() - horasParaTras * 3600_000).toISOString();
   const pendentes = await db.prepare(
     `SELECT id, loja_id FROM pedidos
-      WHERE forma_pagamento = 'cartao_online' AND pagamento_status = 'aguardando'
+      WHERE pagamento_status = 'aguardando'
         AND criado_em >= ?
+        AND (
+          forma_pagamento = 'cartao_online'
+          OR (forma_pagamento = 'pix'
+              AND (pagamento_gateway IS NULL OR pagamento_gateway IN ('', 'mercadopago')))
+        )
       ORDER BY id DESC LIMIT 200`
   ).all(limite) as Array<{ id: number; loja_id: number }>;
   if (pendentes.length === 0) return { conferidos: 0, confirmados: 0 };
