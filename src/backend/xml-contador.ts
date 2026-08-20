@@ -38,6 +38,23 @@ export interface PacoteXml {
   total_centavos: number;
 }
 
+/**
+ * Quantos meses o seletor de XML oferece.
+ *
+ * Era 24, e isso escondia arquivo que o lojista é OBRIGADO a guardar: a guarda
+ * de documento fiscal eletrônico é contada em anos, não em dois anos. E o dado
+ * nunca foi apagado — nada no sistema remove `notas_fiscais` (o único DELETE
+ * está no excluir-loja, que se recusa a rodar quando há pedido no histórico).
+ * Então o limite não protegia nada: só tornava inalcançável, pela tela, um XML
+ * que estava ali no banco.
+ *
+ * 132 meses e não 60 porque o prazo tem exceções (litígio, fiscalização em
+ * curso) e porque não custa nada: são 132 linhas agrupadas no máximo, e o
+ * seletor só lista mês que REALMENTE tem nota — loja nova continua mostrando
+ * um item. Escolher 60 seria eu adivinhando o prazo; 132 tira a pergunta.
+ */
+const MESES_HISTORICO = 132;
+
 /** Meses que têm nota de produção, do mais recente pro mais antigo. */
 export async function competenciasDaLoja(lojaId: number) {
   const linhas = await db.prepare(
@@ -50,7 +67,7 @@ export async function competenciasDaLoja(lojaId: number) {
       WHERE ${FILTRO}
       GROUP BY competencia
       ORDER BY competencia DESC
-      LIMIT 24`
+      LIMIT ${MESES_HISTORICO}`
   ).all(lojaId) as Array<Record<string, unknown>>;
   // SUM() no MySQL volta como string — sem coagir aqui, "12" + "30" viraria
   // "1230" na tela em vez de 42.
