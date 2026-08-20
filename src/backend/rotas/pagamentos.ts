@@ -3,6 +3,7 @@
  */
 import { Router } from 'express';
 import crypto from 'crypto';
+import { conferirAssinatura } from '../assinatura-mp';
 import db, { abrirPool, comTenant, comTransacao } from '../db-mysql';
 import { agoraUTC } from '../util';
 import { notificarLojistaNovoPedido } from '../notificacoes';
@@ -476,14 +477,6 @@ async function processarWebhookMP(pagamentoId: string, lojaIdDica?: number): Pro
 }
 
 /**
- * Valida o header `x-signature` do webhook contra `MERCADOPAGO_WEBHOOK_SECRET`
- * (algoritmo documentado pelo MP: HMAC-SHA256 de um manifest com id/request-id/
- * ts). Opt-in de propósito — sem o secret configurado, aceita como sempre
- * aceitou (mitigado por sempre reconsultar o pagamento na API do MP antes de
- * confiar em qualquer coisa do corpo da notificação); com o secret, rejeita
- * notificação forjada/sem assinatura válida.
- */
-/**
  * Segredo de assinatura DA LOJA, com o do .env como reserva.
  *
  * Por loja porque o Mercado Pago emite a assinatura por APLICAÇÃO, e cada
@@ -502,26 +495,6 @@ async function segredoWebhookDaLoja(lojaId?: number): Promise<string | null> {
     } catch { /* segue pro .env */ }
   }
   return process.env.MERCADOPAGO_WEBHOOK_SECRET || null;
-}
-
-function assinaturaMpValida(req: import('express').Request, dataId: string, secret: string | null): boolean {
-  if (!secret) return true;
-  const cabecalho = req.headers['x-signature'];
-  const requestId = req.headers['x-request-id'];
-  if (typeof cabecalho !== 'string' || typeof requestId !== 'string') return false;
-  const partes: Record<string, string> = {};
-  for (const par of cabecalho.split(',')) {
-    const [k, v] = par.trim().split('=');
-    if (k && v) partes[k] = v;
-  }
-  if (!partes.ts || !partes.v1) return false;
-  const manifest = `id:${dataId.toLowerCase()};request-id:${requestId};ts:${partes.ts};`;
-  const esperado = crypto.createHmac('sha256', secret).update(manifest).digest('hex');
-  try {
-    const a = Buffer.from(esperado);
-    const b = Buffer.from(partes.v1);
-    return a.length === b.length && crypto.timingSafeEqual(a, b);
-  } catch { return false; }
 }
 
 /** Comparação de token resistente a timing (mesmo padrão do webhook do WhatsApp). */
@@ -1092,8 +1065,21 @@ router.post('/webhook/mercadopago', async (req, res) => {
      */
     const processar = async () => {
       const secret = await segredoWebhookDaLoja(lojaDica);
-      if (!assinaturaMpValida(req, String(pagamentoId), secret)) {
-        console.warn(`[mercadopago] webhook com assinatura inválida (loja ${lojaDica ?? '?'}), ignorado`);
+      const conferencia = conferirAssinatura({
+        cabecalho: req.headers['x-signature'],
+        requestId: req.headers['x-request-id'],
+        dataId: String(pagamentoId),
+        secret,
+      });
+      if (!conferencia.valida) {
+        /*
+         * O MOTIVO vai no log de propósito. Quando o lojista liga dizendo que o
+         * pedido não confirmou, "sem-cabecalho" e "hash-diferente" levam a
+         * lugares opostos: o primeiro é configuração do webhook no painel do MP,
+         * o segundo é segredo trocado ou colado errado. Sem o motivo, os dois
+         * viravam a mesma linha inútil de log.
+         */
+        console.warn(`[mercadopago] webhook recusado (${conferencia.motivo}) — loja ${lojaDica ?? '?'}, pagamento ${pagamentoId}`);
         return; // 200 pro MP não ficar re-tentando; só não processa
       }
       await processarWebhookMP(String(pagamentoId), lojaDica);
