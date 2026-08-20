@@ -11,7 +11,8 @@ import fs from 'fs';
 import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
 import { tenantPorDbNome } from '../tenants-mysql';
 import { autenticar, exigirPerfil } from '../auth';
-import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido, normalizarBairro } from '../util';
+import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido, normalizarBairro, dataBrasilia} from '../util';
+import { precoVigente } from '../preco-produto';
 import { resolverCanais } from '../disponibilidade-produto';
 import { transicionarStatus } from '../fluxoPedido';
 import { enviarPush } from '../push';
@@ -972,6 +973,8 @@ router.get('/produtos', async (req, res, next) => {
 
 interface CamposProduto {
   nome: string; preco: number; promo: number | null;
+  /** 'YYYY-MM-DD' — último dia da promoção. Vazio = sem prazo. */
+  promoFim: string;
   servePessoas: number | null; descricao: string; categoria: string; subcategoria: string;
   foto_url: string; destaque: 0 | 1; disponivel: 0 | 1; disponivelPdv: 0 | 1;
   vendidoPor: 'un' | 'kg'; codigoBarras: string;
@@ -996,6 +999,31 @@ function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProdut
     }
   }
 
+  /*
+   * PRAZO DA PROMOÇÃO ('YYYY-MM-DD', vazio = sem prazo).
+   *
+   * Recusa data no passado: gravar promoção que já venceu no instante em que se
+   * salva não é intenção plausível, é dedo errado no calendário — e o efeito
+   * seria o produto voltar ao preço cheio em silêncio, o oposto do que a pessoa
+   * achou que fez.
+   *
+   * Sem promoção, o prazo é zerado junto. Prazo órfão ficaria guardado e
+   * reapareceria na próxima promoção que alguém criasse, com uma data antiga
+   * que ninguém escolheu.
+   */
+  let promoFim = String((atual as { promo_fim?: string }).promo_fim ?? '');
+  if (corpo.promo_fim !== undefined) {
+    const bruto = textoLimpo(corpo.promo_fim, 10);
+    if (bruto && !/^\d{4}-\d{2}-\d{2}$/.test(bruto)) {
+      throw erroHttp(400, 'Data da promoção inválida.');
+    }
+    if (bruto && bruto < dataBrasilia()) {
+      throw erroHttp(400, 'A promoção não pode terminar numa data que já passou.');
+    }
+    promoFim = bruto;
+  }
+  if (promo === null) promoFim = '';
+
   let servePessoas: number | null = atual.serve_pessoas ?? null;
   if (corpo.serve_pessoas !== undefined) {
     servePessoas = corpo.serve_pessoas ? inteiroPositivo(corpo.serve_pessoas) : null;
@@ -1019,7 +1047,7 @@ function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProdut
   }
 
   return {
-    nome, preco, promo, servePessoas,
+    nome, preco, promo, promoFim, servePessoas,
     descricao: textoLimpo(valor('descricao', atual.descricao || ''), 300),
     categoria: textoLimpo(valor('categoria', atual.categoria), 50) || 'Geral',
     subcategoria: textoLimpo(valor('subcategoria', (atual as any).subcategoria || ''), 80),
@@ -1039,11 +1067,11 @@ router.post('/produtos', async (req, res, next) => {
     const c = camposProduto(req);
     const info = await db.prepare(
       `INSERT INTO produtos (loja_id, nome, descricao, categoria, subcategoria, preco_centavos,
-                             preco_promocional_centavos, serve_pessoas, destaque,
+                             preco_promocional_centavos, promo_fim, serve_pessoas, destaque,
                              foto_url, disponivel, disponivel_pdv, vendido_por, codigo_barras,
                              controla_estoque, estoque, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(loja.id, c.nome, c.descricao, c.categoria, c.subcategoria, c.preco, c.promo,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(loja.id, c.nome, c.descricao, c.categoria, c.subcategoria, c.preco, c.promo, c.promoFim,
           c.servePessoas, c.destaque, c.foto_url, c.disponivel, c.disponivelPdv, c.vendidoPor, c.codigoBarras,
           c.controlaEstoque, c.estoque, agoraUTC());
     res.status(201).json({ produto_id: Number(info.lastInsertRowid) });
@@ -1057,10 +1085,10 @@ router.put('/produtos/:id', async (req, res, next) => {
     const c = camposProduto(req, produto);
     await db.prepare(
       `UPDATE produtos SET nome = ?, descricao = ?, categoria = ?, subcategoria = ?, preco_centavos = ?,
-              preco_promocional_centavos = ?, serve_pessoas = ?, destaque = ?,
+              preco_promocional_centavos = ?, promo_fim = ?, serve_pessoas = ?, destaque = ?,
               foto_url = ?, disponivel = ?, disponivel_pdv = ?, vendido_por = ?, codigo_barras = ?,
               controla_estoque = ?, estoque = ? WHERE id = ?`
-    ).run(c.nome, c.descricao, c.categoria, c.subcategoria, c.preco, c.promo, c.servePessoas,
+    ).run(c.nome, c.descricao, c.categoria, c.subcategoria, c.preco, c.promo, c.promoFim, c.servePessoas,
           c.destaque, c.foto_url, c.disponivel, c.disponivelPdv, c.vendidoPor, c.codigoBarras,
           c.controlaEstoque, c.estoque, produto.id);
     res.json({ ok: true });
@@ -1429,8 +1457,7 @@ router.post('/balcao', async (req, res, next) => {
     const itensValidados: { produto: Produto; quantidade: number; precoUnit: number; detalhe: string }[] = [];
     for (const it of itensReq) {
       const produto = await meuProduto(loja, it.produto_id);
-      const precoBase = (produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0)
-        ? produto.preco_promocional_centavos : produto.preco_centavos;
+      const precoBase = precoVigente(produto, dataBrasilia());
 
       if ((produto as any).vendido_por === 'kg') {
         // Produto por peso: o cliente informa o peso em gramas; o preço é por kg.
@@ -3915,8 +3942,7 @@ router.post('/comandas/:id/itens', async (req, res, next) => {
     if (req.body.produto_id) {
       const produto = await meuProduto(loja, req.body.produto_id);
       nomeProduto = produto.nome;
-      precoUnit = (produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0)
-        ? produto.preco_promocional_centavos : produto.preco_centavos;
+      precoUnit = precoVigente(produto, dataBrasilia());
     } else {
       nomeProduto = textoLimpo(req.body.nome_produto || '', 120);
       precoUnit = inteiroPositivo(req.body.preco_unit_centavos) || 0;

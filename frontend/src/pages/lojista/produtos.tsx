@@ -12,6 +12,7 @@ import { Falha } from '@/components/ui/estado';
 import { Modal, ModalClose, ModalConteudo, ModalTitulo, ModalDescricao } from '@/components/ui/modal';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ImageUpload } from '@/components/ui/image-upload';
+import { promocaoVigente, hojeBrasilia } from '@/lib/preco-produto';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError } from '@/lib/api';
@@ -23,7 +24,7 @@ import type { Produto } from '@/types';
 /* ─────────────────────── tipos ──────────────────────── */
 const FORM_VAZIO = {
   nome: '', descricao: '', categoria: '', subcategoria: '',
-  preco: '', preco_promocional: '', foto_url: '',
+  preco: '', preco_promocional: '', promo_fim: '', foto_url: '',
   disponivel: true, disponivel_pdv: true, destaque: false, serve_pessoas: '',
   vendido_por: 'un' as 'un' | 'kg', codigo_barras: '',
   controla_estoque: false, estoque: '',
@@ -211,6 +212,7 @@ export function ProdutosLoja() {
       preco: String((p.preco_centavos / 100).toFixed(2)),
       preco_promocional: p.preco_promocional_centavos
         ? String((p.preco_promocional_centavos / 100).toFixed(2)) : '',
+      promo_fim: p.promo_fim || '',
       foto_url: p.foto_url || '',
       disponivel: !!p.disponivel,
       disponivel_pdv: !!p.disponivel_pdv,
@@ -248,6 +250,7 @@ export function ProdutosLoja() {
       // evita que o backend interprete o ponto como separador de milhar.
       preco: form.preco === '' ? 0 : Number(form.preco),
       preco_promocional: form.preco_promocional ? Number(form.preco_promocional) : undefined,
+      promo_fim: form.promo_fim,
       foto_url: form.foto_url,
       disponivel: form.disponivel,
       disponivel_pdv: form.disponivel_pdv,
@@ -825,10 +828,43 @@ export function ProdutosLoja() {
                             type="number" step="0.01" min="0.01"
                             value={form.preco_promocional} onChange={set('preco_promocional')} placeholder="—"
                             className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
+                            aria-describedby="p-promo-ajuda"
                           />
                         </div>
                       </div>
                     </div>
+
+                    {/*
+                      PRAZO DA PROMOÇÃO — só aparece quando existe promoção.
+                      Campo de data vazio numa tela sem promoção nenhuma é uma
+                      pergunta sem contexto; aqui ele nasce junto do valor.
+
+                      Sem prazo, a promoção fica no ar até alguém lembrar de
+                      tirar — era assim antes, e é como terça-feira acabava
+                      vendendo com desconto de sábado.
+                    */}
+                    {form.preco_promocional && (
+                      <div className="mt-4">
+                        <Label htmlFor="p-promo-fim">
+                          Promoção vale até
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">(opcional)</span>
+                        </Label>
+                        <Input
+                          id="p-promo-fim"
+                          type="date"
+                          value={form.promo_fim}
+                          onChange={set('promo_fim')}
+                          min={hojeBrasilia()}
+                          className={CAMPO_MODAL}
+                          aria-describedby="p-promo-ajuda"
+                        />
+                        <p id="p-promo-ajuda" className="mt-1 text-[12.5px] text-muted-foreground">
+                          {form.promo_fim
+                            ? 'A partir do dia seguinte, o preço volta ao normal sozinho. O valor da promoção fica guardado.'
+                            : 'Em branco, a promoção não tem fim — vale até você tirar na mão.'}
+                        </p>
+                      </div>
+                    )}
 
                     <div className="mt-4 grid gap-3 sm:grid-cols-[1fr_180px]">
                       <div>
@@ -1400,11 +1436,24 @@ function CardProduto({
                   <Star className="size-3 fill-current" /> Destaque
                 </span>
               )}
+              {/*
+                Promoção VENCIDA continua aparecendo, em cinza e dizendo que
+                venceu. Sumir o selo esconderia que o produto tem um preço
+                promocional guardado — e o lojista abriria o cadastro sem
+                entender por que o campo está preenchido.
+              */}
               {p.preco_promocional_centavos ? (
-                <span className="inline-flex items-center gap-1.5 rounded-md border border-[#CBEADB] bg-[#EBF7F1] px-2 py-0.5 text-[11.5px] font-bold text-[#047857] dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
-                  Promoção {brl(p.preco_promocional_centavos)}
-                  <span className="font-normal line-through opacity-70">antes {brl(p.preco_centavos)}</span>
-                </span>
+                promocaoVigente(p) ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-[#CBEADB] bg-[#EBF7F1] px-2 py-0.5 text-[11.5px] font-bold text-[#047857] dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
+                    Promoção {brl(p.preco_promocional_centavos)}
+                    <span className="font-normal line-through opacity-70">antes {brl(p.preco_centavos)}</span>
+                    {p.promo_fim && <span className="font-normal opacity-70">até {p.promo_fim.slice(8, 10)}/{p.promo_fim.slice(5, 7)}</span>}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-muted px-2 py-0.5 text-[11.5px] font-bold text-muted-foreground">
+                    Promoção vencida {p.promo_fim && <span className="font-normal">em {p.promo_fim.slice(8, 10)}/{p.promo_fim.slice(5, 7)}</span>}
+                  </span>
+                )
               ) : null}
               {semEstoque ? (
                 <span className="rounded-md border border-destructive/25 bg-destructive/10 px-2 py-0.5 text-[11.5px] font-bold text-destructive">

@@ -7,7 +7,8 @@ import { Router, Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
 import { autenticar, exigirPerfil } from '../auth';
-import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, telefoneDigitos, erroHttp, normalizarBairro } from '../util';
+import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, telefoneDigitos, erroHttp, normalizarBairro, dataBrasilia} from '../util';
+import { precoVigente } from '../preco-produto';
 import { transicionarStatus } from '../fluxoPedido';
 import { notificarLojistaNovoPedido } from '../notificacoes';
 import { notificarPedidoWhatsApp } from '../whatsapp';
@@ -232,8 +233,7 @@ router.post('/carrinho/conferir', async (req, res, next) => {
        * qualquer forma (o servidor recalcula). O que não pode é o cliente
        * descobrir isso só no total final — daí avisar aqui, com o valor novo.
        */
-      const precoAtual = (p.preco_promocional_centavos && p.preco_promocional_centavos > 0)
-        ? p.preco_promocional_centavos : p.preco_centavos;
+      const precoAtual = precoVigente(p, dataBrasilia());
       const precoNaTela = inteiroPositivo(it?.preco_centavos);
       if (precoNaTela && precoNaTela !== precoAtual) {
         problemas.push({ produto_id: produtoId, motivo: 'mudou de preço', preco_novo_centavos: precoAtual });
@@ -282,8 +282,9 @@ async function validarOpcoesDoItem(produto: Produto, opcoesEscolhidas: number[] 
     'SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id'
   ).all(produto.id) as GrupoOpcao[];
 
-  let precoUnit = (produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0)
-    ? produto.preco_promocional_centavos : produto.preco_centavos;
+  // O preço que o cliente PAGA. Promoção vencida não vale aqui — ver
+  // preco-produto.ts, que é onde a regra mora pros nove lugares que a usam.
+  let precoUnit = precoVigente(produto, dataBrasilia());
   const partesTexto: string[] = [];
   const idsReconhecidos = new Set<number>();
 
@@ -987,8 +988,7 @@ router.get('/pedidos/:id/repetir', async (req, res, next) => {
         ).get(id, i.produto_id) as OpcaoExistente | undefined;
         if (opcao) opcoes.push(opcao);
       }
-      const precoBase = (i.preco_promocional_centavos && i.preco_promocional_centavos > 0)
-        ? i.preco_promocional_centavos : i.preco_centavos;
+      const precoBase = precoVigente(i, dataBrasilia());
       disponiveis.push({
         produto_id: i.produto_id,
         nome: i.nome,

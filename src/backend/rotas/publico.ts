@@ -3,7 +3,8 @@
  */
 import { Router } from 'express';
 import db, { bancoTenantAtual } from '../db-mysql';
-import { erroHttp } from '../util';
+import { erroHttp, dataBrasilia} from '../util';
+import { sqlPromocaoVigente } from '../preco-produto';
 import { chavePublicaVapid } from '../push';
 import { ehMaster, lerRodapeCredito } from '../tenants-mysql';
 import { montarLandingPublica } from '../landing-campos';
@@ -158,19 +159,28 @@ router.get('/banners', async (_req, res, next) => {
 
 router.get('/destaques', async (_req, res, next) => {
   try {
+    /*
+     * A vitrine de ofertas filtra no BANCO e não no Node: trazer todos os
+     * produtos de todas as lojas pra descartar os que não estão em promoção
+     * seria varrer o cardápio inteiro da plataforma pra mostrar 8 itens.
+     *
+     * A condição vem de `sqlPromocaoVigente` — o mesmo teste que o
+     * `precoVigente` faz em JavaScript. Duas formas de escrever a mesma regra é
+     * o preço de filtrar no SQL; escrever a condição solta aqui seria a décima
+     * cópia, e o teste de duplicação (preco-produto.test.ts) recusa.
+     */
     const promocoes = await db.prepare(
-      `SELECT p.id, p.nome, p.descricao, p.preco_centavos, p.preco_promocional_centavos,
+      `SELECT p.id, p.nome, p.descricao, p.preco_centavos, p.preco_promocional_centavos, p.promo_fim, p.promo_fim,
               p.foto_url, p.serve_pessoas, p.destaque,
               l.id AS loja_id, l.nome AS loja_nome, l.categoria AS loja_categoria
          FROM produtos p JOIN lojas l ON l.id = p.loja_id
         WHERE p.disponivel = 1 AND p.excluido = 0
-          AND p.preco_promocional_centavos IS NOT NULL
-          AND p.preco_promocional_centavos > 0
+          AND ${sqlPromocaoVigente('p')}
           AND (p.controla_estoque = 0 OR p.estoque > 0)
           AND l.status_aprovacao = 'aprovada' AND l.aberta = 1
         ORDER BY (p.preco_centavos - p.preco_promocional_centavos) DESC
         LIMIT 8`
-    ).all();
+    ).all(dataBrasilia());
 
     const categorias = await db.prepare(
       `SELECT categoria, COUNT(*) AS qtd
@@ -260,7 +270,7 @@ router.get('/lojas/:id', async (req, res, next) => {
 
     const produtos = await db.prepare(
       `SELECT id, nome, descricao, categoria, subcategoria, preco_centavos,
-              preco_promocional_centavos, serve_pessoas, destaque, foto_url,
+              preco_promocional_centavos, promo_fim, serve_pessoas, destaque, foto_url,
               controla_estoque, estoque
          FROM produtos
         WHERE loja_id = ? AND disponivel = 1 AND excluido = 0

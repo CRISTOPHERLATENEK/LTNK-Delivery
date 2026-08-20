@@ -169,6 +169,19 @@ const TABELAS: string[] = [
   excluido        TINYINT NOT NULL DEFAULT 0,
   criado_em       VARCHAR(32) NOT NULL,
   preco_promocional_centavos INT,
+  /*
+   * Último dia em que a promoção vale ('YYYY-MM-DD'), no fuso de Brasília.
+   * Vazio = sem prazo, que é como toda promoção era antes desta coluna.
+   *
+   * VARCHAR e não DATE por consistência com o resto do schema (criado_em,
+   * validade do cupom): o projeto guarda data como texto ordenável, e comparar
+   * 'YYYY-MM-DD' com string funciona sem trazer fuso pra dentro do banco.
+   *
+   * O preço promocional NÃO é apagado quando vence: fica guardado e só deixa de
+   * ser aplicado (ver preco-produto.ts). Assim reativar a promoção é mudar a
+   * data, não redigitar o valor.
+   */
+  promo_fim       VARCHAR(10) NOT NULL DEFAULT '',
   serve_pessoas   INT,
   destaque        TINYINT NOT NULL DEFAULT 0,
   subcategoria    VARCHAR(120) NOT NULL DEFAULT '',
@@ -1146,6 +1159,26 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         LIMIT 1`, [coluna],
     ) as any;
     if (existe.length === 0) await pool.query(`ALTER TABLE usuarios ADD COLUMN ${ddl}`);
+  }
+
+  /*
+   * Prazo da promoção. O CREATE TABLE acima já traz a coluna, mas ele é
+   * IF NOT EXISTS — banco de cliente que já existe não ganha coluna nova por
+   * ali. Sem esta migração, `promo_fim` só nasceria em cliente novo, e a
+   * consulta do cardápio quebraria nos antigos com "Unknown column".
+   *
+   * DEFAULT '' é o que mantém toda promoção já cadastrada valendo: vazio
+   * significa "sem prazo", exatamente o comportamento anterior.
+   */
+  for (const [coluna, ddl] of [
+    ['promo_fim', "promo_fim VARCHAR(10) NOT NULL DEFAULT ''"],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'produtos' AND COLUMN_NAME = ?
+        LIMIT 1`, [coluna],
+    ) as any;
+    if (existe.length === 0) await pool.query(`ALTER TABLE produtos ADD COLUMN ${ddl}`);
   }
 
   // Zonas de entrega por ÁREA desenhada no mapa (antes só existia por bairro).

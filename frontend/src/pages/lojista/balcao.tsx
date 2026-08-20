@@ -4,6 +4,7 @@
  * (entra no faturamento). Imprime cupom ao concluir.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { precoVigente, promocaoVigente } from '@/lib/preco-produto';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ShoppingCart, Search, Plus, Minus, Trash2, Banknote, QrCode, CreditCard,
@@ -40,8 +41,7 @@ interface ItemCarrinho {
 }
 
 function precoDe(p: Produto): number {
-  return (p.preco_promocional_centavos && p.preco_promocional_centavos > 0)
-    ? p.preco_promocional_centavos : p.preco_centavos;
+  return precoVigente(p);
 }
 
 type NfceResultado = DadosDanfe & { xml: string };

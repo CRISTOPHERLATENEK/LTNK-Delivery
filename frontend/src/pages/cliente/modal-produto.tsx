@@ -3,6 +3,7 @@
  * Recalcula o preço em tempo real conforme as escolhas.
  */
 import { useEffect, useMemo, useState } from 'react';
+import { precoVigente, promocaoVigente } from '@/lib/preco-produto';
 import { Minus, Plus, Check, AlertCircle, X } from 'lucide-react';
 import {
   Sheet, SheetContent, SheetFooter,
@@ -35,8 +36,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
     setObservacao('');
   }, [produto.id]);
 
-  const precoBase = (produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0)
-    ? produto.preco_promocional_centavos : produto.preco_centavos;
+  const precoBase = precoVigente(produto);
 
   // Estoque: quando controlado, limita a quantidade e bloqueia se zerado.
   const controlaEstoque = !!produto.controla_estoque;
@@ -124,7 +124,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
     }
   }
 
-  const temPromo = !!produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0;
+  const temPromo = promocaoVigente(produto);
 
   return (
     <Sheet open={aberto} onOpenChange={v => !v && onFechar()}>

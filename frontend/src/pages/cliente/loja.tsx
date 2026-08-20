@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { precoVigente, promocaoVigente } from '@/lib/preco-produto';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useTema, injetarFonteLink, foregroundContraste } from '@/lib/tema';
 import { useQuery } from '@tanstack/react-query';
@@ -269,8 +270,7 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
       setProdutoAberto(p);
       return;
     }
-    const precoBase = p.preco_promocional_centavos && p.preco_promocional_centavos > 0
-      ? p.preco_promocional_centavos : p.preco_centavos;
+    const precoBase = precoVigente(p);
     const ok = adicionarAoCarrinho(loja, {
       produto_id: p.id, nome: p.nome, preco_centavos: precoBase, quantidade: 1, opcoes: [], opcoes_texto: '', foto_url: p.foto_url,
     });
@@ -835,8 +835,10 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
   produto: Produto; podeAbrir: boolean; onAbrir: () => void; onAdicionar: () => void;
   visual: VisualJson; corMarca?: string; layoutGrid: boolean; premium?: boolean;
 }) {
-  const temPromo = !!produto.preco_promocional_centavos && produto.preco_promocional_centavos > 0;
-  const preco = temPromo ? produto.preco_promocional_centavos! : produto.preco_centavos;
+  // Promoção com prazo vencido não mostra selo nem preço riscado — ver
+  // lib/preco-produto.ts, a mesma regra que o backend usa pra cobrar.
+  const temPromo = promocaoVigente(produto);
+  const preco = precoVigente(produto);
   const esgotado = !!produto.controla_estoque && (produto.estoque ?? 0) <= 0;
   const poucas = !esgotado && !!produto.controla_estoque && (produto.estoque ?? 0) <= 5;
   const abrivel = podeAbrir && !esgotado;

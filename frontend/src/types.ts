@@ -403,6 +403,8 @@ export interface Produto {
   subcategoria?: string;
   preco_centavos: number;
   preco_promocional_centavos?: number | null;
+  /** 'YYYY-MM-DD' — último dia da promoção. Vazio = sem prazo. */
+  promo_fim?: string | null;
   serve_pessoas?: number | null;
   destaque?: 0 | 1;
   foto_url?: string;

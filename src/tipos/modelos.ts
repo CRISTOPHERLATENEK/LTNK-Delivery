@@ -90,6 +90,8 @@ export interface Produto {
   categoria: string;
   preco_centavos: number;
   preco_promocional_centavos: number | null;
+  /** 'YYYY-MM-DD' — último dia em que a promoção vale. Vazio = sem prazo. */
+  promo_fim: string;
   serve_pessoas: number | null;
   destaque: NumeroBooleano;
   foto_url: string;
