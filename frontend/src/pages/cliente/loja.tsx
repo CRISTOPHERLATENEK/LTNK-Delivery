@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { precoVigente, promocaoVigente } from '@/lib/preco-produto';
+import { precoMinimoItem, precoVariavel } from '@/lib/opcoes-preco';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useTema, injetarFonteLink, foregroundContraste } from '@/lib/tema';
 import { useQuery } from '@tanstack/react-query';
@@ -839,6 +840,18 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
   // lib/preco-produto.ts, a mesma regra que o backend usa pra cobrar.
   const temPromo = promocaoVigente(produto);
   const preco = precoVigente(produto);
+  /*
+   * O PREÇO DO CARD É O MÍNIMO REAL, não o preço base.
+   *
+   * Num produto com grupo obrigatório em que toda opção tem acréscimo — a pizza
+   * onde todo tamanho soma — o preço base é um valor que ninguém consegue pagar.
+   * O cliente via R$ 39,90, abria o item e o mínimo era R$ 54,90.
+   *
+   * "A partir de" só quando existe mais de um total possível: em item de preço
+   * único aquilo é ruído, e ruído em todo card treina o olho a ignorar.
+   */
+  const precoExibido = precoMinimoItem(preco, produto.grupos ?? []);
+  const aPartirDe = precoVariavel(produto.grupos ?? []);
   const esgotado = !!produto.controla_estoque && (produto.estoque ?? 0) <= 0;
   const poucas = !esgotado && !!produto.controla_estoque && (produto.estoque ?? 0) <= 5;
   const abrivel = podeAbrir && !esgotado;
@@ -949,7 +962,8 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
             <>
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/70 to-transparent" />
               <span className="absolute bottom-2 left-2 rounded-full bg-white/95 backdrop-blur px-2.5 py-1 text-[13px] font-extrabold text-neutral-900 shadow-lg">
-                {brl(preco)}
+                {aPartirDe && <span className="mr-1 text-[9px] font-semibold uppercase tracking-wide opacity-60">a partir de</span>}
+                {brl(precoExibido)}
               </span>
               {temPromo && (
                 <span className="absolute bottom-2 right-2 rounded-full bg-black/50 backdrop-blur px-2 py-1 text-[10px] font-semibold text-white/90 line-through">
@@ -979,10 +993,18 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
             {!(premium && c.mostrar_foto) && (
               <>
                 {temPromo && (
-                  <span className="text-[10px] text-muted-foreground line-through block">{brl(produto.preco_centavos)}</span>
+                  <span className="text-[10px] text-muted-foreground line-through block">
+                    {/* O riscado também soma o mínimo obrigatório: sem isso, um
+                        item com tamanho obrigatório mostrava "de R$ 39,90 por
+                        R$ 54,90" — o "por" maior que o "de". */}
+                    {brl(precoMinimoItem(produto.preco_centavos, produto.grupos ?? []))}
+                  </span>
+                )}
+                {aPartirDe && (
+                  <span className="block text-[9.5px] font-semibold uppercase tracking-wide text-muted-foreground">a partir de</span>
                 )}
                 <span className={cn(c.preco_destacado ? 'font-extrabold text-[14px]' : 'font-semibold text-[12px]', temPromo ? 'text-primary' : 'text-foreground')}>
-                  {brl(preco)}
+                  {brl(precoExibido)}
                 </span>
               </>
             )}
