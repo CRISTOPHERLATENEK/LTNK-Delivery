@@ -19,6 +19,7 @@ import { api, ApiError } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { gtinValido } from '@/lib/gtin';
+import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos } from '@/lib/avisos-produto';
 import type { Produto } from '@/types';
 
 /* ─────────────────────── tipos ──────────────────────── */
@@ -196,6 +197,22 @@ export function ProdutosLoja() {
     queryKey: ['lojista-produtos'],
     queryFn: () => api<{ produtos: Produto[] }>('GET', '/api/lojista/produtos').then(r => r.produtos),
   });
+
+  /*
+   * AVISOS CALCULADOS NA HORA, sem ida ao servidor.
+   *
+   * O backend é a autoridade e continua validando tudo — mas descobrir que o
+   * preço promocional está maior que o normal só DEPOIS de enviar, com o modal
+   * inteiro preenchido, é atrito puro.
+   *
+   * A regra mora em lib/avisos-produto.ts, com teste: escrita aqui dentro do
+   * componente, ela só era verificável abrindo o modal na mão — e a primeira
+   * versão que eu escrevi assim esquecia o promocional zero ou negativo.
+   */
+  const outros = outrosProdutos(consulta.data, editando);
+  const erroPromo = erroPrecoPromocional(form.preco, form.preco_promocional);
+  const nomeRepetido = nomeJaUsado(form.nome, outros);
+  const eanRepetido = eanJaUsado(form.codigo_barras, outros);
 
   function abrirNovo() {
     setForm(FORM_VAZIO);
@@ -727,6 +744,12 @@ export function ProdutosLoja() {
                         placeholder="Ex.: X-Burguer Especial"
                         className={CAMPO_MODAL}
                       />
+                      {nomeRepetido && (
+                        <p role="status" className="mt-1 text-[12.5px] text-amber-700 dark:text-amber-400">
+                          Já existe um produto chamado “{nomeRepetido}”. Pode salvar, mas no app os dois vão
+                          aparecer com o mesmo nome.
+                        </p>
+                      )}
                     </div>
                     <div className="mt-4">
                       <Label htmlFor="p-descricao">
@@ -828,9 +851,15 @@ export function ProdutosLoja() {
                             type="number" step="0.01" min="0.01"
                             value={form.preco_promocional} onChange={set('preco_promocional')} placeholder="—"
                             className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
-                            aria-describedby="p-promo-ajuda"
+                            aria-describedby={erroPromo ? 'p-promo-erro' : 'p-promo-ajuda'}
+                            aria-invalid={!!erroPromo}
                           />
                         </div>
+                        {erroPromo && (
+                          <p id="p-promo-erro" role="alert" className="mt-1 text-[12.5px] font-medium text-destructive">
+                            {erroPromo}
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -889,6 +918,12 @@ export function ProdutosLoja() {
                         <p id="p-ean-dica" className="mt-1 text-[12.5px] text-muted-foreground">
                           Permite bipar no PDV. Por peso, use o PLU da balança.
                         </p>
+                        {eanRepetido && (
+                          <p role="alert" className="mt-1 text-[12.5px] font-medium text-destructive">
+                            “{eanRepetido}” já usa este código. Dois produtos com o mesmo código fazem o PDV
+                            entrar no errado — o sistema vai recusar ao salvar.
+                          </p>
+                        )}
                         {/*
                           Diz na hora do cadastro se o código vai ou não pra nota fiscal.
                           Sem isso o lojista digita um EAN com um dígito errado, acha que

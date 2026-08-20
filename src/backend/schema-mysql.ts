@@ -810,6 +810,23 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     ['lojas', 'contador_ultimo_envio_em',     "contador_ultimo_envio_em VARCHAR(32) NOT NULL DEFAULT ''"],
     /** Erro do último envio, pra tela poder dizer POR QUE não chegou. */
     ['lojas', 'contador_ultimo_erro',         "contador_ultimo_erro VARCHAR(300) NOT NULL DEFAULT ''"],
+    /*
+     * PRAZO DA PROMOÇÃO. Vazio = sem prazo, que é o estado de toda promoção
+     * cadastrada antes desta coluna — nenhum produto muda de preço na migração.
+     */
+    ['produtos', 'promo_fim', "promo_fim VARCHAR(10) NOT NULL DEFAULT ''"],
+    /*
+     * CÓDIGO DE BARRAS DUPLICADO era possível: nada impedia dois produtos com o
+     * mesmo EAN na mesma loja, e ao bipar no PDV entrava o que o banco
+     * devolvesse primeiro — ambiguidade em cima do caixa, na frente do cliente.
+     *
+     * NULL quando vazio OU quando o produto está excluído: EAN em branco é
+     * legítimo (PLU de balança, produto sem código) e não pode brigar com
+     * outro em branco; e produto apagado tem que liberar o código pra ser
+     * recadastrado. Mesmo recurso de cpf_unico/numero_unico.
+     */
+    ['produtos', 'ean_unico',
+      "ean_unico VARCHAR(40) GENERATED ALWAYS AS (IF(excluido = 0, NULLIF(codigo_barras, ''), NULL)) VIRTUAL"],
   ] as const) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
@@ -842,6 +859,39 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
   ) as any;
   if (jaTemMesaUnica.length === 0) {
     await pool.query('ALTER TABLE mesas ADD UNIQUE KEY uq_mesa_numero (loja_id, numero_unico)');
+  }
+
+  /*
+   * ÍNDICE ÚNICO DO CÓDIGO DE BARRAS por (loja, EAN).
+   *
+   * Depende da coluna gerada `ean_unico` do laço acima, então vem DEPOIS dele —
+   * criar o índice antes da coluna falha com "Unknown column", e é o erro que
+   * eu mesmo já cometi neste arquivo.
+   *
+   * POR LOJA e não global: duas lojas diferentes vendendo a mesma Coca-Cola têm
+   * o mesmo EAN legitimamente. O que não pode é a MESMA loja ter dois produtos
+   * com o mesmo código, porque aí bipar no PDV é sorteio.
+   *
+   * Em try/catch: se já existir duplicata gravada, o CREATE falha — e derrubar o
+   * boot do cliente por causa disso seria desproporcional. O aviso diz o SELECT
+   * que encontra as linhas repetidas.
+   */
+  const [jaTemEanUnico] = await pool.query(
+    `SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'produtos' AND INDEX_NAME = 'uq_produto_ean'
+      LIMIT 1`,
+  ) as any;
+  if (jaTemEanUnico.length === 0) {
+    try {
+      await pool.query('ALTER TABLE produtos ADD UNIQUE KEY uq_produto_ean (loja_id, ean_unico)');
+    } catch (e) {
+      console.warn(
+        '[SCHEMA] não foi possível criar uq_produto_ean (%s). Se houver EAN repetido, encontre com: ' +
+        "SELECT loja_id, codigo_barras, COUNT(*) c FROM produtos WHERE excluido = 0 AND codigo_barras <> '' " +
+        'GROUP BY 1,2 HAVING c > 1;',
+        (e as { code?: string }).code || e,
+      );
+    }
   }
 
   /**
@@ -1159,26 +1209,6 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         LIMIT 1`, [coluna],
     ) as any;
     if (existe.length === 0) await pool.query(`ALTER TABLE usuarios ADD COLUMN ${ddl}`);
-  }
-
-  /*
-   * Prazo da promoção. O CREATE TABLE acima já traz a coluna, mas ele é
-   * IF NOT EXISTS — banco de cliente que já existe não ganha coluna nova por
-   * ali. Sem esta migração, `promo_fim` só nasceria em cliente novo, e a
-   * consulta do cardápio quebraria nos antigos com "Unknown column".
-   *
-   * DEFAULT '' é o que mantém toda promoção já cadastrada valendo: vazio
-   * significa "sem prazo", exatamente o comportamento anterior.
-   */
-  for (const [coluna, ddl] of [
-    ['promo_fim', "promo_fim VARCHAR(10) NOT NULL DEFAULT ''"],
-  ] as const) {
-    const [existe] = await pool.query(
-      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'produtos' AND COLUMN_NAME = ?
-        LIMIT 1`, [coluna],
-    ) as any;
-    if (existe.length === 0) await pool.query(`ALTER TABLE produtos ADD COLUMN ${ddl}`);
   }
 
   // Zonas de entrega por ÁREA desenhada no mapa (antes só existia por bairro).
