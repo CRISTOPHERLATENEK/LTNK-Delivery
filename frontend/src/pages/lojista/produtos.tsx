@@ -1973,11 +1973,22 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                             value={editandoGrupoForm.papel}
                             onChange={e => setEditandoGrupoForm(f => f && ({ ...f, papel: e.target.value }))}
                             className="h-7 rounded-lg border border-border bg-card px-1.5 text-xs font-semibold text-muted-foreground"
-                            title="Papel deste grupo numa pizza"
+                            title="Este grupo é o tamanho, a lista de sabores, ou nenhum dos dois"
                           >
-                            <option value="">Grupo comum</option>
-                            <option value="tamanho">Tamanho (define nº de sabores)</option>
-                            <option value="sabores">Sabores (limite vem do tamanho)</option>
+                            {/*
+                              O RÓTULO DIZ O QUE O GRUPO É, não o efeito dele.
+                              Era "Tamanho (define nº de sabores)" e
+                              "Sabores (limite vem do tamanho)" — quem estava
+                              configurando o grupo de SABORES lia "define nº de
+                              sabores" e marcava Tamanho, porque é literalmente
+                              o que a frase promete. Aconteceu na base real: um
+                              grupo chamado "Sabores" ficou com papel=tamanho, e
+                              aí o campo de sabores por tamanho apareceu em cada
+                              sabor.
+                            */}
+                            <option value="">Nenhum (grupo comum)</option>
+                            <option value="tamanho">Este grupo é o TAMANHO da pizza</option>
+                            <option value="sabores">Este grupo é a lista de SABORES</option>
                           </select>
                           {/*
                             COMO COBRAR VÁRIOS SABORES. Só aparece no grupo de
