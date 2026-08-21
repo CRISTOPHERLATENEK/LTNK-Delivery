@@ -542,7 +542,7 @@ export function ProdutosLoja() {
       <div className="mx-auto max-w-[1160px] space-y-5">
         {/* Modal de grupos de opções — sobrepõe tudo */}
         {gerindoGrupos && (
-          <GruposModal produto={gerindoGrupos} onFechar={() => setGerindoGrupos(null)} />
+          <GruposEditor produto={gerindoGrupos} onFechar={() => setGerindoGrupos(null)} />
         )}
 
         {/* ─────────── Header ─────────── */}
@@ -1112,64 +1112,32 @@ export function ProdutosLoja() {
               {aba === 'complementos' && (
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-7 sm:px-8">
                   {/*
-                    COMPLEMENTOS AQUI DENTRO.
-                    Era outra tela: o lojista salvava o produto, voltava pra
-                    lista, achava o item e clicava em "Complementos" — três
-                    passos pra ver se a pizza tem tamanho e borda. Aqui a
-                    resposta está na frente dele, e o botão abre o editor que já
-                    existe, sem fechar o formulário.
+                    O EDITOR INTEIRO AQUI DENTRO, não um resumo com um botão.
 
-                    A lista não tem ação de editar por linha de propósito: isso
-                    duplicaria o editor e criaria dois lugares pra fazer a mesma
-                    coisa divergirem.
+                    Eram três telas empilhadas: salvar o produto, voltar pra
+                    lista, achar o item, clicar em "Complementos". A aba cortou
+                    duas, mas ainda mostrava só um resumo de leitura e um botão
+                    que abria o MESMO editor num segundo modal por cima deste —
+                    e fechar aquele modal voltava pro resumo, não pro produto.
+
+                    Aqui a aba é o editor. `GruposEditor` sem `onFechar` se
+                    renderiza sem casca de modal e sem rodapé próprio; o mesmo
+                    componente continua servindo o atalho "Ver opções" da lista,
+                    com a casca. Um editor só, dois lugares de entrada.
                   */}
-                  <section>
-                    <RotuloSecao>Complementos</RotuloSecao>
-                    {grupoIdEmEdicao === null ? (
-                      /* Produto novo: o grupo é vinculado a um produto que ainda
-                         não existe. Dizer isso é melhor que mostrar um botão que
-                         não pode funcionar. */
+                  {grupoIdEmEdicao === null || !produtoEmEdicao ? (
+                    <section>
+                      <RotuloSecao>Complementos</RotuloSecao>
+                      {/* Produto novo: o grupo e vinculado a um produto que ainda
+                          nao existe. Dizer isso e melhor que mostrar um editor
+                          cujo primeiro clique daria erro. */}
                       <p className="rounded-xl border border-dashed border-border px-3.5 py-3 text-[12.5px] text-muted-foreground">
                         Salve o produto primeiro para adicionar tamanhos, bordas e adicionais.
                       </p>
-                    ) : (gruposDoProduto.data ?? []).length === 0 ? (
-                      <div className="rounded-xl border border-dashed border-border px-3.5 py-3">
-                        <p className="text-[12.5px] text-muted-foreground">
-                          Nenhum complemento — tamanhos, bordas, adicionais.
-                        </p>
-                        <Button type="button" variant="outline" size="sm" className="mt-2.5"
-                          onClick={() => produtoEmEdicao && setGerindoGrupos(produtoEmEdicao)}>
-                          <ListPlus className="size-4" /> Adicionar complementos
-                        </Button>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="divide-y divide-border/60 rounded-xl border border-border">
-                          {(gruposDoProduto.data ?? []).map(g => (
-                            <div key={g.id} className="flex items-center gap-2 px-3.5 py-2.5">
-                              <span className="min-w-0 flex-1 truncate text-sm font-semibold">{g.nome}</span>
-                              <span className={cn('shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold',
-                                g.obrigatorio
-                                  ? 'border border-[#F1E3C4] bg-[#FBF3E4] text-[#92610A] dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300'
-                                  : 'bg-muted text-muted-foreground')}>
-                                {rotuloRegra(!!g.obrigatorio, g.tipo, g.max_escolhas)}
-                              </span>
-                              <span className="shrink-0 text-[12.5px] text-muted-foreground">
-                                {g.opcoes.length} {g.opcoes.length === 1 ? 'item' : 'itens'}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                        <Button type="button" variant="outline" size="sm" className="mt-2.5"
-                          onClick={() => produtoEmEdicao && setGerindoGrupos(produtoEmEdicao)}>
-                          <Layers className="size-4" /> Gerenciar complementos
-                        </Button>
-                      </>
-                    )}
-                    <p className="mt-2 text-[12.5px] text-muted-foreground">
-                      Grupos valem só para este produto.
-                    </p>
-                  </section>
+                    </section>
+                  ) : (
+                    <GruposEditor produto={produtoEmEdicao} />
+                  )}
                 </div>
               )}
 
@@ -1840,7 +1808,104 @@ function CardProduto({
  * "Cancelar": não existe rascunho pra descartar, e um botão que promete desfazer
  * o que já foi gravado é pior que botão nenhum.
  */
-function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => void }) {
+
+/**
+ * A CASCA DO EDITOR DE COMPLEMENTOS: modal quando vem da lista, bloco nu quando
+ * vem da aba "Complementos" do cadastro.
+ *
+ * Por que existir: a aba mostrava um resumo so de leitura e um botao que abria
+ * ESTE editor num segundo modal, por cima do primeiro. Uma aba inteira cuja
+ * unica funcao era abrir outra janela -- e, dentro dela, fechar o editor levava
+ * de volta pro resumo, nao pro produto. Embutido, a aba passa a ser o editor.
+ *
+ * O rodape com "Fechar / Concluir" so existe na versao modal: embutido, quem
+ * fecha e o rodape do proprio cadastro, e dois pares de botoes de encerrar na
+ * mesma tela e a pergunta "qual deles salva?".
+ */
+function CascaGrupos({ produto, nGrupos, onFechar, children }: {
+  produto: Produto;
+  nGrupos: number;
+  /** Ausente = embutido no cadastro, sem modal e sem rodape proprio. */
+  onFechar?: () => void;
+  children: React.ReactNode;
+}) {
+  if (!onFechar) {
+    return (
+      /*
+        ENTER NAO PODE SALVAR O PRODUTO AQUI.
+        Embutido, este editor fica DENTRO do <form> do cadastro, e num form o
+        Enter em qualquer campo de texto aciona o submit -- teclar Enter no
+        preco de uma borda salvaria o produto e fecharia o modal por cima do
+        trabalho. Os campos que tratam Enter (criar opcao, renomear) ja chamam
+        preventDefault; este `capture` cobre os que nao tratam, e os futuros.
+        `preventDefault` nao interrompe a propagacao, entao os handlers de cada
+        campo continuam rodando normalmente.
+      */
+      <div
+        className="space-y-6"
+        onKeyDownCapture={e => {
+          if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement)) e.preventDefault();
+        }}
+      >
+        <p className="text-[12.5px] text-muted-foreground">
+          Valem so para este produto e sao salvos na hora, sem depender do botao do cadastro.
+        </p>
+        {children}
+      </div>
+    );
+  }
+  return (
+    <Modal open onOpenChange={aberto => { if (!aberto) onFechar(); }}>
+      <ModalConteudo className="sm:w-[min(880px,calc(100vw-56px))]">
+        {/* ── Header fixo ── */}
+        <div className="flex shrink-0 items-start gap-3 border-b border-border px-7 py-5 max-sm:px-4">
+          <div className="min-w-0 flex-1">
+            <ModalTitulo className="text-[19px] font-extrabold leading-tight">Complementos</ModalTitulo>
+            <ModalDescricao className="mt-0.5 truncate text-[13.5px] text-muted-foreground">
+              {produto.nome}{produto.categoria ? ` · ${produto.categoria}` : ''}
+            </ModalDescricao>
+          </div>
+          <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+            {nGrupos} {nGrupos === 1 ? 'grupo' : 'grupos'}
+          </span>
+          <ModalClose
+            className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent"
+            title="Fechar"
+          >
+            <X className="size-5" />
+          </ModalClose>
+        </div>
+
+        {/* ── Corpo rolável ── */}
+        <div className="flex-1 space-y-6 overflow-y-auto px-7 py-6 max-sm:px-4">
+{children}
+        </div>
+
+        {/* ── Footer fixo ── */}
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-7 py-4 max-sm:px-4">
+          {/*
+            Diz que já está salvo. O rodapé de um modal cheio de campos é lido
+            como "confirme aqui", e sem esta linha o lojista fecharia no X
+            achando que perdeu tudo — ou pior, não fecharia.
+          */}
+          <p className="text-[13px] text-muted-foreground">
+            As mudanças valem só para este produto e são salvas na hora.
+          </p>
+          <div className="flex gap-2">
+            <Button type="button" variant="outline" className="h-11" onClick={onFechar}>
+              Fechar
+            </Button>
+            <Button type="button" className="h-11 rounded-[11px]" disabled={nGrupos === 0} onClick={onFechar}>
+              <Check className="size-4" /> Concluir
+            </Button>
+          </div>
+        </div>
+      </ModalConteudo>
+    </Modal>
+  );
+}
+
+function GruposEditor({ produto, onFechar }: { produto: Produto; onFechar?: () => void }) {
   const { mostrar } = useToast();
   const confirmar = useConfirm();
   const qc = useQueryClient();
@@ -1849,6 +1914,16 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
   const [salvandoGrupo, setSalvandoGrupo] = useState(false);
   /** Qual grupo está com o painel de itens aberto (só um por vez). */
   const [abertoId, setAbertoId] = useState<number | null>(null);
+  /**
+   * Grupos em que o lojista pediu pra ver ingredientes e seção.
+   *
+   * Os dois campos estavam sempre na tela, em TODO grupo: quem cadastra "Sem
+   * borda / Catupiry / Cheddar" passava por duas linhas de campo vazio a cada
+   * item, por causa de um recurso que e de pizza. Aparecem sozinhos onde fazem
+   * sentido (grupo de sabores, ou grupo que ja usa algum dos dois) e sob
+   * demanda no resto -- nunca escondem valor ja preenchido.
+   */
+  const [detalhesAbertos, setDetalhesAbertos] = useState<Record<number, boolean>>({});
   /** Índice sendo arrastado, pra saber o que soltar onde. */
   const [arrastando, setArrastando] = useState<number | null>(null);
 
@@ -2179,37 +2254,21 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
     .filter(t => !grupos.some(g => g.nome.toLowerCase() === t.nome.toLowerCase()));
 
   return (
-    <Modal open onOpenChange={aberto => { if (!aberto) onFechar(); }}>
-      <ModalConteudo className="sm:w-[min(880px,calc(100vw-56px))]">
-        {/* ── Header fixo ── */}
-        <div className="flex shrink-0 items-start gap-3 border-b border-border px-7 py-5 max-sm:px-4">
-          <div className="min-w-0 flex-1">
-            <ModalTitulo className="text-[19px] font-extrabold leading-tight">Complementos</ModalTitulo>
-            <ModalDescricao className="mt-0.5 truncate text-[13.5px] text-muted-foreground">
-              {produto.nome}{produto.categoria ? ` · ${produto.categoria}` : ''}
-            </ModalDescricao>
-          </div>
-          <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-            {grupos.length} {grupos.length === 1 ? 'grupo' : 'grupos'}
-          </span>
-          <ModalClose
-            className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent"
-            title="Fechar"
-          >
-            <X className="size-5" />
-          </ModalClose>
-        </div>
-
-        {/* ── Corpo rolável ── */}
-        <div className="flex-1 space-y-6 overflow-y-auto px-7 py-6 max-sm:px-4">
+    <CascaGrupos produto={produto} nGrupos={grupos.length} onFechar={onFechar}>
           {isLoading && <Skeleton className="h-24" />}
 
           {/* 1. Grupos já criados */}
           {grupos.length > 0 && (
             <div className="space-y-2.5">
               {grupos.map((grupo, i) => {
-                const aberto = abertoId === grupo.id;
+                /* Com um grupo so, o painel de itens ja nasce aberto: fechado, a
+                   tela mostrava um titulo e nada mais, e o proximo passo era
+                   sempre o mesmo clique. */
+                const aberto = abertoId === grupo.id || (abertoId === null && grupos.length === 1);
                 const editando = editandoGrupoId === grupo.id && editandoGrupoForm;
+                const detalhes = grupo.papel === 'sabores'
+                  || grupo.opcoes.some(o => o.secao || o.descricao)
+                  || !!detalhesAbertos[grupo.id];
                 return (
                   <div
                     key={grupo.id}
@@ -2479,6 +2538,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                   `list` reaproveita as seções já usadas no grupo,
                                   pra "Doces" e "doces" não virarem dois títulos.
                                 */}
+                                {(detalhes || o.descricao || o.secao) && (<>
                                 <Input
                                   value={editandoOpcaoDesc}
                                   onChange={e => setEditandoOpcaoDesc(e.target.value)}
@@ -2498,6 +2558,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                   list={`secoes-${grupo.id}`}
                                   aria-label="Seção deste item"
                                 />
+                                </>)}
                                 {/*
                                   A FOTO OCUPA A LINHA INTEIRA, abaixo dos campos.
                                   O ImageUpload tem área de arrastar e três botões;
@@ -2513,10 +2574,10 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                     label="Foto do sabor (opcional)"
                                   />
                                 </div>
-                                <button onClick={() => atualizarOpcao(o.id)} className="shrink-0 rounded-lg bg-primary p-1.5 text-primary-foreground transition-colors hover:bg-primary/90">
+                                <button type="button" onClick={() => atualizarOpcao(o.id)} className="shrink-0 rounded-lg bg-primary p-1.5 text-primary-foreground transition-colors hover:bg-primary/90">
                                   <Check className="size-3.5" />
                                 </button>
-                                <button onClick={() => setEditandoOpcaoId(null)} className="shrink-0 rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:bg-accent">
+                                <button type="button" onClick={() => setEditandoOpcaoId(null)} className="shrink-0 rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:bg-accent">
                                   <X className="size-3.5" />
                                 </button>
                               </div>
@@ -2532,6 +2593,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                     className="size-8 shrink-0 rounded-md border border-border/60 object-cover" />
                                 )}
                                 <button
+                                  type="button"
                                   className="min-w-0 flex-1 text-left"
                                   onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); setEditandoOpcaoDesc(o.descricao || ''); setEditandoOpcaoImg(o.imagem || ''); }}
                                 >
@@ -2587,10 +2649,10 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                   className="size-3.5 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60"
                                   onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); setEditandoOpcaoDesc(o.descricao || ''); setEditandoOpcaoImg(o.imagem || ''); }}
                                 />
-                                <button onClick={() => toggleDisponivel(o)} title={o.disponivel ? 'Desativar' : 'Ativar'} className="shrink-0">
+                                <button type="button" onClick={() => toggleDisponivel(o)} title={o.disponivel ? 'Desativar' : 'Ativar'} className="shrink-0">
                                   {o.disponivel ? <ToggleRight className="size-5 text-primary" /> : <ToggleLeft className="size-5 text-muted-foreground" />}
                                 </button>
-                                <button onClick={() => excluirOpcao(o.id)} className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-destructive">
+                                <button type="button" onClick={() => excluirOpcao(o.id)} className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-destructive">
                                   <Trash2 className="size-3.5" />
                                 </button>
                               </div>
@@ -2652,6 +2714,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                             linha de cima cobraria atenção de todos por causa de
                             um caso.
                           */}
+                          {detalhes ? (<>
                           <div className="mt-2 flex items-center gap-2">
                             <label htmlFor={`opcao-desc-${grupo.id}`} className="shrink-0 text-[11px] text-muted-foreground">
                               Ingredientes
@@ -2690,6 +2753,15 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                 .map(sec => <option key={sec} value={sec} />)}
                             </datalist>
                           </div>
+                          </>) : (
+                            <button
+                              type="button"
+                              onClick={() => setDetalhesAbertos(d => ({ ...d, [grupo.id]: true }))}
+                              className="mt-2 text-[11.5px] font-semibold text-muted-foreground transition-colors hover:text-primary"
+                            >
+                              + ingredientes e seção
+                            </button>
+                          )}
                         </div>
                       </div>
                     )}
@@ -2769,7 +2841,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
               <CardContent className="space-y-4 p-4">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold">Novo grupo</span>
-                  <button onClick={() => setNovoGrupo(null)} className="rounded-lg p-1 hover:bg-accent">
+                  <button type="button" onClick={() => setNovoGrupo(null)} className="rounded-lg p-1 hover:bg-accent">
                     <X className="size-4" />
                   </button>
                 </div>
@@ -2827,38 +2899,16 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                 </label>
 
                 <div className="flex gap-2 pt-1">
-                  <Button onClick={criarGrupoManual} disabled={!novoGrupo.nome.trim()} className="flex-1">
+                  <Button type="button" onClick={criarGrupoManual} disabled={!novoGrupo.nome.trim()} className="flex-1">
                     <Plus className="size-4" /> Criar grupo
                   </Button>
-                  <Button variant="outline" onClick={() => setNovoGrupo(null)}>
+                  <Button type="button" variant="outline" onClick={() => setNovoGrupo(null)}>
                     Cancelar
                   </Button>
                 </div>
               </CardContent>
             </Card>
           )}
-        </div>
-
-        {/* ── Footer fixo ── */}
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-7 py-4 max-sm:px-4">
-          {/*
-            Diz que já está salvo. O rodapé de um modal cheio de campos é lido
-            como "confirme aqui", e sem esta linha o lojista fecharia no X
-            achando que perdeu tudo — ou pior, não fecharia.
-          */}
-          <p className="text-[13px] text-muted-foreground">
-            As mudanças valem só para este produto e são salvas na hora.
-          </p>
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" className="h-11" onClick={onFechar}>
-              Fechar
-            </Button>
-            <Button type="button" className="h-11 rounded-[11px]" disabled={grupos.length === 0} onClick={onFechar}>
-              <Check className="size-4" /> Concluir
-            </Button>
-          </div>
-        </div>
-      </ModalConteudo>
-    </Modal>
+    </CascaGrupos>
   );
 }
