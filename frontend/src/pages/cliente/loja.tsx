@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { precoVigente, promocaoVigente } from '@/lib/preco-produto';
 import { precoMinimoItem, precoVariavel } from '@/lib/opcoes-preco';
 import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useTema, injetarFonteLink, foregroundContraste } from '@/lib/tema';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2, Check, ArrowRight, ShoppingCart, UtensilsCrossed } from 'lucide-react';
+import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2, Check, ArrowRight, ShoppingCart, UtensilsCrossed, ChevronLeft, ChevronRight } from 'lucide-react';
 import { api, ApiError, definirTenantDemo } from '@/lib/api';
 import { Falha } from '@/components/ui/estado';
 import { brl } from '@/lib/format';
@@ -245,6 +245,28 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
   });
 
   // Modo sem filtro: agrupa por categoria (com subcategorias dentro)
+  /*
+   * OS DESTAQUES, NO TOPO DO CARDÁPIO.
+   *
+   * `produtos.destaque` existia e só desenhava um selo "Top" no card, perdido no
+   * meio da categoria dele — o lojista marca o produto e nada muda de posição.
+   * Marcar destaque tem que colocar o item na frente; é isso que a palavra
+   * promete.
+   *
+   * ESGOTADO E INDISPONÍVEL FICAM FORA. Vitrine é o lugar de maior atenção da
+   * tela: pôr ali o que não pode ser vendido gasta o melhor espaço da loja pra
+   * frustrar. O produto continua aparecendo na categoria dele, com o selo de
+   * esgotado, que é onde essa informação serve.
+   *
+   * O TETO DE 12 é pra vitrine continuar sendo escolha. Loja que marca tudo
+   * como destaque não tem destaque nenhum, e um carrossel de 40 itens é uma
+   * segunda listagem do cardápio.
+   */
+  const destaques = todosComCat
+    .filter(p => p.destaque && p.disponivel !== 0
+      && !(p.controla_estoque && (p.estoque ?? 0) <= 0))
+    .slice(0, 12);
+
   const semFiltro = !catAtiva && !busca;
   // Categoria selecionada sem subcategoria: agrupa por subcategoria dentro da cat
   const catSemSubfiltro = !!catAtiva && !subCatAtiva && !busca && subcategorias.length > 0;
@@ -469,6 +491,21 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
           </div>
         )}
       </div>
+
+      {/*
+        A vitrine só existe SEM FILTRO. Com busca ou categoria escolhida o
+        cliente já disse o que quer; uma faixa de "principais" ali competiria
+        com a resposta que ele pediu — e mostraria itens fora do filtro, o que
+        parece defeito.
+      */}
+      {semFiltro && destaques.length > 0 && (
+        <VitrineDestaques
+          produtos={destaques}
+          podeAbrir={!!loja.aberta}
+          onAbrir={abrirProduto}
+          visual={visual}
+        />
+      )}
 
       {/* ── GRID DE PRODUTOS ── */}
       <div className="px-4 pb-10 mt-2">
@@ -784,6 +821,149 @@ function ChipSubcat({ label, ativo, onClick }: { label: string; ativo: boolean; 
 }
 
 /* ── Grid de produtos ── */
+/**
+ * VITRINE DE DESTAQUES — carrossel horizontal no topo do cardápio.
+ *
+ * Rolagem nativa com `scroll-snap`, não biblioteca de carrossel: o gesto de
+ * arrastar já é o do sistema (com a inércia e a barra que o cliente conhece), e
+ * uma dependência a mais no bundle do cardápio atrasa a primeira tela.
+ *
+ * As setas só aparecem no desktop e só com mais de 3 itens: no celular quem
+ * rola é o dedo, e seta que não tem pra onde ir é botão morto.
+ *
+ * O item destacado CONTINUA na categoria dele, embaixo. Tirar de lá deixaria um
+ * buraco em "Pizzas" e o cliente que rola até a categoria não acharia o
+ * produto — a vitrine é um atalho, não uma mudança de lugar.
+ */
+function VitrineDestaques({ produtos, podeAbrir, onAbrir, visual }: {
+  produtos: Produto[];
+  podeAbrir: boolean;
+  onAbrir: (p: Produto) => void;
+  visual: VisualJson;
+}) {
+  const trilha = useRef<HTMLDivElement | null>(null);
+  const c = visual.cardapio;
+  const corBadge = corOuPadrao(visual.cores.cor_badges, '');
+
+  /* Rola quase uma tela (85%) e não uma tela inteira: o pedaço que sobra na
+     borda mostra que existe mais coisa depois, e é o que faz o cliente rolar
+     de novo. */
+  function empurrar(direcao: 1 | -1) {
+    const el = trilha.current;
+    if (el) el.scrollBy({ left: direcao * el.clientWidth * 0.85, behavior: 'smooth' });
+  }
+
+  const comSetas = produtos.length > 3;
+
+  return (
+    <section className="mt-3 px-4" aria-label="Destaques da loja">
+      <div className="mb-2.5 flex items-end justify-between gap-3">
+        <h2 className="flex items-center gap-1.5 text-sm font-extrabold uppercase tracking-widest text-muted-foreground">
+          <Star className="size-3.5 fill-amber-400 text-amber-400" />
+          Destaques
+        </h2>
+        {comSetas && (
+          <div className="flex gap-1 max-sm:hidden">
+            {([-1, 1] as const).map(d => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => empurrar(d)}
+                aria-label={d < 0 ? 'Ver anteriores' : 'Ver próximos'}
+                className="flex size-7 items-center justify-center rounded-full border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                {d < 0 ? <ChevronLeft className="size-4" /> : <ChevronRight className="size-4" />}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/*
+        `-mx-4 px-4` faz a trilha sangrar até as bordas da tela: o último card
+        cortado pela margem parece o fim da lista, e o cliente não rola.
+      */}
+      <div
+        ref={trilha}
+        className="scrollbar-hide -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1"
+      >
+        {produtos.map(p => {
+          const temPromo = promocaoVigente(p);
+          const preco = precoMinimoItem(precoVigente(p), p.grupos ?? []);
+          const aPartirDe = precoVariavel(p.grupos ?? []);
+          return (
+            <motion.button
+              key={p.id}
+              type="button"
+              whileTap={podeAbrir ? { scale: 0.96 } : {}}
+              onClick={() => podeAbrir && onAbrir(p)}
+              disabled={!podeAbrir}
+              className={cn(
+                'group w-[152px] shrink-0 snap-start overflow-hidden border border-border/60 text-left transition-shadow sm:w-[168px]',
+                c.sombra === 'nenhuma' ? 'shadow-none' : 'shadow-sm',
+                podeAbrir ? 'cursor-pointer hover:shadow-md' : 'cursor-default',
+              )}
+              style={{
+                borderRadius: c.raio_bordas,
+                backgroundColor: visual.cores.cor_cards || undefined,
+              }}
+            >
+              <div className="relative aspect-square overflow-hidden bg-white">
+                {p.foto_url ? (
+                  <img
+                    src={p.foto_url}
+                    alt={p.nome}
+                    loading="lazy"
+                    className={cn('size-full object-cover transition-transform duration-300',
+                      podeAbrir && 'group-hover:scale-105')}
+                  />
+                ) : (
+                  <div className="flex size-full items-center justify-center bg-muted text-muted-foreground/60">
+                    <UtensilsCrossed className="size-8" strokeWidth={1.5} />
+                  </div>
+                )}
+                {/*
+                  SEM SELO "Top" AQUI. O título da seção já diz que tudo isto é
+                  destaque; repetir em cada card é ruído. O de promoção fica,
+                  porque é informação que a seção NÃO dá.
+                */}
+                {temPromo && (
+                  <span
+                    className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-bold text-white shadow"
+                    style={{ backgroundColor: corBadge || '#dc2640' }}
+                  >
+                    PROMO
+                  </span>
+                )}
+              </div>
+
+              <div className="p-2.5">
+                <p className="line-clamp-2 text-[13px] font-bold leading-snug">{p.nome}</p>
+                {/* "a partir de" na linha de cima e miúdo: o valor tem que
+                    continuar sendo a coisa grande do card. */}
+                {aPartirDe && (
+                  <span className="mt-1 block text-[10px] leading-none text-muted-foreground">a partir de</span>
+                )}
+                <div className={cn('flex items-baseline gap-1.5', aPartirDe ? 'mt-0.5' : 'mt-1.5')}>
+                  <span className="text-sm font-extrabold tabular-nums"
+                    style={{ color: temPromo ? (corBadge || '#dc2640') : undefined }}>
+                    {brl(preco)}
+                  </span>
+                  {temPromo && (
+                    <span className="text-[11px] text-muted-foreground line-through tabular-nums">
+                      {brl(p.preco_centavos)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </motion.button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function GridProdutos({ produtos, podeAbrir, onAbrir, onAdicionar, visual, corMarca, animado }: {
   produtos: Produto[];
   podeAbrir: boolean;
