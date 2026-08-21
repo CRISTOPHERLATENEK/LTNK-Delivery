@@ -521,6 +521,26 @@ function GrupoOpcao({
                 )}
               </span>
 
+              {/*
+                MINIATURA DO SABOR.
+                Numa pizzaria a foto é o que vende — nome e ingredientes fazem o
+                cliente ler, a foto faz escolher. 44px porque é o suficiente pra
+                reconhecer o sabor sem empurrar o nome e o preço pra fora da
+                linha; maior que isso e a lista deixa de caber na tela.
+
+                Sem foto, nada aparece: um quadrado cinza de placeholder em cada
+                sabor faria a lista parecer quebrada em loja que não subiu
+                imagem.
+              */}
+              {o.imagem && (
+                <img
+                  src={o.imagem}
+                  alt=""
+                  loading="lazy"
+                  className="size-11 shrink-0 rounded-xl border border-border/60 bg-muted object-cover"
+                />
+              )}
+
               {/* Name + ingredientes */}
               <span className="min-w-0 flex-1">
                 <span className={cn(

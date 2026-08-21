@@ -383,6 +383,8 @@ export interface OpcaoItem {
   secao?: string | null;
   /** Ingredientes do sabor, mostrados embaixo do nome. */
   descricao?: string | null;
+  /** Foto do sabor (URL). Vazio = sem foto. */
+  imagem?: string | null;
 }
 
 export interface GrupoOpcoes {

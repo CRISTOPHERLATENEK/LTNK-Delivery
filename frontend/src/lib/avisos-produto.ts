@@ -113,6 +113,8 @@ export interface SugestaoSalva {
   preco_adicional_centavos?: number;
   secao?: string;
   descricao?: string;
+  /** Foto já cadastrada — o chip recria o sabor COM a imagem. */
+  imagem?: string;
 }
 
 /**

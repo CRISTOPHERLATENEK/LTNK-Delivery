@@ -323,7 +323,7 @@ router.get('/lojas/:id', async (req, res, next) => {
         const opcoes = await db.prepare(
           // `sabores`: quantos sabores este TAMANHO libera (ver acima).
           // `secao`: faixa dentro do grupo ('Tradicionais', 'Especiais'…).
-          `SELECT id, nome, preco_adicional_centavos, sabores, secao, descricao, grupo_id
+          `SELECT id, nome, preco_adicional_centavos, sabores, secao, descricao, imagem, grupo_id
              FROM opcoes_itens WHERE grupo_id IN (${idsGrupo.map(() => '?').join(',')}) AND disponivel = 1
             ORDER BY ordem, id`
         ).all(...idsGrupo) as Array<OpcaoItem & { grupo_id: number }>;

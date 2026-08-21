@@ -78,6 +78,8 @@ interface OpcaoItem {
   secao?: string | null;
   /** Ingredientes, mostrados embaixo do nome pro cliente. */
   descricao?: string | null;
+  /** Foto do sabor (URL). Vazio = sem foto. */
+  imagem?: string | null;
   disponivel: number;
   ordem: number;
 }
@@ -1655,6 +1657,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
   const [editandoOpcaoPreco, setEditandoOpcaoPreco] = useState('');
   const [editandoOpcaoSecao, setEditandoOpcaoSecao] = useState('');
   const [editandoOpcaoDesc, setEditandoOpcaoDesc] = useState('');
+  const [editandoOpcaoImg, setEditandoOpcaoImg] = useState('');
 
   function opcaoForm(grupoId: number) {
     return novasOpcoes[grupoId] ?? { nome: '', preco: '', secao: '', descricao: '' };
@@ -1814,6 +1817,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
           ? String(salva.preco_adicional_centavos / 100) : '0',
         secao: salva?.secao || '',
         descricao: salva?.descricao || '',
+        imagem: salva?.imagem || '',
       });
       await qc.refetchQueries({ queryKey });
       // O histórico ganhou um nome novo — sem invalidar, o chip só apareceria
@@ -1833,6 +1837,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
         preco_adicional: editandoOpcaoPreco || '0',
         secao: editandoOpcaoSecao,
         descricao: editandoOpcaoDesc,
+        imagem: editandoOpcaoImg,
       });
       await qc.refetchQueries({ queryKey });
       setEditandoOpcaoId(null);
@@ -2195,7 +2200,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                         <div className={cn('space-y-1 px-3', grupo.opcoes.length > 0 ? 'py-2' : 'pt-2')}>
                           {grupo.opcoes.map(o => (
                             editandoOpcaoId === o.id ? (
-                              <div key={o.id} className="flex items-center gap-2 rounded-lg bg-accent/60 px-2 py-1">
+                              <div key={o.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-accent/60 px-2 py-2">
                                 <Input
                                   autoFocus
                                   value={editandoOpcaoNome}
@@ -2243,6 +2248,21 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                   list={`secoes-${grupo.id}`}
                                   aria-label="Seção deste item"
                                 />
+                                {/*
+                                  A FOTO OCUPA A LINHA INTEIRA, abaixo dos campos.
+                                  O ImageUpload tem área de arrastar e três botões;
+                                  espremido entre nome e preço ele viraria o
+                                  elemento dominante de uma linha que é sobre
+                                  texto. Aqui embaixo, quem só quer corrigir o
+                                  nome não passa por ele.
+                                */}
+                                <div className="w-full">
+                                  <ImageUpload
+                                    value={editandoOpcaoImg}
+                                    onChange={setEditandoOpcaoImg}
+                                    label="Foto do sabor (opcional)"
+                                  />
+                                </div>
                                 <button onClick={() => atualizarOpcao(o.id)} className="shrink-0 rounded-lg bg-primary p-1.5 text-primary-foreground transition-colors hover:bg-primary/90">
                                   <Check className="size-3.5" />
                                 </button>
@@ -2255,9 +2275,15 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                 key={o.id}
                                 className={cn('group flex items-center gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-accent/40', !o.disponivel && 'opacity-45')}
                               >
+                                {/* Miniatura na lista: dá pra conferir quais sabores
+                                    já têm foto sem abrir um por um. */}
+                                {o.imagem && (
+                                  <img src={o.imagem} alt="" loading="lazy"
+                                    className="size-8 shrink-0 rounded-md border border-border/60 object-cover" />
+                                )}
                                 <button
                                   className="min-w-0 flex-1 text-left"
-                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); setEditandoOpcaoDesc(o.descricao || ''); }}
+                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); setEditandoOpcaoDesc(o.descricao || ''); setEditandoOpcaoImg(o.imagem || ''); }}
                                 >
                                   <span className="block truncate text-sm font-medium">{o.nome}</span>
                                   {o.descricao && (
@@ -2309,7 +2335,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                 )}
                                 <Pencil
                                   className="size-3.5 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60"
-                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); setEditandoOpcaoDesc(o.descricao || ''); }}
+                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); setEditandoOpcaoDesc(o.descricao || ''); setEditandoOpcaoImg(o.imagem || ''); }}
                                 />
                                 <button onClick={() => toggleDisponivel(o)} title={o.disponivel ? 'Desativar' : 'Ativar'} className="shrink-0">
                                   {o.disponivel ? <ToggleRight className="size-5 text-primary" /> : <ToggleLeft className="size-5 text-muted-foreground" />}

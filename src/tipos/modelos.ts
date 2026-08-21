@@ -123,6 +123,8 @@ export interface OpcaoItem {
   secao: string;
   /** Ingredientes do sabor, mostrados embaixo do nome. */
   descricao: string;
+  /** Foto do sabor (URL). Vazio = sem foto. */
+  imagem: string;
 }
 
 /** Grupo já com suas opções aninhadas (formato devolvido pela API). */

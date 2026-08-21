@@ -1152,7 +1152,7 @@ router.post('/produtos/:id/duplicar', async (req, res, next) => {
             `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(novoGrupoId, o.nome, o.preco_adicional_centavos, o.disponivel, o.ordem,
-                o.sabores || 0, o.secao || '', o.descricao || '');
+                o.sabores || 0, o.secao || '', o.descricao || '', o.imagem || '');
         }
       }
       return novoId;
@@ -1262,7 +1262,7 @@ router.get('/opcoes/sugestoes', async (req, res, next) => {
     const linhas = await db.prepare(
       `SELECT g.nome AS grupo, o.nome AS opcao, COUNT(*) AS usos,
               MAX(o.preco_adicional_centavos) AS preco,
-              MAX(o.secao) AS secao, MAX(o.descricao) AS descricao
+              MAX(o.secao) AS secao, MAX(o.descricao) AS descricao, MAX(o.imagem) AS imagem
          FROM opcoes_itens o
          JOIN grupos_opcoes g ON g.id = o.grupo_id
          JOIN produtos p ON p.id = g.produto_id
@@ -1272,11 +1272,11 @@ router.get('/opcoes/sugestoes', async (req, res, next) => {
         LIMIT 400`
     ).all(loja.id) as Array<{
       grupo: string; opcao: string; usos: number;
-      preco: number | null; secao: string | null; descricao: string | null;
+      preco: number | null; secao: string | null; descricao: string | null; imagem: string | null;
     }>;
 
     const sugestoes: Record<string, Array<{
-      nome: string; preco_adicional_centavos: number; secao: string; descricao: string;
+      nome: string; preco_adicional_centavos: number; secao: string; descricao: string; imagem: string;
     }>> = {};
     for (const l of linhas) {
       const grupo = String(l.grupo || '').trim();
@@ -1287,6 +1287,7 @@ router.get('/opcoes/sugestoes', async (req, res, next) => {
         preco_adicional_centavos: Number(l.preco) || 0,
         secao: String(l.secao || ''),
         descricao: String(l.descricao || ''),
+        imagem: String(l.imagem || ''),
       });
     }
     res.json({ sugestoes });
@@ -1394,7 +1395,8 @@ router.post('/grupos/:id/opcoes', async (req, res, next) => {
     ).run(grupo.id, nome, precoAdicional, inteiroPositivo(req.body.ordem) || 0,
           inteiroPositivo(req.body.sabores) || 0,
           textoLimpo(req.body.secao, 40),
-          textoLimpo(req.body.descricao, 160));
+          textoLimpo(req.body.descricao, 160),
+          textoLimpo(req.body.imagem, 500));
     res.status(201).json({ opcao_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
@@ -1411,10 +1413,10 @@ router.put('/opcoes/:id', async (req, res, next) => {
       if (v === null || v < 0) throw erroHttp(400, 'Preço adicional inválido.');
       precoAdicional = v;
     }
-    const atual = opcao as unknown as { sabores?: number; secao?: string; descricao?: string };
+    const atual = opcao as unknown as { sabores?: number; secao?: string; descricao?: string; imagem?: string };
     await db.prepare(
       `UPDATE opcoes_itens SET nome = ?, preco_adicional_centavos = ?, disponivel = ?,
-              sabores = ?, secao = ?, descricao = ? WHERE id = ?`
+              sabores = ?, secao = ?, descricao = ?, imagem = ? WHERE id = ?`
     ).run(nome, precoAdicional,
           req.body.disponivel !== undefined ? (req.body.disponivel ? 1 : 0) : opcao.disponivel,
           // Quantos sabores esta opção libera (só nas opções de tamanho).
@@ -1424,6 +1426,7 @@ router.put('/opcoes/:id', async (req, res, next) => {
           // Seção dentro do grupo ('Tradicionais', 'Especiais'…) — ver schema.
           req.body.secao !== undefined ? textoLimpo(req.body.secao, 40) : (atual.secao ?? ''),
           req.body.descricao !== undefined ? textoLimpo(req.body.descricao, 160) : (atual.descricao ?? ''),
+          req.body.imagem !== undefined ? textoLimpo(req.body.imagem, 500) : (atual.imagem ?? ''),
           opcao.id);
     res.json({ ok: true });
   } catch (e) { next(e); }

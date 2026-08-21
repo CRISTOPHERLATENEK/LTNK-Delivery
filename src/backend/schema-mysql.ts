@@ -238,6 +238,14 @@ const TABELAS: string[] = [
    * longuíssimas em tom de anúncio").
    */
   descricao                VARCHAR(160) NOT NULL DEFAULT '',
+  /*
+   * Foto do sabor. Mesmo tamanho de produtos.foto_url — guarda URL, nao
+   * arquivo (o upload vive em /api/upload/imagem e devolve o caminho).
+   *
+   * Vale pra sabor, não pra borda ou adicional: numa pizzaria a foto do sabor é
+   * o que vende, e ninguém precisa ver uma foto de "sem cebola".
+   */
+  imagem                   VARCHAR(500) NOT NULL DEFAULT '',
   KEY idx_opcoes_grupo (grupo_id),
   FOREIGN KEY (grupo_id) REFERENCES grupos_opcoes(id)
 ) ${SUFIXO_TABELA}`,
@@ -1213,6 +1221,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     ['sabores', 'sabores INT NOT NULL DEFAULT 0'],
     ['secao', "secao VARCHAR(40) NOT NULL DEFAULT ''"],
     ['descricao', "descricao VARCHAR(160) NOT NULL DEFAULT ''"],
+    ['imagem', "imagem VARCHAR(500) NOT NULL DEFAULT ''"],
   ] as const) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS

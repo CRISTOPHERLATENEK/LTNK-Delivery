@@ -181,6 +181,7 @@ describe('a consulta pública tem que trazer os campos da pizza', () => {
     expect(sel![0]).toMatch(/sabores/);
     expect(sel![0]).toMatch(/secao/);
     expect(sel![0]).toMatch(/descricao/);
+    expect(sel![0]).toMatch(/imagem/);
   });
 });
 
