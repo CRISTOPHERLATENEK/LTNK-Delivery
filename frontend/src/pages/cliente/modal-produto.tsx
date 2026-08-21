@@ -29,6 +29,8 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
   const [qtd, setQtd] = useState(1);
   const [observacao, setObservacao] = useState('');
   const [descAberta, setDescAberta] = useState(false);
+  /** Rolou o bastante pra foto sair de vista — ver a barra compacta, mais abaixo. */
+  const [compacto, setCompacto] = useState(false);
   const { mostrar } = useToast();
 
   useEffect(() => {
@@ -36,6 +38,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
     setQtd(1);
     setObservacao('');
     setDescAberta(false);
+    setCompacto(false);
   }, [produto.id]);
 
   /*
@@ -53,6 +56,38 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
     // -8px pra o cabeçalho sticky não cobrir a primeira linha do grupo.
     area.scrollTo({ top: alvo.offsetTop - 8, behavior: 'smooth' });
   }
+
+  /*
+   * CABEÇALHO COMPACTO AO ROLAR.
+   *
+   * A foto e o título saem de vista de propósito (rolam junto com o conteúdo,
+   * pra lista de opções usar a altura inteira). O custo é que, no meio de uma
+   * pizza de quatro grupos, o cliente perde a referência do que está montando —
+   * e o rodapé mostra o total, não QUAL produto.
+   *
+   * Por que sobreposto e não em fluxo: a barra de progresso é `sticky top-0`
+   * DENTRO da área que rola. Uma barra em fluxo que cresce no meio da rolagem
+   * empurraria todo o conteúdo abaixo dela pra baixo — o texto pularia debaixo
+   * do dedo. Sobreposta, só o `top` da barra de progresso muda, e ela desliza
+   * pra baixo da compacta sem mexer em nada do conteúdo.
+   *
+   * SÓ NO CELULAR. No desktop o modal tem 480px centrados e altura de sobra: a
+   * foto quase não sai de vista, e a barra cobriria o X. A checagem é em JS e
+   * não em `sm:hidden` porque o `top` da barra de progresso também depende
+   * disto — escondê-la por CSS deixaria a de progresso descolada 44px do topo,
+   * com um vão vazio em cima.
+   */
+  useEffect(() => {
+    const area = areaRolagem.current;
+    if (!aberto || !area) return;
+    if (window.matchMedia('(min-width: 640px)').matches) return;
+    /* Histerese: aparece depois de 200px, só desaparece antes de 150. Com um
+       limite só, uma rolagem parada exatamente nele ligaria e desligaria a
+       barra a cada pixel de tremida do dedo. */
+    const aoRolar = () => setCompacto(v => (v ? area.scrollTop > 150 : area.scrollTop > 200));
+    area.addEventListener('scroll', aoRolar, { passive: true });
+    return () => area.removeEventListener('scroll', aoRolar);
+  }, [aberto, produto.id]);
 
   const precoBase = precoVigente(produto);
 
@@ -260,7 +295,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
           type="button"
           onClick={onFechar}
           aria-label="Fechar"
-          className="absolute right-3 top-3 z-10 flex size-9 items-center justify-center rounded-full bg-white/95 text-stone-800 shadow-md transition-transform active:scale-90"
+          className="absolute right-3 top-3 z-40 flex size-9 items-center justify-center rounded-full bg-white/95 text-stone-800 shadow-md transition-transform active:scale-90"
         >
           <X className="size-[18px]" strokeWidth={2.5} />
         </button>
@@ -279,6 +314,40 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
           altura inteira do sheet. Quem mantém o produto identificado é a barra
           de progresso (sticky) e o resumo no rodapé.
         */}
+        {/*
+          A barra compacta em si. `pr-14` reserva a faixa do X, que fica por
+          cima (z-40) — sem a reserva, um nome longo passaria por baixo do botão
+          de fechar e ficaria ilegível justamente na parte que trunca.
+
+          O preço aqui é o DO PRODUTO, não o total com as opções: esta barra
+          substitui o cabeçalho que saiu de vista, e é identidade. O total, que
+          muda a cada escolha, é do rodapé — dois números diferentes no mesmo
+          instante fariam o cliente conferir qual está certo.
+        */}
+        <div
+          aria-hidden={!compacto}
+          className={cn(
+            'absolute inset-x-0 top-0 z-30 flex items-center gap-2.5 border-b border-border/60',
+            'bg-background/95 px-4 pr-14 backdrop-blur transition-[opacity,transform] duration-150 sm:hidden',
+            compacto
+              ? 'h-11 opacity-100 translate-y-0'
+              : 'pointer-events-none h-11 -translate-y-full opacity-0',
+          )}
+        >
+          {produto.foto_url && (
+            <img
+              src={produto.foto_url}
+              alt=""
+              className="size-7 shrink-0 rounded-lg border border-border/60 object-cover"
+            />
+          )}
+          <span className="min-w-0 flex-1 truncate text-[13px] font-bold">{produto.nome}</span>
+          <span className={cn('shrink-0 text-[13px] font-bold tabular-nums',
+            temPromo ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground')}>
+            {brl(precoBase)}
+          </span>
+        </div>
+
         <div ref={areaRolagem} className="flex-1 overflow-y-auto min-h-0">
         {/* Foto: sangra na largura toda, sem moldura */}
         {produto.foto_url ? (
@@ -390,7 +459,10 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
             marca continua sendo `primary`, usada no botão.
           */}
           {obrigatorios.length > 1 && (
-            <div className="sticky top-0 z-20 border-b border-border/60 bg-background/95 px-5 py-2.5 backdrop-blur">
+            <div
+              style={{ top: compacto ? 44 : 0 }}
+              className="sticky z-20 border-b border-border/60 bg-background/95 px-5 py-2.5 backdrop-blur transition-[top] duration-150"
+            >
               <div className="flex items-center gap-2">
                 <span className="text-[11.5px] font-bold">
                   {faltando.length === 0
@@ -454,7 +526,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
               onAlternar={opcao => alternar(g, opcao)}
               onRemoverFracao={opcao => removerFracao(g, opcao)}
               saboresPermitidos={saboresPermitidos}
-              topoSticky={obrigatorios.length > 1 ? 70 : 0}
+              topoSticky={(obrigatorios.length > 1 ? 70 : 0) + (compacto ? 44 : 0)}
             />
             </div>
           ))}
