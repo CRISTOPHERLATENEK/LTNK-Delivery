@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo , precoMinimoItem, precoVariavel, agruparPorSecao, contarFracoes } from './opcoes-preco';
+import { papelValido, modoPrecoValido } from './rotas/lojista';
 
 const tamanho = { papel: 'tamanho', modo_preco: 'somar', max_escolhas: 1 };
 const sabores = { papel: 'sabores', modo_preco: 'maior', max_escolhas: 1 };
@@ -205,13 +206,31 @@ describe('agruparPorSecao', () => {
     expect(r[0].opcoes).toHaveLength(2);
   });
 
-  /* Opção antiga (sem seção) não pode ir pro fim: mudaria a ordem de um
-     cardápio que já está no ar. */
-  it('as SEM seção ficam no começo', () => {
+  /*
+   * ESTE TESTE ESTAVA TRAVANDO O BUG.
+   *
+   * O nome dizia "ficam no começo" e a asserção exigia ['Doces', ''] — o
+   * contrário. Com o nome certo e a asserção errada, ninguém releu.
+   *
+   * Por que a posição decide se a tela mente: o bloco sem seção é renderizado
+   * SEM cabeçalho, porque loja que não usa seção não pode ganhar título. Um
+   * sabor sem seção que caia depois de "Doces" aparece embaixo do título
+   * "Doces". Foi o que aconteceu no cardápio real — "Napolitano" listado dentro
+   * de DOCES porque um sabor doce tinha id menor.
+   */
+  it('as SEM seção ficam no começo, mesmo aparecendo depois', () => {
     const r = agruparPorSecao([{ secao: 'Doces' }, { secao: '' }]);
-    expect(r.map(x => x.secao)).toEqual(['Doces', '']);
+    expect(r.map(x => x.secao)).toEqual(['', 'Doces']);
     const r2 = agruparPorSecao([{ secao: '' }, { secao: 'Doces' }]);
     expect(r2.map(x => x.secao)).toEqual(['', 'Doces']);
+  });
+
+  /* O caso exato da base: o sem-seção no MEIO de duas seções nomeadas. */
+  it('a ordem das seções nomeadas entre si não muda', () => {
+    const r = agruparPorSecao([
+      { secao: 'Doces' }, { secao: '' }, { secao: 'Tradicionais' },
+    ]);
+    expect(r.map(x => x.secao)).toEqual(['', 'Doces', 'Tradicionais']);
   });
 
   it('ignora espaço em volta do nome da seção', () => {
@@ -332,5 +351,52 @@ describe('a soma de acréscimo não pode ser copiada', () => {
       }
     }
     expect(culpados).toEqual([]);
+  });
+});
+
+/**
+ * O PAPEL DO GRUPO E A POLÍTICA DE PREÇO, COMO CHEGAM DO PAINEL.
+ *
+ * Estes dois validadores são a porta de entrada: o que eles recusam nunca chega
+ * ao banco, e o que eles trocam em silêncio vira uma regra que o lojista não
+ * escolheu — que foi exatamente o caso de 'proporcional'.
+ */
+describe('papelValido / modoPrecoValido', () => {
+  it('aceita os dois papéis e recusa o resto', () => {
+    expect(papelValido('tamanho')).toBe('tamanho');
+    expect(papelValido('sabores')).toBe('sabores');
+    expect(papelValido('borda')).toBe('');
+    expect(papelValido(undefined)).toBe('');
+    expect(papelValido(3)).toBe('');
+  });
+
+  /*
+   * O BUG: 'proporcional' existe no seletor do painel e em `precoDoGrupo`, mas
+   * aqui caía no `else` e virava 'somar'. O lojista escolhia "proporcional à
+   * fração", salvava sem erro nenhum, e o grupo passava a cobrar 100% de cada
+   * sabor — a mais caras das três políticas, escolhida pelo servidor.
+   */
+  it('aceita proporcional — o painel oferece e precoDoGrupo implementa', () => {
+    expect(modoPrecoValido('proporcional')).toBe('proporcional');
+  });
+
+  it('aceita maior, e o desconhecido cai em somar', () => {
+    expect(modoPrecoValido('maior')).toBe('maior');
+    expect(modoPrecoValido('media')).toBe('somar');
+    expect(modoPrecoValido(undefined)).toBe('somar');
+  });
+
+  /*
+   * O ELO COM O CÁLCULO: tudo que passa por aqui tem que ser um `modo_preco`
+   * que `precoDoGrupo` sabe tratar de forma distinta. Se algum dia entrar um
+   * valor novo no validador sem a política correspondente, este teste quebra —
+   * e o sintoma seria o pior possível: cobrar 'somar' calado.
+   */
+  it('todo modo aceito tem política própria em precoDoGrupo', () => {
+    const duas = [{ id: 1, preco_adicional_centavos: 1600 }, { id: 2, preco_adicional_centavos: 800 }];
+    const conta = (modo: string) => precoDoGrupo({ papel: 'sabores', modo_preco: modo, max_escolhas: 2 }, duas);
+    expect(conta(modoPrecoValido('somar'))).toBe(2400);
+    expect(conta(modoPrecoValido('maior'))).toBe(1600);
+    expect(conta(modoPrecoValido('proporcional'))).toBe(1200);
   });
 });

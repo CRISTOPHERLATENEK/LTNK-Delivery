@@ -195,13 +195,16 @@ export interface OpcaoComSecao {
 /**
  * Agrupa as opções por seção, preservando a ordem em que chegaram.
  *
- * As SEM seção vêm primeiro, com rótulo vazio: é o estado de toda opção
- * cadastrada antes desta coluna, e empurrá-las pro fim mudaria a ordem de um
- * cardápio que já está no ar.
+ * AS SEM SEÇÃO VÊM PRIMEIRO, e isso não é detalhe de ordenação — é o que
+ * impede a tela de MENTIR. O bloco sem seção é renderizado sem cabeçalho (uma
+ * loja que não usa seção não deve ganhar título nenhum), então uma opção sem
+ * seção que caia DEPOIS de "Doces" aparece embaixo do título "Doces" e passa a
+ * ser lida como um sabor doce. Aconteceu no cardápio real: "Napolitano", sem
+ * seção, ficou listado dentro de DOCES porque um sabor doce tinha id menor.
  *
- * A ordem das seções é a de PRIMEIRA APARIÇÃO, não alfabética: 'Tradicionais'
- * antes de 'Especiais' é escolha do lojista (ele ordena as opções), e alfabético
- * inverteria isso sem ele pedir.
+ * Entre as seções nomeadas, a ordem é a de PRIMEIRA APARIÇÃO, não alfabética:
+ * 'Tradicionais' antes de 'Especiais' é escolha do lojista (ele ordena as
+ * opções), e alfabético inverteria isso sem ele pedir.
  */
 export function agruparPorSecao<T extends OpcaoComSecao>(opcoes: T[]): Array<{ secao: string; opcoes: T[] }> {
   const ordem: string[] = [];
@@ -211,9 +214,11 @@ export function agruparPorSecao<T extends OpcaoComSecao>(opcoes: T[]): Array<{ s
     if (!mapa.has(secao)) { mapa.set(secao, []); ordem.push(secao); }
     mapa.get(secao)!.push(o);
   }
-  // Sem seção em NENHUMA opção: devolve um bloco só, sem rótulo — a tela não
-  // deve ganhar cabeçalho por causa de um recurso que a loja não usa.
-  return ordem.map(secao => ({ secao, opcoes: mapa.get(secao)! }));
+  // O bloco sem rótulo vai pra frente; a ordem das nomeadas entre si não muda.
+  // Sem seção em NENHUMA opção, isto devolve um bloco só, como antes.
+  const nomeadas = ordem.filter(x => x !== '');
+  const chaves = mapa.has('') ? ['', ...nomeadas] : nomeadas;
+  return chaves.map(secao => ({ secao, opcoes: mapa.get(secao)! }));
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

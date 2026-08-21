@@ -1316,11 +1316,46 @@ router.get('/produtos/:id/grupos', async (req, res, next) => {
  * Valores fechados, e o que não for reconhecido vira o padrão inofensivo
  * (sem papel, somando) — corpo malformado não pode virar regra de preço.
  */
-function papelValido(v: unknown): string {
+export function papelValido(v: unknown): string {
   return v === 'tamanho' || v === 'sabores' ? v : '';
 }
-function modoPrecoValido(v: unknown): string {
-  return v === 'maior' ? 'maior' : 'somar';
+
+/**
+ * 'proporcional' TEM QUE PASSAR.
+ *
+ * O painel oferece as três políticas no seletor do grupo de sabores, e
+ * `precoDoGrupo` implementa as três — mas aqui só 'maior' era reconhecido, e
+ * qualquer outra coisa virava 'somar'. O lojista escolhia "Proporcional à
+ * fração", salvava, e o grupo passava a cobrar 100% de cada sabor: a política
+ * mais caramente errada das três, escolhida em silêncio pelo servidor.
+ */
+export function modoPrecoValido(v: unknown): string {
+  return v === 'maior' || v === 'proporcional' ? v : 'somar';
+}
+
+/**
+ * TAMANHO E SABORES SÃO PAPÉIS ÚNICOS DENTRO DO PRODUTO.
+ *
+ * Nada impedia dois grupos de reivindicarem o mesmo papel, e aconteceu na base
+ * real: o grupo "Sabores" da pizza ficou com `papel = 'tamanho'`, junto do
+ * grupo "Tamanho". O efeito não era um erro visível, era o recurso inteiro
+ * calado — `maxEscolhasEfetivo` só troca o limite pelo do tamanho quando o
+ * papel é 'sabores', então a pizza que libera 4 sabores deixava escolher 3 (o
+ * `max_escolhas` do grupo), e o passo de fração nem aparecia.
+ *
+ * Tirar o papel dos OUTROS grupos, e não recusar o pedido, é de propósito: o
+ * lojista está dizendo "este é o grupo de tamanho", e a leitura certa disso é
+ * que o anterior não é mais. Recusar deixaria ele preso, tendo que descobrir
+ * sozinho qual grupo esconde o papel duplicado.
+ *
+ * De quebra, isto conserta a base existente na primeira vez que qualquer um dos
+ * dois grupos for salvo.
+ */
+async function papelExclusivo(produtoId: number, papel: string, exceto: number): Promise<void> {
+  if (papel !== 'tamanho' && papel !== 'sabores') return;
+  await db.prepare(
+    "UPDATE grupos_opcoes SET papel = '' WHERE produto_id = ? AND papel = ? AND id <> ?"
+  ).run(produtoId, papel, exceto);
 }
 
 router.post('/produtos/:id/grupos', async (req, res, next) => {
@@ -1340,6 +1375,7 @@ router.post('/produtos/:id/grupos', async (req, res, next) => {
           inteiroPositivo(req.body.max_escolhas) || 0,
           inteiroPositivo(req.body.ordem) || 0,
           papelValido(req.body.papel), modoPrecoValido(req.body.modo_preco));
+    await papelExclusivo(produto.id, papelValido(req.body.papel), Number(info.lastInsertRowid));
     res.status(201).json({ grupo_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
@@ -1350,6 +1386,9 @@ router.put('/grupos/:id', async (req, res, next) => {
     const grupo = await meuGrupo(loja, req.params.id);
     const nome = req.body.nome !== undefined ? textoLimpo(req.body.nome, 60) : grupo.nome;
     if (nome.length < 2) throw erroHttp(400, 'Nome do grupo inválido.');
+    const papel = req.body.papel !== undefined
+      ? papelValido(req.body.papel)
+      : ((grupo as unknown as { papel?: string }).papel ?? '');
     await db.prepare(
       `UPDATE grupos_opcoes SET nome = ?, tipo = ?, obrigatorio = ?, max_escolhas = ?, ordem = ?,
               papel = ?, modo_preco = ? WHERE id = ?`
@@ -1361,9 +1400,10 @@ router.put('/grupos/:id', async (req, res, next) => {
           // antes de adicional, borda antes de bebida), então é o lojista quem
           // define arrastando. `?? grupo.ordem` mantém quem só renomeou no lugar.
           req.body.ordem !== undefined ? (inteiroPositivo(req.body.ordem) || 0) : grupo.ordem,
-          req.body.papel !== undefined ? papelValido(req.body.papel) : ((grupo as unknown as { papel?: string }).papel ?? ''),
+          papel,
           req.body.modo_preco !== undefined ? modoPrecoValido(req.body.modo_preco) : ((grupo as unknown as { modo_preco?: string }).modo_preco ?? 'somar'),
           grupo.id);
+    await papelExclusivo(grupo.produto_id, papel, grupo.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
