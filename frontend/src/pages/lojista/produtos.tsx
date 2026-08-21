@@ -1651,6 +1651,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
   const [editandoOpcaoId, setEditandoOpcaoId] = useState<number | null>(null);
   const [editandoOpcaoNome, setEditandoOpcaoNome] = useState('');
   const [editandoOpcaoPreco, setEditandoOpcaoPreco] = useState('');
+  const [editandoOpcaoSecao, setEditandoOpcaoSecao] = useState('');
 
   function opcaoForm(grupoId: number) {
     return novasOpcoes[grupoId] ?? { nome: '', preco: '', secao: '' };
@@ -1807,6 +1808,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
       await api('PUT', `/api/lojista/opcoes/${opcaoId}`, {
         nome: editandoOpcaoNome.trim(),
         preco_adicional: editandoOpcaoPreco || '0',
+        secao: editandoOpcaoSecao,
       });
       await qc.refetchQueries({ queryKey });
       setEditandoOpcaoId(null);
@@ -2186,6 +2188,26 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                     className="h-8 pl-6 text-xs"
                                   />
                                 </div>
+                                {/*
+                                  SEÇÃO TAMBÉM NA EDIÇÃO.
+                                  O campo só existia ao CRIAR a opção — quem já
+                                  tinha os sabores cadastrados teria que apagar e
+                                  recadastrar os quatro só pra agrupá-los, que é
+                                  o trabalho manual que a seção veio evitar.
+
+                                  `list` reaproveita as seções já usadas no grupo,
+                                  pra "Doces" e "doces" não virarem dois títulos.
+                                */}
+                                <Input
+                                  value={editandoOpcaoSecao}
+                                  onChange={e => setEditandoOpcaoSecao(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); atualizarOpcao(o.id); } if (e.key === 'Escape') setEditandoOpcaoId(null); }}
+                                  placeholder="Seção"
+                                  maxLength={40}
+                                  className="h-8 w-28 shrink-0 text-xs"
+                                  list={`secoes-${grupo.id}`}
+                                  aria-label="Seção deste item"
+                                />
                                 <button onClick={() => atualizarOpcao(o.id)} className="shrink-0 rounded-lg bg-primary p-1.5 text-primary-foreground transition-colors hover:bg-primary/90">
                                   <Check className="size-3.5" />
                                 </button>
@@ -2200,10 +2222,17 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                               >
                                 <button
                                   className="flex-1 truncate text-left text-sm font-medium"
-                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); }}
+                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); }}
                                 >
                                   {o.nome}
                                 </button>
+                                {/* A seção precisa ser VISÍVEL na lista: sem isso não
+                                    dá pra conferir o agrupamento sem abrir cada item. */}
+                                {o.secao && (
+                                  <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10.5px] font-semibold text-muted-foreground">
+                                    {o.secao}
+                                  </span>
+                                )}
                                 {o.preco_adicional_centavos > 0 && (
                                   <span className="shrink-0 text-xs font-bold text-primary">+ {brl(o.preco_adicional_centavos)}</span>
                                 )}
@@ -2242,7 +2271,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                 )}
                                 <Pencil
                                   className="size-3.5 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60"
-                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); }}
+                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); }}
                                 />
                                 <button onClick={() => toggleDisponivel(o)} title={o.disponivel ? 'Desativar' : 'Ativar'} className="shrink-0">
                                   {o.disponivel ? <ToggleRight className="size-5 text-primary" /> : <ToggleLeft className="size-5 text-muted-foreground" />}
