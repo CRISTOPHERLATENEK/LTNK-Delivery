@@ -4,7 +4,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes,
+  erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes, indiceDeSugestoes,
 } from './avisos-produto';
 
 const LISTA = [
@@ -160,5 +160,33 @@ describe('mesclarSugestoes', () => {
 
   it('nada de nada não quebra', () => {
     expect(mesclarSugestoes(undefined, undefined)).toEqual([]);
+  });
+});
+
+describe('indiceDeSugestoes', () => {
+  const salvas = [
+    { nome: 'Catupiry', preco_adicional_centavos: 800, secao: 'Especiais', descricao: 'requeijão cremoso' },
+    { nome: 'Calabresa', preco_adicional_centavos: 0, secao: 'Tradicional', descricao: '' },
+  ];
+
+  it('acha a configuração salva ignorando caixa', () => {
+    const i = indiceDeSugestoes(salvas);
+    expect(i.get('catupiry')?.preco_adicional_centavos).toBe(800);
+    expect(i.get('catupiry')?.secao).toBe('Especiais');
+    expect(i.get('catupiry')?.descricao).toBe('requeijão cremoso');
+  });
+
+  /* Chip do padrão do sistema não tem configuração salva — e não pode explodir. */
+  it('nome que não está no histórico devolve undefined', () => {
+    expect(indiceDeSugestoes(salvas).get('bacon')).toBeUndefined();
+  });
+
+  it('lista vazia ou ausente não quebra', () => {
+    expect(indiceDeSugestoes(undefined).size).toBe(0);
+    expect(indiceDeSugestoes([]).size).toBe(0);
+  });
+
+  it('nome vazio é ignorado', () => {
+    expect(indiceDeSugestoes([{ nome: '  ' }]).size).toBe(0);
   });
 });

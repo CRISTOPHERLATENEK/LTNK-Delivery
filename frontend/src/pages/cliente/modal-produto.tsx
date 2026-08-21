@@ -521,12 +521,25 @@ function GrupoOpcao({
                 )}
               </span>
 
-              {/* Name */}
-              <span className={cn(
-                'flex-1 text-sm font-semibold leading-snug',
-                ativa ? 'text-primary' : 'text-foreground',
-              )}>
-                {o.nome}
+              {/* Name + ingredientes */}
+              <span className="min-w-0 flex-1">
+                <span className={cn(
+                  'block text-sm font-semibold leading-snug',
+                  ativa ? 'text-primary' : 'text-foreground',
+                )}>
+                  {o.nome}
+                </span>
+                {/*
+                  Ingredientes numa linha, com clamp de 2: é o que transforma
+                  "Portuguesa" numa escolha informada. Sem o clamp, um sabor com
+                  descrição longa empurra os outros pra fora da tela e o cliente
+                  para de comparar.
+                */}
+                {o.descricao && (
+                  <span className="mt-0.5 block text-[11.5px] leading-snug text-muted-foreground line-clamp-2">
+                    {o.descricao}
+                  </span>
+                )}
               </span>
 
               {/*

@@ -229,6 +229,15 @@ const TABELAS: string[] = [
    * regra existe pra fazer. Seção separa na TELA sem partir a regra.
    */
   secao                    VARCHAR(40) NOT NULL DEFAULT '',
+  /*
+   * Ingredientes do sabor, mostrados embaixo do nome pro cliente.
+   *
+   * 160 caracteres e não TEXT: é uma linha de apoio numa lista, não um campo de
+   * marketing. Sem teto, a descrição vira anúncio e a lista de sabores deixa de
+   * ser varrível — foi o defeito nº 12 da análise do concorrente ("descrições
+   * longuíssimas em tom de anúncio").
+   */
+  descricao                VARCHAR(160) NOT NULL DEFAULT '',
   KEY idx_opcoes_grupo (grupo_id),
   FOREIGN KEY (grupo_id) REFERENCES grupos_opcoes(id)
 ) ${SUFIXO_TABELA}`,
@@ -1203,6 +1212,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
   for (const [coluna, ddl] of [
     ['sabores', 'sabores INT NOT NULL DEFAULT 0'],
     ['secao', "secao VARCHAR(40) NOT NULL DEFAULT ''"],
+    ['descricao', "descricao VARCHAR(160) NOT NULL DEFAULT ''"],
   ] as const) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS

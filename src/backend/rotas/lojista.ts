@@ -1149,10 +1149,10 @@ router.post('/produtos/:id/duplicar', async (req, res, next) => {
             // `sabores` e `secao` entram aqui: sem eles, duplicar uma pizza
             // perdia quantos sabores cada tamanho libera e a faixa de cada
             // sabor — a cópia parecia igual na lista e vinha quebrada por dentro.
-            `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(novoGrupoId, o.nome, o.preco_adicional_centavos, o.disponivel, o.ordem,
-                o.sabores || 0, o.secao || '');
+                o.sabores || 0, o.secao || '', o.descricao || '');
         }
       }
       return novoId;
@@ -1246,8 +1246,23 @@ async function minhaOpcao(loja: Loja, opcaoId: number | string): Promise<OpcaoIt
 router.get('/opcoes/sugestoes', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
+    /*
+     * DEVOLVE A CONFIGURAÇÃO, NÃO SÓ O NOME.
+     *
+     * Antes vinha só o nome, então clicar no chip recriava o sabor com preço 0,
+     * sem seção e sem descrição — o lojista tinha que redigitar acréscimo,
+     * faixa e ingredientes de cada um. "Salvo pra não fazer de novo" só vale se
+     * vier tudo.
+     *
+     * MAX() e não qualquer valor: se o mesmo sabor foi cadastrado com preços
+     * diferentes em produtos diferentes (acontece — pizza grande cobra mais que
+     * a broto), pegar o maior é o palpite seguro. Cadastrar barato demais por
+     * sugestão é prejuízo silencioso; caro demais o lojista vê e corrige.
+     */
     const linhas = await db.prepare(
-      `SELECT g.nome AS grupo, o.nome AS opcao, COUNT(*) AS usos
+      `SELECT g.nome AS grupo, o.nome AS opcao, COUNT(*) AS usos,
+              MAX(o.preco_adicional_centavos) AS preco,
+              MAX(o.secao) AS secao, MAX(o.descricao) AS descricao
          FROM opcoes_itens o
          JOIN grupos_opcoes g ON g.id = o.grupo_id
          JOIN produtos p ON p.id = g.produto_id
@@ -1255,14 +1270,24 @@ router.get('/opcoes/sugestoes', async (req, res, next) => {
         GROUP BY g.nome, o.nome
         ORDER BY usos DESC, o.nome ASC
         LIMIT 400`
-    ).all(loja.id) as Array<{ grupo: string; opcao: string; usos: number }>;
+    ).all(loja.id) as Array<{
+      grupo: string; opcao: string; usos: number;
+      preco: number | null; secao: string | null; descricao: string | null;
+    }>;
 
-    const sugestoes: Record<string, string[]> = {};
+    const sugestoes: Record<string, Array<{
+      nome: string; preco_adicional_centavos: number; secao: string; descricao: string;
+    }>> = {};
     for (const l of linhas) {
       const grupo = String(l.grupo || '').trim();
-      const opcao = String(l.opcao || '').trim();
-      if (!grupo || !opcao) continue;
-      (sugestoes[grupo] ||= []).push(opcao);
+      const nome = String(l.opcao || '').trim();
+      if (!grupo || !nome) continue;
+      (sugestoes[grupo] ||= []).push({
+        nome,
+        preco_adicional_centavos: Number(l.preco) || 0,
+        secao: String(l.secao || ''),
+        descricao: String(l.descricao || ''),
+      });
     }
     res.json({ sugestoes });
   } catch (e) { next(e); }
@@ -1364,11 +1389,12 @@ router.post('/grupos/:id/opcoes', async (req, res, next) => {
     if (precoAdicional === null || precoAdicional < 0) throw erroHttp(400, 'Preço adicional inválido.');
 
     const info = await db.prepare(
-      `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao)
-       VALUES (?, ?, ?, 1, ?, ?, ?)`
+      `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao)
+       VALUES (?, ?, ?, 1, ?, ?, ?, ?)`
     ).run(grupo.id, nome, precoAdicional, inteiroPositivo(req.body.ordem) || 0,
           inteiroPositivo(req.body.sabores) || 0,
-          textoLimpo(req.body.secao, 40));
+          textoLimpo(req.body.secao, 40),
+          textoLimpo(req.body.descricao, 160));
     res.status(201).json({ opcao_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
@@ -1385,10 +1411,10 @@ router.put('/opcoes/:id', async (req, res, next) => {
       if (v === null || v < 0) throw erroHttp(400, 'Preço adicional inválido.');
       precoAdicional = v;
     }
-    const atual = opcao as unknown as { sabores?: number; secao?: string };
+    const atual = opcao as unknown as { sabores?: number; secao?: string; descricao?: string };
     await db.prepare(
       `UPDATE opcoes_itens SET nome = ?, preco_adicional_centavos = ?, disponivel = ?,
-              sabores = ?, secao = ? WHERE id = ?`
+              sabores = ?, secao = ?, descricao = ? WHERE id = ?`
     ).run(nome, precoAdicional,
           req.body.disponivel !== undefined ? (req.body.disponivel ? 1 : 0) : opcao.disponivel,
           // Quantos sabores esta opção libera (só nas opções de tamanho).
@@ -1397,6 +1423,7 @@ router.put('/opcoes/:id', async (req, res, next) => {
             : (atual.sabores ?? 0),
           // Seção dentro do grupo ('Tradicionais', 'Especiais'…) — ver schema.
           req.body.secao !== undefined ? textoLimpo(req.body.secao, 40) : (atual.secao ?? ''),
+          req.body.descricao !== undefined ? textoLimpo(req.body.descricao, 160) : (atual.descricao ?? ''),
           opcao.id);
     res.json({ ok: true });
   } catch (e) { next(e); }

@@ -381,6 +381,8 @@ export interface OpcaoItem {
   sabores?: number;
   /** Faixa dentro do grupo ('Tradicionais', 'Especiais'…). Vazio = sem seção. */
   secao?: string | null;
+  /** Ingredientes do sabor, mostrados embaixo do nome. */
+  descricao?: string | null;
 }
 
 export interface GrupoOpcoes {

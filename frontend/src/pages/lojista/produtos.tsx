@@ -19,7 +19,7 @@ import { api, ApiError } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { gtinValido } from '@/lib/gtin';
-import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes } from '@/lib/avisos-produto';
+import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes, indiceDeSugestoes, type SugestaoSalva } from '@/lib/avisos-produto';
 import type { Produto } from '@/types';
 
 /* ─────────────────────── tipos ──────────────────────── */
@@ -76,6 +76,8 @@ interface OpcaoItem {
   sabores?: number;
   /** Faixa dentro do grupo ('Tradicionais', 'Especiais'…). Vazio = sem seção. */
   secao?: string | null;
+  /** Ingredientes, mostrados embaixo do nome pro cliente. */
+  descricao?: string | null;
   disponivel: number;
   ordem: number;
 }
@@ -1611,9 +1613,9 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
   const { data: historico } = useQuery({
     queryKey: ['lojista-sugestoes-opcoes'],
     queryFn: () =>
-      api<{ sugestoes: Record<string, string[]> }>('GET', '/api/lojista/opcoes/sugestoes')
+      api<{ sugestoes: Record<string, SugestaoSalva[]> }>('GET', '/api/lojista/opcoes/sugestoes')
         .then(r => r.sugestoes)
-        .catch((): Record<string, string[]> => ({})),
+        .catch((): Record<string, SugestaoSalva[]> => ({})),
     staleTime: 5 * 60_000,
   });
 
@@ -1645,18 +1647,19 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
 
   type FormGrupo = { nome: string; tipo: 'unico' | 'multiplo'; obrigatorio: boolean; max_escolhas: string; papel: string; modo_preco: string };
   const [novoGrupo, setNovoGrupo] = useState<FormGrupo | null>(null);
-  const [novasOpcoes, setNovasOpcoes] = useState<Record<number, { nome: string; preco: string; secao: string }>>({});
+  const [novasOpcoes, setNovasOpcoes] = useState<Record<number, { nome: string; preco: string; secao: string; descricao: string }>>({});
   const [editandoGrupoId, setEditandoGrupoId] = useState<number | null>(null);
   const [editandoGrupoForm, setEditandoGrupoForm] = useState<FormGrupo | null>(null);
   const [editandoOpcaoId, setEditandoOpcaoId] = useState<number | null>(null);
   const [editandoOpcaoNome, setEditandoOpcaoNome] = useState('');
   const [editandoOpcaoPreco, setEditandoOpcaoPreco] = useState('');
   const [editandoOpcaoSecao, setEditandoOpcaoSecao] = useState('');
+  const [editandoOpcaoDesc, setEditandoOpcaoDesc] = useState('');
 
   function opcaoForm(grupoId: number) {
-    return novasOpcoes[grupoId] ?? { nome: '', preco: '', secao: '' };
+    return novasOpcoes[grupoId] ?? { nome: '', preco: '', secao: '', descricao: '' };
   }
-  function setOpcaoForm(grupoId: number, campo: 'nome' | 'preco' | 'secao', valor: string) {
+  function setOpcaoForm(grupoId: number, campo: 'nome' | 'preco' | 'secao' | 'descricao', valor: string) {
     setNovasOpcoes(prev => ({ ...prev, [grupoId]: { ...opcaoForm(grupoId), [campo]: valor } }));
   }
 
@@ -1789,9 +1792,29 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
     }
   }
 
-  async function adicionarSugestao(grupoId: number, nome: string) {
+  async function adicionarSugestao(grupoId: number, nome: string, grupoNome: string) {
     try {
-      await api('POST', `/api/lojista/grupos/${grupoId}/opcoes`, { nome, preco_adicional: '0' });
+      /*
+       * O CHIP RECRIA A CONFIGURAÇÃO, não só o nome.
+       *
+       * Antes mandava `preco_adicional: '0'` fixo: clicar em "Catupiry" recriava
+       * o sabor de graça, sem seção e sem ingredientes, e o lojista redigitava
+       * tudo. Se a loja já cadastrou aquele item antes, o histórico sabe o preço,
+       * a faixa e a descrição — é isso que faz "não precisar fazer de novo"
+       * valer.
+       *
+       * Sugestão do padrão do sistema (que a loja nunca usou) não tem histórico:
+       * cai no preço 0, que é o comportamento anterior e o certo pra um nome que
+       * ninguém precificou ainda.
+       */
+      const salva = indiceDeSugestoes(historico?.[grupoNome]).get(nome.trim().toLowerCase());
+      await api('POST', `/api/lojista/grupos/${grupoId}/opcoes`, {
+        nome,
+        preco_adicional: salva?.preco_adicional_centavos
+          ? String(salva.preco_adicional_centavos / 100) : '0',
+        secao: salva?.secao || '',
+        descricao: salva?.descricao || '',
+      });
       await qc.refetchQueries({ queryKey });
       // O histórico ganhou um nome novo — sem invalidar, o chip só apareceria
       // pro próximo produto depois do staleTime.
@@ -1809,6 +1832,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
         nome: editandoOpcaoNome.trim(),
         preco_adicional: editandoOpcaoPreco || '0',
         secao: editandoOpcaoSecao,
+        descricao: editandoOpcaoDesc,
       });
       await qc.refetchQueries({ queryKey });
       setEditandoOpcaoId(null);
@@ -1846,6 +1870,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
         nome: f.nome.trim(),
         preco_adicional: f.preco || '0',
         secao: f.secao || '',
+        descricao: f.descricao || '',
       });
       await qc.refetchQueries({ queryKey });
       qc.invalidateQueries({ queryKey: ['lojista-sugestoes-opcoes'] });
@@ -1855,7 +1880,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
        * a seção a cada item obrigaria a redigitar "Tradicionais" dez vezes —
        * exatamente o tipo de trabalho manual que a gente veio tirar daqui.
        */
-      setNovasOpcoes(prev => ({ ...prev, [grupoId]: { nome: '', preco: '', secao: f.secao || '' } }));
+      setNovasOpcoes(prev => ({ ...prev, [grupoId]: { nome: '', preco: '', secao: f.secao || '', descricao: '' } }));
       setTimeout(() => document.getElementById(`opcao-nome-${grupoId}`)?.focus(), 50);
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao adicionar opção. Tente novamente.';
@@ -2142,7 +2167,8 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                         */}
                         {(() => {
                           const disponiveis = mesclarSugestoes(
-                            historico?.[grupo.nome], SUGESTOES[grupo.nome]);
+                            (historico?.[grupo.nome] || []).map(x => x.nome),
+                            SUGESTOES[grupo.nome]);
                           const faltam = sugestoesFaltantes(disponiveis, grupo.opcoes);
                           if (faltam.length === 0) return null;
                           return (
@@ -2155,7 +2181,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                   <button
                                     key={sug}
                                     type="button"
-                                    onClick={() => adicionarSugestao(grupo.id, sug)}
+                                    onClick={() => adicionarSugestao(grupo.id, sug, grupo.nome)}
                                     className="flex items-center gap-1 rounded-full border border-dashed border-border px-3 py-1.5 text-xs font-semibold transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary active:scale-95"
                                   >
                                     <Plus className="size-3" />{sug}
@@ -2199,6 +2225,15 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                   pra "Doces" e "doces" não virarem dois títulos.
                                 */}
                                 <Input
+                                  value={editandoOpcaoDesc}
+                                  onChange={e => setEditandoOpcaoDesc(e.target.value)}
+                                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); atualizarOpcao(o.id); } if (e.key === 'Escape') setEditandoOpcaoId(null); }}
+                                  placeholder="Ingredientes"
+                                  maxLength={160}
+                                  className="h-8 w-36 shrink-0 text-xs"
+                                  aria-label="Ingredientes deste item"
+                                />
+                                <Input
                                   value={editandoOpcaoSecao}
                                   onChange={e => setEditandoOpcaoSecao(e.target.value)}
                                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); atualizarOpcao(o.id); } if (e.key === 'Escape') setEditandoOpcaoId(null); }}
@@ -2221,10 +2256,13 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                 className={cn('group flex items-center gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-accent/40', !o.disponivel && 'opacity-45')}
                               >
                                 <button
-                                  className="flex-1 truncate text-left text-sm font-medium"
-                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); }}
+                                  className="min-w-0 flex-1 text-left"
+                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); setEditandoOpcaoDesc(o.descricao || ''); }}
                                 >
-                                  {o.nome}
+                                  <span className="block truncate text-sm font-medium">{o.nome}</span>
+                                  {o.descricao && (
+                                    <span className="block truncate text-[11px] text-muted-foreground">{o.descricao}</span>
+                                  )}
                                 </button>
                                 {/* A seção precisa ser VISÍVEL na lista: sem isso não
                                     dá pra conferir o agrupamento sem abrir cada item. */}
@@ -2271,7 +2309,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                 )}
                                 <Pencil
                                   className="size-3.5 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60"
-                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); }}
+                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); setEditandoOpcaoDesc(o.descricao || ''); }}
                                 />
                                 <button onClick={() => toggleDisponivel(o)} title={o.disponivel ? 'Desativar' : 'Ativar'} className="shrink-0">
                                   {o.disponivel ? <ToggleRight className="size-5 text-primary" /> : <ToggleLeft className="size-5 text-muted-foreground" />}
@@ -2328,6 +2366,30 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                             seção, e um campo a mais na linha principal cobraria
                             atenção de todo mundo por causa de um caso.
                           */}
+                          {/*
+                            INGREDIENTES. Uma linha, embaixo do nome do sabor na
+                            tela do cliente — é o que faz "Portuguesa" virar uma
+                            escolha informada em vez de um chute.
+
+                            Junto da seção e não na linha principal: nem todo
+                            grupo precisa (borda, bebida), e mais um campo na
+                            linha de cima cobraria atenção de todos por causa de
+                            um caso.
+                          */}
+                          <div className="mt-2 flex items-center gap-2">
+                            <label htmlFor={`opcao-desc-${grupo.id}`} className="shrink-0 text-[11px] text-muted-foreground">
+                              Ingredientes
+                            </label>
+                            <Input
+                              id={`opcao-desc-${grupo.id}`}
+                              placeholder="opcional — ex.: molho, mussarela, presunto, ovo"
+                              value={opcaoForm(grupo.id).descricao}
+                              onChange={e => setOpcaoForm(grupo.id, 'descricao', e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), criarOpcao(grupo.id))}
+                              maxLength={160}
+                              className="h-8 flex-1 text-xs"
+                            />
+                          </div>
                           <div className="mt-2 flex items-center gap-2">
                             <label htmlFor={`opcao-secao-${grupo.id}`} className="shrink-0 text-[11px] text-muted-foreground">
                               Seção

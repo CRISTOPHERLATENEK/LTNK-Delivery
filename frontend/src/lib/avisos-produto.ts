@@ -107,6 +107,33 @@ export function sugestoesFaltantes(
  * especial" do padrão são o mesmo chip, e mostrar os dois seria oferecer um
  * botão que cria item duplicado.
  */
+/** Uma sugestão vinda do histórico da loja, com a configuração dela. */
+export interface SugestaoSalva {
+  nome: string;
+  preco_adicional_centavos?: number;
+  secao?: string;
+  descricao?: string;
+}
+
+/**
+ * Índice nome → configuração salva, pra o chip recriar o item COMPLETO.
+ *
+ * Sem isto, clicar no chip recriava o sabor com preço 0, sem seção e sem
+ * ingredientes — e o lojista redigitava tudo. "Salvo pra não fazer de novo" só
+ * vale se vier a configuração inteira.
+ *
+ * Chave em minúscula porque o chip pode vir do padrão do sistema ("Bacon") e o
+ * histórico ter "bacon".
+ */
+export function indiceDeSugestoes(salvas: SugestaoSalva[] | undefined): Map<string, SugestaoSalva> {
+  const m = new Map<string, SugestaoSalva>();
+  for (const s of salvas || []) {
+    const nome = (s.nome || '').trim();
+    if (nome) m.set(nome.toLowerCase(), s);
+  }
+  return m;
+}
+
 export function mesclarSugestoes(
   doHistorico: string[] | undefined,
   padrao: string[] | undefined,

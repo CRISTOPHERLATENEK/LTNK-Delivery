@@ -121,6 +121,8 @@ export interface OpcaoItem {
   ordem: number;
   /** Faixa dentro do grupo ('Tradicionais', 'Especiais'…). Vazio = sem seção. */
   secao: string;
+  /** Ingredientes do sabor, mostrados embaixo do nome. */
+  descricao: string;
 }
 
 /** Grupo já com suas opções aninhadas (formato devolvido pela API). */
