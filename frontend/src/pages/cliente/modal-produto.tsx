@@ -2,9 +2,9 @@
  * Modal de montagem do produto: tamanho (radio), borda, adicionais (checkbox).
  * Recalcula o preço em tempo real conforme as escolhas.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { precoVigente, promocaoVigente } from '@/lib/preco-produto';
-import { Minus, Plus, Check, AlertCircle, X } from 'lucide-react';
+import { Minus, Plus, Check, AlertCircle, ChevronDown, X } from 'lucide-react';
 import {
   Sheet, SheetContent, SheetFooter,
 } from '@/components/ui/sheet';
@@ -35,6 +35,22 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
     setQtd(1);
     setObservacao('');
   }, [produto.id]);
+
+  /*
+   * O CONTEÚDO ROLA DENTRO DE UM DIV, não na janela — então rolar até um grupo é
+   * `scrollTo` neste container. `scrollIntoView` mexeria no scroll da página por
+   * trás do sheet, e o modal não se moveria.
+   */
+  const areaRolagem = useRef<HTMLDivElement | null>(null);
+  const refsGrupo = useRef<Record<number, HTMLDivElement | null>>({});
+
+  function irParaGrupo(grupoId: number) {
+    const area = areaRolagem.current;
+    const alvo = refsGrupo.current[grupoId];
+    if (!area || !alvo) return;
+    // -8px pra o cabeçalho sticky não cobrir a primeira linha do grupo.
+    area.scrollTo({ top: alvo.offsetTop - 8, behavior: 'smooth' });
+  }
 
   const precoBase = precoVigente(produto);
 
@@ -87,6 +103,30 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
     }
     return { precoUnit: preco, opcoesTexto: partes.join(' · '), opcoesIds: ids, faltando: faltandoLocal };
   }, [escolhidas, grupos, precoBase]);
+
+  /*
+   * GRUPO OBRIGATÓRIO COM UMA OPÇÃO SÓ NÃO É ESCOLHA — É INFORMAÇÃO.
+   *
+   * Ele contava como pendente, então o botão ficava travado esperando o cliente
+   * "escolher" numa lista sem alternativa. Marcar sozinho é o que destrava, e é o
+   * que o cliente faria de qualquer forma.
+   *
+   * Roda quando os grupos chegam (e ao trocar de produto), não a cada mudança de
+   * seleção: se rodasse sempre, desmarcar viraria impossível em grupo de
+   * múltipla escolha com um item só.
+   */
+  useEffect(() => {
+    const unicas = grupos.filter(g => g.obrigatorio && g.opcoes.length === 1);
+    if (unicas.length === 0) return;
+    setEscolhidas(antigo => {
+      let mudou = false;
+      const novo = { ...antigo };
+      for (const g of unicas) {
+        if ((novo[g.id] || []).length === 0) { novo[g.id] = [g.opcoes[0].id]; mudou = true; }
+      }
+      return mudou ? novo : antigo;
+    });
+  }, [grupos]);
 
   /** Sabores liberados pelo tamanho escolhido — 0 quando ninguém definiu. */
   const saboresPermitidos = useMemo(() => saboresLiberados(
@@ -146,6 +186,18 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
       return { ...antigo, [grupo.id]: [...atual.slice(0, i), ...atual.slice(i + 1)] };
     });
   }
+
+  /*
+   * PROGRESSO DAS ESCOLHAS OBRIGATÓRIAS.
+   *
+   * Numa pizza com Tamanho, Borda, Sabores e Refrigerante o cliente rolava a
+   * tela inteira sem saber quantas faltavam — e o botão só dizia a primeira.
+   *
+   * `faltando` já era calculado junto do preço; aqui ele vira contagem e lista
+   * de chips, sem recalcular nada.
+   */
+  const obrigatorios = grupos.filter(g => g.obrigatorio);
+  const resolvidos = obrigatorios.filter(g => !faltando.includes(g.nome));
 
   function adicionar(e: React.MouseEvent<HTMLButtonElement>) {
     if (faltando.length) {
@@ -277,7 +329,68 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
         </div>
 
         {/* Scroll area */}
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div ref={areaRolagem} className="flex-1 overflow-y-auto min-h-0">
+          {/*
+            BARRA DE PROGRESSO — quantas escolhas obrigatórias faltam, e onde.
+
+            `sticky top-0` DENTRO da área que rola: fica visível durante toda a
+            montagem, que é justamente quando a informação serve. Só aparece com
+            2+ grupos obrigatórios — num produto com um grupo só, ela repetiria o
+            que o cabeçalho do próprio grupo já diz.
+
+            Verde e âmbar literais aqui são cor SEMÂNTICA (resolvido/pendente),
+            não identidade visual — mesma exceção do semáforo do KDS. A cor da
+            marca continua sendo `primary`, usada no botão.
+          */}
+          {obrigatorios.length > 1 && (
+            <div className="sticky top-0 z-20 border-b border-border/60 bg-background/95 px-5 py-2.5 backdrop-blur">
+              <div className="flex items-center gap-2">
+                <span className="text-[11.5px] font-bold">
+                  {faltando.length === 0
+                    ? 'Tudo escolhido'
+                    : `${resolvidos.length} de ${obrigatorios.length} escolhas obrigatórias`}
+                </span>
+                {/* Trilha de filetes: um por grupo, verde quando resolvido. Diz
+                    o tamanho do caminho, não só quanto falta. */}
+                <span className="flex flex-1 gap-1">
+                  {obrigatorios.map(g => (
+                    <span
+                      key={g.id}
+                      className={cn(
+                        'h-[3px] flex-1 rounded-full transition-colors',
+                        faltando.includes(g.nome) ? 'bg-border' : 'bg-emerald-500',
+                      )}
+                    />
+                  ))}
+                </span>
+              </div>
+
+              {/* Chips de atalho. Rolam na horizontal porque 4 grupos não cabem
+                  em tela de 360px, e quebrar em duas linhas empurraria o
+                  conteúdo pra baixo a cada render. */}
+              <div className="scrollbar-hide -mx-1 mt-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
+                {obrigatorios.map(g => {
+                  const ok = !faltando.includes(g.nome);
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => irParaGrupo(g.id)}
+                      className={cn(
+                        'flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors',
+                        ok
+                          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400'
+                          : 'border-border bg-card text-muted-foreground',
+                      )}
+                    >
+                      {ok && <Check className="size-3" strokeWidth={3} />}
+                      {g.nome}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {/*
             SEM AVISO DE "sem personalizações" quando não há grupos.
             O modal agora abre em QUALQUER produto (tocar no card abre; só o "+"
@@ -287,14 +400,15 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
             botão de adicionar.
           */}
           {grupos.map(g => (
+            <div key={g.id} ref={el => { refsGrupo.current[g.id] = el; }}>
             <GrupoOpcao
-              key={g.id}
               grupo={g}
               escolhidas={escolhidas[g.id] || []}
               onAlternar={opcao => alternar(g, opcao)}
               onRemoverFracao={opcao => removerFracao(g, opcao)}
               saboresPermitidos={saboresPermitidos}
             />
+            </div>
           ))}
           {/*
             OBSERVAÇÃO POR ITEM.
@@ -372,11 +486,35 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
               faltava. Agora a instrução está no próprio botão, e o rótulo dele
               é a resposta.
             */}
+            {/*
+              COM PENDÊNCIA, O BOTÃO LEVA ATÉ ELA — não fica morto.
+              Antes era `disabled`: cor de destaque num botão inerte parece
+              ativo, o cliente tocava, nada acontecia e ele não tinha como saber
+              por quê. Agora o fundo é neutro (só o botão pronto usa a cor da
+              marca) e o toque rola até o grupo que falta.
+
+              `aria-disabled` e não `disabled`: o botão passou a TER ação, então
+              precisa receber foco e clique. `disabled` mataria as duas coisas.
+              Esgotado continua desabilitado de verdade — ali não há ação
+              possível.
+            */}
             <Button
               size="lg"
-              className="h-12 flex-1 justify-between gap-2 rounded-xl text-sm font-bold touch-manipulation"
-              onClick={adicionar}
-              disabled={esgotado || faltando.length > 0}
+              variant={faltando.length > 0 && !esgotado ? 'outline' : 'default'}
+              className={cn(
+                'h-12 flex-1 justify-between gap-2 rounded-xl text-sm font-bold touch-manipulation',
+                faltando.length > 0 && !esgotado && 'bg-muted text-foreground hover:bg-muted',
+              )}
+              onClick={e => {
+                if (faltando.length > 0) {
+                  const pendente = grupos.find(g => g.nome === faltando[0]);
+                  if (pendente) irParaGrupo(pendente.id);
+                  return;
+                }
+                adicionar(e);
+              }}
+              disabled={esgotado}
+              aria-disabled={faltando.length > 0}
             >
               {esgotado ? (
                 <span className="mx-auto">Esgotado</span>
@@ -384,6 +522,9 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
                 <>
                   <AlertCircle className="size-4 shrink-0" />
                   <span className="flex-1 text-left">Escolha {faltando[0]}</span>
+                  {/* A seta diz que o toque LEVA a algum lugar. Sem ela, um botão
+                      neutro com texto de aviso parece só desabilitado. */}
+                  <ChevronDown className="size-4 shrink-0 opacity-60" />
                 </>
               ) : (
                 <>
