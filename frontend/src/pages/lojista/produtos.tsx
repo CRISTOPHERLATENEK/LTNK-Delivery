@@ -3,7 +3,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CheckSquare, ChevronDown, Copy, FileText, GripVertical, Layers, ListPlus, Pencil, Plus, Rows3, Rows4, Search, Square, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
+import { Check, CheckSquare, ChevronDown, Copy, FileText, GripVertical, Image as ImageIcon, Layers, ListPlus, Pencil, Plus, Rows3, Rows4, Search, Square, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -208,6 +208,7 @@ export function ProdutosLoja() {
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [gerindoGrupos, setGerindoGrupos] = useState<Produto | null>(null);
   const [mostrarFiscal, setMostrarFiscal] = useState(false);
+
   /** Qual dos dois botões de submit foi clicado (ver `salvar`). */
   const criarOutroRef = useRef(false);
   const [modoSelecao, setModoSelecao] = useState(false);
@@ -230,6 +231,32 @@ export function ProdutosLoja() {
   const consulta = useQuery({
     queryKey: ['lojista-produtos'],
     queryFn: () => api<{ produtos: Produto[] }>('GET', '/api/lojista/produtos').then(r => r.produtos),
+  });
+  /*
+   * GRUPOS DO PRODUTO ABERTO, pra mostrar dentro do cadastro.
+   *
+   * `enabled` só quando há id: em produto NOVO não existe o que consultar — o
+   * grupo é vinculado a um produto, e ele ainda não foi criado. Sem esse guarda,
+   * a tela dispararia uma requisição pra /produtos/novo/grupos a cada abertura.
+   *
+   * Mesma queryKey que o editor de complementos usa, então voltar dele já traz a
+   * lista atualizada sem recarregar o formulário.
+   */
+  const grupoIdEmEdicao = typeof editando === 'number' ? editando : null;
+  /*
+   * O GruposModal recebe o Produto, não o id — e a fonte é a lista já carregada,
+   * não o formulário: o form guarda rascunho (pode ter nome alterado e não
+   * salvo), e passar rascunho pro editor faria o cabeçalho dele mostrar um nome
+   * que ainda não existe no banco.
+   */
+  const produtoEmEdicao = grupoIdEmEdicao === null
+    ? null
+    : (consulta.data ?? []).find(p => p.id === grupoIdEmEdicao) ?? null;
+  const gruposDoProduto = useQuery({
+    queryKey: ['lojista-grupos', grupoIdEmEdicao],
+    queryFn: () => api<{ grupos: GrupoOpcoes[] }>('GET', `/api/lojista/produtos/${grupoIdEmEdicao}/grupos`)
+      .then(r => r.grupos),
+    enabled: grupoIdEmEdicao !== null,
   });
 
   /*
@@ -701,6 +728,75 @@ export function ProdutosLoja() {
                   <div className="my-7 h-px bg-border" />
 
                   {/*
+                    COMO O CLIENTE VÊ — prévia do card do cardápio.
+
+                    O lojista escrevia nome e descrição num formulário e só
+                    descobria o resultado abrindo o app. Aqui ele vê o corte da
+                    descrição, o preço riscado e o selo de pausado enquanto
+                    digita — o mesmo recurso da prévia do cupom fiscal, que já
+                    existe no agente de impressão pelo mesmo motivo.
+
+                    NADA CLICÁVEL DENTRO: é visualização, não campo. O fundo
+                    `bg-muted/40` é o que diz isso sem precisar de aviso.
+                  */}
+                  <RotuloSecao>Como o cliente vê</RotuloSecao>
+                  <div className="rounded-xl border border-border bg-muted/40 p-3">
+                    <div className={cn('flex gap-3 rounded-xl border border-border bg-card p-2.5',
+                      !ehVendido({ disponivel: form.disponivel ? 1 : 0, disponivel_pdv: form.disponivel_pdv ? 1 : 0 }) && 'opacity-55')}>
+                      {form.foto_url ? (
+                        <img src={form.foto_url} alt="" className="size-16 shrink-0 rounded-[10px] object-cover" />
+                      ) : (
+                        <div className="flex size-16 shrink-0 items-center justify-center rounded-[10px] bg-muted text-muted-foreground">
+                          <ImageIcon className="size-5" />
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start gap-1.5">
+                          <span className={cn('flex-1 text-[13.5px] font-bold leading-snug',
+                            !form.nome.trim() && 'text-muted-foreground/60')}>
+                            {form.nome.trim() || 'Nome do produto'}
+                          </span>
+                          {form.destaque && (
+                            <span className="shrink-0 rounded-md border border-[#F1E3C4] bg-[#FBF3E4] px-1.5 py-0.5 text-[10px] font-bold text-[#92610A] dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300">
+                              Destaque
+                            </span>
+                          )}
+                          {!ehVendido({ disponivel: form.disponivel ? 1 : 0, disponivel_pdv: form.disponivel_pdv ? 1 : 0 }) && (
+                            <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+                              Pausado
+                            </span>
+                          )}
+                        </div>
+                        <p className={cn('mt-0.5 line-clamp-2 text-xs leading-snug',
+                          form.descricao.trim() ? 'text-muted-foreground' : 'text-muted-foreground/60')}>
+                          {form.descricao.trim() || 'Sem descrição'}
+                        </p>
+                        <div className="mt-1 flex items-baseline gap-1.5">
+                          <span className={cn('text-[13.5px] font-extrabold tabular-nums',
+                            !form.preco && 'text-muted-foreground/60')}>
+                            {form.preco ? brl(Math.round(Number(form.preco) * 100) || 0) : 'R$ 0,00'}
+                          </span>
+                          {/* Riscado só quando a promoção é válida: mostrar o "de" com
+                              promocional maior que o preço seria prometer desconto que
+                              o backend recusa. */}
+                          {form.preco_promocional && !erroPromo && (
+                            <span className="text-[11.5px] text-muted-foreground line-through tabular-nums">
+                              {brl(Math.round(Number(form.preco) * 100) || 0)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    {form.descricao.trim().length > 140 && (
+                      <p className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-400">
+                        A descrição será cortada no cardápio.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="my-7 h-px bg-border" />
+
+                  {/*
                     DISPONIBILIDADE COMO LINHAS COM INTERRUPTOR, não chips: chip comunica
                     "filtro selecionável", interruptor comunica "ligado/desligado". Eram
                     três controles de estado com três aparências diferentes (dois ícones
@@ -988,6 +1084,68 @@ export function ProdutosLoja() {
                         />
                       </div>
                     </div>
+                  </section>
+
+                  <div className="my-[26px] h-px bg-border" />
+
+                  {/*
+                    COMPLEMENTOS AQUI DENTRO.
+                    Era outra tela: o lojista salvava o produto, voltava pra
+                    lista, achava o item e clicava em "Complementos" — três
+                    passos pra ver se a pizza tem tamanho e borda. Aqui a
+                    resposta está na frente dele, e o botão abre o editor que já
+                    existe, sem fechar o formulário.
+
+                    A lista não tem ação de editar por linha de propósito: isso
+                    duplicaria o editor e criaria dois lugares pra fazer a mesma
+                    coisa divergirem.
+                  */}
+                  <section>
+                    <RotuloSecao>Complementos</RotuloSecao>
+                    {grupoIdEmEdicao === null ? (
+                      /* Produto novo: o grupo é vinculado a um produto que ainda
+                         não existe. Dizer isso é melhor que mostrar um botão que
+                         não pode funcionar. */
+                      <p className="rounded-xl border border-dashed border-border px-3.5 py-3 text-[12.5px] text-muted-foreground">
+                        Salve o produto primeiro para adicionar tamanhos, bordas e adicionais.
+                      </p>
+                    ) : (gruposDoProduto.data ?? []).length === 0 ? (
+                      <div className="rounded-xl border border-dashed border-border px-3.5 py-3">
+                        <p className="text-[12.5px] text-muted-foreground">
+                          Nenhum complemento — tamanhos, bordas, adicionais.
+                        </p>
+                        <Button type="button" variant="outline" size="sm" className="mt-2.5"
+                          onClick={() => produtoEmEdicao && setGerindoGrupos(produtoEmEdicao)}>
+                          <ListPlus className="size-4" /> Adicionar complementos
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="divide-y divide-border/60 rounded-xl border border-border">
+                          {(gruposDoProduto.data ?? []).map(g => (
+                            <div key={g.id} className="flex items-center gap-2 px-3.5 py-2.5">
+                              <span className="min-w-0 flex-1 truncate text-sm font-semibold">{g.nome}</span>
+                              <span className={cn('shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-bold',
+                                g.obrigatorio
+                                  ? 'border border-[#F1E3C4] bg-[#FBF3E4] text-[#92610A] dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300'
+                                  : 'bg-muted text-muted-foreground')}>
+                                {rotuloRegra(!!g.obrigatorio, g.tipo, g.max_escolhas)}
+                              </span>
+                              <span className="shrink-0 text-[12.5px] text-muted-foreground">
+                                {g.opcoes.length} {g.opcoes.length === 1 ? 'item' : 'itens'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        <Button type="button" variant="outline" size="sm" className="mt-2.5"
+                          onClick={() => produtoEmEdicao && setGerindoGrupos(produtoEmEdicao)}>
+                          <Layers className="size-4" /> Gerenciar complementos
+                        </Button>
+                      </>
+                    )}
+                    <p className="mt-2 text-[12.5px] text-muted-foreground">
+                      Grupos valem só para este produto.
+                    </p>
                   </section>
 
                   <div className="my-[26px] h-px bg-border" />
