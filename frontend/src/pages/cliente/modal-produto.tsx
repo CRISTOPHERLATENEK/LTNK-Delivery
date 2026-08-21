@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { adicionarAoCarrinho, vooCarrinho } from '@/lib/carrinho';
 import { useToast } from '@/components/ui/toast';
 import type { GrupoOpcoes, Loja, OpcaoItem, Produto } from '@/types';
-import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo, agruparPorSecao } from '@/lib/opcoes-preco';
+import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo, agruparPorSecao, contarFracoes } from '@/lib/opcoes-preco';
 
 interface Props {
   produto: Produto;
@@ -53,13 +53,36 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
     for (const g of grupos) {
       const ids_g = escolhidas[g.id] || [];
       if (g.obrigatorio && ids_g.length === 0) faltandoLocal.push(g.nome);
-      for (const id of ids_g) {
-        const opcao = g.opcoes.find(o => o.id === id);
-        if (opcao) {
-          preco += opcao.preco_adicional_centavos;
-          partes.push(`${g.nome}: ${opcao.nome}`);
-          ids.push(id);
-        }
+
+      const opcoes = ids_g
+        .map(id => g.opcoes.find(o => o.id === id))
+        .filter((o): o is OpcaoItem => !!o);
+      if (opcoes.length === 0) continue;
+
+      /*
+       * `precoDoGrupo` E NÃO SOMA À MÃO.
+       *
+       * Esta tela somava os acréscimos direto, ignorando o `modo_preco` do
+       * grupo — e o servidor usa `precoDoGrupo`. Numa pizza com 'maior', a tela
+       * somava três acréscimos e a cobrança era de um: prévia diferente do que
+       * se paga, que é o pior jeito de errar preço. A função estava até
+       * importada aqui, e nunca era chamada.
+       */
+      preco += precoDoGrupo(g, opcoes);
+      ids.push(...ids_g);
+
+      /*
+       * O texto mostra a FRAÇÃO quando o sabor se repete ("2/4 Calabresa"), e o
+       * nome puro quando não. É este texto que vai pro carrinho e pro cupom da
+       * cozinha — sem a fração ali, a tela promete uma divisão que quem produz
+       * não recebe.
+       */
+      const total = opcoes.length;
+      for (const p of contarFracoes(opcoes)) {
+        const nome = (p.opcao as OpcaoItem).nome;
+        partes.push(p.fracoes > 1 && total > 1
+          ? `${g.nome}: ${p.fracoes}/${total} ${nome}`
+          : `${g.nome}: ${nome}`);
       }
     }
     return { precoUnit: preco, opcoesTexto: partes.join(' · '), opcoesIds: ids, faltando: faltandoLocal };
@@ -92,10 +115,35 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
         }
         return { ...antigo, [grupo.id]: [opcao.id] };
       }
-      if (atual.includes(opcao.id)) return { ...antigo, [grupo.id]: atual.filter(i => i !== opcao.id) };
+      /*
+       * GRUPO DE SABORES: repetir o mesmo sabor é ADICIONAR FRAÇÃO, não
+       * desmarcar. É o que permite "2/4 calabresa + 1/4 bacon + 1/4 frango".
+       * Nos outros grupos (adicionais, borda) clicar de novo continua
+       * desmarcando, que é o que se espera de caixa de seleção.
+       */
       const max = maxEscolhasEfetivo(grupo, saboresPermitidos);
+      if (grupo.papel === 'sabores') {
+        if (max > 0 && atual.length >= max) return antigo;
+        return { ...antigo, [grupo.id]: [...atual, opcao.id] };
+      }
+      if (atual.includes(opcao.id)) return { ...antigo, [grupo.id]: atual.filter(i => i !== opcao.id) };
       if (max > 0 && atual.length >= max) return antigo;
       return { ...antigo, [grupo.id]: [...atual, opcao.id] };
+    });
+  }
+
+  /**
+   * Remove UMA fração do sabor (o "−" do stepper).
+   *
+   * Tira só a última ocorrência, não todas: quem tem 2/4 de calabresa e toca em
+   * "−" quer 1/4, não perder o sabor inteiro.
+   */
+  function removerFracao(grupo: GrupoOpcoes, opcao: OpcaoItem) {
+    setEscolhidas(antigo => {
+      const atual = antigo[grupo.id] || [];
+      const i = atual.lastIndexOf(opcao.id);
+      if (i < 0) return antigo;
+      return { ...antigo, [grupo.id]: [...atual.slice(0, i), ...atual.slice(i + 1)] };
     });
   }
 
@@ -244,6 +292,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
               grupo={g}
               escolhidas={escolhidas[g.id] || []}
               onAlternar={opcao => alternar(g, opcao)}
+              onRemoverFracao={opcao => removerFracao(g, opcao)}
               saboresPermitidos={saboresPermitidos}
             />
           ))}
@@ -337,13 +386,15 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
 }
 
 function GrupoOpcao({
-  grupo, escolhidas, onAlternar, saboresPermitidos,
+  grupo, escolhidas, onAlternar, onRemoverFracao, saboresPermitidos,
 }: {
   grupo: GrupoOpcoes;
+  /** Com REPETIÇÃO no grupo de sabores: o mesmo id aparece uma vez por fração. */
   escolhidas: number[];
   /** Vem do tamanho escolhido; muda o limite deste grupo se ele for de sabores. */
   saboresPermitidos: number;
   onAlternar: (opcao: OpcaoItem) => void;
+  onRemoverFracao: (opcao: OpcaoItem) => void;
 }) {
   const maxEfetivo = maxEscolhasEfetivo(grupo, saboresPermitidos);
   const obrigatorioPendente = grupo.obrigatorio && escolhidas.length === 0;
@@ -357,9 +408,13 @@ function GrupoOpcao({
     // sabor antes do tamanho só levaria a ter que refazer.
     hint = 'Escolha o tamanho primeiro';
   } else if (maxEfetivo > 0) {
+    // No grupo de sabores o que se conta é FRAÇÃO, não sabor distinto: 2/4 de um
+    // sabor já ocupa dois pedaços, e dizer "1 escolhido" mentiria sobre o que
+    // falta preencher.
+    const unidade = grupo.papel === 'sabores' ? 'pedaços' : 'escolhidos';
     hint = escolhidas.length > 0
-      ? `${escolhidas.length}/${maxEfetivo} escolhidos`
-      : `Até ${maxEfetivo}`;
+      ? `${escolhidas.length}/${maxEfetivo} ${unidade}`
+      : `Escolha ${maxEfetivo} ${unidade}`;
   } else {
     hint = escolhidas.length > 0
       ? `${escolhidas.length} escolhido${escolhidas.length > 1 ? 's' : ''}`
@@ -406,7 +461,8 @@ function GrupoOpcao({
         )}
         <div className="space-y-2">
         {opcoes.map(o => {
-          const ativa = escolhidas.includes(o.id);
+          const fracoes = escolhidas.filter(i => i === o.id).length;
+          const ativa = fracoes > 0;
           /*
            * NO MÁXIMO, as não marcadas ficam INERTES.
            * O clique já era ignorado, mas a linha continuava com cara de
@@ -453,6 +509,41 @@ function GrupoOpcao({
               )}>
                 {o.nome}
               </span>
+
+              {/*
+                STEPPER só no grupo de sabores, e só depois de escolhido.
+                É o que deixa pedir 2/4 do mesmo sabor. Nos outros grupos a
+                linha inteira continua sendo um toggle — stepper em "bacon
+                extra" prometeria uma quantidade que o preço não cobra.
+
+                `stopPropagation` porque a linha toda é um botão: sem isso, o
+                "−" removeria uma fração e o clique da linha adicionaria outra
+                de volta, e nada pareceria acontecer.
+              */}
+              {grupo.papel === 'sabores' && ativa && (
+                <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/10 px-1">
+                  <button
+                    type="button"
+                    aria-label={`Tirar um pedaço de ${o.nome}`}
+                    onClick={ev => { ev.stopPropagation(); onRemoverFracao(o); }}
+                    className="flex size-7 items-center justify-center rounded-full text-primary hover:bg-primary/15"
+                  >
+                    <Minus className="size-3.5" strokeWidth={3} />
+                  </button>
+                  <span className="min-w-[34px] text-center text-[11px] font-bold tabular-nums text-primary">
+                    {fracoes}/{maxEfetivo || fracoes}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Mais um pedaço de ${o.nome}`}
+                    disabled={maxEfetivo > 0 && escolhidas.length >= maxEfetivo}
+                    onClick={ev => { ev.stopPropagation(); onAlternar(o); }}
+                    className="flex size-7 items-center justify-center rounded-full text-primary hover:bg-primary/15 disabled:opacity-30"
+                  >
+                    <Plus className="size-3.5" strokeWidth={3} />
+                  </button>
+                </span>
+              )}
 
               {/* Price */}
               {o.preco_adicional_centavos === 0 ? (

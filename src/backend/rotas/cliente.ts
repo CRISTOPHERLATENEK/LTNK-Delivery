@@ -15,7 +15,7 @@ import { notificarPedidoWhatsApp } from '../whatsapp';
 import { comissaoPercentualDaLoja } from '../comissao';
 import { geocodificar } from '../geo';
 import { resolverFrete, type EnderecoParaFrete } from '../frete';
-import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo } from '../opcoes-preco';
+import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo, contarFracoes } from '../opcoes-preco';
 import { criarCobrancaPix, pagamentoOnlineAtivo, cartaoOnlineAtivo, conferirPagamentoAgora, publicKeyMP, criarPagamentoCartao, aplicarResultadoCartao } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 import { dadosAnonimos, ehAnonimizado, ENDERECO_ANONIMO, TEXTO_ANONIMO } from '../anonimizacao';
@@ -299,7 +299,19 @@ async function validarOpcoesDoItem(produto: Produto, opcoesEscolhidas: number[] 
       'SELECT * FROM opcoes_itens WHERE grupo_id = ? AND disponivel = 1'
     ).all(grupo.id) as OpcaoItem[];
     if (opcoesDoGrupo.length === 0) continue;
-    const escolhidas = opcoesDoGrupo.filter(o => ids.includes(o.id));
+    /*
+     * PRESERVA A REPETIÇÃO. O `filter` que estava aqui devolvia cada opção UMA
+     * vez, mesmo o cliente tendo pedido 2/4 do mesmo sabor — então três frações
+     * chegavam como dois sabores. Efeito: o limite era conferido contra o número
+     * de sabores distintos em vez de pedaços, e a política 'proporcional' não
+     * tinha fração pra calcular.
+     *
+     * Mapeia a partir de `ids` (a ordem e a repetição vêm do cliente) e não da
+     * lista do grupo.
+     */
+    const escolhidas = ids
+      .map(id => opcoesDoGrupo.find(o => o.id === id))
+      .filter((o): o is OpcaoItem => !!o);
     for (const o of escolhidas) idsReconhecidos.add(o.id);
     carregados.push({ grupo, escolhidas });
   }
@@ -324,10 +336,23 @@ async function validarOpcoesDoItem(produto: Produto, opcoesEscolhidas: number[] 
       }
     }
 
-    // `precoDoGrupo` decide entre somar e cobrar o maior — ver opcoes-preco.ts.
+    // `precoDoGrupo` decide entre somar, cobrar o maior e proporcional à fração
+    // — ver opcoes-preco.ts. É a MESMA função que a tela usa pra prévia.
     precoUnit += precoDoGrupo(grupo, escolhidas);
-    for (const opcao of escolhidas) {
-      partesTexto.push(`${grupo.nome}: ${opcao.nome}`);
+
+    /*
+     * O TEXTO GUARDA A FRAÇÃO ("2/4 Calabresa").
+     *
+     * É este texto que vai pro carrinho, pro cupom da cozinha e pro histórico do
+     * pedido. Sem a fração aqui, a tela promete uma divisão que quem produz não
+     * recebe — e aí a pizza sai errada com o cliente tendo razão.
+     */
+    const totalFracoes = escolhidas.length;
+    for (const p of contarFracoes(escolhidas)) {
+      const nome = (p.opcao as OpcaoItem).nome;
+      partesTexto.push(p.fracoes > 1 && totalFracoes > 1
+        ? `${grupo.nome}: ${p.fracoes}/${totalFracoes} ${nome}`
+        : `${grupo.nome}: ${nome}`);
     }
   }
 
@@ -974,7 +999,10 @@ router.get('/pedidos/:id/repetir', async (req, res, next) => {
         WHERE i.pedido_id = ?`
     ).all(pedido.id) as ItemAntigo[];
 
-    type OpcaoExistente = { id: number; nome: string; preco_adicional_centavos: number; grupo_nome: string };
+    type OpcaoExistente = {
+      id: number; nome: string; preco_adicional_centavos: number;
+      grupo_id: number; grupo_nome: string; modo_preco: string | null; max_escolhas: number;
+    };
     const disponiveis = [];
     for (const i of itens.filter(i => i.disponivel && !i.excluido)) {
       let idsAntigos: number[] = [];
@@ -982,20 +1010,55 @@ router.get('/pedidos/:id/repetir', async (req, res, next) => {
       const opcoes: OpcaoExistente[] = [];
       for (const id of idsAntigos) {
         const opcao = await db.prepare(
-          `SELECT o.id, o.nome, o.preco_adicional_centavos, g.nome AS grupo_nome
+          `SELECT o.id, o.nome, o.preco_adicional_centavos,
+                  g.id AS grupo_id, g.nome AS grupo_nome, g.modo_preco, g.max_escolhas
              FROM opcoes_itens o JOIN grupos_opcoes g ON g.id = o.grupo_id
             WHERE o.id = ? AND g.produto_id = ? AND o.disponivel = 1`
         ).get(id, i.produto_id) as OpcaoExistente | undefined;
         if (opcao) opcoes.push(opcao);
       }
+
+      /*
+       * O PREÇO SAI DE `precoDoGrupo`, POR GRUPO — não de uma soma à mão.
+       *
+       * Aqui somava todos os acréscimos direto, ignorando o `modo_preco`:
+       * repetir uma pizza cobrada por 'maior' mostrava a soma dos sabores, um
+       * preço acima do que o pedido original custou. E com frações a mesma soma
+       * contaria duas vezes o sabor que ocupa 2/4.
+       *
+       * Agrupar é necessário porque a política é POR GRUPO: borda soma, sabor
+       * pode ser 'maior' ou proporcional.
+       */
+      const porGrupo = new Map<number, OpcaoExistente[]>();
+      for (const o of opcoes) {
+        const lista = porGrupo.get(o.grupo_id) ?? [];
+        lista.push(o);
+        porGrupo.set(o.grupo_id, lista);
+      }
+
+      let acrescimos = 0;
+      const partes: string[] = [];
+      for (const lista of porGrupo.values()) {
+        const grupo = { modo_preco: lista[0].modo_preco, max_escolhas: lista[0].max_escolhas };
+        acrescimos += precoDoGrupo(grupo, lista);
+        // Mesmo texto com fração usado na criação do pedido — ver acima.
+        const total = lista.length;
+        for (const p of contarFracoes(lista)) {
+          const nome = (p.opcao as OpcaoExistente).nome;
+          partes.push(p.fracoes > 1 && total > 1
+            ? `${lista[0].grupo_nome}: ${p.fracoes}/${total} ${nome}`
+            : `${lista[0].grupo_nome}: ${nome}`);
+        }
+      }
+
       const precoBase = precoVigente(i, dataBrasilia());
       disponiveis.push({
         produto_id: i.produto_id,
         nome: i.nome,
         quantidade: i.quantidade,
         opcoes: opcoes.map(o => o.id),
-        opcoes_texto: opcoes.map(o => `${o.grupo_nome}: ${o.nome}`).join(' · '),
-        preco_centavos: precoBase + opcoes.reduce((s, o) => s + o.preco_adicional_centavos, 0),
+        opcoes_texto: partes.join(' · '),
+        preco_centavos: precoBase + acrescimos,
       });
     }
     const indisponiveis = itens.filter(i => !i.disponivel || i.excluido).map(i => i.nome);

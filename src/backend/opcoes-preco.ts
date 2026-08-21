@@ -16,6 +16,12 @@ export interface GrupoRegra {
 }
 
 export interface OpcaoRegra {
+  /**
+   * Necessário pra distinguir REPETIÇÃO de sabor diferente: 2/4 do mesmo sabor
+   * de +R$16 custa +R$16 uma vez, não duas. Opcional pra não quebrar chamada
+   * antiga, que nunca repete opção.
+   */
+  id?: number;
   preco_adicional_centavos: number;
   /** Quantos sabores esta opção libera (só nas opções de tamanho). */
   sabores?: number | null;
@@ -65,11 +71,49 @@ export function maxEscolhasEfetivo(grupo: GrupoRegra, saboresPermitidos: number)
  */
 export function precoDoGrupo(grupo: GrupoRegra, escolhidas: OpcaoRegra[]): number {
   if (escolhidas.length === 0) return 0;
-  if (grupo.modo_preco === 'maior') {
-    return Math.max(...escolhidas.map(o => o.preco_adicional_centavos));
+  const partes = contarFracoes(escolhidas);
+  const totalFracoes = escolhidas.length;
+
+  switch (grupo.modo_preco) {
+    /*
+     * `maior`: pizza de 3 sabores custa o do sabor MAIS CARO, não a soma dos
+     * três. Somar produzia um preço que não existe no mundo real — três sabores
+     * de +R$10, +R$12 e +R$14 viravam +R$36 em vez de +R$14.
+     */
+    case 'maior':
+      return Math.max(...partes.map(p => p.opcao.preco_adicional_centavos));
+
+    /*
+     * `proporcional`: o acréscimo entra na medida do espaço que o sabor ocupa.
+     * Meia pizza de um sabor de +R$16 custa +R$8. Depende das frações existirem
+     * — antes delas, esta política não tinha o que calcular.
+     *
+     * Arredonda no FIM, sobre a soma, e não a cada sabor: arredondar por parcela
+     * faz três frações de 1/3 de +R$10 darem 3×334 = R$10,02.
+     */
+    case 'proporcional': {
+      const centavos = partes.reduce(
+        (s, p) => s + p.opcao.preco_adicional_centavos * (p.fracoes / totalFracoes), 0);
+      return Math.round(centavos);
+    }
+
+    /*
+     * `somar` (padrão): 100% do acréscimo de cada sabor DISTINTO — é o que a
+     * pizzaria brasileira cobra, e o que o app de referência do mercado faz
+     * (R$ 94,90 + R$ 16,00 = R$ 110,90 mesmo o sabor ocupando 1/2).
+     *
+     * Por sabor distinto e não por fração: 2/4 do mesmo sabor de +R$16 custa
+     * +R$16 uma vez. Cobrar por fração seria dobrar o acréscimo por causa de
+     * uma escolha de tamanho de pedaço.
+     *
+     * Pra adicional e borda (onde não há repetição) o resultado é idêntico ao
+     * de antes desta mudança.
+     */
+    default:
+      return partes.reduce((s, p) => s + p.opcao.preco_adicional_centavos, 0);
   }
-  return escolhidas.reduce((s, o) => s + o.preco_adicional_centavos, 0);
 }
+
 
 /* ─────────────────────────────────────────────────────────────────────────
  * O PREÇO QUE O CARD DEVE MOSTRAR
@@ -170,4 +214,46 @@ export function agruparPorSecao<T extends OpcaoComSecao>(opcoes: T[]): Array<{ s
   // Sem seção em NENHUMA opção: devolve um bloco só, sem rótulo — a tela não
   // deve ganhar cabeçalho por causa de um recurso que a loja não usa.
   return ordem.map(secao => ({ secao, opcoes: mapa.get(secao)! }));
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * FRAÇÕES — o mesmo sabor ocupando mais de um pedaço
+ *
+ * Antes, cada sabor entrava uma vez só: a escolha era uma lista de ids e o teste
+ * era `includes`. Não existia "2/4 de calabresa + 1/4 bacon + 1/4 frango", que é
+ * o pedido mais comum de pizza grande.
+ *
+ * A REPRESENTAÇÃO É REPETIÇÃO NA LISTA: escolher calabresa duas vezes põe o id
+ * dela duas vezes. O comprimento da lista continua sendo o número de frações,
+ * então o limite (`escolhidas.length > max`) continua valendo sem mudar nada.
+ *
+ * `id` entrou em OpcaoRegra porque a política de preço precisa saber o que é
+ * REPETIÇÃO e o que é sabor DIFERENTE: 2/4 de um sabor de +R$16 custa +R$16 uma
+ * vez, não duas.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/** Uma opção e quantas frações ela ocupa. */
+export interface FracaoEscolhida {
+  opcao: OpcaoRegra;
+  fracoes: number;
+}
+
+/**
+ * Agrupa a lista (com repetição) em opções distintas + quantas frações cada uma
+ * ocupa, preservando a ordem de primeira escolha.
+ *
+ * Sem `id`, cai no índice — assim as chamadas antigas, que nunca repetem,
+ * continuam funcionando com 1 fração cada.
+ */
+export function contarFracoes(escolhidas: OpcaoRegra[]): FracaoEscolhida[] {
+  const ordem: Array<string | number> = [];
+  const mapa = new Map<string | number, FracaoEscolhida>();
+  escolhidas.forEach((opcao, i) => {
+    const chave = opcao.id ?? `#${i}`;
+    const ja = mapa.get(chave);
+    if (ja) { ja.fracoes += 1; return; }
+    mapa.set(chave, { opcao, fracoes: 1 });
+    ordem.push(chave);
+  });
+  return ordem.map(k => mapa.get(k)!);
 }

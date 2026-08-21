@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo , precoMinimoItem, precoVariavel, agruparPorSecao } from './opcoes-preco';
+import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo , precoMinimoItem, precoVariavel, agruparPorSecao, contarFracoes } from './opcoes-preco';
 
 const tamanho = { papel: 'tamanho', modo_preco: 'somar', max_escolhas: 1 };
 const sabores = { papel: 'sabores', modo_preco: 'maior', max_escolhas: 1 };
@@ -216,5 +216,119 @@ describe('agruparPorSecao', () => {
     const r = agruparPorSecao([{ secao: ' Doces ' }, { secao: 'Doces' }]);
     expect(r).toHaveLength(1);
     expect(r[0].secao).toBe('Doces');
+  });
+});
+
+/**
+ * FRAÇÕES E POLÍTICA DE PREÇO — o caminho do dinheiro.
+ *
+ * O que a análise do mercado revelou: a pizzaria cobra 100% do acréscimo de cada
+ * sabor especial, mesmo ocupando meia pizza (R$ 94,90 + R$ 16,00 = R$ 110,90).
+ * Este app usava 'maior' por padrão nas pizzas — cobrando MENOS que o mercado.
+ * As duas políticas existem; a escolha é do lojista.
+ */
+const sab = (id: number, acr: number) => ({ id, preco_adicional_centavos: acr });
+
+describe('contarFracoes', () => {
+  it('conta repetição como fração, na ordem de primeira escolha', () => {
+    const r = contarFracoes([sab(1, 1600), sab(1, 1600), sab(2, 0), sab(3, 500)]);
+    expect(r.map(x => [x.opcao.id, x.fracoes])).toEqual([[1, 2], [2, 1], [3, 1]]);
+  });
+
+  it('sem id, cada entrada é uma opção distinta (chamada antiga)', () => {
+    const r = contarFracoes([{ preco_adicional_centavos: 100 }, { preco_adicional_centavos: 100 }]);
+    expect(r).toHaveLength(2);
+  });
+});
+
+describe('precoDoGrupo com frações', () => {
+  const tres = [sab(1, 1600), sab(1, 1600), sab(2, 0)]; // 2/3 de um sabor + 1/3 de outro
+
+  /*
+   * O CASO QUE MAIS IMPORTA: 2/4 do mesmo sabor custa o acréscimo UMA vez.
+   * Cobrar por fração dobraria o preço por causa do tamanho do pedaço.
+   */
+  it('somar: 100% de cada sabor DISTINTO, não por fração', () => {
+    expect(precoDoGrupo({ modo_preco: 'somar', max_escolhas: 3 }, tres)).toBe(1600);
+  });
+
+  it('somar: sabores diferentes somam', () => {
+    expect(precoDoGrupo({ modo_preco: 'somar', max_escolhas: 3 }, [sab(1, 1600), sab(2, 500)]))
+      .toBe(2100);
+  });
+
+  it('maior: só o acréscimo mais caro', () => {
+    expect(precoDoGrupo({ modo_preco: 'maior', max_escolhas: 3 }, [sab(1, 1000), sab(2, 1400)]))
+      .toBe(1400);
+  });
+
+  it('proporcional: metade de +R$16 custa +R$8', () => {
+    expect(precoDoGrupo({ modo_preco: 'proporcional', max_escolhas: 2 }, [sab(1, 1600), sab(2, 0)]))
+      .toBe(800);
+  });
+
+  it('proporcional: 2/3 de +R$16 custa 2/3 do acréscimo', () => {
+    expect(precoDoGrupo({ modo_preco: 'proporcional', max_escolhas: 3 }, tres))
+      .toBe(Math.round(1600 * 2 / 3));
+  });
+
+  /* Arredondar por parcela faria três terços de +R$10 dar R$10,02. */
+  it('proporcional: arredonda no fim, não por sabor', () => {
+    const r = precoDoGrupo({ modo_preco: 'proporcional', max_escolhas: 3 },
+      [sab(1, 1000), sab(1, 1000), sab(1, 1000)]);
+    expect(r).toBe(1000);
+  });
+
+  /* Adicionais e borda não repetem: o resultado tem que ser igual ao de antes. */
+  it('grupo sem repetição continua somando como antes', () => {
+    expect(precoDoGrupo({ max_escolhas: 0 }, [sab(1, 300), sab(2, 500), sab(3, 200)]))
+      .toBe(1000);
+  });
+
+  it('nada escolhido não acrescenta nada', () => {
+    expect(precoDoGrupo({ modo_preco: 'proporcional', max_escolhas: 3 }, [])).toBe(0);
+  });
+});
+
+/**
+ * NINGUÉM SOMA ACRÉSCIMO DE OPÇÃO À MÃO.
+ *
+ * Hoje esta mesma regra apareceu copiada em TRÊS lugares — o modal do cliente
+ * (que importava `precoDoGrupo` e nunca chamava), o "repetir pedido" e o card do
+ * produto. Cada cópia ignorava o `modo_preco` do grupo: a tela somava três
+ * acréscimos e a cobrança era de um. Prévia diferente do que se paga.
+ *
+ * O que se procura é AGREGAÇÃO (reduce/+=), não exibição: mostrar
+ * "+R$ 5,00" ao lado do nome do adicional é legítimo e não entra aqui.
+ *
+ * Se este teste falhar, use `precoDoGrupo` no lugar novo.
+ */
+describe('a soma de acréscimo não pode ser copiada', () => {
+  const raizes = [
+    path.resolve(__dirname, '..', '..', 'src'),
+    path.resolve(__dirname, '..', '..', 'frontend', 'src'),
+  ];
+  const permitidos = ['opcoes-preco.ts', 'opcoes-preco.test.ts'];
+
+  function arquivos(dir: string): string[] {
+    if (!fs.existsSync(dir)) return [];
+    return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) return e.name === 'node_modules' ? [] : arquivos(p);
+      return /\.(ts|tsx)$/.test(e.name) && !permitidos.includes(e.name) ? [p] : [];
+    });
+  }
+
+  it('nenhum arquivo agrega preco_adicional_centavos por conta própria', () => {
+    const culpados: string[] = [];
+    for (const raiz of raizes) {
+      for (const arq of arquivos(raiz)) {
+        const t = fs.readFileSync(arq, 'utf8');
+        const agrega = /reduce\([^)]*preco_adicional_centavos/s.test(t)
+          || /\+=\s*[^;\n]*preco_adicional_centavos/.test(t);
+        if (agrega) culpados.push(path.relative(path.resolve(__dirname, '..', '..'), arq));
+      }
+    }
+    expect(culpados).toEqual([]);
   });
 });

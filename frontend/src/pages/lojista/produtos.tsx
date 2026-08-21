@@ -132,6 +132,17 @@ function familiaDaCategoria(categoria: string | null | undefined): Familia | nul
 interface Modelo {
   nome: string; dica: string;
   tipo: 'unico' | 'multiplo'; obrigatorio: boolean; max_escolhas: number;
+  /**
+   * O papel do grupo no mecanismo de pizza — e o motivo de existir aqui.
+   *
+   * O template criava o grupo SEM papel, então o vínculo tamanho → nº de sabores
+   * nunca ligava: o lojista escolhia "Sabores", ganhava um grupo comum e a
+   * pizza de 2 e 3 sabores simplesmente não existia até ele editar o grupo à mão
+   * e marcar o papel — coisa que ninguém descobre sozinho.
+   */
+  papel?: 'tamanho' | 'sabores';
+  /** 'maior' cobra só o acréscimo mais caro; vazio = somar (padrão do mercado). */
+  modo_preco?: 'maior' | 'proporcional';
   /** Onde este modelo faz sentido. Vazio = em qualquer categoria. */
   familias: Familia[];
 }
@@ -139,10 +150,16 @@ interface Modelo {
 /* Templates prontos para criação rápida de grupos */
 const TEMPLATES: Modelo[] = [
   { nome: 'Adicionais', dica: 'Bacon, queijo extra, molhos…', tipo: 'multiplo', obrigatorio: false, max_escolhas: 0, familias: ['lanche', 'pizza', 'prato', 'sobremesa'] },
-  { nome: 'Tamanho', dica: 'P, M, G, GG, Família…', tipo: 'unico', obrigatorio: true, max_escolhas: 1, familias: [] },
+  { nome: 'Tamanho', dica: 'P, M, G, GG, Família…', tipo: 'unico', obrigatorio: true, max_escolhas: 1, papel: 'tamanho', familias: [] },
   { nome: 'Borda', dica: 'Catupiry, cheddar, sem borda…', tipo: 'unico', obrigatorio: false, max_escolhas: 1, familias: ['pizza'] },
   { nome: 'Ponto da carne', dica: 'Mal passado, ao ponto…', tipo: 'unico', obrigatorio: true, max_escolhas: 1, familias: ['lanche', 'prato'] },
-  { nome: 'Sabores', dica: 'Chocolate, morango, creme…', tipo: 'unico', obrigatorio: true, max_escolhas: 1, familias: ['pizza', 'sobremesa', 'bebida'] },
+  /*
+   * MÚLTIPLO, não único. Era 'unico' com max_escolhas 1 — um grupo de sabores
+   * que aceita um sabor só, o que anula o recurso inteiro. Com `papel:
+   * 'sabores'`, o limite passa a vir do TAMANHO escolhido e o max_escolhas aqui
+   * é só o teto de quem não configurou tamanho nenhum.
+   */
+  { nome: 'Sabores', dica: 'Calabresa, 4 queijos, doces…', tipo: 'multiplo', obrigatorio: true, max_escolhas: 1, papel: 'sabores', familias: ['pizza', 'sobremesa', 'bebida'] },
   { nome: 'Bebida', dica: 'Coca, Suco, Água…', tipo: 'unico', obrigatorio: false, max_escolhas: 1, familias: ['lanche', 'pizza', 'prato'] },
 ];
 
@@ -1736,7 +1753,10 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
     }
   }
 
-  async function criarGrupoComDados(dados: { nome: string; tipo: 'unico' | 'multiplo'; obrigatorio: boolean; max_escolhas: number }) {
+  async function criarGrupoComDados(dados: {
+    nome: string; tipo: 'unico' | 'multiplo'; obrigatorio: boolean; max_escolhas: number;
+    papel?: 'tamanho' | 'sabores'; modo_preco?: 'maior' | 'proporcional';
+  }) {
     setSalvandoGrupo(true);
     try {
       const res = await api<{ grupo_id: number }>('POST', `/api/lojista/produtos/${produto.id}/grupos`, {
@@ -2266,7 +2286,11 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                     key={t.nome}
                     type="button"
                     disabled={salvandoGrupo}
-                    onClick={() => criarGrupoComDados({ nome: t.nome, tipo: t.tipo, obrigatorio: t.obrigatorio, max_escolhas: t.max_escolhas })}
+                    onClick={() => criarGrupoComDados({
+                      nome: t.nome, tipo: t.tipo, obrigatorio: t.obrigatorio,
+                      max_escolhas: t.max_escolhas,
+                      papel: t.papel, modo_preco: t.modo_preco,
+                    })}
                     className="group flex flex-col gap-1.5 rounded-2xl border border-border bg-card p-3.5 text-left shadow-sm transition-all hover:-translate-y-px hover:border-primary hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <span className="flex w-full items-start justify-between gap-2">
