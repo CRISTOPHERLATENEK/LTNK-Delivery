@@ -1643,7 +1643,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
     return () => clearTimeout(t);
   }, [grupos, grupoFocoId]);
 
-  type FormGrupo = { nome: string; tipo: 'unico' | 'multiplo'; obrigatorio: boolean; max_escolhas: string; papel: string };
+  type FormGrupo = { nome: string; tipo: 'unico' | 'multiplo'; obrigatorio: boolean; max_escolhas: string; papel: string; modo_preco: string };
   const [novoGrupo, setNovoGrupo] = useState<FormGrupo | null>(null);
   const [novasOpcoes, setNovasOpcoes] = useState<Record<number, { nome: string; preco: string; secao: string }>>({});
   const [editandoGrupoId, setEditandoGrupoId] = useState<number | null>(null);
@@ -1667,6 +1667,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
       obrigatorio: !!grupo.obrigatorio,
       max_escolhas: grupo.max_escolhas > 0 ? String(grupo.max_escolhas) : '',
       papel: grupo.papel || '',
+      modo_preco: grupo.modo_preco || 'somar',
     });
   }
 
@@ -1686,12 +1687,22 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
           : 1,
         papel: editandoGrupoForm.papel,
         /*
-         * O grupo de sabores JÁ NASCE cobrando o maior, sem uma segunda
-         * caixinha pro lojista marcar. 'Sabores' e 'cobra o mais caro' são a
-         * mesma decisão no mundo real — separar em dois controles só criaria a
-         * chance de configurar metade e a pizza sair somando.
+         * A COBRANÇA DO SABOR É ESCOLHA DO LOJISTA, não decisão nossa.
+         *
+         * Isto forçava 'maior' sempre que o papel era 'sabores'. Dois problemas:
+         *
+         *  - Cobrava MENOS que o mercado. Pizzaria brasileira soma 100% do
+         *    acréscimo de cada sabor especial, mesmo ocupando meia pizza
+         *    (R$ 94,90 + R$ 16,00 = R$ 110,90). 'maior' cobraria só R$ 16,00 de
+         *    acréscimo no total.
+         *  - E era INCONSISTENTE: criar o grupo pelo modelo gravava 'somar',
+         *    editar o grupo gravava 'maior'. Mexer no nome do grupo mudava o
+         *    preço da pizza em silêncio.
+         *
+         * Grupo que não é de sabores continua somando: dois bacons custam dois
+         * bacons, e não faz sentido oferecer 'maior' ali.
          */
-        modo_preco: editandoGrupoForm.papel === 'sabores' ? 'maior' : 'somar',
+        modo_preco: editandoGrupoForm.papel === 'sabores' ? editandoGrupoForm.modo_preco : 'somar',
       });
       await qc.refetchQueries({ queryKey });
       setEditandoGrupoId(null);
@@ -1966,8 +1977,29 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                           >
                             <option value="">Grupo comum</option>
                             <option value="tamanho">Tamanho (define nº de sabores)</option>
-                            <option value="sabores">Sabores (cobra o mais caro)</option>
+                            <option value="sabores">Sabores (limite vem do tamanho)</option>
                           </select>
+                          {/*
+                            COMO COBRAR VÁRIOS SABORES. Só aparece no grupo de
+                            sabores, porque é a única situação em que a pergunta
+                            existe — em adicionais, somar é o certo.
+
+                            O padrão é SOMAR porque é o que a pizzaria brasileira
+                            cobra. 'Maior' é legítimo (algumas casas fazem), mas
+                            cobra menos, e quem escolhe é o dono.
+                          */}
+                          {editandoGrupoForm.papel === 'sabores' && (
+                            <select
+                              value={editandoGrupoForm.modo_preco}
+                              onChange={e => setEditandoGrupoForm(f => f && ({ ...f, modo_preco: e.target.value }))}
+                              className="h-7 rounded-lg border border-border bg-card px-1.5 text-xs font-semibold text-muted-foreground"
+                              title="Como cobrar quando há mais de um sabor"
+                            >
+                              <option value="somar">Cada sabor cobra 100%</option>
+                              <option value="maior">Só o sabor mais caro</option>
+                              <option value="proporcional">Proporcional à fração</option>
+                            </select>
+                          )}
                           {editandoGrupoForm.tipo === 'multiplo' && editandoGrupoForm.papel !== 'sabores' && (
                             <div className="flex items-center gap-1">
                               <span className="text-xs text-muted-foreground">Máx.</span>
@@ -2164,6 +2196,39 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                                 {o.preco_adicional_centavos > 0 && (
                                   <span className="shrink-0 text-xs font-bold text-primary">+ {brl(o.preco_adicional_centavos)}</span>
                                 )}
+                                {/*
+                                  QUANTOS SABORES ESTE TAMANHO LIBERA.
+                                  O CONTROLE QUE FALTAVA: a coluna existia, a
+                                  função de gravar existia (`definirSabores`) e
+                                  NINGUÉM a chamava — era código morto. Sem
+                                  este campo, `opcoes_itens.sabores` ficava
+                                  inalcançável pelo painel, `saboresLiberados`
+                                  sempre devolvia 0, e a pizza de 2 e 3 sabores
+                                  não funcionava mesmo com tudo o resto no lugar.
+
+                                  Só no grupo de TAMANHO: em borda ou adicional
+                                  a pergunta não existe.
+
+                                  Vazio = não define nada, e aí o limite cai no
+                                  máximo do grupo de sabores. É o estado de todo
+                                  tamanho já cadastrado — ninguém muda de preço
+                                  nem de regra por causa deste campo aparecer.
+                                */}
+                                {grupo.papel === 'tamanho' && (
+                                  <span className="flex shrink-0 items-center gap-1" title="Quantos sabores este tamanho permite">
+                                    <Input
+                                      type="number" min="1" max="8" placeholder="—"
+                                      defaultValue={o.sabores ? String(o.sabores) : ''}
+                                      onBlur={e => {
+                                        const n = Number(e.target.value) || 0;
+                                        if (n !== (o.sabores || 0)) definirSabores(o, n);
+                                      }}
+                                      className="h-7 w-12 px-1 text-center text-xs"
+                                      aria-label={`Sabores liberados por ${o.nome}`}
+                                    />
+                                    <span className="text-[10.5px] text-muted-foreground">sabores</span>
+                                  </span>
+                                )}
                                 <Pencil
                                   className="size-3.5 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60"
                                   onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); }}
@@ -2309,7 +2374,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                 <button
                   type="button"
                   disabled={salvandoGrupo}
-                  onClick={() => setNovoGrupo({ nome: '', tipo: 'multiplo', obrigatorio: false, max_escolhas: '', papel: '' })}
+                  onClick={() => setNovoGrupo({ nome: '', tipo: 'multiplo', obrigatorio: false, max_escolhas: '', papel: '', modo_preco: 'somar' })}
                   className="flex flex-col items-center justify-center gap-1.5 rounded-2xl border border-dashed border-border p-3.5 text-center text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Plus className="size-4" />
