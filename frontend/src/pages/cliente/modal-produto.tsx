@@ -28,12 +28,14 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
   const [escolhidas, setEscolhidas] = useState<Record<number, number[]>>({});
   const [qtd, setQtd] = useState(1);
   const [observacao, setObservacao] = useState('');
+  const [descAberta, setDescAberta] = useState(false);
   const { mostrar } = useToast();
 
   useEffect(() => {
     setEscolhidas({});
     setQtd(1);
     setObservacao('');
+    setDescAberta(false);
   }, [produto.id]);
 
   /*
@@ -263,14 +265,39 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
           <X className="size-[18px]" strokeWidth={2.5} />
         </button>
 
+        {/*
+          A FOTO E O CABEÇALHO ROLAM JUNTO COM O CONTEÚDO.
+
+          Estavam FORA desta área, como irmãos `shrink-0`: ocupavam ~330px de
+          forma PERMANENTE e o cliente rolava só uma janelinha no que sobrava.
+          Diminuir a foto de 240 pra 190px devolveu 50px — e a barra de
+          progresso que entrou consumiu 70. Ou seja: encolher não resolvia,
+          porque o problema não era o tamanho da foto, era ela nunca sair do
+          caminho.
+
+          Aqui dentro, depois de um gesto de rolagem a lista de opções usa a
+          altura inteira do sheet. Quem mantém o produto identificado é a barra
+          de progresso (sticky) e o resumo no rodapé.
+        */}
+        <div ref={areaRolagem} className="flex-1 overflow-y-auto min-h-0">
         {/* Foto: sangra na largura toda, sem moldura */}
         {produto.foto_url ? (
-          <div className="relative h-60 shrink-0 overflow-hidden">
+          /*
+            190px NO CELULAR, 240 no desktop.
+            Com 240px numa tela de telefone, a foto mais o nome mais a descrição
+            comiam a primeira tela inteira: sobrava espaço pra UMA opção. A foto
+            vende, mas quem decide a compra é a lista de escolhas — e ela tem que
+            estar visível sem rolar.
+          */
+          <div className="relative h-[190px] shrink-0 overflow-hidden sm:h-60">
             <img
               src={produto.foto_url}
               alt={produto.nome}
               className="size-full object-cover"
             />
+            {/* Degradê até o fundo: sem ele a foto termina numa faixa dura e o
+                nome parece colado numa borda. */}
+            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-background to-transparent" />
             <div className="absolute top-3 left-1/2 -translate-x-1/2 h-1 w-10 rounded-full bg-white/60 sm:hidden" />
             <div className="absolute bottom-3 left-4 flex gap-1.5">
               {!!produto.destaque && (
@@ -294,27 +321,48 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
         ) : null}
 
         {/*
-          NOME E PREÇO NA MESMA LINHA. Empilhados, o preço caía depois da
-          descrição e num item de texto longo saía da primeira tela — o dado que
-          mais decide a compra exigia rolar pra aparecer.
+          PREÇO EM LINHA PRÓPRIA, ABAIXO DO NOME.
+          Estava ao lado: com nome de duas linhas ("Pizza Gigante +1 Refrigerante
+          2LT Grátis") o preço ficava no alto da direita e o nome quebrava por
+          baixo dele — os dois disputando a mesma faixa. O motivo de estar ali
+          era não empurrar o preço pra depois da descrição; resolvido pondo ele
+          ANTES dela, não ao lado do título.
         */}
-        <div className="shrink-0 px-5 pb-3 pt-4">
-          <div className="flex items-start justify-between gap-4">
-            <h2 className="min-w-0 text-[21px] font-extrabold leading-tight">{produto.nome}</h2>
-            <div className="shrink-0 text-right leading-tight">
-              {temPromo && (
-                <span className="block text-[13px] text-muted-foreground line-through tabular-nums">
-                  {brl(produto.preco_centavos)}
-                </span>
-              )}
-              <span className={cn('block text-[19px] font-extrabold tabular-nums',
-                temPromo ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground')}>
-                {brl(precoBase)}
+        <div className="shrink-0 px-5 pb-3 pt-3">
+          <h2 className="text-[20px] font-extrabold leading-tight [text-wrap:pretty]">{produto.nome}</h2>
+          <div className="mt-1 flex items-baseline gap-2">
+            <span className={cn('text-[20px] font-extrabold tabular-nums',
+              temPromo ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground')}>
+              {brl(precoBase)}
+            </span>
+            {temPromo && (
+              <span className="text-[13px] text-muted-foreground line-through tabular-nums">
+                {brl(produto.preco_centavos)}
               </span>
-            </div>
+            )}
           </div>
+          {/*
+            DESCRIÇÃO EM 2 LINHAS, com "ver mais".
+            Ia inteira: quatro linhas de texto promocional empurravam a primeira
+            escolha pra fora da tela. Quem quer ler, toca; quem quer pedir, vê as
+            opções.
+          */}
           {produto.descricao && (
-            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{produto.descricao}</p>
+            <div className="mt-1.5">
+              <p className={cn('text-sm leading-relaxed text-muted-foreground',
+                !descAberta && 'line-clamp-2')}>
+                {produto.descricao}
+              </p>
+              {produto.descricao.length > 90 && (
+                <button
+                  type="button"
+                  onClick={() => setDescAberta(v => !v)}
+                  className="mt-0.5 text-[12.5px] font-semibold text-primary"
+                >
+                  {descAberta ? 'ver menos' : 'ver descrição completa'}
+                </button>
+              )}
+            </div>
           )}
           {produto.serve_pessoas && (
             <p className="mt-1.5 text-xs text-muted-foreground">
@@ -329,7 +377,6 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
         </div>
 
         {/* Scroll area */}
-        <div ref={areaRolagem} className="flex-1 overflow-y-auto min-h-0">
           {/*
             BARRA DE PROGRESSO — quantas escolhas obrigatórias faltam, e onde.
 
@@ -407,6 +454,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
               onAlternar={opcao => alternar(g, opcao)}
               onRemoverFracao={opcao => removerFracao(g, opcao)}
               saboresPermitidos={saboresPermitidos}
+              topoSticky={obrigatorios.length > 1 ? 70 : 0}
             />
             </div>
           ))}
@@ -541,8 +589,16 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
 }
 
 function GrupoOpcao({
-  grupo, escolhidas, onAlternar, onRemoverFracao, saboresPermitidos,
+  grupo, escolhidas, onAlternar, onRemoverFracao, saboresPermitidos, topoSticky,
 }: {
+  /**
+   * Altura da barra de progresso, pro cabeçalho grudar logo abaixo dela.
+   *
+   * Vem por prop porque o grupo não sabe se a barra existe: em produto com um
+   * grupo obrigatório só ela não é renderizada, e um deslocamento fixo deixaria
+   * um vão morto de 70px acima do título.
+   */
+  topoSticky: number;
   grupo: GrupoOpcoes;
   /** Com REPETIÇÃO no grupo de sabores: o mesmo id aparece uma vez por fração. */
   escolhidas: number[];
@@ -583,8 +639,21 @@ function GrupoOpcao({
 
   return (
     <div className="border-t-[6px] border-muted/70">
-      {/* Group header */}
-      <div className="flex items-center justify-between px-5 pt-4 pb-3 gap-3">
+      {/*
+        CABEÇALHO DO GRUPO STICKY, ABAIXO DA BARRA DE PROGRESSO.
+        Sem isto o título passava POR BAIXO da barra e aparecia cortado ao meio
+        ("Tamanho" com o topo fatiado) — dava impressão de layout quebrado, e
+        rolando a lista longa de sabores o cliente perdia de vista em qual grupo
+        estava.
+
+        `top-[70px]` é a altura da barra de progresso. Quando ela não existe
+        (produto com um grupo obrigatório só), o valor sobra mas não atrapalha:
+        o cabeçalho apenas gruda um pouco mais abaixo.
+      */}
+      <div
+        style={{ top: topoSticky }}
+        className="sticky z-10 flex items-center justify-between gap-3 border-b border-border/40 bg-background/95 px-5 pb-2.5 pt-3 backdrop-blur"
+      >
         <div className="min-w-0">
           <h3 className="font-extrabold text-[15px] leading-tight">{grupo.nome}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>
@@ -596,7 +665,11 @@ function GrupoOpcao({
               ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
               : 'bg-primary/10 text-primary',
           )}>
-            {concluido ? '✓ Feito' : 'Obrigatório'}
+            {/* Contador em vez de "Feito" quando há mais de um a escolher: em
+                sabores, "Feito" com 1 de 3 pedaços esconderia que ainda cabe. */}
+            {concluido
+              ? (maxEfetivo > 1 ? `${escolhidas.length}/${maxEfetivo}` : '✓ Feito')
+              : 'Obrigatório'}
           </span>
         ) : (
           <span className="shrink-0 rounded-full bg-muted px-3 py-1 text-[11px] font-semibold text-muted-foreground">
