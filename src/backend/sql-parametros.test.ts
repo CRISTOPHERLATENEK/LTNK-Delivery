@@ -1,114 +1,146 @@
+/**
+ * TANTOS `?` NA SQL, TANTOS ARGUMENTOS NO `.run()`.
+ *
+ * POR QUE ESTE ARQUIVO EXISTE. Adicionar uma coluna a um INSERT é três edições
+ * no mesmo lugar: a lista de colunas, a lista de `?` e a lista de argumentos.
+ * Esquecer uma das três compila, passa no lint, passa em todo teste de
+ * comportamento — e explode só em tempo de execução, com uma mensagem que não
+ * diz o arquivo nem a coluna:
+ *
+ *     ER_WRONG_ARGUMENTS: Incorrect arguments to mysqld_stmt_execute
+ *
+ * Aconteceu de verdade: `imagem` entrou na lista de argumentos e ficou fora da
+ * lista de colunas. Resultado: CRIAR QUALQUER COMPLEMENTO passou a devolver 500
+ * — o botão "Adicionar" e todos os chips de sugestão do editor. Não havia teste
+ * pra pegar, porque o defeito não está em nenhuma regra: está na aritmética
+ * entre duas listas que ninguém conta.
+ *
+ * O que este teste faz é contar. É burro de propósito: nada de banco, nada de
+ * mock, só ler o código e comparar dois números.
+ *
+ * COMO ELE SE COMPORTA QUANDO NÃO TEM CERTEZA: pula. SQL com `${...}` tem `?`
+ * que só existem em tempo de execução (ver `sqlPromocaoVigente`), e argumento
+ * com spread tem contagem variável. Nesses casos contar daria alarme falso, e
+ * teste que grita errado é teste que se desliga. Prefere-se cobrir menos e ser
+ * confiável.
+ */
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 
-/**
- * Confere que todo `INSERT ... VALUES` tem a MESMA quantidade de colunas e de
- * valores.
- *
- * ESTE TESTE EXISTE POR UM ACIDENTE REAL: ao adicionar `chave_idem` ao INSERT de
- * pedidos, a coluna entrou na lista de parâmetros mas não na de colunas. Ficaram
- * 19 colunas para 20 valores, o MySQL recusou com ER_WRONG_ARGUMENTS, e a loja
- * passou horas sem conseguir criar UM pedido sequer.
- *
- * O `tsc` não pega: a query é uma string, e a contagem de `?` não é verificada
- * por tipo. Testes e build passaram todos. Só apareceu quando um cliente tentou
- * comprar.
- *
- * Varre o código-fonte de propósito, em vez de testar uma função: o erro não
- * mora numa função, mora em qualquer INSERT que alguém escreva daqui pra frente.
- */
+const RAIZ = path.resolve(__dirname);
 
-/** Divide por vírgula ignorando as que estão dentro de parênteses/aspas. */
-function separarTopo(texto: string): string[] {
-  const partes: string[] = [];
+function arquivos(dir: string): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) return e.name === 'node_modules' ? [] : arquivos(p);
+    return /\.ts$/.test(e.name) && !/\.test\.ts$/.test(e.name) ? [p] : [];
+  });
+}
+
+/** Fim do trecho iniciado em `abre` (índice do parêntese/crase de abertura). */
+function fechamento(texto: string, abre: number, ab: string, fe: string): number {
+  let nivel = 0;
+  for (let i = abre; i < texto.length; i++) {
+    if (texto[i] === ab) nivel++;
+    else if (texto[i] === fe) { nivel--; if (nivel === 0) return i; }
+  }
+  return -1;
+}
+
+/**
+ * Quantos argumentos a lista tem, contando as vírgulas de PROFUNDIDADE ZERO.
+ *
+ * Conta SEGMENTOS COM CONTEÚDO, não vírgulas. A vírgula final (`agoraUTC(),`) é
+ * estilo comum aqui e daria um argumento fantasma — foi o primeiro falso
+ * positivo que este scanner produziu. Comentário também sai antes: `// nome,
+ * email` tem vírgula e não é separador de argumento.
+ */
+function argumentos(lista: string): number {
+  const segmentos: string[] = [];
   let atual = '';
-  let profundidade = 0;
-  let aspas = '';
-  for (const c of texto) {
-    if (aspas) {
-      atual += c;
-      if (c === aspas) aspas = '';
+  let nivel = 0;
+  let emTexto: string | null = null;
+  for (let i = 0; i < lista.length; i++) {
+    const ch = lista[i];
+    if (emTexto) {
+      atual += ch;
+      if (ch === '\\') { atual += lista[++i] ?? ''; }
+      else if (ch === emTexto) emTexto = null;
       continue;
     }
-    if (c === "'" || c === '"' || c === '`') { aspas = c; atual += c; continue; }
-    if (c === '(') profundidade++;
-    if (c === ')') profundidade--;
-    if (c === ',' && profundidade === 0) { partes.push(atual); atual = ''; continue; }
-    atual += c;
+    if (ch === '/' && lista[i + 1] === '/') { i = lista.indexOf('\n', i); if (i < 0) break; continue; }
+    if (ch === '/' && lista[i + 1] === '*') { const f = lista.indexOf('*/', i); if (f < 0) break; i = f + 1; continue; }
+    if (ch === "'" || ch === '"' || ch === '`') { emTexto = ch; atual += ch; continue; }
+    if ('([{'.includes(ch)) { nivel++; atual += ch; continue; }
+    if (')]}'.includes(ch)) { nivel--; atual += ch; continue; }
+    if (ch === ',' && nivel === 0) { segmentos.push(atual); atual = ''; continue; }
+    atual += ch;
   }
-  if (atual.trim()) partes.push(atual);
-  return partes.map(p => p.trim()).filter(Boolean);
+  segmentos.push(atual);
+  return segmentos.filter(s => s.trim() !== '').length;
 }
 
-/**
- * Conteúdo entre o parêntese aberto em `inicio` e o que o fecha, ciente de
- * aspas. `null` se não fechar.
- */
-function blocoDeParenteses(texto: string, inicio: number): string | null {
-  let profundidade = 0;
-  let aspas = '';
-  for (let i = inicio; i < texto.length; i++) {
-    const c = texto[i];
-    if (aspas) { if (c === aspas) aspas = ''; continue; }
-    if (c === "'" || c === '"') { aspas = c; continue; }
-    if (c === '`') return null; // saiu do template literal: query truncada
-    if (c === '(') profundidade++;
-    else if (c === ')') {
-      profundidade--;
-      if (profundidade === 0) return texto.slice(inicio + 1, i);
+interface Chamada { arquivo: string; linha: number; sql: string; placeholders: number; args: number }
+
+function chamadas(): Chamada[] {
+  const achadas: Chamada[] = [];
+  for (const arq of arquivos(RAIZ)) {
+    const texto = fs.readFileSync(arq, 'utf8');
+    let de = 0;
+    for (;;) {
+      const p = texto.indexOf('.prepare(', de);
+      if (p < 0) break;
+      de = p + 9;
+
+      // A SQL tem que ser uma template literal que começa logo após o '('.
+      const craseAbre = texto.indexOf('`', p);
+      const parenFim = fechamento(texto, texto.indexOf('(', p), '(', ')');
+      if (craseAbre < 0 || parenFim < 0 || craseAbre > parenFim) continue;
+      const craseFim = texto.indexOf('`', craseAbre + 1);
+      if (craseFim < 0 || craseFim > parenFim) continue;
+      const sql = texto.slice(craseAbre + 1, craseFim);
+
+      // Só INSERT com VALUES: é onde a aritmética das colunas mora.
+      if (!/^\s*INSERT\s/i.test(sql) || !/VALUES/i.test(sql)) continue;
+      // `${...}` gera `?` em tempo de execução — não dá pra contar aqui.
+      if (sql.includes('${')) continue;
+
+      const depois = texto.slice(parenFim + 1);
+      const m = /^\s*\.\s*(run|get|all)\s*\(/.exec(depois);
+      if (!m) continue;
+      const abreArgs = parenFim + 1 + depois.indexOf('(', m[0].length - 1);
+      const fimArgs = fechamento(texto, abreArgs, '(', ')');
+      if (fimArgs < 0) continue;
+      const lista = texto.slice(abreArgs + 1, fimArgs);
+      if (lista.includes('...')) continue;   // spread: contagem variável
+
+      achadas.push({
+        arquivo: path.relative(path.resolve(__dirname, '..', '..'), arq),
+        linha: texto.slice(0, craseAbre).split('\n').length,
+        sql: sql.replace(/\s+/g, ' ').trim().slice(0, 90),
+        placeholders: (sql.match(/\?/g) || []).length,
+        args: argumentos(lista),
+      });
     }
   }
-  return null;
+  return achadas;
 }
 
-function arquivosTs(dir: string): string[] {
-  const saida: string[] = [];
-  for (const nome of fs.readdirSync(dir)) {
-    const completo = path.join(dir, nome);
-    if (fs.statSync(completo).isDirectory()) { saida.push(...arquivosTs(completo)); continue; }
-    if (nome.endsWith('.ts') && !nome.endsWith('.test.ts')) saida.push(completo);
-  }
-  return saida;
-}
+describe('todo INSERT tem tantos argumentos quanto ?', () => {
+  const lista = chamadas();
 
-describe('INSERT ... VALUES', () => {
-  it('tem o mesmo número de colunas e de valores em todo o backend', () => {
-    const problemas: string[] = [];
-    // Só localiza o começo; o conteúdo de cada parêntese sai de `blocoDeParenteses`,
-    // que respeita aspas — `VALUES ('Consumidor (Balcão)', ?)` tem parêntese
-    // DENTRO de uma string, e uma regex ingênua fecha no lugar errado.
-    const re = /INSERT\s+INTO\s+(\w+)\s*\(/gis;
+  /* Se o scanner parar de achar nada (uma refatoração troca `db.prepare` por
+     outra coisa), ele passaria vazio e ninguém notaria — o teste ficaria verde
+     protegendo nada. */
+  it('o scanner está encontrando INSERTs de verdade', () => {
+    expect(lista.length).toBeGreaterThan(10);
+  });
 
-    for (const arquivo of arquivosTs(path.join(__dirname))) {
-      const codigo = fs.readFileSync(arquivo, 'utf8');
-      for (const m of codigo.matchAll(re)) {
-        const tabela = m[1];
-        const abreColunas = m.index! + m[0].length - 1;
-        const colunasBruto = blocoDeParenteses(codigo, abreColunas);
-        if (colunasBruto === null) continue;
-
-        const depois = codigo.slice(abreColunas + colunasBruto.length + 2);
-        const mv = depois.match(/^\s*(?:--[^\n]*\n\s*)?VALUES\s*\(/i);
-        if (!mv) continue; // INSERT ... SELECT, ou ON DUPLICATE sem VALUES
-        const abreValores = abreColunas + colunasBruto.length + 2 + mv[0].length - 1;
-        const valoresBruto = blocoDeParenteses(codigo, abreValores);
-        if (valoresBruto === null) continue;
-        // Linhas de comentário no meio da lista atrapalham a contagem: fora.
-        const limpar = (t: string) => t.replace(/--[^\n]*/g, '').replace(/\s+/g, ' ');
-        const colunas = separarTopo(limpar(colunasBruto));
-        const valores = separarTopo(limpar(valoresBruto));
-        // INSERT ... SELECT não tem lista de valores entre parênteses.
-        if (valores.length === 0) continue;
-        if (colunas.length !== valores.length) {
-          problemas.push(
-            `${path.basename(arquivo)} → INSERT INTO ${tabela}: `
-            + `${colunas.length} colunas x ${valores.length} valores`,
-          );
-        }
-      }
-    }
-
-    expect(problemas).toEqual([]);
+  it('nenhum INSERT tem contagem trocada', () => {
+    const errados = lista
+      .filter(c => c.placeholders !== c.args)
+      .map(c => `${c.arquivo}:${c.linha} — ${c.placeholders} '?' vs ${c.args} args | ${c.sql}`);
+    expect(errados).toEqual([]);
   });
 });

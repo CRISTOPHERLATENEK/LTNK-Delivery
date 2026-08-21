@@ -1430,8 +1430,8 @@ router.post('/grupos/:id/opcoes', async (req, res, next) => {
     if (precoAdicional === null || precoAdicional < 0) throw erroHttp(400, 'Preço adicional inválido.');
 
     const info = await db.prepare(
-      `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao)
-       VALUES (?, ?, ?, 1, ?, ?, ?, ?)`
+      `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao, imagem)
+       VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)`
     ).run(grupo.id, nome, precoAdicional, inteiroPositivo(req.body.ordem) || 0,
           inteiroPositivo(req.body.sabores) || 0,
           textoLimpo(req.body.secao, 40),
