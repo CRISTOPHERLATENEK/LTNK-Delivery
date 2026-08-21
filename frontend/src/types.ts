@@ -379,6 +379,8 @@ export interface OpcaoItem {
   preco_adicional_centavos: number;
   /** Quantos sabores esta opção libera — só nas opções do grupo de tamanho. */
   sabores?: number;
+  /** Faixa dentro do grupo ('Tradicionais', 'Especiais'…). Vazio = sem seção. */
+  secao?: string | null;
 }
 
 export interface GrupoOpcoes {

@@ -1146,9 +1146,13 @@ router.post('/produtos/:id/duplicar', async (req, res, next) => {
         const opcoes = await tx.prepare('SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id').all(g.id) as any[];
         for (const o of opcoes) {
           await tx.prepare(
-            `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem)
-             VALUES (?, ?, ?, ?, ?)`
-          ).run(novoGrupoId, o.nome, o.preco_adicional_centavos, o.disponivel, o.ordem);
+            // `sabores` e `secao` entram aqui: sem eles, duplicar uma pizza
+            // perdia quantos sabores cada tamanho libera e a faixa de cada
+            // sabor — a cópia parecia igual na lista e vinha quebrada por dentro.
+            `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          ).run(novoGrupoId, o.nome, o.preco_adicional_centavos, o.disponivel, o.ordem,
+                o.sabores || 0, o.secao || '');
         }
       }
       return novoId;
@@ -1360,10 +1364,11 @@ router.post('/grupos/:id/opcoes', async (req, res, next) => {
     if (precoAdicional === null || precoAdicional < 0) throw erroHttp(400, 'Preço adicional inválido.');
 
     const info = await db.prepare(
-      `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores)
-       VALUES (?, ?, ?, 1, ?, ?)`
+      `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao)
+       VALUES (?, ?, ?, 1, ?, ?, ?)`
     ).run(grupo.id, nome, precoAdicional, inteiroPositivo(req.body.ordem) || 0,
-          inteiroPositivo(req.body.sabores) || 0);
+          inteiroPositivo(req.body.sabores) || 0,
+          textoLimpo(req.body.secao, 40));
     res.status(201).json({ opcao_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
@@ -1380,14 +1385,19 @@ router.put('/opcoes/:id', async (req, res, next) => {
       if (v === null || v < 0) throw erroHttp(400, 'Preço adicional inválido.');
       precoAdicional = v;
     }
-    await db.prepare('UPDATE opcoes_itens SET nome = ?, preco_adicional_centavos = ?, disponivel = ?, sabores = ? WHERE id = ?')
-      .run(nome, precoAdicional,
-           req.body.disponivel !== undefined ? (req.body.disponivel ? 1 : 0) : opcao.disponivel,
-           // Quantos sabores esta opção libera (só nas opções de tamanho).
-           req.body.sabores !== undefined
-             ? (inteiroPositivo(req.body.sabores) || 0)
-             : ((opcao as unknown as { sabores?: number }).sabores ?? 0),
-           opcao.id);
+    const atual = opcao as unknown as { sabores?: number; secao?: string };
+    await db.prepare(
+      `UPDATE opcoes_itens SET nome = ?, preco_adicional_centavos = ?, disponivel = ?,
+              sabores = ?, secao = ? WHERE id = ?`
+    ).run(nome, precoAdicional,
+          req.body.disponivel !== undefined ? (req.body.disponivel ? 1 : 0) : opcao.disponivel,
+          // Quantos sabores esta opção libera (só nas opções de tamanho).
+          req.body.sabores !== undefined
+            ? (inteiroPositivo(req.body.sabores) || 0)
+            : (atual.sabores ?? 0),
+          // Seção dentro do grupo ('Tradicionais', 'Especiais'…) — ver schema.
+          req.body.secao !== undefined ? textoLimpo(req.body.secao, 40) : (atual.secao ?? ''),
+          opcao.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });

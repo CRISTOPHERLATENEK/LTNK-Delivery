@@ -134,3 +134,40 @@ export function precoVariavel(grupos: GrupoParaMinimo[] = []): boolean {
     return precos.some(p => p > min);
   });
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * SEÇÕES DENTRO DO GRUPO ('Tradicionais', 'Especiais', 'Doces'…)
+ *
+ * Pizzaria separa sabor por faixa, mas o LIMITE e o PREÇO são do conjunto: três
+ * grupos de sabor deixariam a pizza de 3 sabores aceitar 3 de cada, e o
+ * modo_preco 'maior' — que é calculado dentro do grupo — somaria três "maiores".
+ * Então a seção separa na TELA, dentro de um grupo só.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+export interface OpcaoComSecao {
+  secao?: string | null;
+}
+
+/**
+ * Agrupa as opções por seção, preservando a ordem em que chegaram.
+ *
+ * As SEM seção vêm primeiro, com rótulo vazio: é o estado de toda opção
+ * cadastrada antes desta coluna, e empurrá-las pro fim mudaria a ordem de um
+ * cardápio que já está no ar.
+ *
+ * A ordem das seções é a de PRIMEIRA APARIÇÃO, não alfabética: 'Tradicionais'
+ * antes de 'Especiais' é escolha do lojista (ele ordena as opções), e alfabético
+ * inverteria isso sem ele pedir.
+ */
+export function agruparPorSecao<T extends OpcaoComSecao>(opcoes: T[]): Array<{ secao: string; opcoes: T[] }> {
+  const ordem: string[] = [];
+  const mapa = new Map<string, T[]>();
+  for (const o of opcoes) {
+    const secao = (o.secao || '').trim();
+    if (!mapa.has(secao)) { mapa.set(secao, []); ordem.push(secao); }
+    mapa.get(secao)!.push(o);
+  }
+  // Sem seção em NENHUMA opção: devolve um bloco só, sem rótulo — a tela não
+  // deve ganhar cabeçalho por causa de um recurso que a loja não usa.
+  return ordem.map(secao => ({ secao, opcoes: mapa.get(secao)! }));
+}

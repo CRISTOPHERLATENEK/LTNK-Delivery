@@ -294,8 +294,25 @@ router.get('/lojas/:id', async (req, res, next) => {
      */
     if (produtos.length > 0) {
       const idsProd = produtos.map(p => p.id);
+      /*
+       * `papel` e `modo_preco` SÃO OBRIGATÓRIOS AQUI — sem eles a pizza não
+       * funciona na tela do cliente, e o jeito de quebrar é silencioso.
+       *
+       * Esta consulta nasceu ao corrigir um N+1, e ao listar as colunas à mão
+       * ficaram de fora exatamente as três da pizza (aqui duas, mais `sabores`
+       * na consulta de opções abaixo). O efeito:
+       *   - sem `papel`, `saboresLiberados` não acha o grupo de tamanho e
+       *     devolve 0, então o limite cai no `max_escolhas` — a Grande que
+       *     libera 3 sabores só deixava escolher 1;
+       *   - sem `modo_preco`, `precoDoGrupo` usa 'somar' e a tela SOMA os
+       *     acréscimos dos sabores, enquanto o servidor cobra só o maior.
+       *     Prévia diferente da cobrança é o pior jeito de errar preço.
+       *
+       * Quem mexer nesta lista de colunas: `opcoes-preco.ts` é quem diz de
+       * quais campos a regra depende.
+       */
       const grupos = await db.prepare(
-        `SELECT id, nome, tipo, obrigatorio, max_escolhas, produto_id
+        `SELECT id, nome, tipo, obrigatorio, max_escolhas, papel, modo_preco, produto_id
            FROM grupos_opcoes WHERE produto_id IN (${idsProd.map(() => '?').join(',')})
           ORDER BY ordem, id`
       ).all(...idsProd) as Array<GrupoComOpcoes & { produto_id: number }>;
@@ -304,7 +321,9 @@ router.get('/lojas/:id', async (req, res, next) => {
       if (grupos.length > 0) {
         const idsGrupo = grupos.map(g => g.id);
         const opcoes = await db.prepare(
-          `SELECT id, nome, preco_adicional_centavos, grupo_id
+          // `sabores`: quantos sabores este TAMANHO libera (ver acima).
+          // `secao`: faixa dentro do grupo ('Tradicionais', 'Especiais'…).
+          `SELECT id, nome, preco_adicional_centavos, sabores, secao, grupo_id
              FROM opcoes_itens WHERE grupo_id IN (${idsGrupo.map(() => '?').join(',')}) AND disponivel = 1
             ORDER BY ordem, id`
         ).all(...idsGrupo) as Array<OpcaoItem & { grupo_id: number }>;

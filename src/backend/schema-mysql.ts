@@ -218,6 +218,17 @@ const TABELAS: string[] = [
   preco_adicional_centavos INT NOT NULL DEFAULT 0 CHECK (preco_adicional_centavos >= 0),
   disponivel               TINYINT NOT NULL DEFAULT 1,
   ordem                    INT NOT NULL DEFAULT 0,
+  /*
+   * Seção dentro do grupo ('Tradicionais', 'Especiais', 'Doces'…). Vazio = sem
+   * seção, que é como toda opção existia antes.
+   *
+   * POR QUE AQUI E NÃO EM GRUPOS SEPARADOS: pizzaria separa sabor por faixa,
+   * mas o LIMITE e o PREÇO são do conjunto. Três grupos de sabor deixariam a
+   * pizza de 3 sabores aceitar 3 de cada (9), e o modo_preco 'maior', que e
+   * calculado dentro do grupo, somaria três "maiores" — o oposto do que essa
+   * regra existe pra fazer. Seção separa na TELA sem partir a regra.
+   */
+  secao                    VARCHAR(40) NOT NULL DEFAULT '',
   KEY idx_opcoes_grupo (grupo_id),
   FOREIGN KEY (grupo_id) REFERENCES grupos_opcoes(id)
 ) ${SUFIXO_TABELA}`,
@@ -1191,6 +1202,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
   // tamanho; 0 = não define nada (o padrão de toda opção que não é tamanho).
   for (const [coluna, ddl] of [
     ['sabores', 'sabores INT NOT NULL DEFAULT 0'],
+    ['secao', "secao VARCHAR(40) NOT NULL DEFAULT ''"],
   ] as const) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS

@@ -119,6 +119,8 @@ export interface OpcaoItem {
   preco_adicional_centavos: number;
   disponivel: NumeroBooleano;
   ordem: number;
+  /** Faixa dentro do grupo ('Tradicionais', 'Especiais'…). Vazio = sem seção. */
+  secao: string;
 }
 
 /** Grupo já com suas opções aninhadas (formato devolvido pela API). */

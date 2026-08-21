@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
 import { adicionarAoCarrinho, vooCarrinho } from '@/lib/carrinho';
 import { useToast } from '@/components/ui/toast';
 import type { GrupoOpcoes, Loja, OpcaoItem, Produto } from '@/types';
-import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo } from '@/lib/opcoes-preco';
+import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo, agruparPorSecao } from '@/lib/opcoes-preco';
 
 interface Props {
   produto: Produto;
@@ -392,7 +392,20 @@ function GrupoOpcao({
 
       {/* Option cards */}
       <div className="px-4 pb-4 space-y-2">
-        {grupo.opcoes.map(o => {
+        {agruparPorSecao(grupo.opcoes).map(({ secao, opcoes }) => (
+        <div key={secao || '__sem_secao'} className={cn(secao && 'pt-1')}>
+        {/*
+          Cabeçalho da seção só quando ELA TEM NOME. Loja que não usa seção
+          continua vendo a lista exatamente como antes — recurso não usado não
+          deve aparecer na tela do cliente.
+        */}
+        {secao && (
+          <p className="mb-2 mt-1 px-1 text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+            {secao}
+          </p>
+        )}
+        <div className="space-y-2">
+        {opcoes.map(o => {
           const ativa = escolhidas.includes(o.id);
           /*
            * NO MÁXIMO, as não marcadas ficam INERTES.
@@ -460,6 +473,9 @@ function GrupoOpcao({
             </button>
           );
         })}
+        </div>
+        </div>
+        ))}
       </div>
     </div>
   );

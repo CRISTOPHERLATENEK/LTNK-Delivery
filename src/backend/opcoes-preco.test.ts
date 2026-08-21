@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo , precoMinimoItem, precoVariavel } from './opcoes-preco';
+import fs from 'fs';
+import path from 'path';
+import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo , precoMinimoItem, precoVariavel, agruparPorSecao } from './opcoes-preco';
 
 const tamanho = { papel: 'tamanho', modo_preco: 'somar', max_escolhas: 1 };
 const sabores = { papel: 'sabores', modo_preco: 'maior', max_escolhas: 1 };
@@ -142,5 +144,77 @@ describe('precoVariavel', () => {
 
   it('opcional sem acréscimo nenhum não varia', () => {
     expect(precoVariavel([{ obrigatorio: 0, max_escolhas: 2, opcoes: opc(0, 0) }])).toBe(false);
+  });
+});
+
+/**
+ * AS COLUNAS DE QUE ESTA REGRA DEPENDE PRECISAM CHEGAR NA TELA.
+ *
+ * Toda a lógica acima é inútil se o cardápio do cliente não trouxer os campos.
+ * Foi o que aconteceu: ao corrigir um N+1, alguém listou as colunas à mão em
+ * rotas/publico.ts e deixou de fora justamente as três da pizza. O resultado
+ * não era erro nenhum — era pizza quebrada em silêncio:
+ *
+ *   - sem `papel`, `saboresLiberados` devolve 0 e a Grande que libera 3 sabores
+ *     só deixava escolher 1;
+ *   - sem `modo_preco`, `precoDoGrupo` cai em 'somar' e a TELA soma os
+ *     acréscimos enquanto o SERVIDOR cobra só o maior — prévia diferente da
+ *     cobrança, que é o pior jeito de errar preço;
+ *   - sem `sabores`, não há de onde tirar o limite.
+ *
+ * O teste olha o SQL porque é ali que a informação se perde. Se alguém reescrever
+ * a consulta e esquecer um campo, isto falha antes de o cliente ver.
+ */
+describe('a consulta pública tem que trazer os campos da pizza', () => {
+  const publico = fs.readFileSync(path.resolve(__dirname, 'rotas', 'publico.ts'), 'utf8');
+
+  it('a consulta de grupos traz papel e modo_preco', () => {
+    const sel = publico.match(/SELECT[^`]*FROM grupos_opcoes/);
+    expect(sel).not.toBeNull();
+    expect(sel![0]).toMatch(/papel/);
+    expect(sel![0]).toMatch(/modo_preco/);
+  });
+
+  it('a consulta de opções traz sabores e secao', () => {
+    const sel = publico.match(/SELECT[^`]*FROM opcoes_itens/);
+    expect(sel).not.toBeNull();
+    expect(sel![0]).toMatch(/sabores/);
+    expect(sel![0]).toMatch(/secao/);
+  });
+});
+
+/**
+ * Agrupamento por seção. A ordem importa: 'Tradicionais' antes de 'Especiais' é
+ * escolha do lojista (ele ordena as opções), e alfabético inverteria isso.
+ */
+describe('agruparPorSecao', () => {
+  it('sem seção nenhuma, devolve um bloco só sem rótulo', () => {
+    const r = agruparPorSecao([{ secao: '' }, { secao: null }, {}]);
+    expect(r).toHaveLength(1);
+    expect(r[0].secao).toBe('');
+    expect(r[0].opcoes).toHaveLength(3);
+  });
+
+  it('separa por seção na ordem de primeira aparição', () => {
+    const r = agruparPorSecao([
+      { secao: 'Tradicionais' }, { secao: 'Especiais' }, { secao: 'Tradicionais' },
+    ]);
+    expect(r.map(x => x.secao)).toEqual(['Tradicionais', 'Especiais']);
+    expect(r[0].opcoes).toHaveLength(2);
+  });
+
+  /* Opção antiga (sem seção) não pode ir pro fim: mudaria a ordem de um
+     cardápio que já está no ar. */
+  it('as SEM seção ficam no começo', () => {
+    const r = agruparPorSecao([{ secao: 'Doces' }, { secao: '' }]);
+    expect(r.map(x => x.secao)).toEqual(['Doces', '']);
+    const r2 = agruparPorSecao([{ secao: '' }, { secao: 'Doces' }]);
+    expect(r2.map(x => x.secao)).toEqual(['', 'Doces']);
+  });
+
+  it('ignora espaço em volta do nome da seção', () => {
+    const r = agruparPorSecao([{ secao: ' Doces ' }, { secao: 'Doces' }]);
+    expect(r).toHaveLength(1);
+    expect(r[0].secao).toBe('Doces');
   });
 });

@@ -56,6 +56,17 @@ function rotuloVenda(p: { disponivel?: number | null; disponivel_pdv?: number | 
   return 'Pausado';
 }
 
+/*
+ * Tipos LOCAIS, e não os de `@/types`, de propósito.
+ *
+ * O nome é o mesmo do tipo compartilhado, mas o shape é outro: a rota do
+ * lojista devolve a linha inteira (grupo_id, disponivel, ordem — o que a tela
+ * de edição precisa), e a rota pública devolve a versão enxuta que o cliente
+ * consome. Unificar obrigaria um dos dois a carregar campos que não usa.
+ *
+ * O que TEM que andar junto nos dois: os campos de que a regra de preço
+ * depende (`sabores`, `secao`, `papel`, `modo_preco`) — ver opcoes-preco.ts.
+ */
 interface OpcaoItem {
   id: number;
   grupo_id: number;
@@ -63,6 +74,8 @@ interface OpcaoItem {
   preco_adicional_centavos: number;
   /** Quantos sabores esta opção libera (só no grupo de tamanho). */
   sabores?: number;
+  /** Faixa dentro do grupo ('Tradicionais', 'Especiais'…). Vazio = sem seção. */
+  secao?: string | null;
   disponivel: number;
   ordem: number;
 }
@@ -1615,7 +1628,7 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
 
   type FormGrupo = { nome: string; tipo: 'unico' | 'multiplo'; obrigatorio: boolean; max_escolhas: string; papel: string };
   const [novoGrupo, setNovoGrupo] = useState<FormGrupo | null>(null);
-  const [novasOpcoes, setNovasOpcoes] = useState<Record<number, { nome: string; preco: string }>>({});
+  const [novasOpcoes, setNovasOpcoes] = useState<Record<number, { nome: string; preco: string; secao: string }>>({});
   const [editandoGrupoId, setEditandoGrupoId] = useState<number | null>(null);
   const [editandoGrupoForm, setEditandoGrupoForm] = useState<FormGrupo | null>(null);
   const [editandoOpcaoId, setEditandoOpcaoId] = useState<number | null>(null);
@@ -1623,9 +1636,9 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
   const [editandoOpcaoPreco, setEditandoOpcaoPreco] = useState('');
 
   function opcaoForm(grupoId: number) {
-    return novasOpcoes[grupoId] ?? { nome: '', preco: '' };
+    return novasOpcoes[grupoId] ?? { nome: '', preco: '', secao: '' };
   }
-  function setOpcaoForm(grupoId: number, campo: 'nome' | 'preco', valor: string) {
+  function setOpcaoForm(grupoId: number, campo: 'nome' | 'preco' | 'secao', valor: string) {
     setNovasOpcoes(prev => ({ ...prev, [grupoId]: { ...opcaoForm(grupoId), [campo]: valor } }));
   }
 
@@ -1799,9 +1812,17 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
       await api('POST', `/api/lojista/grupos/${grupoId}/opcoes`, {
         nome: f.nome.trim(),
         preco_adicional: f.preco || '0',
+        secao: f.secao || '',
       });
       await qc.refetchQueries({ queryKey });
-      setNovasOpcoes(prev => ({ ...prev, [grupoId]: { nome: '', preco: '' } }));
+      qc.invalidateQueries({ queryKey: ['lojista-sugestoes-opcoes'] });
+      /*
+       * A SEÇÃO PERMANECE ao limpar o formulário, o nome e o preço não.
+       * Cadastrar sabores é cadastrar em lote: dez tradicionais seguidos. Zerar
+       * a seção a cada item obrigaria a redigitar "Tradicionais" dez vezes —
+       * exatamente o tipo de trabalho manual que a gente veio tirar daqui.
+       */
+      setNovasOpcoes(prev => ({ ...prev, [grupoId]: { nome: '', preco: '', secao: f.secao || '' } }));
       setTimeout(() => document.getElementById(`opcao-nome-${grupoId}`)?.focus(), 50);
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao adicionar opção. Tente novamente.';
@@ -2166,6 +2187,45 @@ function GruposModal({ produto, onFechar }: { produto: Produto; onFechar: () => 
                             >
                               <Plus className="size-4" /> Adicionar
                             </Button>
+                          </div>
+
+                          {/*
+                            SEÇÃO — separa sabor por faixa ('Tradicionais',
+                            'Especiais', 'Doces') DENTRO do grupo.
+
+                            Não são grupos separados de propósito: o limite de
+                            sabores vem do tamanho e o preço cobra só o maior
+                            acréscimo. Três grupos deixariam a pizza de 3 sabores
+                            aceitar 3 de cada, e somariam três "maiores".
+
+                            O campo fica embaixo, não ao lado do nome: a maioria
+                            dos grupos (bordas, adicionais, bebida) não usa
+                            seção, e um campo a mais na linha principal cobraria
+                            atenção de todo mundo por causa de um caso.
+                          */}
+                          <div className="mt-2 flex items-center gap-2">
+                            <label htmlFor={`opcao-secao-${grupo.id}`} className="shrink-0 text-[11px] text-muted-foreground">
+                              Seção
+                            </label>
+                            <Input
+                              id={`opcao-secao-${grupo.id}`}
+                              placeholder="opcional — ex.: Tradicionais, Especiais, Doces"
+                              value={opcaoForm(grupo.id).secao}
+                              onChange={e => setOpcaoForm(grupo.id, 'secao', e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), criarOpcao(grupo.id))}
+                              maxLength={40}
+                              className="h-8 flex-1 text-xs"
+                              list={`secoes-${grupo.id}`}
+                            />
+                            {/*
+                              As seções que este grupo já usa, como autocomplete.
+                              Sem isso, "Tradicionais" e "tradicionais" viram duas
+                              seções na tela do cliente por causa de uma letra.
+                            */}
+                            <datalist id={`secoes-${grupo.id}`}>
+                              {[...new Set(grupo.opcoes.map(o => (o.secao || '').trim()).filter(Boolean))]
+                                .map(sec => <option key={sec} value={sec} />)}
+                            </datalist>
                           </div>
                         </div>
                       </div>
