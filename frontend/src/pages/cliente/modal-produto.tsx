@@ -325,7 +325,21 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
         </div>
 
         {/* Footer */}
-        <SheetFooter className="px-5 py-4 border-t border-border bg-background shrink-0">
+        <SheetFooter className="flex-col gap-0 px-5 py-4 border-t border-border bg-background shrink-0">
+          {/*
+            A COMPOSIÇÃO NO RODAPÉ, junto do total.
+            O texto já era montado (é o que vai pro carrinho e pro cupom da
+            cozinha) e ficava invisível pro cliente enquanto ele montava —
+            justamente quando serve: é aqui que ele confere "1/2 4 Queijos ·
+            1/2 Bolonhesa" antes de adicionar. `line-clamp-2` porque pizza de 4
+            sabores com borda gera texto longo, e o rodapé não pode crescer até
+            comer o botão.
+          */}
+          {opcoesTexto && (
+            <p className="mb-2 w-full text-left text-[11.5px] leading-snug text-muted-foreground line-clamp-2">
+              {opcoesTexto}
+            </p>
+          )}
           <div className="flex items-center gap-3 w-full">
             {/* Quantity picker */}
             <div className="flex items-center rounded-full border-2 border-border overflow-hidden shrink-0">
@@ -412,9 +426,14 @@ function GrupoOpcao({
     // sabor já ocupa dois pedaços, e dizer "1 escolhido" mentiria sobre o que
     // falta preencher.
     const unidade = grupo.papel === 'sabores' ? 'pedaços' : 'escolhidos';
+    /*
+     * "ATÉ", não "escolha N": o limite é MÁXIMO. Numa pizza que aceita 3 sabores
+     * o cliente pode querer 2 — e aí a divisão é ao meio, não em terços. Dizer
+     * "Escolha 3 pedaços" faria parecer obrigatório preencher tudo.
+     */
     hint = escolhidas.length > 0
-      ? `${escolhidas.length}/${maxEfetivo} ${unidade}`
-      : `Escolha ${maxEfetivo} ${unidade}`;
+      ? `${escolhidas.length} de até ${maxEfetivo} ${unidade}`
+      : `Até ${maxEfetivo} ${unidade}`;
   } else {
     hint = escolhidas.length > 0
       ? `${escolhidas.length} escolhido${escolhidas.length > 1 ? 's' : ''}`
@@ -530,8 +549,16 @@ function GrupoOpcao({
                   >
                     <Minus className="size-3.5" strokeWidth={3} />
                   </button>
-                  <span className="min-w-[34px] text-center text-[11px] font-bold tabular-nums text-primary">
-                    {fracoes}/{maxEfetivo || fracoes}
+                  {/*
+                    Mostra a CONTAGEM de pedaços, não "1/3".
+                    A fração depende de quantos pedaços o cliente vai usar no
+                    total, e isso só se sabe no fim: parar em 2 numa pizza de até
+                    3 é divisão ao meio. O stepper dizia "1/3" e o carrinho diria
+                    "1/2" — dois números diferentes pra mesma escolha. A fração
+                    aparece na linha de composição, embaixo.
+                  */}
+                  <span className="min-w-[22px] text-center text-[11px] font-bold tabular-nums text-primary">
+                    {fracoes}
                   </span>
                   <button
                     type="button"
