@@ -208,6 +208,8 @@ export function ProdutosLoja() {
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [gerindoGrupos, setGerindoGrupos] = useState<Produto | null>(null);
   const [mostrarFiscal, setMostrarFiscal] = useState(false);
+  type Aba = 'item' | 'complementos' | 'config' | 'fiscal';
+  const [aba, setAba] = useState<Aba>('item');
 
   /** Qual dos dois botões de submit foi clicado (ver `salvar`). */
   const criarOutroRef = useRef(false);
@@ -276,12 +278,14 @@ export function ProdutosLoja() {
   const eanRepetido = eanJaUsado(form.codigo_barras, outros);
 
   function abrirNovo() {
+    setAba('item');
     setForm(FORM_VAZIO);
     setEditando('novo');
     setTimeout(() => document.getElementById('campo-nome')?.focus(), 50);
   }
 
   function abrirEdicao(p: Produto) {
+    setAba('item');
     setForm({
       nome: p.nome,
       descricao: p.descricao || '',
@@ -318,6 +322,19 @@ export function ProdutosLoja() {
 
   async function salvar(e: React.FormEvent) {
     e.preventDefault();
+    /*
+     * LEVA DE VOLTA PRA ABA DO PROBLEMA.
+     *
+     * Com abas, o `required` do HTML deixa de bastar: um campo obrigatório numa
+     * aba desmontada não existe no DOM, então o navegador não bloqueia nem
+     * aponta nada — o pedido iria ao servidor e voltaria um toast sem dizer ONDE
+     * corrigir. Aqui o erro reabre a aba certa e foca o campo.
+     */
+    if (!form.nome.trim() || !form.preco || erroPromo) {
+      setAba('item');
+      setTimeout(() => document.getElementById(!form.nome.trim() ? 'campo-nome' : 'p-preco')?.focus(), 60);
+      return;
+    }
     setEnviando(true);
     const corpo = {
       nome: form.nome,
@@ -697,7 +714,71 @@ export function ProdutosLoja() {
             </div>
 
             <form onSubmit={salvar} className="flex min-h-0 flex-1 flex-col">
-              {/* ─── Corpo: duas colunas, rolagem por dentro ─── */}
+              {/*
+                ─── ABAS ───
+
+                O formulário tinha tudo numa rolagem só: no celular, chegar no
+                fiscal exigia passar por foto, prévia, disponibilidade, nome,
+                preço e complementos. As abas dão endereço a cada assunto.
+
+                A ORDEM É A DO TRABALHO: primeiro o que o cliente vê (Item),
+                depois o que ele escolhe (Complementos), depois como o item se
+                comporta (Configurações) e por último o fiscal — que a maioria
+                nunca abre.
+
+                TODO CAMPO OBRIGATÓRIO VIVE NA ABA "ITEM". É o que impede o pior
+                defeito de formulário com abas: erro de validação numa aba
+                escondida, com o botão recusando salvar sem dizer onde está o
+                problema. E `salvar` volta pra "Item" quando falta nome ou preço.
+              */}
+              <div className="shrink-0 border-b border-border px-6 sm:px-8">
+                <div className="scrollbar-hide -mb-px flex gap-1 overflow-x-auto">
+                  {([
+                    ['item', 'Item'],
+                    ['complementos', 'Complementos'],
+                    ['config', 'Configurações'],
+                    ['fiscal', 'Fiscal'],
+                  ] as const).map(([id, rotulo]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => {
+                        setAba(id);
+                        /*
+                         * A aba Fiscal abre já expandida: o bloco nasceu
+                         * colapsável quando dividia espaço com o resto do
+                         * formulário, e numa aba dedicada exigir um clique pra
+                         * ver o conteúdo é passo sem função.
+                         *
+                         * Aqui e não num `useEffect`: setState dentro de efeito
+                         * dispara render em cascata, e a informação já está no
+                         * próprio evento.
+                         */
+                        if (id === 'fiscal') setMostrarFiscal(true);
+                      }}
+                      aria-current={aba === id ? 'page' : undefined}
+                      className={cn(
+                        'shrink-0 border-b-2 px-3.5 py-3 text-[13.5px] font-semibold transition-colors',
+                        aba === id
+                          ? 'border-primary text-foreground'
+                          : 'border-transparent text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {rotulo}
+                      {/* Contagem só em Complementos: é a única aba cujo conteúdo
+                          o lojista não vê de outro jeito sem entrar nela. */}
+                      {id === 'complementos' && (gruposDoProduto.data ?? []).length > 0 && (
+                        <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10.5px] font-bold">
+                          {(gruposDoProduto.data ?? []).length}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ─── Item: duas colunas, rolagem por dentro ─── */}
+              {aba === 'item' && (
               <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[320px_1fr] lg:overflow-hidden">
                 {/* ── Esquerda: foto + disponibilidade ── */}
                 <div className="border-b border-border px-6 py-7 lg:overflow-y-auto lg:border-b-0 lg:border-r lg:px-8 lg:py-8">
@@ -794,70 +875,6 @@ export function ProdutosLoja() {
                     )}
                   </div>
 
-                  <div className="my-7 h-px bg-border" />
-
-                  {/*
-                    DISPONIBILIDADE COMO LINHAS COM INTERRUPTOR, não chips: chip comunica
-                    "filtro selecionável", interruptor comunica "ligado/desligado". Eram
-                    três controles de estado com três aparências diferentes (dois ícones
-                    de toggle e uma estrela solta num card cinza).
-                  */}
-                  <RotuloSecao>Disponibilidade</RotuloSecao>
-                  <div className="-mx-1 space-y-1">
-                    {/*
-                      CARDÁPIO E PDV SÃO DOIS INTERRUPTORES, não um.
-                      Eram a mesma chave: pausar um item no delivery tirava ele
-                      também do balcão. Mas as duas coisas se decidem por
-                      motivos diferentes — o prato que só sai no salão, o combo
-                      de entrega que não faz sentido no balcão, o item que
-                      acabou pro delivery mas ainda dá pra vender pra quem está
-                      na loja.
-                    */}
-                    <LinhaInterruptor
-                      titulo="Vender no cardápio"
-                      descricao="Aparece pro cliente no delivery e na retirada"
-                      ativo={form.disponivel}
-                      onAlternar={() => setForm(f => ({ ...f, disponivel: !f.disponivel }))}
-                    />
-                    <LinhaInterruptor
-                      titulo="Vender no PDV"
-                      descricao="Aparece na tela de venda no balcão"
-                      ativo={form.disponivel_pdv}
-                      onAlternar={() => setForm(f => ({ ...f, disponivel_pdv: !f.disponivel_pdv }))}
-                    />
-                    {!form.disponivel && !form.disponivel_pdv && (
-                      <p className="px-1 pb-1 text-[12.5px] text-amber-600">
-                        Com os dois desligados o produto fica pausado — não vende em lugar nenhum.
-                      </p>
-                    )}
-                    <LinhaInterruptor
-                      titulo="Destaque"
-                      descricao="Aparece no topo do cardápio"
-                      ativo={form.destaque}
-                      onAlternar={() => setForm(f => ({ ...f, destaque: !f.destaque }))}
-                    />
-                    <LinhaInterruptor
-                      titulo="Controlar estoque"
-                      descricao="Esgota sozinho quando zera"
-                      ativo={form.controla_estoque}
-                      onAlternar={() => setForm(f => ({ ...f, controla_estoque: !f.controla_estoque }))}
-                    >
-                      {form.controla_estoque && (
-                        <div className="mt-3">
-                          <Label htmlFor="p-estoque">Quantidade disponível</Label>
-                          <Input
-                            id="p-estoque"
-                            type="number" min="0" step="1"
-                            value={form.estoque} onChange={set('estoque')} placeholder="Ex.: 20"
-                            className={CAMPO_MODAL}
-                          />
-                          <p className="mt-1 text-[12.5px] text-muted-foreground">
-                            Baixa a cada pedido. Em 0, aparece como “Esgotado”.
-                          </p>
-                        </div>
-                      )}
-                    </LinhaInterruptor>
-                  </div>
                 </div>
 
                 {/* ── Direita: dados do produto ── */}
@@ -1088,6 +1105,12 @@ export function ProdutosLoja() {
 
                   <div className="my-[26px] h-px bg-border" />
 
+                </div>
+              </div>
+              )}
+
+              {aba === 'complementos' && (
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-7 sm:px-8">
                   {/*
                     COMPLEMENTOS AQUI DENTRO.
                     Era outra tela: o lojista salvava o produto, voltava pra
@@ -1147,9 +1170,78 @@ export function ProdutosLoja() {
                       Grupos valem só para este produto.
                     </p>
                   </section>
+                </div>
+              )}
 
-                  <div className="my-[26px] h-px bg-border" />
+              {aba === 'config' && (
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-7 sm:px-8">
+                  {/*
+                    DISPONIBILIDADE COMO LINHAS COM INTERRUPTOR, não chips: chip comunica
+                    "filtro selecionável", interruptor comunica "ligado/desligado". Eram
+                    três controles de estado com três aparências diferentes (dois ícones
+                    de toggle e uma estrela solta num card cinza).
+                  */}
+                  <RotuloSecao>Disponibilidade</RotuloSecao>
+                  <div className="-mx-1 space-y-1">
+                    {/*
+                      CARDÁPIO E PDV SÃO DOIS INTERRUPTORES, não um.
+                      Eram a mesma chave: pausar um item no delivery tirava ele
+                      também do balcão. Mas as duas coisas se decidem por
+                      motivos diferentes — o prato que só sai no salão, o combo
+                      de entrega que não faz sentido no balcão, o item que
+                      acabou pro delivery mas ainda dá pra vender pra quem está
+                      na loja.
+                    */}
+                    <LinhaInterruptor
+                      titulo="Vender no cardápio"
+                      descricao="Aparece pro cliente no delivery e na retirada"
+                      ativo={form.disponivel}
+                      onAlternar={() => setForm(f => ({ ...f, disponivel: !f.disponivel }))}
+                    />
+                    <LinhaInterruptor
+                      titulo="Vender no PDV"
+                      descricao="Aparece na tela de venda no balcão"
+                      ativo={form.disponivel_pdv}
+                      onAlternar={() => setForm(f => ({ ...f, disponivel_pdv: !f.disponivel_pdv }))}
+                    />
+                    {!form.disponivel && !form.disponivel_pdv && (
+                      <p className="px-1 pb-1 text-[12.5px] text-amber-600">
+                        Com os dois desligados o produto fica pausado — não vende em lugar nenhum.
+                      </p>
+                    )}
+                    <LinhaInterruptor
+                      titulo="Destaque"
+                      descricao="Aparece no topo do cardápio"
+                      ativo={form.destaque}
+                      onAlternar={() => setForm(f => ({ ...f, destaque: !f.destaque }))}
+                    />
+                    <LinhaInterruptor
+                      titulo="Controlar estoque"
+                      descricao="Esgota sozinho quando zera"
+                      ativo={form.controla_estoque}
+                      onAlternar={() => setForm(f => ({ ...f, controla_estoque: !f.controla_estoque }))}
+                    >
+                      {form.controla_estoque && (
+                        <div className="mt-3">
+                          <Label htmlFor="p-estoque">Quantidade disponível</Label>
+                          <Input
+                            id="p-estoque"
+                            type="number" min="0" step="1"
+                            value={form.estoque} onChange={set('estoque')} placeholder="Ex.: 20"
+                            className={CAMPO_MODAL}
+                          />
+                          <p className="mt-1 text-[12.5px] text-muted-foreground">
+                            Baixa a cada pedido. Em 0, aparece como “Esgotado”.
+                          </p>
+                        </div>
+                      )}
+                    </LinhaInterruptor>
+                  </div>
+                </div>
+              )}
 
+              {aba === 'fiscal' && (
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-7 sm:px-8">
                   {/* Fiscal colapsado: já vem com padrão seguro, e quem não emite nota
                       não deve tropeçar em NCM/CFOP pra cadastrar um lanche. */}
                   <div className="rounded-xl border border-border">
@@ -1195,7 +1287,7 @@ export function ProdutosLoja() {
                     )}
                   </div>
                 </div>
-              </div>
+              )}
 
               {/*
                 ─── Footer fixo ───
