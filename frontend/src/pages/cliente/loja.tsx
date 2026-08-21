@@ -1144,7 +1144,7 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
               genérico que ninguém entendia o que era. */}
           {layoutGrid ? (
             <>
-              {!!produto.destaque && !esgotado && c.badge_promocao && (
+              {!!produto.destaque && !esgotado && c.badge_destaque && (
                 <span className="absolute top-2 left-2 flex items-center gap-0.5 rounded-full bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-amber-900 shadow">
                   <Star className="size-2.5 fill-amber-900" /> Top
                 </span>
@@ -1158,7 +1158,7 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
             </>
           ) : (
             <>
-              {!!produto.destaque && !esgotado && c.badge_promocao && (
+              {!!produto.destaque && !esgotado && c.badge_destaque && (
                 <span className="absolute top-1 left-1 flex size-4 items-center justify-center rounded-full bg-amber-400 shadow ring-1 ring-white"
                   title="Destaque">
                   <Star className="size-2.5 fill-amber-900 text-amber-900" />

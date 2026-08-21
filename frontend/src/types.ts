@@ -121,6 +121,7 @@ export interface VisualJson {
     mostrar_tempo: boolean;
     preco_destacado: boolean;
     badge_promocao: boolean;
+    badge_destaque: boolean;
     botao_comprar: boolean;
     espacamento: number;
     raio_bordas: number;

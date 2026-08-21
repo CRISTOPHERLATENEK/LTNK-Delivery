@@ -34,6 +34,7 @@ const TOGGLES: Array<{ campo: keyof EstadoVisual['cardapio']; label: string }> =
   { campo: 'mostrar_tempo', label: 'Tempo' },
   { campo: 'preco_destacado', label: 'Preço destacado' },
   { campo: 'badge_promocao', label: 'Badge de promoção' },
+  { campo: 'badge_destaque', label: 'Badge de destaque' },
   { campo: 'botao_comprar', label: 'Botão comprar' },
 ];
 

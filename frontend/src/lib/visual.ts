@@ -36,6 +36,19 @@ export const DEFAULT_VISUAL: VisualJson = {
     mostrar_foto: true, mostrar_descricao: true, mostrar_categoria: true,
     mostrar_avaliacao: false, mostrar_tempo: false,
     preco_destacado: true, badge_promocao: true, botao_comprar: true,
+    /*
+     * `badge_destaque` NASCE LIGADO, e separado do de promoção.
+     *
+     * Os dois selos estavam atrás do mesmo interruptor: desligar "badge de
+     * promoção" apagava a estrela de destaque junto. São informações
+     * diferentes — "está mais barato hoje" e "a loja recomenda" — e o lojista
+     * que quer um cardápio sem selo de desconto não está pedindo pra esconder
+     * o que ele mesmo destacou.
+     *
+     * Ligado por padrão porque era o comportamento de quem tinha o de promoção
+     * ligado (o padrão), então ninguém vê a loja mudar amanhã.
+     */
+    badge_destaque: true,
     espacamento: 12, raio_bordas: 16, altura_cards: 180,
     // Padrões escolhidos pra NÃO mudar a aparência de nenhuma loja que já está
     // no ar: são exatamente o comportamento que estava fixo no código antes de

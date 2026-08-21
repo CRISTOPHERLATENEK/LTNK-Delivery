@@ -3,7 +3,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CheckSquare, ChevronDown, Copy, FileText, GripVertical, Image as ImageIcon, Layers, ListPlus, Pencil, Plus, Rows3, Rows4, Search, Square, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
+import { Check, CheckSquare, ChevronDown, Copy, FileText, GripVertical, Image as ImageIcon, Layers, Pencil, Plus, Rows3, Rows4, Search, Square, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -206,7 +206,6 @@ export function ProdutosLoja() {
   const [busca, setBusca] = useState('');
   /** Chip de categoria da toolbar. '' = todas. */
   const [filtroCategoria, setFiltroCategoria] = useState('');
-  const [gerindoGrupos, setGerindoGrupos] = useState<Produto | null>(null);
   const [mostrarFiscal, setMostrarFiscal] = useState(false);
   type Aba = 'item' | 'complementos' | 'config' | 'fiscal';
   const [aba, setAba] = useState<Aba>('item');
@@ -541,9 +540,6 @@ export function ProdutosLoja() {
     <div className="-mx-4 -my-4 min-h-full bg-muted/40 px-4 py-6 sm:-mx-6 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1160px] space-y-5">
         {/* Modal de grupos de opções — sobrepõe tudo */}
-        {gerindoGrupos && (
-          <GruposEditor produto={gerindoGrupos} onFechar={() => setGerindoGrupos(null)} />
-        )}
 
         {/* ─────────── Header ─────────── */}
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1330,7 +1326,6 @@ export function ProdutosLoja() {
           onEditar={abrirEdicao}
           onExcluir={excluir}
           onAlternarDisponivel={alternarDisponivel}
-          onVerOpcoes={p => setGerindoGrupos(p)}
           onDuplicar={duplicar}
           modoSelecao={modoSelecao}
           selecionados={selecionados}
@@ -1522,7 +1517,7 @@ function SeletorChips({
 
 /* ─────────────────── seção de uma categoria ─────────────────── */
 function CategoriaSection({
-  categoria, subs, onEditar, onExcluir, onAlternarDisponivel, onVerOpcoes, onDuplicar,
+  categoria, subs, onEditar, onExcluir, onAlternarDisponivel, onDuplicar,
   modoSelecao, selecionados, onToggleSelecao, densidade, onAdicionar,
 }: {
   categoria: string;
@@ -1530,7 +1525,6 @@ function CategoriaSection({
   onEditar: (p: Produto) => void;
   onExcluir: (id: number, nome: string) => void;
   onAlternarDisponivel: (p: Produto) => void;
-  onVerOpcoes: (p: Produto) => void;
   onDuplicar: (p: Produto) => void;
   modoSelecao: boolean;
   selecionados: Set<number>;
@@ -1604,7 +1598,6 @@ function CategoriaSection({
                     onEditar={() => onEditar(p)}
                     onExcluir={() => onExcluir(p.id, p.nome)}
                     onAlternarDisponivel={() => onAlternarDisponivel(p)}
-                    onVerOpcoes={() => onVerOpcoes(p)}
                     onDuplicar={() => onDuplicar(p)}
                     modoSelecao={modoSelecao}
                     selecionado={selecionados.has(p.id)}
@@ -1645,14 +1638,13 @@ function BotaoIcone({ titulo, onClick, destrutivo, children }: {
 }
 
 function CardProduto({
-  produto: p, onEditar, onExcluir, onAlternarDisponivel, onVerOpcoes, onDuplicar,
+  produto: p, onEditar, onExcluir, onAlternarDisponivel, onDuplicar,
   modoSelecao, selecionado, onToggleSelecao,
 }: {
   produto: Produto;
   onEditar: () => void;
   onExcluir: () => void;
   onAlternarDisponivel: () => void;
-  onVerOpcoes: () => void;
   onDuplicar: () => void;
   modoSelecao: boolean;
   selecionado: boolean;
@@ -1716,7 +1708,7 @@ function CardProduto({
             promoção) — seguindo a cor da marca, uma loja de paleta verde perderia a
             distinção entre promoção e o resto.
           */}
-          {(p.destaque || p.preco_promocional_centavos || semEstoque || p.controla_estoque) && (
+          {(p.destaque || p.preco_promocional_centavos || semEstoque || p.controla_estoque || totalGrupos > 0) && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {p.destaque && (
                 <span className="inline-flex items-center gap-1 rounded-md border border-[#F1E3C4] bg-[#FBF3E4] px-2 py-0.5 text-[11.5px] font-bold text-[#92610A] dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300">
@@ -1742,6 +1734,14 @@ function CardProduto({
                   </span>
                 )
               ) : null}
+              {/* Quantos grupos de complemento o produto tem. Era a contagem no
+                  botão que saiu daqui de baixo, e é a resposta de "esta pizza já
+                  tem tamanho e borda configurados?" sem abrir o cadastro. */}
+              {totalGrupos > 0 && (
+                <span className="rounded-md border border-border bg-muted px-2 py-0.5 text-[11.5px] font-semibold text-muted-foreground">
+                  {totalGrupos} complemento{totalGrupos > 1 ? 's' : ''}
+                </span>
+              )}
               {semEstoque ? (
                 <span className="rounded-md border border-destructive/25 bg-destructive/10 px-2 py-0.5 text-[11.5px] font-bold text-destructive">
                   Esgotado
@@ -1779,17 +1779,15 @@ function CardProduto({
             </span>
           </button>
 
+          {/*
+            O BOTÃO "Complementos" SAIU DAQUI.
+            Ele abria o editor num modal solto, um segundo caminho pra mesma
+            coisa que a aba "Complementos" do cadastro já faz. Dois caminhos pro
+            mesmo editor é onde o comportamento dos dois começa a divergir — e o
+            daqui já era o pior: fechava pra lista, não pro produto.
+            A contagem, que era a parte útil do botão, virou selo lá em cima.
+          */}
           <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={onVerOpcoes}
-              className="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12.5px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <ListPlus className="size-[15px]" />
-              Complementos
-              {totalGrupos > 0 && <span className="text-muted-foreground/70">({totalGrupos})</span>}
-            </button>
-            <span className="mx-0.5 h-5 w-px bg-border" />
             <BotaoIcone titulo="Editar" onClick={onEditar}><Pencil className="size-[15px]" /></BotaoIcone>
             <BotaoIcone titulo="Duplicar" onClick={onDuplicar}><Copy className="size-[15px]" /></BotaoIcone>
             <BotaoIcone titulo="Excluir" onClick={onExcluir} destrutivo><Trash2 className="size-[15px]" /></BotaoIcone>
@@ -1809,103 +1807,7 @@ function CardProduto({
  * o que já foi gravado é pior que botão nenhum.
  */
 
-/**
- * A CASCA DO EDITOR DE COMPLEMENTOS: modal quando vem da lista, bloco nu quando
- * vem da aba "Complementos" do cadastro.
- *
- * Por que existir: a aba mostrava um resumo so de leitura e um botao que abria
- * ESTE editor num segundo modal, por cima do primeiro. Uma aba inteira cuja
- * unica funcao era abrir outra janela -- e, dentro dela, fechar o editor levava
- * de volta pro resumo, nao pro produto. Embutido, a aba passa a ser o editor.
- *
- * O rodape com "Fechar / Concluir" so existe na versao modal: embutido, quem
- * fecha e o rodape do proprio cadastro, e dois pares de botoes de encerrar na
- * mesma tela e a pergunta "qual deles salva?".
- */
-function CascaGrupos({ produto, nGrupos, onFechar, children }: {
-  produto: Produto;
-  nGrupos: number;
-  /** Ausente = embutido no cadastro, sem modal e sem rodape proprio. */
-  onFechar?: () => void;
-  children: React.ReactNode;
-}) {
-  if (!onFechar) {
-    return (
-      /*
-        ENTER NAO PODE SALVAR O PRODUTO AQUI.
-        Embutido, este editor fica DENTRO do <form> do cadastro, e num form o
-        Enter em qualquer campo de texto aciona o submit -- teclar Enter no
-        preco de uma borda salvaria o produto e fecharia o modal por cima do
-        trabalho. Os campos que tratam Enter (criar opcao, renomear) ja chamam
-        preventDefault; este `capture` cobre os que nao tratam, e os futuros.
-        `preventDefault` nao interrompe a propagacao, entao os handlers de cada
-        campo continuam rodando normalmente.
-      */
-      <div
-        className="space-y-6"
-        onKeyDownCapture={e => {
-          if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement)) e.preventDefault();
-        }}
-      >
-        <p className="text-[12.5px] text-muted-foreground">
-          Valem so para este produto e sao salvos na hora, sem depender do botao do cadastro.
-        </p>
-        {children}
-      </div>
-    );
-  }
-  return (
-    <Modal open onOpenChange={aberto => { if (!aberto) onFechar(); }}>
-      <ModalConteudo className="sm:w-[min(880px,calc(100vw-56px))]">
-        {/* ── Header fixo ── */}
-        <div className="flex shrink-0 items-start gap-3 border-b border-border px-7 py-5 max-sm:px-4">
-          <div className="min-w-0 flex-1">
-            <ModalTitulo className="text-[19px] font-extrabold leading-tight">Complementos</ModalTitulo>
-            <ModalDescricao className="mt-0.5 truncate text-[13.5px] text-muted-foreground">
-              {produto.nome}{produto.categoria ? ` · ${produto.categoria}` : ''}
-            </ModalDescricao>
-          </div>
-          <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
-            {nGrupos} {nGrupos === 1 ? 'grupo' : 'grupos'}
-          </span>
-          <ModalClose
-            className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent"
-            title="Fechar"
-          >
-            <X className="size-5" />
-          </ModalClose>
-        </div>
-
-        {/* ── Corpo rolável ── */}
-        <div className="flex-1 space-y-6 overflow-y-auto px-7 py-6 max-sm:px-4">
-{children}
-        </div>
-
-        {/* ── Footer fixo ── */}
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-muted/30 px-7 py-4 max-sm:px-4">
-          {/*
-            Diz que já está salvo. O rodapé de um modal cheio de campos é lido
-            como "confirme aqui", e sem esta linha o lojista fecharia no X
-            achando que perdeu tudo — ou pior, não fecharia.
-          */}
-          <p className="text-[13px] text-muted-foreground">
-            As mudanças valem só para este produto e são salvas na hora.
-          </p>
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" className="h-11" onClick={onFechar}>
-              Fechar
-            </Button>
-            <Button type="button" className="h-11 rounded-[11px]" disabled={nGrupos === 0} onClick={onFechar}>
-              <Check className="size-4" /> Concluir
-            </Button>
-          </div>
-        </div>
-      </ModalConteudo>
-    </Modal>
-  );
-}
-
-function GruposEditor({ produto, onFechar }: { produto: Produto; onFechar?: () => void }) {
+function GruposEditor({ produto }: { produto: Produto }) {
   const { mostrar } = useToast();
   const confirmar = useConfirm();
   const qc = useQueryClient();
@@ -2254,7 +2156,24 @@ function GruposEditor({ produto, onFechar }: { produto: Produto; onFechar?: () =
     .filter(t => !grupos.some(g => g.nome.toLowerCase() === t.nome.toLowerCase()));
 
   return (
-    <CascaGrupos produto={produto} nGrupos={grupos.length} onFechar={onFechar}>
+    /*
+      ENTER NÃO PODE SALVAR O PRODUTO AQUI.
+      Este editor vive DENTRO do <form> do cadastro, e num form o Enter em campo
+      de texto aciona o submit — teclar Enter no preço de uma borda salvaria o
+      produto e fecharia o modal por cima do trabalho. Os campos que tratam
+      Enter (criar opção, renomear) já chamam preventDefault; este `capture`
+      cobre os que não tratam, e os futuros. `preventDefault` não interrompe a
+      propagação, então os handlers de cada campo continuam rodando.
+    */
+    <div
+      className="space-y-6"
+      onKeyDownCapture={e => {
+        if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement)) e.preventDefault();
+      }}
+    >
+      <p className="text-[12.5px] text-muted-foreground">
+        Valem só para este produto e são salvos na hora, sem depender do botão do cadastro.
+      </p>
           {isLoading && <Skeleton className="h-24" />}
 
           {/* 1. Grupos já criados */}
@@ -2909,6 +2828,6 @@ function GruposEditor({ produto, onFechar }: { produto: Produto; onFechar?: () =
               </CardContent>
             </Card>
           )}
-    </CascaGrupos>
+    </div>
   );
 }
