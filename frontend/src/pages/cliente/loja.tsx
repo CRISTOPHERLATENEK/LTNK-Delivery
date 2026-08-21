@@ -504,6 +504,7 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
           podeAbrir={!!loja.aberta}
           onAbrir={abrirProduto}
           visual={visual}
+          corMarca={loja.cor_marca}
         />
       )}
 
@@ -835,15 +836,38 @@ function ChipSubcat({ label, ativo, onClick }: { label: string; ativo: boolean; 
  * buraco em "Pizzas" e o cliente que rola até a categoria não acharia o
  * produto — a vitrine é um atalho, não uma mudança de lugar.
  */
-function VitrineDestaques({ produtos, podeAbrir, onAbrir, visual }: {
+/**
+ * A COR DO SELO PROMO, E POR QUE O VERMELHO SAIU.
+ *
+ * O selo caía num `#dc2640` cravado quando a loja não escolhia `cor_badges` —
+ * vermelho, de antes do white-label. Numa loja de marca laranja (`#ffa200`) a
+ * tela toda era laranja e só o selo era vermelho, parecendo peça de outro site.
+ * O botão já resolvia isto certo (`corOuPadrao(cor_botoes, corMarca ...)`); o
+ * selo tinha ficado atrás.
+ *
+ * A ordem é: cor de badge escolhida → cor da marca → vermelho. O vermelho segue
+ * no fim porque loja sem marca definida precisa de algum contraste, e não pode
+ * herdar a cor da PLATAFORMA (o cardápio é da loja, não nosso).
+ *
+ * O TEXTO NÃO PODE SER SEMPRE BRANCO. "PROMO" em branco sobre `#ffa200` fica
+ * ilegível — laranja é claro. `foregroundContraste` já existe pra isso e é o
+ * que o botão usa; devolve HSL, então aqui vai como `hsl(...)`.
+ */
+function corSelo(visual: VisualJson, corMarca?: string | null): { fundo: string; texto: string } {
+  const fundo = corOuPadrao(visual.cores.cor_badges, corMarca || '#dc2640');
+  return { fundo, texto: `hsl(${foregroundContraste(fundo)})` };
+}
+
+function VitrineDestaques({ produtos, podeAbrir, onAbrir, visual, corMarca }: {
   produtos: Produto[];
   podeAbrir: boolean;
   onAbrir: (p: Produto) => void;
   visual: VisualJson;
+  corMarca?: string;
 }) {
   const trilha = useRef<HTMLDivElement | null>(null);
   const c = visual.cardapio;
-  const corBadge = corOuPadrao(visual.cores.cor_badges, '');
+  const selo = corSelo(visual, corMarca);
 
   /* Rola quase uma tela (85%) e não uma tela inteira: o pedaço que sobra na
      borda mostra que existe mais coisa depois, e é o que faz o cliente rolar
@@ -885,7 +909,8 @@ function VitrineDestaques({ produtos, podeAbrir, onAbrir, visual }: {
       */}
       <div
         ref={trilha}
-        className="scrollbar-hide -mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1"
+        className="scrollbar-hide -mx-4 flex snap-x snap-mandatory overflow-x-auto px-4 pb-1"
+        style={{ gap: c.espacamento }}
       >
         {produtos.map(p => {
           const temPromo = promocaoVigente(p);
@@ -900,7 +925,7 @@ function VitrineDestaques({ produtos, podeAbrir, onAbrir, visual }: {
               disabled={!podeAbrir}
               className={cn(
                 'group w-[152px] shrink-0 snap-start overflow-hidden border border-border/60 text-left transition-shadow sm:w-[168px]',
-                c.sombra === 'nenhuma' ? 'shadow-none' : 'shadow-sm',
+                c.sombra === 'nenhuma' ? 'shadow-none' : c.sombra === 'forte' ? 'shadow-lg' : 'shadow-sm',
                 podeAbrir ? 'cursor-pointer hover:shadow-md' : 'cursor-default',
               )}
               style={{
@@ -908,7 +933,12 @@ function VitrineDestaques({ produtos, podeAbrir, onAbrir, visual }: {
                 backgroundColor: visual.cores.cor_cards || undefined,
               }}
             >
-              <div className="relative aspect-square overflow-hidden bg-white">
+              {/* Mesmas regras do card da listagem: loja que desligou a foto, ou
+                  que escolheu retrato/paisagem, vê o mesmo formato aqui. */}
+              {c.mostrar_foto && (
+              <div className={cn('relative overflow-hidden bg-white',
+                c.formato_foto === 'retrato' ? 'aspect-[3/4]'
+                  : c.formato_foto === 'paisagem' ? 'aspect-[16/10]' : 'aspect-square')}>
                 {p.foto_url ? (
                   <img
                     src={p.foto_url}
@@ -927,26 +957,33 @@ function VitrineDestaques({ produtos, podeAbrir, onAbrir, visual }: {
                   destaque; repetir em cada card é ruído. O de promoção fica,
                   porque é informação que a seção NÃO dá.
                 */}
-                {temPromo && (
+                {temPromo && c.badge_promocao && (
                   <span
-                    className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-bold text-white shadow"
-                    style={{ backgroundColor: corBadge || '#dc2640' }}
+                    className="absolute right-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-bold shadow"
+                    style={{ backgroundColor: selo.fundo, color: selo.texto }}
                   >
                     PROMO
                   </span>
                 )}
               </div>
+              )}
 
               <div className="p-2.5">
-                <p className="line-clamp-2 text-[13px] font-bold leading-snug">{p.nome}</p>
+                <p className={cn('text-[13px] font-bold leading-snug',
+                  c.linhas_nome === 1 ? 'line-clamp-1' : 'line-clamp-2')}>{p.nome}</p>
                 {/* "a partir de" na linha de cima e miúdo: o valor tem que
                     continuar sendo a coisa grande do card. */}
                 {aPartirDe && (
                   <span className="mt-1 block text-[10px] leading-none text-muted-foreground">a partir de</span>
                 )}
                 <div className={cn('flex items-baseline gap-1.5', aPartirDe ? 'mt-0.5' : 'mt-1.5')}>
-                  <span className="text-sm font-extrabold tabular-nums"
-                    style={{ color: temPromo ? (corBadge || '#dc2640') : undefined }}>
+                  {/* `text-primary` e não cor inline: é exatamente o que o card
+                      da listagem usa, e resolve pra cor da marca da loja. Com
+                      cor cravada aqui, o mesmo produto tinha preço vermelho na
+                      vitrine e laranja no card, dois passos abaixo. */}
+                  <span className={cn('tabular-nums',
+                    c.preco_destacado ? 'text-sm font-extrabold' : 'text-[13px] font-semibold',
+                    temPromo ? 'text-primary' : 'text-foreground')}>
                     {brl(preco)}
                   </span>
                   {temPromo && (
@@ -1036,7 +1073,7 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
   const poucas = !esgotado && !!produto.controla_estoque && (produto.estoque ?? 0) <= 5;
   const abrivel = podeAbrir && !esgotado;
   const c = visual.cardapio;
-  const corBadge = corOuPadrao(visual.cores.cor_badges, '');
+  const selo = corSelo(visual, corMarca);
   // Cor do ícone "+" — contrasta com a cor real do botão (preto sobre cor clara).
   const corBotao = corOuPadrao(visual.cores.cor_botoes, corMarca || '#dc2640');
   const fgBotao = foregroundContraste(corBotao) === '0 0% 100%' ? '#fff' : '#111';
@@ -1113,8 +1150,8 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
                 </span>
               )}
               {temPromo && !esgotado && c.badge_promocao && (
-                <span className="absolute top-2 right-2 rounded-full px-2 py-0.5 text-[10px] font-bold text-white shadow"
-                  style={{ backgroundColor: corBadge || '#dc2640' }}>
+                <span className="absolute top-2 right-2 rounded-full px-2 py-0.5 text-[10px] font-bold shadow"
+                  style={{ backgroundColor: selo.fundo, color: selo.texto }}>
                   PROMO
                 </span>
               )}
@@ -1128,8 +1165,8 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
                 </span>
               )}
               {temPromo && !esgotado && c.badge_promocao && (
-                <span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-full text-[9px] font-extrabold text-white shadow ring-1 ring-white"
-                  style={{ backgroundColor: corBadge || '#dc2640' }} title="Em promoção">
+                <span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-full text-[9px] font-extrabold shadow ring-1 ring-white"
+                  style={{ backgroundColor: selo.fundo, color: selo.texto }} title="Em promoção">
                   %
                 </span>
               )}
