@@ -736,6 +736,52 @@ const CONFIGS_PADRAO: Array<[string, string]> = [
  * Chamado no provisionamento explícito de tenant (tenants.ts), NUNCA no
  * caminho quente de um request como era no SQLite.
  */
+/**
+ * ALTER TABLE que tolera "a coluna já existe".
+ *
+ * POR QUE ISSO É NECESSÁRIO: o PM2 roda em CLUSTER com 3 instâncias, e as três
+ * chamam a migração no boot. Duas leem INFORMATION_SCHEMA antes de qualquer uma
+ * gravar, as duas tentam o ALTER, e a segunda estoura com
+ * ER_DUP_FIELDNAME — e aí o `for` inteiro daquele tenant ABORTA, deixando as
+ * colunas seguintes sem aplicar.
+ *
+ * Foi observado em produção: ao adicionar `descricao` e `imagem` em
+ * opcoes_itens, o log trouxe "Duplicate column name 'descricao'" e a migração de
+ * uma das instâncias parou ali. As duas colunas acabaram existindo porque OUTRA
+ * instância completou a sequência — ou seja, funcionou por sorte, não por
+ * desenho. Se a corrida pegasse a última coluna, ela ficaria faltando.
+ *
+ * Coluna que já existe é exatamente o estado desejado, então engolir esse erro
+ * específico é o certo. Qualquer outro erro continua subindo.
+ */
+async function adicionarColuna(pool: Pool, sql: string): Promise<void> {
+  try {
+    await pool.query(sql);
+  } catch (e) {
+    if ((e as { code?: string }).code !== 'ER_DUP_FIELDNAME') throw e;
+  }
+}
+
+/**
+ * Cria índice tolerando "já existe" — mesma corrida do `adicionarColuna`, e o
+ * mesmo estrago: a segunda instância estoura com ER_DUP_KEYNAME e aborta o resto
+ * da migração daquele tenant.
+ *
+ * `permitirFalha` é pra índice ÚNICO que pode não caber nos dados existentes
+ * (duplicata gravada de antes). Aí a falha é legítima e não deve derrubar o boot
+ * da plataforma — só avisar, com o SELECT que encontra as linhas repetidas.
+ */
+async function criarIndice(pool: Pool, sql: string, aviso?: string): Promise<void> {
+  try {
+    await pool.query(sql);
+  } catch (e) {
+    const code = (e as { code?: string }).code;
+    if (code === 'ER_DUP_KEYNAME') return;          // outra instância criou
+    if (aviso) { console.warn(`[SCHEMA] ${aviso}`, code || e); return; }
+    throw e;
+  }
+}
+
 export async function inicializarSchema(pool: Pool): Promise<void> {
   // Uma DDL por vez (sem multipleStatements): erros apontam a tabela exata.
   for (const ddl of TABELAS) {
@@ -863,7 +909,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
       [tabela, coluna],
     ) as any;
     if (existe.length === 0) {
-      await pool.query(`ALTER TABLE \`${tabela}\` ADD COLUMN ${ddl}`);
+      await adicionarColuna(pool, `ALTER TABLE \`${tabela}\` ADD COLUMN ${ddl}`);
     }
   }
 
@@ -886,7 +932,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
       LIMIT 1`,
   ) as any;
   if (jaTemMesaUnica.length === 0) {
-    await pool.query('ALTER TABLE mesas ADD UNIQUE KEY uq_mesa_numero (loja_id, numero_unico)');
+    await criarIndice(pool, 'ALTER TABLE mesas ADD UNIQUE KEY uq_mesa_numero (loja_id, numero_unico)');
   }
 
   /*
@@ -910,16 +956,11 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
       LIMIT 1`,
   ) as any;
   if (jaTemEanUnico.length === 0) {
-    try {
-      await pool.query('ALTER TABLE produtos ADD UNIQUE KEY uq_produto_ean (loja_id, ean_unico)');
-    } catch (e) {
-      console.warn(
-        '[SCHEMA] não foi possível criar uq_produto_ean (%s). Se houver EAN repetido, encontre com: ' +
-        "SELECT loja_id, codigo_barras, COUNT(*) c FROM produtos WHERE excluido = 0 AND codigo_barras <> '' " +
-        'GROUP BY 1,2 HAVING c > 1;',
-        (e as { code?: string }).code || e,
-      );
-    }
+    await criarIndice(pool,
+      'ALTER TABLE produtos ADD UNIQUE KEY uq_produto_ean (loja_id, ean_unico)',
+      "não foi possível criar uq_produto_ean. Se houver EAN repetido, encontre com: " +
+      "SELECT loja_id, codigo_barras, COUNT(*) c FROM produtos WHERE excluido = 0 " +
+      "AND codigo_barras <> '' GROUP BY 1,2 HAVING c > 1; — código:");
   }
 
   /**
@@ -941,7 +982,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
       LIMIT 1`,
   ) as any;
   if (jaTemPdv.length === 0) {
-    await pool.query('ALTER TABLE produtos ADD COLUMN disponivel_pdv TINYINT NOT NULL DEFAULT 1');
+    await adicionarColuna(pool, 'ALTER TABLE produtos ADD COLUMN disponivel_pdv TINYINT NOT NULL DEFAULT 1');
     await pool.query('UPDATE produtos SET disponivel_pdv = disponivel');
   }
 
@@ -953,7 +994,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
       LIMIT 1`,
   ) as any;
   if (jaTemColuna.length === 0) {
-    await pool.query("ALTER TABLE pedidos ADD COLUMN estornado_em VARCHAR(32) NOT NULL DEFAULT ''");
+    await adicionarColuna(pool, "ALTER TABLE pedidos ADD COLUMN estornado_em VARCHAR(32) NOT NULL DEFAULT ''");
   }
 
   /**
@@ -970,7 +1011,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
       LIMIT 1`,
   ) as any;
   if (jaTemIdem.length === 0) {
-    await pool.query('ALTER TABLE pedidos ADD COLUMN idempotencia VARCHAR(64) NULL');
+    await adicionarColuna(pool, 'ALTER TABLE pedidos ADD COLUMN idempotencia VARCHAR(64) NULL');
   }
   /**
    * ÍNDICE conferido SEPARADAMENTE da coluna, de propósito.
@@ -992,7 +1033,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         AND INDEX_NAME = 'idx_pedidos_idempotencia' LIMIT 1`,
   ) as any;
   if (jaTemIndiceIdem.length === 0) {
-    await pool.query('ALTER TABLE pedidos ADD UNIQUE KEY idx_pedidos_idempotencia (idempotencia)');
+    await criarIndice(pool, 'ALTER TABLE pedidos ADD UNIQUE KEY idx_pedidos_idempotencia (idempotencia)');
   }
 
   /**
@@ -1063,7 +1104,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
       [tabela, coluna],
     ) as any;
     if (existe.length === 0) {
-      await pool.query(`ALTER TABLE \`${tabela}\` ADD COLUMN ${ddl}`);
+      await adicionarColuna(pool, `ALTER TABLE \`${tabela}\` ADD COLUMN ${ddl}`);
     }
   }
 
@@ -1113,7 +1154,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'lojas' AND COLUMN_NAME = ?
         LIMIT 1`, [coluna],
     ) as any;
-    if (existe.length === 0) await pool.query(`ALTER TABLE lojas ADD COLUMN ${ddl}`);
+    if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE lojas ADD COLUMN ${ddl}`);
   }
 
   /*
@@ -1136,7 +1177,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
         LIMIT 1`, [tabela, coluna],
     ) as any;
-    if (existe.length === 0) await pool.query(`ALTER TABLE ${tabela} ADD COLUMN ${ddl}`);
+    if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE ${tabela} ADD COLUMN ${ddl}`);
   }
 
   /*
@@ -1153,7 +1194,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pedidos' AND COLUMN_NAME = ?
         LIMIT 1`, [coluna],
     ) as any;
-    if (existe.length === 0) await pool.query(`ALTER TABLE pedidos ADD COLUMN ${ddl}`);
+    if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE pedidos ADD COLUMN ${ddl}`);
   }
 
   /*
@@ -1175,7 +1216,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'pedidos' AND COLUMN_NAME = ?
         LIMIT 1`, [coluna],
     ) as any;
-    if (existe.length === 0) await pool.query(`ALTER TABLE pedidos ADD COLUMN ${ddl}`);
+    if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE pedidos ADD COLUMN ${ddl}`);
   }
   {
     const [idx] = await pool.query(
@@ -1184,7 +1225,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         LIMIT 1`,
     ) as any;
     if (idx.length === 0) {
-      await pool.query('ALTER TABLE pedidos ADD UNIQUE KEY idx_pedidos_idem (chave_idem_unica)');
+      await criarIndice(pool, 'ALTER TABLE pedidos ADD UNIQUE KEY idx_pedidos_idem (chave_idem_unica)');
     }
   }
 
@@ -1212,7 +1253,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'grupos_opcoes' AND COLUMN_NAME = ?
         LIMIT 1`, [coluna],
     ) as any;
-    if (existe.length === 0) await pool.query(`ALTER TABLE grupos_opcoes ADD COLUMN ${ddl}`);
+    if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE grupos_opcoes ADD COLUMN ${ddl}`);
   }
 
   // Quantos sabores esta opção libera. Só faz sentido nas opções do grupo de
@@ -1228,7 +1269,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'opcoes_itens' AND COLUMN_NAME = ?
         LIMIT 1`, [coluna],
     ) as any;
-    if (existe.length === 0) await pool.query(`ALTER TABLE opcoes_itens ADD COLUMN ${ddl}`);
+    if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE opcoes_itens ADD COLUMN ${ddl}`);
   }
 
   for (const [coluna, ddl] of [
@@ -1239,7 +1280,7 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'usuarios' AND COLUMN_NAME = ?
         LIMIT 1`, [coluna],
     ) as any;
-    if (existe.length === 0) await pool.query(`ALTER TABLE usuarios ADD COLUMN ${ddl}`);
+    if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE usuarios ADD COLUMN ${ddl}`);
   }
 
   // Zonas de entrega por ÁREA desenhada no mapa (antes só existia por bairro).
@@ -1252,6 +1293,6 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'zonas_entrega' AND COLUMN_NAME = ?
         LIMIT 1`, [coluna],
     ) as any;
-    if (existe.length === 0) await pool.query(`ALTER TABLE zonas_entrega ADD COLUMN ${ddl}`);
+    if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE zonas_entrega ADD COLUMN ${ddl}`);
   }
 }
