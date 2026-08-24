@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
-import { detalheItem } from '@/lib/item-pedido';
+import { detalheItem, linhasDoItem } from '@/lib/item-pedido';
 import { lerRepasse2FA, destinoRepasse2FA } from '../../lib/repasse-2fa';
 import { useQuery } from '@tanstack/react-query';
 import { Routes, Route, Link } from 'react-router-dom';
@@ -791,9 +791,12 @@ function imprimirPedidoPainel(p: PedidoComItens, config?: { largura?: '80' | '58
     : p.forma_pagamento === 'cartao_entrega' ? 'Cartão na entrega — COBRAR'
     : 'A combinar';
   const itensHtml = (p.itens || []).map(i => {
-    const obs = detalheItem(i as { opcoes_texto?: string; observacao?: string });
+    /* Uma linha por complemento, igual ao ESC/POS logo abaixo: o HTML é o
+       fallback pra quem imprime pelo diálogo do navegador, e os dois caminhos
+       não podem sair com layouts diferentes. */
+    const linhas = linhasDoItem(i as { opcoes_texto?: string; observacao?: string });
     return `<div class="row"><span class="nome">${i.quantidade}× ${escapar(i.nome_produto)}</span><span class="val">${fmt(i.preco_unit_centavos * i.quantidade)}</span></div>`
-      + (obs ? `<div class="obs">${escapar(obs)}</div>` : '');
+      + linhas.map(l => `<div class="obs">${escapar(l)}</div>`).join('');
   }).join('');
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Pedido #${p.id}</title>
 <style>
@@ -834,9 +837,17 @@ ${p.observacoes ? `<div class="note">📝 ${escapar(p.observacoes)}</div>` : ''}
     { t: 'lr', l: 'Data', r: dataLocal(p.criado_em) },
     { t: 'linha' },
     ...(p.itens || []).flatMap(i => {
-      const obs = detalheItem(i as { opcoes_texto?: string; observacao?: string });
+      /*
+       * UM BLOCO POR LINHA, não um bloco com tudo junto.
+       *
+       * Numa bobina de 58mm cabem 32 colunas. Com os complementos numa linha
+       * só, uma pizza de dois sabores saía "Sabores: Mussarela ? Sabores:
+       * Frango com Catup / iry" — nome de grupo repetido e palavra partida.
+       */
       const arr: BlocoImpressao[] = [{ t: 'lr', l: `${i.quantidade}x ${i.nome_produto}`, r: fmt(i.preco_unit_centavos * i.quantidade) }];
-      if (obs) arr.push({ t: 'texto', txt: '  ' + obs });
+      for (const linha of linhasDoItem(i as { opcoes_texto?: string; observacao?: string })) {
+        arr.push({ t: 'texto', txt: '  ' + linha });
+      }
       return arr;
     }),
     { t: 'linha' },

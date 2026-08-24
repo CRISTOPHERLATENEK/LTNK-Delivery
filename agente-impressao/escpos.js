@@ -14,16 +14,79 @@ const CP850 = {
   'ó':0xa2,'ô':0x93,'õ':0xe4,'ö':0x94,'ú':0xa3,'û':0x96,'ù':0x97,'ç':0x87,'ñ':0xa4,
   'Á':0xb5,'À':0xb7,'Â':0xb6,'Ã':0xc7,'É':0x90,'Ê':0xd2,'Í':0xd6,'Ó':0xe0,'Ô':0xe2,'Õ':0xe5,
   'Ú':0xe9,'Ç':0x80,'º':0xa7,'ª':0xa6,'°':0xf8,'§':0x15,
+  /*
+   * O PONTO SEPARADOR FALTAVA, e ele está em todo cupom.
+   *
+   * `·` é o separador que o sistema usa entre complementos e nos pedaços do
+   * endereço. Sem estar no mapa, caía no `?` do final — e o cupom impresso
+   * saía "Sabores: Mussarela ? Sabores: Frango" e "Rua Rio do Braço, 207 ?
+   * casa ? Jardim Sofia". Em CP850 ele existe, no 0xFA.
+   */
+  '·':0xfa,
 };
+
+/*
+ * Caracteres que NÃO existem em CP850 mas têm equivalente ASCII óbvio.
+ *
+ * Aspa curva e travessão entram por copiar-e-colar de Word/WhatsApp o tempo
+ * todo, em nome de produto e em observação de cliente. Virar `?` é perder
+ * informação por causa de tipografia; virar `"` ou `-` não perde nada.
+ */
+const TRANSLITERA = {
+  '–':'-','—':'-','‒':'-','−':'-',
+  '“':'"','”':'"','„':'"','‘':"'",'’':"'",'‚':"'",
+  '…':'...','\u00a0':' ','\u200b':'',
+};
+
 function texto(s) {
   const out = [];
   for (const ch of String(s)) {
     const c = ch.charCodeAt(0);
-    if (c < 128) out.push(c);
-    else if (CP850[ch] != null) out.push(CP850[ch]);
-    else out.push(0x3f); // '?'
+    if (c < 128) { out.push(c); continue; }
+    if (CP850[ch] != null) { out.push(CP850[ch]); continue; }
+    const alt = TRANSLITERA[ch];
+    if (alt != null) { for (const a of alt) out.push(a.charCodeAt(0)); continue; }
+    out.push(0x3f); // '?'
   }
   return Buffer.from(out);
+}
+
+/**
+ * Quebra o texto na largura da bobina SEM PARTIR PALAVRA.
+ *
+ * A impressora quebra sozinha ao encher a linha, e quebra no caractere: o cupom
+ * saiu com "Frango com Catup" numa linha e "iry" na outra. Numa comanda de
+ * cozinha lida de relance, palavra partida é item lido errado.
+ *
+ * A continuação entra INDENTADA (dois espaços a mais que a original), pra
+ * ficar visível que a segunda linha é continuação e não um item novo — que é
+ * exatamente a confusão que se quer evitar numa lista de sabores.
+ *
+ * Palavra maior que a linha inteira (um nome colado sem espaço) ainda é
+ * cortada: não há onde quebrar, e cortar é melhor que estourar a bobina.
+ */
+function quebrar(txt, cols) {
+  const linhas = [];
+  for (const original of String(txt).split('\n')) {
+    if (original.length <= cols) { linhas.push(original); continue; }
+    const recuo = ' '.repeat(Math.min((original.match(/^ */) || [''])[0].length + 2, 8));
+    let atual = '';
+    for (const palavra of original.split(' ')) {
+      const candidata = atual ? `${atual} ${palavra}` : palavra;
+      if (candidata.length <= cols) { atual = candidata; continue; }
+      if (atual) linhas.push(atual);
+      if (palavra.length > cols) {
+        // Sem espaço onde quebrar: fatia na largura da bobina.
+        let resto = palavra;
+        while (resto.length > cols) { linhas.push(resto.slice(0, cols)); resto = resto.slice(cols); }
+        atual = recuo + resto;
+      } else {
+        atual = recuo + palavra;
+      }
+    }
+    if (atual) linhas.push(atual);
+  }
+  return linhas;
 }
 
 /** Larguras em colunas por bobina (fonte A). 80mm≈48, 58mm≈32. */
@@ -88,11 +151,11 @@ function montarEscpos({ largura = 80, blocos = [] }) {
         break;
       case 'texto':
       default:
-        partes.push(texto((b.txt ?? '') + '\n'));
+        for (const linha of quebrar(b.txt ?? '', cols)) partes.push(texto(linha + '\n'));
     }
   }
   partes.push(Buffer.from('\n\n\n'), cmd(GS, 0x56, 0x01)); // garante corte final
   return Buffer.concat(partes);
 }
 
-module.exports = { montarEscpos };
+module.exports = { montarEscpos, quebrar, texto };
