@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ingredientesDeTexto, textoDeIngredientes, comIngredientes,
-  fraseDaRegra, linhasColadas,
+  fraseDaRegra, linhasColadas, limiteDeSabores, rotuloTeto,
 } from './complementos-editor';
 
 describe('ingredientes: ida e volta entre chip e campo', () => {
@@ -155,5 +155,102 @@ describe('linhasColadas', () => {
 
   it('texto vazio não gera item', () => {
     expect(linhasColadas('')).toEqual([]);
+  });
+});
+
+/**
+ * O CABEÇALHO NÃO PODE MOSTRAR UM LIMITE QUE NÃO VALE.
+ *
+ * `maxEscolhasEfetivo` ignora o `max_escolhas` do grupo de sabores sempre que
+ * algum tamanho define quantos sabores libera. O cabeçalho mostrava o número do
+ * grupo do mesmo jeito: um grupo com 3 dizia "até 3 · Precisa escolher de 1 a 3"
+ * numa pizza cujo Gigante libera 4. O cliente escolhe 4, o servidor aceita os 4
+ * (é a mesma função), e só a tela do lojista estava errada — o defeito que não
+ * dá erro, dá desconfiança.
+ */
+describe('limiteDeSabores', () => {
+  it('a faixa vem dos tamanhos que definem', () => {
+    expect(limiteDeSabores([
+      { nome: 'Pequena', sabores: 1 },
+      { nome: 'Gigante', sabores: 4 },
+    ])).toEqual({ min: 1, max: 4, detalhe: 'Pequena 1 · Gigante 4' });
+  });
+
+  it('um tamanho só dá min igual a max', () => {
+    expect(limiteDeSabores([{ nome: 'Gigante', sabores: 4 }]))
+      .toEqual({ min: 4, max: 4, detalhe: 'Gigante 4' });
+  });
+
+  /* Só aqui o max_escolhas do grupo volta a valer — e é por isso que o stepper
+     continua existindo nesse caso em vez de desaparecer de vez. */
+  it('nenhum tamanho definindo devolve null', () => {
+    expect(limiteDeSabores([{ nome: 'Único', sabores: 0 }, { nome: 'Outro' }])).toBeNull();
+    expect(limiteDeSabores([])).toBeNull();
+  });
+
+  /* Em branco NÃO conta como 0: o tamanho não define limite, e um 0 no mínimo
+     diria "pode escolher zero sabores", que é o oposto. */
+  it('tamanho em branco não entra na faixa', () => {
+    expect(limiteDeSabores([
+      { nome: 'Broto' },
+      { nome: 'Média', sabores: 2 },
+      { nome: 'Gigante', sabores: 4 },
+    ])).toEqual({ min: 2, max: 4, detalhe: 'Média 2 · Gigante 4' });
+  });
+});
+
+describe('rotuloTeto', () => {
+  /* "até 1" num grupo obrigatório abre a porta pro zero, e obrigatório é
+     exatamente um — a frase da regra já dizia certo e o stepper ao lado dizia
+     outra coisa. */
+  it('obrigatório com teto 1 é exatamente 1, não "até 1"', () => {
+    expect(rotuloTeto({ obrigatorio: 1, tipo: 'unico', max_escolhas: 1 })).toBe('exatamente 1');
+  });
+
+  it('opcional com teto 1 continua "até 1" — zero é uma saída legítima', () => {
+    expect(rotuloTeto({ obrigatorio: 0, tipo: 'unico', max_escolhas: 1 })).toBe('até 1');
+  });
+
+  it('teto maior que 1 é "até N", obrigatório ou não', () => {
+    expect(rotuloTeto({ obrigatorio: 1, tipo: 'multiplo', max_escolhas: 3 })).toBe('até 3');
+    expect(rotuloTeto({ obrigatorio: 0, tipo: 'multiplo', max_escolhas: 3 })).toBe('até 3');
+  });
+
+  it('zero é sem limite', () => {
+    expect(rotuloTeto({ obrigatorio: 0, tipo: 'multiplo', max_escolhas: 0 })).toBe('sem limite');
+  });
+});
+
+describe('fraseDaRegra no grupo de sabores', () => {
+  const sabores = { obrigatorio: 1 as const, tipo: 'multiplo', max_escolhas: 3, papel: 'sabores' };
+
+  /* O caso exato da base: grupo com max 3, Gigante liberando 4. */
+  it('com tamanho definindo, a faixa é do TAMANHO e o max do grupo não aparece', () => {
+    const frase = fraseDaRegra(sabores, { min: 4, max: 4 });
+    expect(frase).toBe('Precisa escolher · o tamanho define quantos (4)');
+    expect(frase).not.toContain('3');
+  });
+
+  it('faixa com tamanhos diferentes', () => {
+    expect(fraseDaRegra(sabores, { min: 1, max: 4 }))
+      .toBe('Precisa escolher · o tamanho define quantos (1 a 4)');
+  });
+
+  it('opcional também diz que o tamanho manda', () => {
+    expect(fraseDaRegra({ ...sabores, obrigatorio: 0 }, { min: 2, max: 2 }))
+      .toBe('Pode pular · o tamanho define quantos (2)');
+  });
+
+  /* Sem tamanho definindo, o max do grupo VOLTA a valer — e a frase volta a
+     ser a normal, porque aí ela é verdade. */
+  it('sem tamanho definindo, cai na regra normal do grupo', () => {
+    expect(fraseDaRegra(sabores, null)).toBe('Precisa escolher de 1 a 3');
+    expect(fraseDaRegra(sabores)).toBe('Precisa escolher de 1 a 3');
+  });
+
+  /* Grupo comum não é afetado nem se alguém passar a faixa por engano. */
+  it('grupo sem papel ignora a faixa de sabores', () => {
+    expect(fraseDaRegra({ obrigatorio: 1, tipo: 'multiplo', max_escolhas: 2 }, { min: 1, max: 4 }))
+      .toBe('Precisa escolher de 1 a 2');
   });
 });

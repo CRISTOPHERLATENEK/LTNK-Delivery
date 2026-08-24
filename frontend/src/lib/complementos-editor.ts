@@ -77,9 +77,74 @@ export interface RegraGrupo {
   obrigatorio: boolean | number;
   tipo: 'unico' | 'multiplo' | string;
   max_escolhas: number;
+  /** 'sabores' muda quem manda no limite — ver `limiteDeSabores`. */
+  papel?: string | null;
 }
 
-export function fraseDaRegra(g: RegraGrupo): string {
+/* ─────────────────────────────────────────────────────────────────────────
+ * QUEM MANDA NO LIMITE DO GRUPO DE SABORES
+ *
+ * `maxEscolhasEfetivo` IGNORA o `max_escolhas` do grupo de sabores sempre que
+ * algum tamanho define quantos sabores libera. Ou seja: numa pizzaria
+ * configurada, o número do grupo NÃO VALE — o Gigante manda.
+ *
+ * O cabeçalho mostrava esse número mesmo assim: um grupo com `max_escolhas: 3`
+ * dizia "até 3 · Precisa escolher de 1 a 3" numa pizza cujo Gigante libera 4. O
+ * lojista lê 3, o cliente escolhe 4, e o servidor aceita os 4 (usa a mesma
+ * função). Nada quebra — a tela do lojista só está errada, que é o defeito mais
+ * difícil de achar: ele não dá erro, dá desconfiança.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+export interface TamanhoSabores { nome: string; sabores?: number | null }
+
+/**
+ * A faixa real de sabores, vinda das opções do grupo de TAMANHO.
+ *
+ * `null` quando nenhum tamanho define nada — só aí o `max_escolhas` do grupo de
+ * sabores volta a valer, e é por isso que o stepper continua existindo nesse
+ * caso em vez de desaparecer de vez.
+ *
+ * Tamanho com `sabores` em branco fica FORA da faixa em vez de contar como 0:
+ * ele não define limite nenhum, e um 0 no mínimo diria "pode escolher zero
+ * sabores", que é o oposto.
+ */
+export function limiteDeSabores(tamanhos: TamanhoSabores[]): { min: number; max: number; detalhe: string } | null {
+  const definem = tamanhos.filter(t => (t.sabores ?? 0) > 0);
+  if (definem.length === 0) return null;
+  const nums = definem.map(t => t.sabores as number);
+  return {
+    min: Math.min(...nums),
+    max: Math.max(...nums),
+    detalhe: definem.map(t => `${t.nome} ${t.sabores}`).join(' · '),
+  };
+}
+
+/**
+ * O rótulo do stepper de teto.
+ *
+ * "até 1" num grupo OBRIGATÓRIO é errado: "até" abre a porta pro zero, e
+ * obrigatório é exatamente um. A frase da regra já dizia certo e o stepper ao
+ * lado dizia outra coisa — duas leituras da mesma regra na mesma linha.
+ */
+export function rotuloTeto(g: RegraGrupo): string {
+  const max = g.max_escolhas > 0 ? g.max_escolhas : 0;
+  if (max === 0) return 'sem limite';
+  if (g.obrigatorio && max === 1) return 'exatamente 1';
+  return `até ${max}`;
+}
+
+export function fraseDaRegra(g: RegraGrupo, sabores?: { min: number; max: number } | null): string {
+  /*
+   * No grupo de sabores com tamanho definindo, a faixa é a DO TAMANHO. Repetir
+   * o número do grupo aqui seria repetir a mentira num lugar mais legível.
+   */
+  if (g.papel === 'sabores' && sabores) {
+    const faixa = sabores.min === sabores.max ? `${sabores.max}` : `${sabores.min} a ${sabores.max}`;
+    return g.obrigatorio
+      ? `Precisa escolher · o tamanho define quantos (${faixa})`
+      : `Pode pular · o tamanho define quantos (${faixa})`;
+  }
+
   const max = g.max_escolhas > 0 ? g.max_escolhas : 0;
   const pedacos = (n: number) => `${n} ${n === 1 ? 'opção' : 'opções'}`;
 

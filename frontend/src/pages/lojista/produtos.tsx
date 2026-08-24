@@ -20,7 +20,7 @@ import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { gtinValido } from '@/lib/gtin';
 import { agruparPorSecao } from '@/lib/opcoes-preco';
-import { ingredientesDeTexto, textoDeIngredientes, comIngredientes, fraseDaRegra, linhasColadas } from '@/lib/complementos-editor';
+import { ingredientesDeTexto, textoDeIngredientes, comIngredientes, fraseDaRegra, rotuloTeto, limiteDeSabores, linhasColadas } from '@/lib/complementos-editor';
 import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes, indiceDeSugestoes, type SugestaoSalva } from '@/lib/avisos-produto';
 import type { Produto } from '@/types';
 
@@ -2195,6 +2195,17 @@ function GruposEditor({ produto }: { produto: Produto }) {
     }
   }
 
+  /*
+   * A FAIXA REAL DE SABORES, tirada do grupo de TAMANHO deste produto.
+   *
+   * Fica aqui, e não dentro do map, porque é uma pergunta sobre o PRODUTO: qual
+   * grupo é o tamanho, e quantos sabores cada tamanho dele libera. O grupo de
+   * sabores não sabe responder isso sozinho — e era justamente por não perguntar
+   * que o cabeçalho dele mostrava um limite que o app não usa.
+   */
+  const faixaSabores = limiteDeSabores(
+    grupos.filter(g => g.papel === 'tamanho').flatMap(g => g.opcoes));
+
   /* Modelos que sobram: os que combinam com a categoria e ainda não foram usados. */
   const modelos = modelosDaCategoria(produto.categoria)
     .filter(t => !grupos.some(g => g.nome.toLowerCase() === t.nome.toLowerCase()));
@@ -2247,6 +2258,15 @@ function GruposEditor({ produto }: { produto: Produto }) {
                 const blocos = usaSecoes
                   ? [...agruparPorSecao(grupo.opcoes), ...secoesNovas.map(secao => ({ secao, opcoes: [] as OpcaoItem[] }))]
                   : [{ secao: '', opcoes: grupo.opcoes }];
+
+                /* No grupo de sabores, o teto do grupo só vale quando NENHUM
+                   tamanho define — ver `maxEscolhasEfetivo`. */
+                const tetoVemDoTamanho = grupo.papel === 'sabores' && !!faixaSabores;
+
+                /* Obrigatório com uma opção só não é escolha, é informação: o app
+                   marca sozinho pra não travar o botão de adicionar. Dizer isso
+                   aqui evita a dúvida de por que o cliente não escolhe nada. */
+                const escolhaFalsa = !!grupo.obrigatorio && grupo.opcoes.length === 1;
 
                 const aVenda = grupo.opcoes.filter(o => o.disponivel);
 
@@ -2331,6 +2351,25 @@ function GruposEditor({ produto }: { produto: Produto }) {
                         única. 0 = sem limite, e é o estado de todo grupo de
                         adicionais que já existe.
                       */}
+{tetoVemDoTamanho ? (
+                        /*
+                          STEPPER SUBSTITUÍDO POR INFORMAÇÃO quando quem manda é
+                          o tamanho. Mexer num número que o app ignora é pior que
+                          não ter o controle: o lojista põe 3, o cliente escolhe
+                          4, e ele passa a duvidar da tela toda. O controle de
+                          verdade é o campo "sabores" em cada tamanho, e é pra lá
+                          que este selo aponta.
+                        */
+                        <span
+                          className="flex shrink-0 items-center gap-1 rounded-lg border border-dashed border-border bg-muted/40 px-2 py-1 text-[11.5px] font-semibold text-muted-foreground"
+                          title={`Definido em cada tamanho: ${faixaSabores!.detalhe}`}
+                        >
+                          {faixaSabores!.min === faixaSabores!.max
+                            ? `${faixaSabores!.max} sabores`
+                            : `${faixaSabores!.min} a ${faixaSabores!.max} sabores`}
+                          <span className="font-normal text-muted-foreground/70">· vem do tamanho</span>
+                        </span>
+                      ) : (
                       <div className="flex shrink-0 items-center gap-1 rounded-lg border border-border px-1 py-0.5">
                         <button
                           type="button"
@@ -2341,10 +2380,10 @@ function GruposEditor({ produto }: { produto: Produto }) {
                         >
                           <Minus className="size-3.5" />
                         </button>
-                        <span className="min-w-[4.5rem] text-center text-[11.5px] font-semibold tabular-nums">
-                          {grupo.max_escolhas > 0
-                            ? `até ${grupo.max_escolhas}`
-                            : 'sem limite'}
+                        {/* "até 1" num grupo OBRIGATÓRIO abre a porta pro zero, e
+                            obrigatório é exatamente um — ver `rotuloTeto`. */}
+                        <span className="min-w-[5rem] text-center text-[11.5px] font-semibold tabular-nums">
+                          {rotuloTeto(grupo)}
                         </span>
                         <button
                           type="button"
@@ -2356,6 +2395,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
                           <Plus className="size-3.5" />
                         </button>
                       </div>
+                      )}
 
                       {/*
                         A REGRA EM PORTUGUÊS, e não o nome dos campos.
@@ -2367,8 +2407,16 @@ function GruposEditor({ produto }: { produto: Produto }) {
                       */}
                       <span className="hidden h-4 w-px bg-border sm:block" />
                       <span className="shrink-0 text-[11.5px] text-muted-foreground">
-                        {fraseDaRegra(grupo)}
+                        {fraseDaRegra(grupo, tetoVemDoTamanho ? faixaSabores : null)}
                       </span>
+                      {escolhaFalsa && (
+                        <span
+                          className="shrink-0 text-[11.5px] text-amber-700 dark:text-amber-400"
+                          title="O app marca a única opção sozinho — senão o botão de adicionar ficaria travado esperando uma escolha que não existe"
+                        >
+                          · item único, o app marca sozinho
+                        </span>
+                      )}
 
                       <div className="ml-auto flex shrink-0 items-center gap-1">
                         <button
