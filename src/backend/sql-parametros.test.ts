@@ -38,6 +38,56 @@ function arquivos(dir: string): string[] {
   });
 }
 
+/**
+ * Apaga comentários mantendo o TAMANHO e as quebras de linha.
+ *
+ * POR QUE ISTO EXISTE, e é a lição mais cara deste arquivo: o scanner procurava
+ * a primeira crase depois de `.prepare(` pra achar a SQL. Num trecho assim
+ *
+ *     await tx.prepare(
+ *       // `sabores` e `secao` entram aqui: sem eles, duplicar uma pizza…
+ *       `INSERT INTO opcoes_itens (…)`
+ *
+ * a primeira crase está DENTRO DO COMENTÁRIO. O scanner leu "sabores" como se
+ * fosse a SQL, não casou com `^INSERT`, e pulou — silenciosamente. E o que ele
+ * pulou era exatamente o bug que ele existe pra pegar: 8 `?` com 9 argumentos na
+ * duplicação de produto, um 500 vivo em produção.
+ *
+ * Um scanner que pula em silêncio é pior que scanner nenhum, porque o teste
+ * verde vira prova de que está tudo certo.
+ *
+ * Troca por espaço em vez de remover pra que offset e número de linha continuem
+ * batendo com o arquivo real — o relatório aponta a linha certa.
+ */
+function semComentarios(texto: string): string {
+  const saida: string[] = [];
+  let emTexto: string | null = null;
+  for (let i = 0; i < texto.length; i++) {
+    const ch = texto[i];
+    if (emTexto) {
+      saida.push(ch);
+      if (ch === '\\') { saida.push(texto[++i] ?? ''); }
+      else if (ch === emTexto) emTexto = null;
+      continue;
+    }
+    if (ch === '/' && texto[i + 1] === '/') {
+      while (i < texto.length && texto[i] !== '\n') { saida.push(' '); i++; }
+      saida.push('\n');
+      continue;
+    }
+    if (ch === '/' && texto[i + 1] === '*') {
+      const fim = texto.indexOf('*/', i + 2);
+      const ate = fim < 0 ? texto.length : fim + 2;
+      for (; i < ate; i++) saida.push(texto[i] === '\n' ? '\n' : ' ');
+      i--;
+      continue;
+    }
+    if (ch === "'" || ch === '"' || ch === '`') emTexto = ch;
+    saida.push(ch);
+  }
+  return saida.join('');
+}
+
 /** Fim do trecho iniciado em `abre` (índice do parêntese/crase de abertura). */
 function fechamento(texto: string, abre: number, ab: string, fe: string): number {
   let nivel = 0;
@@ -86,7 +136,7 @@ interface Chamada { arquivo: string; linha: number; sql: string; placeholders: n
 function chamadas(): Chamada[] {
   const achadas: Chamada[] = [];
   for (const arq of arquivos(RAIZ)) {
-    const texto = fs.readFileSync(arq, 'utf8');
+    const texto = semComentarios(fs.readFileSync(arq, 'utf8'));
     let de = 0;
     for (;;) {
       const p = texto.indexOf('.prepare(', de);
@@ -135,6 +185,17 @@ describe('todo INSERT tem tantos argumentos quanto ?', () => {
      protegendo nada. */
   it('o scanner está encontrando INSERTs de verdade', () => {
     expect(lista.length).toBeGreaterThan(10);
+  });
+
+  /*
+   * O CASO QUE ELE JÁ PULOU: `.prepare(` com um comentário ANTES da SQL, e uma
+   * crase dentro do comentário. Era a duplicação de produto, e o que estava
+   * escondido ali era um 500 de verdade. Sem esta verificação, a correção do
+   * scanner pode ser desfeita e o teste continuaria verde.
+   */
+  it('não pula prepare() com comentário antes da SQL', () => {
+    const comComentario = lista.filter(c => c.sql.includes('INSERT INTO opcoes_itens'));
+    expect(comComentario.length).toBeGreaterThan(1);
   });
 
   it('nenhum INSERT tem contagem trocada', () => {

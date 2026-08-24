@@ -1139,18 +1139,41 @@ router.post('/produtos/:id/duplicar', async (req, res, next) => {
       const grupos = await tx.prepare('SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id').all(original.id) as any[];
       for (const g of grupos) {
         const gInfo = await tx.prepare(
-          `INSERT INTO grupos_opcoes (produto_id, nome, tipo, obrigatorio, max_escolhas, ordem)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(novoId, g.nome, g.tipo, g.obrigatorio, g.max_escolhas, g.ordem);
+          /*
+           * `papel` e `modo_preco` SÃO PARTE DO GRUPO, e ficavam de fora.
+           *
+           * Sem eles, duplicar uma pizza produzia uma cópia sem mecanismo: o
+           * grupo de tamanho deixava de ser tamanho, o de sabores deixava de
+           * ser sabores, e a política de preço voltava pro padrão. A cópia
+           * ficava idêntica na lista e no cardápio — mesmos grupos, mesmos
+           * itens, mesmos preços de tabela — e só quebrava na hora em que o
+           * cliente tentava escolher dois sabores.
+           *
+           * É o mesmo esquecimento que já tinha deixado `sabores` e `secao` de
+           * fora das opções: quem duplica um produto configurado espera a
+           * configuração, não a casca dela.
+           */
+          `INSERT INTO grupos_opcoes (produto_id, nome, tipo, obrigatorio, max_escolhas, ordem, papel, modo_preco)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(novoId, g.nome, g.tipo, g.obrigatorio, g.max_escolhas, g.ordem,
+              g.papel || '', g.modo_preco || 'somar');
         const novoGrupoId = Number(gInfo.lastInsertRowid);
         const opcoes = await tx.prepare('SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id').all(g.id) as any[];
         for (const o of opcoes) {
           await tx.prepare(
-            // `sabores` e `secao` entram aqui: sem eles, duplicar uma pizza
-            // perdia quantos sabores cada tamanho libera e a faixa de cada
-            // sabor — a cópia parecia igual na lista e vinha quebrada por dentro.
-            `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+            /*
+             * `sabores` e `secao` entram aqui: sem eles, duplicar uma pizza
+             * perdia quantos sabores cada tamanho libera e a faixa de cada
+             * sabor.
+             *
+             * E `imagem` estava na lista de ARGUMENTOS sem estar na de COLUNAS:
+             * 8 `?` pra 9 valores, o que o MySQL recusa inteiro. Duplicar
+             * qualquer produto COM complemento devolvia 500 — o mesmo defeito
+             * que quebrou a criação de opção, cometido duas vezes no mesmo dia.
+             * `sql-parametros.test.ts` agora pega os dois.
+             */
+            `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao, imagem)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
           ).run(novoGrupoId, o.nome, o.preco_adicional_centavos, o.disponivel, o.ordem,
                 o.sabores || 0, o.secao || '', o.descricao || '', o.imagem || '');
         }
