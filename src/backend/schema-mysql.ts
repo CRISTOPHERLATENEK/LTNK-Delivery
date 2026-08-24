@@ -1396,6 +1396,53 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     }
   }
 
+  /*
+   * ─────────────────────────────────────────────────────────────────────────
+   * A JANELA ENTRE A FASE 1 E A FASE 2, fechada uma única vez.
+   *
+   * A fase 1 criou `produto_grupos` copiando `obrigatorio`, `max_escolhas` e
+   * `ordem` do grupo. Nesse momento os dois lados eram iguais. Mas até a fase 2
+   * subir, o `PUT /grupos/:id` continuou gravando SÓ no grupo — então toda
+   * edição feita nessa janela deixou a ligação parada no valor antigo.
+   *
+   * Aconteceu de verdade, e em menos de uma hora: o grupo "Tamanho" da pizza
+   * ficou com `max_escolhas = 3` no grupo e `1` na ligação. No instante em que a
+   * fase 2 passou a ler pela ligação, o limite do produto voltou pra 1 sem
+   * ninguém pedir. Não dá erro, não aparece em log: é o cardápio mudando sozinho.
+   *
+   * A CONDIÇÃO `g.produto_id = pg.produto_id` É O QUE TORNA ISTO SEGURO. Ela
+   * seleciona exatamente as ligações que o backfill da fase 1 criou a partir
+   * daquele grupo — nunca uma ligação criada depois, à mão, pra um segundo
+   * produto. E o marcador em `configuracoes` faz rodar UMA VEZ por tenant:
+   * depois da fase 2 a ligação é a autoridade, e divergir passa a ser o
+   * comportamento correto (borda obrigatória na pizza, opcional na esfiha). Sem
+   * o marcador, cada reinício do PM2 sobrescreveria a regra de cada produto com
+   * o padrão do grupo.
+   *
+   * RISCO ASSUMIDO: se alguém editar a regra de um produto entre o deploy da
+   * fase 2 e o desta reconciliação, o valor novo é perdido em favor do padrão do
+   * grupo. A janela é de um deploy, e o alternativo — deixar cardápio divergente
+   * em banco de tenant restaurado de backup daquele período — é pior.
+   * ─────────────────────────────────────────────────────────────────────────
+   */
+  {
+    const [feito] = await pool.query(
+      "SELECT valor FROM configuracoes WHERE chave = 'mig_ligacao_reconciliada' LIMIT 1",
+    ) as any;
+    if (feito.length === 0) {
+      await pool.query(
+        `UPDATE produto_grupos pg JOIN grupos_opcoes g ON g.id = pg.grupo_id
+            SET pg.obrigatorio = g.obrigatorio,
+                pg.max_escolhas = g.max_escolhas,
+                pg.ordem = g.ordem
+          WHERE g.produto_id = pg.produto_id`,
+      );
+      await pool.query(
+        "INSERT IGNORE INTO configuracoes (chave, valor) VALUES ('mig_ligacao_reconciliada', '1')",
+      );
+    }
+  }
+
   // Quantos sabores esta opção libera. Só faz sentido nas opções do grupo de
   // tamanho; 0 = não define nada (o padrão de toda opção que não é tamanho).
   for (const [coluna, ddl] of [

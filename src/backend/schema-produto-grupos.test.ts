@@ -203,3 +203,48 @@ describe('fase 2 — quem lê grupo lê pela ligação', () => {
     expect(admin).not.toMatch(/DELETE FROM grupos_opcoes WHERE produto_id IN/);
   });
 });
+
+/**
+ * A JANELA ENTRE AS DUAS FASES.
+ *
+ * A fase 1 copiou `obrigatorio`/`max_escolhas`/`ordem` do grupo pra ligação, e
+ * até a fase 2 subir o PUT continuou gravando só no grupo. Toda edição feita
+ * nessa janela deixou a ligação parada — e aconteceu em menos de uma hora: o
+ * grupo "Tamanho" da pizza ficou com 3 no grupo e 1 na ligação, e no instante em
+ * que a fase 2 passou a ler pela ligação o limite voltou pra 1 sem ninguém pedir.
+ *
+ * A reconciliação fecha isso UMA VEZ. As duas condições abaixo são o que separa
+ * "corrige a janela" de "apaga a configuração de todo mundo a cada reinício".
+ */
+describe('reconciliação da janela entre as fases', () => {
+  const i = fonte.indexOf('UPDATE produto_grupos pg JOIN grupos_opcoes g');
+
+  it('existe', () => {
+    expect(i).toBeGreaterThan(-1);
+  });
+
+  /*
+   * SÓ AS LIGAÇÕES QUE O BACKFILL CRIOU. `g.produto_id = pg.produto_id` é a
+   * assinatura delas. Sem essa condição, uma ligação criada à mão pra um segundo
+   * produto (fase 3) seria sobrescrita com o padrão do grupo — apagando a regra
+   * específica daquele produto, que é exatamente o que a ligação existe pra
+   * guardar.
+   */
+  it('só toca a ligação que veio daquele grupo', () => {
+    expect(fonte.slice(i, fonte.indexOf(';', i))).toMatch(/g\.produto_id = pg\.produto_id/);
+  });
+
+  /*
+   * RODA UMA VEZ POR TENANT. Depois da fase 2 a ligação é a autoridade, e
+   * divergir do grupo é o comportamento CORRETO — borda obrigatória na pizza e
+   * opcional na esfiha. Sem o marcador, cada reinício do PM2 sobrescreveria a
+   * regra de cada produto com o padrão do grupo, e o lojista veria a
+   * configuração voltar sozinha depois de todo deploy.
+   */
+  it('é one-shot, com marcador em configuracoes', () => {
+    const antes = fonte.slice(Math.max(0, i - 900), i);
+    expect(antes).toMatch(/mig_ligacao_reconciliada/);
+    expect(antes).toMatch(/feito\.length === 0/);
+    expect(fonte).toMatch(/INSERT IGNORE INTO configuracoes \(chave, valor\) VALUES \('mig_ligacao_reconciliada'/);
+  });
+});
