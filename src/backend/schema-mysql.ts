@@ -687,6 +687,46 @@ const TABELAS: string[] = [
   KEY idx_etapas_entrega (pedido_id, id),
   FOREIGN KEY (pedido_id) REFERENCES pedidos(id)
 ) ${SUFIXO_TABELA}`,
+
+/*
+ * QUAIS GRUPOS DE COMPLEMENTO CADA PRODUTO USA.
+ *
+ * FASE 1 do reaproveitamento de grupos. Hoje `grupos_opcoes.produto_id` amarra
+ * cada grupo a um produto e a mais nenhum — numa pizzaria com 30 pizzas, "Borda"
+ * existe 30 vezes, e subir o Catupiry de R$ 8 pra R$ 10 é editar 30 grupos. No
+ * banco do mostruário já são 12 grupos para 5 nomes distintos, e "Tamanho"
+ * aparece 5 vezes.
+ *
+ * NADA LÊ ESTA TABELA AINDA. Nesta fase ela só é criada e preenchida 1:1 com o
+ * que já existe (uma ligação por grupo), justamente pra que a fase possa ser
+ * aplicada e revertida sem mudar comportamento nenhum. Quem passa a ler é a
+ * fase 2.
+ *
+ * O QUE MORA AQUI E NÃO NO GRUPO: o critério é "a resposta é a mesma em todo
+ * produto que usa o grupo?". Nome e itens, sim — ficam no grupo. Ordem na tela e
+ * obrigatoriedade, não:
+ *
+ *   - `ordem` é a ordem em que o CLIENTE monta o pedido naquele produto.
+ *     Compartilhada, reordenar a Pizza A reordenaria a Pizza B.
+ *   - `obrigatorio` e `max_escolhas` mudam por produto: borda é obrigatória na
+ *     pizza e opcional na esfiha. Compartilhados, um dos dois estaria errado.
+ *
+ * O UNIQUE É REGRA, NÃO OTIMIZAÇÃO. Sem ele, dois cliques em "usar este grupo"
+ * ligam o mesmo grupo duas vezes, e o cliente vê "Borda" duas vezes no cardápio,
+ * com dois limites independentes.
+ */
+`CREATE TABLE IF NOT EXISTS produto_grupos (
+  id            INT PRIMARY KEY AUTO_INCREMENT,
+  produto_id    INT NOT NULL,
+  grupo_id      INT NOT NULL,
+  ordem         INT NOT NULL DEFAULT 0,
+  obrigatorio   TINYINT NOT NULL DEFAULT 0,
+  max_escolhas  INT NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_produto_grupo (produto_id, grupo_id),
+  KEY idx_pg_grupo (grupo_id),
+  FOREIGN KEY (produto_id) REFERENCES produtos(id),
+  FOREIGN KEY (grupo_id) REFERENCES grupos_opcoes(id)
+) ${SUFIXO_TABELA}`,
 ];
 
 /** Chaves de configuração criadas só na primeira vez (INSERT IGNORE). */
@@ -1254,6 +1294,106 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         LIMIT 1`, [coluna],
     ) as any;
     if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE grupos_opcoes ADD COLUMN ${ddl}`);
+  }
+
+  /*
+   * ─────────────────────────────────────────────────────────────────────────
+   * FASE 1 DO REAPROVEITAMENTO DE GRUPOS
+   *
+   * Três passos, e nenhum deles muda comportamento: ninguém lê `loja_id` nem
+   * `produto_grupos` ainda. É o ponto de volta seguro — dá pra aplicar hoje e
+   * decidir a fase 2 depois.
+   * ─────────────────────────────────────────────────────────────────────────
+   */
+
+  /*
+   * `loja_id` NO GRUPO NÃO É ENFEITE, É AUTORIZAÇÃO.
+   *
+   * `meuGrupo` (rotas/lojista.ts) descobre o dono do grupo por
+   * `JOIN produtos p ON p.id = g.produto_id`. Quando o grupo passar a ser
+   * compartilhado, ele pode existir sem produto ligado nenhum — e aí não teria
+   * dono: a rota devolveria 404 pra sempre e a linha ficaria órfã no banco,
+   * inalcançável e indelével. Mesma coisa em `minhaOpcao` e na exclusão de loja
+   * pelo admin, que apaga grupos via `produto_id IN (SELECT ... WHERE loja_id)`.
+   *
+   * Entra NULL agora e é preenchida logo abaixo; virar NOT NULL fica pra quando
+   * as rotas pararem de gravar `produto_id`.
+   */
+  for (const [coluna, ddl] of [
+    ['loja_id', 'loja_id INT NULL'],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'grupos_opcoes' AND COLUMN_NAME = ?
+        LIMIT 1`, [coluna],
+    ) as any;
+    if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE grupos_opcoes ADD COLUMN ${ddl}`);
+  }
+
+  /*
+   * `produto_id` PASSA A ACEITAR NULL.
+   *
+   * É o que permite um grupo de biblioteca que não está ligado a nenhum produto.
+   * A coluna continua existindo e sendo gravada pelas rotas de hoje — some só
+   * quando a fase 2 parar de usá-la.
+   *
+   * O `IS_NULLABLE` na frente NÃO é economia de linha: `MODIFY COLUMN` reescreve
+   * a tabela em várias versões do MySQL, e isto roda no boot de TODA instância,
+   * de TODO tenant. Sem a checagem, cada reinício do PM2 (três instâncias)
+   * reconstruiria a tabela três vezes, de graça.
+   */
+  {
+    const [nulavel] = await pool.query(
+      `SELECT IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'grupos_opcoes'
+          AND COLUMN_NAME = 'produto_id' LIMIT 1`,
+    ) as any;
+    if (nulavel.length > 0 && nulavel[0].IS_NULLABLE === 'NO') {
+      await pool.query('ALTER TABLE grupos_opcoes MODIFY produto_id INT NULL');
+    }
+  }
+
+  /* Dono do grupo: vem do produto que ele já tem. Só as linhas ainda sem dono. */
+  await pool.query(
+    `UPDATE grupos_opcoes g JOIN produtos p ON p.id = g.produto_id
+        SET g.loja_id = p.loja_id
+      WHERE g.loja_id IS NULL`,
+  );
+
+  /*
+   * UMA LIGAÇÃO POR GRUPO EXISTENTE, e nada mais.
+   *
+   * O BACKFILL NÃO MESCLA GRUPOS DE NOME IGUAL, e essa é a decisão mais
+   * importante desta fase. Os 5 "Tamanho" do mostruário NÃO são o mesmo grupo:
+   * um deles tem `Gigante` com `sabores = 4`, e os outros podem ter itens e
+   * preços diferentes. Mesclar automaticamente mudaria preço de cardápio e
+   * limite de sabores de produtos que ninguém pediu pra mexer — em silêncio, no
+   * boot, em todos os tenants de uma vez.
+   *
+   * Migração é 1:1. A consolidação vem depois, como ferramenta que o lojista
+   * aciona, comparando item a item antes de juntar.
+   *
+   * `INSERT IGNORE` + o UNIQUE são o que deixa isto rodar nas três instâncias do
+   * PM2 ao mesmo tempo sem uma derrubar a migração da outra.
+   *
+   * A checagem antes existe pelo mesmo motivo do `IS_NULLABLE`: sem ela, todo
+   * boot varreria `grupos_opcoes` inteira pra reinserir nada. Com ela, o custo
+   * em regime é uma linha lida.
+   */
+  {
+    const [pendentes] = await pool.query(
+      `SELECT 1 FROM grupos_opcoes g
+         LEFT JOIN produto_grupos pg ON pg.grupo_id = g.id AND pg.produto_id = g.produto_id
+        WHERE g.produto_id IS NOT NULL AND pg.id IS NULL
+        LIMIT 1`,
+    ) as any;
+    if (pendentes.length > 0) {
+      await pool.query(
+        `INSERT IGNORE INTO produto_grupos (produto_id, grupo_id, ordem, obrigatorio, max_escolhas)
+         SELECT produto_id, id, ordem, obrigatorio, max_escolhas
+           FROM grupos_opcoes WHERE produto_id IS NOT NULL`,
+      );
+    }
   }
 
   // Quantos sabores esta opção libera. Só faz sentido nas opções do grupo de
