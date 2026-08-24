@@ -1539,9 +1539,33 @@ router.get('/grupos', async (req, res, next) => {
     const loja = await minhaLoja(req);
     const excluirDoProduto = inteiroPositivo(req.query.produto_id);
     const grupos = await db.prepare(
+      /*
+       * `previa` e `onde` EXISTEM PORQUE O NOME NÃO BASTA.
+       *
+       * A loja de teste tem CINCO grupos chamados "Tamanho". Na tela, cinco chips
+       * escritos "Tamanho · em 1 produto" são cinco botões idênticos, e o lojista
+       * não tem como escolher — só como errar.
+       *
+       * `previa` são os primeiros itens ("Gigante · Pequeno · Grande"), que é o
+       * que de fato diferencia um Tamanho do outro. `onde` são os produtos que já
+       * usam, porque "em Pizza Margherita" identifica muito mais que "em 1
+       * produto".
+       *
+       * Truncados no SQL e não no Node: dois grupos de trinta sabores cada um
+       * trariam o cardápio inteiro pra desenhar uma linha de 70 caracteres.
+       *
+       * A rota NÃO esconde grupo vazio. Ela é a biblioteca da loja, e a tela de
+       * biblioteca (fase 4) precisa ver o vazio pra poder apagá-lo. Quem filtra é
+       * a lista de "usar aqui", que é uma pergunta diferente.
+       */
       `SELECT g.id, g.nome, g.tipo, g.papel, g.modo_preco, g.obrigatorio, g.max_escolhas,
               (SELECT COUNT(*) FROM produto_grupos pg WHERE pg.grupo_id = g.id) AS usos,
-              (SELECT COUNT(*) FROM opcoes_itens o WHERE o.grupo_id = g.id) AS itens
+              (SELECT COUNT(*) FROM opcoes_itens o WHERE o.grupo_id = g.id) AS itens,
+              (SELECT SUBSTRING(GROUP_CONCAT(o.nome ORDER BY o.ordem, o.id SEPARATOR ' · '), 1, 70)
+                 FROM opcoes_itens o WHERE o.grupo_id = g.id) AS previa,
+              (SELECT SUBSTRING(GROUP_CONCAT(p.nome ORDER BY p.nome SEPARATOR ', '), 1, 60)
+                 FROM produto_grupos pg JOIN produtos p ON p.id = pg.produto_id
+                WHERE pg.grupo_id = g.id AND p.excluido = 0) AS onde
          FROM grupos_opcoes g
         WHERE g.loja_id = ?
           ${excluirDoProduto ? 'AND g.id NOT IN (SELECT grupo_id FROM produto_grupos WHERE produto_id = ?)' : ''}

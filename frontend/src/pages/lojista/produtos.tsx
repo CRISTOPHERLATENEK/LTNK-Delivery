@@ -1806,6 +1806,10 @@ interface GrupoBiblioteca {
   id: number; nome: string; tipo: 'unico' | 'multiplo';
   papel?: string | null; modo_preco?: string | null;
   obrigatorio: number; max_escolhas: number; usos: number; itens: number;
+  /** Primeiros itens, pra distinguir dois grupos de mesmo nome. */
+  previa?: string | null;
+  /** Produtos que já usam este grupo. */
+  onde?: string | null;
 }
 
 function GruposEditor({ produto }: { produto: Produto }) {
@@ -1856,6 +1860,19 @@ function GruposEditor({ produto }: { produto: Produto }) {
       .then(r => r.grupos)
       .catch((): GrupoBiblioteca[] => []),
   });
+
+  /*
+   * SÓ OS QUE TÊM ITEM ENTRAM EM "usar aqui".
+   *
+   * Trazer um grupo vazio pra um produto é trazer nada — e se ele for
+   * obrigatório, é trazer um grupo que o cliente não consegue satisfazer. Na
+   * loja de teste havia três "Tamanho" com zero itens, e eles ocupavam metade da
+   * lista sem oferecer nada.
+   *
+   * O filtro é aqui e não na rota de propósito: a rota é a biblioteca, e a tela
+   * de biblioteca (fase 4) precisa ver o vazio pra poder apagá-lo.
+   */
+  const reaproveitaveis = (biblioteca ?? []).filter(g => g.itens > 0);
 
   const { data, isLoading } = useQuery({
     queryKey,
@@ -2307,8 +2324,23 @@ function GruposEditor({ produto }: { produto: Produto }) {
     grupos.filter(g => g.papel === 'tamanho').flatMap(g => g.opcoes));
 
   /* Modelos que sobram: os que combinam com a categoria e ainda não foram usados. */
+  /*
+   * MODELO DE NOME QUE A LOJA JÁ TEM SAI DA LISTA.
+   *
+   * O filtro olhava só os grupos DESTE produto, então "Criar Tamanho" continuava
+   * oferecido a quem já tinha quatro Tamanhos na loja — e foi assim que eles
+   * viraram quatro. Oferecer criar mais um, na mesma tela em que existe o botão
+   * de usar o que já existe, é empurrar pro caminho errado.
+   *
+   * Continua dando pra criar um Tamanho novo de propósito: "Criar grupo do zero"
+   * aceita qualquer nome. O que sai é o atalho que faz isso por acidente.
+   */
+  const nomesQueExistem = new Set([
+    ...grupos.map(g => g.nome.toLowerCase()),
+    ...(biblioteca ?? []).map(g => g.nome.toLowerCase()),
+  ]);
   const modelos = modelosDaCategoria(produto.categoria)
-    .filter(t => !grupos.some(g => g.nome.toLowerCase() === t.nome.toLowerCase()));
+    .filter(t => !nomesQueExistem.has(t.nome.toLowerCase()));
 
   return (
     /*
@@ -3199,29 +3231,54 @@ function GruposEditor({ produto }: { produto: Produto }) {
                 existe: o modelo cria um grupo novo (mais um pra manter), e o grupo
                 da loja já está configurado com os itens e os preços que a loja usa.
               */}
-              {(biblioteca ?? []).length > 0 && (
+              {reaproveitaveis.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[12.5px] text-muted-foreground">
                     Da sua loja — usar o mesmo grupo em vários produtos deixa preço e itens num lugar só:
                   </p>
-                  <div className="flex flex-wrap gap-2">
-                    {(biblioteca ?? []).map(g => (
+                  {/*
+                    UMA COLUNA POR LINHA, não chips lado a lado.
+                    Chip só cabe o nome, e o nome é justamente o que se repete:
+                    cinco grupos "Tamanho" viravam cinco botões iguais. Em linha
+                    cabe o que diferencia — os itens de dentro e onde já é usado.
+                  */}
+                  <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border">
+                    {reaproveitaveis.map(g => (
                       <button
                         key={g.id}
                         type="button"
                         disabled={salvandoGrupo}
                         onClick={() => usarGrupoExistente(g.id)}
-                        className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-left shadow-sm transition-all hover:-translate-y-px hover:border-primary hover:shadow-md disabled:opacity-50"
+                        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-accent/50 disabled:opacity-50"
                       >
-                        <Plus className="size-3.5 shrink-0 text-primary" />
-                        <span className="min-w-0">
-                          <span className="block text-[13.5px] font-bold leading-tight">{g.nome}</span>
-                          <span className="block text-[11px] text-muted-foreground">
-                            {g.itens} {g.itens === 1 ? 'item' : 'itens'}
-                            {/* "usado em N" é o que diferencia trazer um grupo já
-                                compartilhado de trazer um que só uma pizza usa. */}
-                            {g.usos > 0 && ` · em ${g.usos} ${g.usos === 1 ? 'produto' : 'produtos'}`}
+                        <Plus className="size-4 shrink-0 text-primary" />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-baseline gap-x-2">
+                            <span className="text-[13.5px] font-bold leading-tight">{g.nome}</span>
+                            <span className="text-[11px] text-muted-foreground">
+                              {g.itens} {g.itens === 1 ? 'item' : 'itens'}
+                            </span>
+                            {/* Compartilhado é informação de PESO: trazer este grupo
+                                significa que editá-lo depois mexe em todos. */}
+                            {g.usos > 1 && (
+                              <span className="rounded-full border border-[#F1E3C4] bg-[#FBF3E4] px-1.5 text-[10.5px] font-bold text-[#92610A] dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300">
+                                em {g.usos} produtos
+                              </span>
+                            )}
                           </span>
+                          {/* O que está dentro — é isto que separa um "Tamanho" do
+                              outro quando os dois se chamam Tamanho. */}
+                          {g.previa && (
+                            <span className="mt-0.5 block truncate text-[11.5px] text-muted-foreground">
+                              {g.previa}
+                            </span>
+                          )}
+                          {/* "em Pizza Margherita" identifica; "em 1 produto" não. */}
+                          {g.usos === 1 && g.onde && (
+                            <span className="block truncate text-[11px] text-muted-foreground/70">
+                              hoje em {g.onde}
+                            </span>
+                          )}
                         </span>
                       </button>
                     ))}
