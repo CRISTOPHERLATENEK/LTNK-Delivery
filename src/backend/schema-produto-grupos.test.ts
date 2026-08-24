@@ -248,3 +248,111 @@ describe('reconciliação da janela entre as fases', () => {
     expect(fonte).toMatch(/INSERT IGNORE INTO configuracoes \(chave, valor\) VALUES \('mig_ligacao_reconciliada'/);
   });
 });
+
+/**
+ * FASE 3 — O REAPROVEITAMENTO EXISTINDO DE VERDADE.
+ *
+ * As quatro rotas novas (biblioteca, ligar, desligar, soltar) e a mudança na
+ * duplicação. Os testes olham o fonte pelo mesmo motivo dos anteriores: o que
+ * quebra aqui não dá erro, dá dado errado — e o dado errado é o cardápio de
+ * trinta pizzas.
+ */
+describe('fase 3 — ligar, desligar, soltar', () => {
+  const lojista = fs.readFileSync(path.resolve(__dirname, 'rotas', 'lojista.ts'), 'utf8');
+
+  it('as quatro rotas existem', () => {
+    expect(lojista).toMatch(/router\.get\('\/grupos',/);
+    expect(lojista).toMatch(/router\.get\('\/grupos\/:id\/produtos',/);
+    expect(lojista).toMatch(/router\.post\('\/produtos\/:id\/grupos\/:grupoId',/);
+    expect(lojista).toMatch(/router\.delete\('\/produtos\/:id\/grupos\/:grupoId',/);
+    expect(lojista).toMatch(/router\.post\('\/produtos\/:id\/grupos\/:grupoId\/soltar',/);
+  });
+
+  /*
+   * DESLIGAR NÃO É EXCLUIR — o defeito mais fácil de cometer em toda a fase 3.
+   * Com o grupo compartilhado, apagar o grupo ao tirá-lo de UMA pizza apagaria a
+   * borda de trinta. A rota só apaga quando não sobra vínculo nenhum.
+   */
+  it('tirar de um produto só apaga o grupo se for o último vínculo', () => {
+    const i = lojista.indexOf("router.delete('/produtos/:id/grupos/:grupoId'");
+    const rota = lojista.slice(i, lojista.indexOf('router.', i + 10));
+    expect(rota).toMatch(/DELETE FROM produto_grupos WHERE produto_id = \? AND grupo_id = \?/);
+    // O DELETE do grupo tem que estar DENTRO da condição de "não sobrou nenhum".
+    const guarda = rota.indexOf('restantes.length === 0');
+    const apagaGrupo = rota.indexOf('DELETE FROM grupos_opcoes');
+    expect(guarda).toBeGreaterThan(-1);
+    expect(apagaGrupo).toBeGreaterThan(guarda);
+  });
+
+  /*
+   * SEM "SOLTAR", COMPARTILHAR É ARMADILHA: na primeira vez que o lojista quiser
+   * a borda de UMA pizza diferente das outras 29, editar mexeria nas 30 e tirar
+   * daqui perderia a configuração. O clone tem que levar TODOS os campos do item
+   * — faltar um é o clone parecer igual na lista e vir quebrado por dentro, que
+   * foi o que aconteceu duas vezes na duplicação de produto.
+   */
+  it('soltar clona o grupo com todos os campos do item', () => {
+    const i = lojista.indexOf("/grupos/:grupoId/soltar");
+    const rota = lojista.slice(i, lojista.indexOf("router.post('/grupos/:id/opcoes'", i));
+    /*
+     * OLHA OS ARGUMENTOS, NÃO A LISTA DE COLUNAS.
+     *
+     * A primeira versão deste teste conferia se a rota "continha" a palavra
+     * `imagem` — e continha, no nome da coluna. Trocar `o.imagem || ''` por `''`
+     * passava: a contagem de `?` seguia certa (o scanner de SQL não vê nada
+     * errado) e o clone perdia a foto de todos os sabores em silêncio. É a mesma
+     * classe de defeito que já quebrou a duplicação de produto duas vezes.
+     */
+    const argsClone = rota.slice(rota.indexOf('INSERT INTO opcoes_itens'));
+    const run = argsClone.slice(argsClone.indexOf(').run('), argsClone.indexOf(');', argsClone.indexOf(').run(')));
+    for (const campo of ['nome', 'preco_adicional_centavos', 'disponivel', 'ordem', 'sabores', 'secao', 'descricao', 'imagem']) {
+      expect(run).toContain(`o.${campo}`);
+    }
+    /* E o vínculo DESTE produto passa a apontar pro clone — sem isso o clone
+       nasce órfão e o produto continua no grupo compartilhado. */
+    expect(rota).toMatch(/UPDATE produto_grupos SET grupo_id = \? WHERE produto_id = \? AND grupo_id = \?/);
+  });
+
+  /*
+   * DUPLICAR PASSA A LIGAR. É o coração do recurso: as 30 pizzas de uma pizzaria
+   * nascem de duplicação, e copiando os grupos cada uma ganhava a SUA borda — a
+   * dor inteira recriada a cada clique.
+   */
+  it('duplicar produto liga os mesmos grupos, não copia', () => {
+    const i = lojista.indexOf("router.post('/produtos/:id/duplicar'");
+    const rota = lojista.slice(i, lojista.indexOf("router.post('/produtos/bulk'", i));
+    expect(rota).toMatch(/INSERT INTO produto_grupos/);
+    /* Se voltar a copiar, estas duas reaparecem — e o teste diz onde. */
+    expect(rota).not.toMatch(/INSERT INTO grupos_opcoes/);
+    expect(rota).not.toMatch(/INSERT INTO opcoes_itens/);
+  });
+
+  /*
+   * O DUPLO CLIQUE EM "usar este grupo" não pode virar 500 nem grupo repetido no
+   * cardápio. O UNIQUE barra, e a rota traduz o erro do banco em mensagem.
+   */
+  it('ligar duas vezes devolve 409, não erro de banco', () => {
+    const i = lojista.indexOf("router.post('/produtos/:id/grupos/:grupoId',");
+    const rota = lojista.slice(i, lojista.indexOf("router.delete('/produtos/:id/grupos/:grupoId'", i));
+    expect(rota).toMatch(/ER_DUP_ENTRY/);
+    expect(rota).toMatch(/erroHttp\(409/);
+  });
+
+  /*
+   * `usos` NÃO PODE ENTRAR NO CAMINHO QUENTE. É uma subconsulta por grupo, e o
+   * menu público carrega o cardápio inteiro a cada visita de cliente — pagar isso
+   * pra mostrar um número que só o lojista vê é trocar desempenho de todo mundo
+   * por conveniência de um.
+   */
+  it('a contagem de usos só existe na consulta do painel', () => {
+    const sql = fs.readFileSync(path.resolve(__dirname, 'grupos-sql.ts'), 'utf8');
+    const comUsos = sql.indexOf('SQL_GRUPOS_DO_PRODUTO_COM_USOS');
+    expect(comUsos).toBeGreaterThan(-1);
+    /* O fragmento base e o de vários produtos (o do menu) não contam usos. */
+    const base = sql.slice(sql.indexOf('export const SQL_GRUPOS_DO_PRODUTO ='), comUsos);
+    expect(base).not.toMatch(/AS usos/);
+    expect(sql.slice(sql.indexOf('sqlGruposDeProdutos'))).not.toMatch(/AS usos/);
+    expect(fs.readFileSync(path.resolve(__dirname, 'rotas', 'publico.ts'), 'utf8'))
+      .not.toMatch(/COM_USOS/);
+  });
+});

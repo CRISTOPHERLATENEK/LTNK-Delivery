@@ -13,7 +13,7 @@ import { tenantPorDbNome } from '../tenants-mysql';
 import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido, normalizarBairro, dataBrasilia} from '../util';
 import { precoVigente } from '../preco-produto';
-import { SQL_GRUPOS_DO_PRODUTO } from '../grupos-sql';
+import { SQL_GRUPOS_DO_PRODUTO, SQL_GRUPOS_DO_PRODUTO_COM_USOS } from '../grupos-sql';
 import { resolverCanais } from '../disponibilidade-produto';
 import { transicionarStatus } from '../fluxoPedido';
 import { enviarPush } from '../push';
@@ -1139,58 +1139,28 @@ router.post('/produtos/:id/duplicar', async (req, res, next) => {
 
       /* Lê pela ligação, como todo o resto — senão duplicar um produto que já
          usa grupo compartilhado copiaria os grupos errados (ou nenhum). */
-      const grupos = await tx.prepare(
-        `SELECT g.*, pg.ordem AS pg_ordem, pg.obrigatorio AS pg_obrigatorio, pg.max_escolhas AS pg_max
-           FROM grupos_opcoes g JOIN produto_grupos pg ON pg.grupo_id = g.id
-          WHERE pg.produto_id = ? ORDER BY pg.ordem, g.id`
-      ).all(original.id) as any[];
-      for (const g of grupos) {
-        const gInfo = await tx.prepare(
-          /*
-           * `papel` e `modo_preco` SÃO PARTE DO GRUPO, e ficavam de fora.
-           *
-           * Sem eles, duplicar uma pizza produzia uma cópia sem mecanismo: o
-           * grupo de tamanho deixava de ser tamanho, o de sabores deixava de
-           * ser sabores, e a política de preço voltava pro padrão. A cópia
-           * ficava idêntica na lista e no cardápio — mesmos grupos, mesmos
-           * itens, mesmos preços de tabela — e só quebrava na hora em que o
-           * cliente tentava escolher dois sabores.
-           *
-           * É o mesmo esquecimento que já tinha deixado `sabores` e `secao` de
-           * fora das opções: quem duplica um produto configurado espera a
-           * configuração, não a casca dela.
-           */
-          `INSERT INTO grupos_opcoes (produto_id, loja_id, nome, tipo, obrigatorio, max_escolhas, ordem, papel, modo_preco)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(novoId, loja.id, g.nome, g.tipo, g.pg_obrigatorio, g.pg_max, g.pg_ordem,
-              g.papel || '', g.modo_preco || 'somar');
-        const novoGrupoId = Number(gInfo.lastInsertRowid);
-        /* Duplicar COPIA o grupo, não compartilha: é o comportamento de hoje, e
-           mudar isso junto com a leitura seria duas mudanças de uma vez. Passar
-           a ligar é decisão da fase 3. */
+      /*
+       * DUPLICAR PASSA A LIGAR, NÃO A COPIAR.
+       *
+       * É o coração do reaproveitamento: as 30 pizzas de uma pizzaria nascem de
+       * duplicação, e copiando os grupos cada uma ganhava a SUA borda — a dor
+       * inteira que a fase existe pra resolver, recriada a cada clique.
+       *
+       * Ligando, a cópia divide Tamanho, Borda e Sabores com a original: subir o
+       * Catupiry é uma edição, não trinta. A `ordem` e a regra de cada vínculo
+       * vêm do vínculo do original, então a cópia abre idêntica.
+       *
+       * E quando o lojista quiser que UMA delas seja diferente, existe
+       * "soltar deste produto", que clona o grupo só pra ela.
+       */
+      const ligacoes = await tx.prepare(
+        'SELECT grupo_id, ordem, obrigatorio, max_escolhas FROM produto_grupos WHERE produto_id = ? ORDER BY ordem'
+      ).all(original.id) as Array<{ grupo_id: number; ordem: number; obrigatorio: number; max_escolhas: number }>;
+      for (const l of ligacoes) {
         await tx.prepare(
           `INSERT INTO produto_grupos (produto_id, grupo_id, ordem, obrigatorio, max_escolhas)
            VALUES (?, ?, ?, ?, ?)`
-        ).run(novoId, novoGrupoId, g.pg_ordem, g.pg_obrigatorio, g.pg_max);
-        const opcoes = await tx.prepare('SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id').all(g.id) as any[];
-        for (const o of opcoes) {
-          await tx.prepare(
-            /*
-             * `sabores` e `secao` entram aqui: sem eles, duplicar uma pizza
-             * perdia quantos sabores cada tamanho libera e a faixa de cada
-             * sabor.
-             *
-             * E `imagem` estava na lista de ARGUMENTOS sem estar na de COLUNAS:
-             * 8 `?` pra 9 valores, o que o MySQL recusa inteiro. Duplicar
-             * qualquer produto COM complemento devolvia 500 — o mesmo defeito
-             * que quebrou a criação de opção, cometido duas vezes no mesmo dia.
-             * `sql-parametros.test.ts` agora pega os dois.
-             */
-            `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao, imagem)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-          ).run(novoGrupoId, o.nome, o.preco_adicional_centavos, o.disponivel, o.ordem,
-                o.sabores || 0, o.secao || '', o.descricao || '', o.imagem || '');
-        }
+        ).run(novoId, l.grupo_id, l.ordem, l.obrigatorio, l.max_escolhas);
       }
       return novoId;
     });
@@ -1343,7 +1313,7 @@ router.get('/produtos/:id/grupos', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const produto = await meuProduto(loja, req.params.id);
-    const gruposBrutos = await db.prepare(SQL_GRUPOS_DO_PRODUTO).all(produto.id) as GrupoOpcao[];
+    const gruposBrutos = await db.prepare(SQL_GRUPOS_DO_PRODUTO_COM_USOS).all(produto.id) as GrupoOpcao[];
     const grupos = [];
     for (const g of gruposBrutos) {
       const opcoes = await db.prepare('SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id').all(g.id) as OpcaoItem[];
@@ -1542,6 +1512,196 @@ router.delete('/grupos/:id', async (req, res, next) => {
       await tx.prepare('DELETE FROM grupos_opcoes WHERE id = ?').run(grupo.id);
     });
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * FASE 3 — O GRUPO PASSA A SER REAPROVEITÁVEL
+ *
+ * Até aqui o grupo era da loja no banco e de um produto na prática: toda ligação
+ * nascia junto com o grupo e morria com ele. Estas quatro rotas são o que faz o
+ * reaproveitamento existir de verdade.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/**
+ * GET /grupos — a biblioteca de grupos da loja, com quantos produtos usam cada um.
+ *
+ * `usos` é o número que decide o texto de TODA ação destrutiva na tela: apertar
+ * a lixeira num grupo usado por 30 pizzas não pode significar a mesma coisa que
+ * num grupo usado por uma.
+ *
+ * `produto_id` opcional filtra o que AINDA NÃO está naquele produto — é a lista
+ * que a tela mostra em "usar um grupo que já existe", e oferecer um grupo já
+ * ligado ali só produziria um erro de duplicata.
+ */
+router.get('/grupos', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const excluirDoProduto = inteiroPositivo(req.query.produto_id);
+    const grupos = await db.prepare(
+      `SELECT g.id, g.nome, g.tipo, g.papel, g.modo_preco, g.obrigatorio, g.max_escolhas,
+              (SELECT COUNT(*) FROM produto_grupos pg WHERE pg.grupo_id = g.id) AS usos,
+              (SELECT COUNT(*) FROM opcoes_itens o WHERE o.grupo_id = g.id) AS itens
+         FROM grupos_opcoes g
+        WHERE g.loja_id = ?
+          ${excluirDoProduto ? 'AND g.id NOT IN (SELECT grupo_id FROM produto_grupos WHERE produto_id = ?)' : ''}
+        ORDER BY g.nome`
+    ).all(...(excluirDoProduto ? [loja.id, excluirDoProduto] : [loja.id])) as unknown[];
+    res.json({ grupos });
+  } catch (e) { next(e); }
+});
+
+/** GET /grupos/:id/produtos — quem usa este grupo. É o aviso antes de editar. */
+router.get('/grupos/:id/produtos', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const grupo = await meuGrupo(loja, req.params.id);
+    const produtos = await db.prepare(
+      `SELECT p.id, p.nome FROM produto_grupos pg
+         JOIN produtos p ON p.id = pg.produto_id
+        WHERE pg.grupo_id = ? AND p.excluido = 0 ORDER BY p.nome`
+    ).all(grupo.id) as unknown[];
+    res.json({ produtos });
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /produtos/:id/grupos/:grupoId — usar num produto um grupo que já existe.
+ *
+ * A ligação nasce com os PADRÕES DO GRUPO (`obrigatorio`, `max_escolhas`) e com
+ * `ordem` no fim da lista daquele produto. Herdar o padrão é o que faz "usar a
+ * Borda que já existe" chegar configurada; entrar no fim é o que evita empurrar
+ * o Tamanho pra baixo do Adicional num produto já arrumado.
+ *
+ * O UNIQUE em (produto_id, grupo_id) é a rede de segurança contra o duplo
+ * clique — sem ele o cliente veria "Borda" duas vezes no cardápio, com dois
+ * limites independentes. Aqui o erro é traduzido em mensagem em vez de 500.
+ */
+router.post('/produtos/:id/grupos/:grupoId', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const produto = await meuProduto(loja, req.params.id);
+    const grupo = await meuGrupo(loja, req.params.grupoId);
+
+    const [{ proxima }] = await db.prepare(
+      'SELECT COALESCE(MAX(ordem) + 1, 0) AS proxima FROM produto_grupos WHERE produto_id = ?'
+    ).all(produto.id) as Array<{ proxima: number }>;
+
+    try {
+      await db.prepare(
+        `INSERT INTO produto_grupos (produto_id, grupo_id, ordem, obrigatorio, max_escolhas)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(produto.id, grupo.id, proxima, grupo.obrigatorio, grupo.max_escolhas);
+    } catch (e) {
+      if ((e as { code?: string }).code === 'ER_DUP_ENTRY') {
+        throw erroHttp(409, 'Este grupo já está neste produto.');
+      }
+      throw e;
+    }
+
+    /* Tamanho e sabores continuam sendo únicos DENTRO do produto: trazer um
+       grupo de tamanho pra um produto que já tem outro tira o papel do antigo,
+       igual ao que acontece ao marcar o papel à mão. */
+    await papelExclusivo(produto.id, (grupo as unknown as { papel?: string }).papel ?? '', grupo.id);
+    res.status(201).json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/**
+ * DELETE /produtos/:id/grupos/:grupoId — tirar o grupo DESTE produto.
+ *
+ * DESLIGAR NÃO É EXCLUIR, e essa distinção é a parte mais fácil de errar de toda
+ * a fase 3: com o grupo compartilhado, apertar a lixeira numa pizza apagaria a
+ * borda de trinta.
+ *
+ * Quando o grupo está em mais de um produto, esta rota só corta o vínculo — os
+ * outros produtos não sentem nada.
+ *
+ * Quando é o ÚLTIMO vínculo, ela apaga o grupo e os itens. Não é atalho: sem
+ * tela de biblioteca (fase 4), um grupo sem vínculo nenhum é invisível e
+ * inalcançável — lixo que ninguém consegue nem ver nem remover. E é exatamente o
+ * que a lixeira já fazia antes desta fase, então o comportamento de quem tem um
+ * produto só não muda.
+ */
+router.delete('/produtos/:id/grupos/:grupoId', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const produto = await meuProduto(loja, req.params.id);
+    const grupo = await meuGrupo(loja, req.params.grupoId);
+
+    const restantes = (await produtosDoGrupo(grupo.id)).filter(id => id !== produto.id);
+
+    await comTransacao(async (tx) => {
+      await tx.prepare('DELETE FROM produto_grupos WHERE produto_id = ? AND grupo_id = ?')
+        .run(produto.id, grupo.id);
+      if (restantes.length === 0) {
+        await tx.prepare('DELETE FROM opcoes_itens WHERE grupo_id = ?').run(grupo.id);
+        await tx.prepare('DELETE FROM grupos_opcoes WHERE id = ?').run(grupo.id);
+      }
+    });
+    res.json({ ok: true, grupo_apagado: restantes.length === 0 });
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /produtos/:id/grupos/:grupoId/soltar — cópia só deste produto.
+ *
+ * SEM ISTO, COMPARTILHAR É UMA ARMADILHA. Na primeira vez que o lojista quiser
+ * que a borda de UMA pizza seja diferente das outras 29, ele não teria saída:
+ * editar mexeria nas 30, e desligar perderia a configuração inteira. Aqui o
+ * grupo é clonado com os itens, e só o vínculo DESTE produto passa a apontar pro
+ * clone. Os outros 29 continuam como estavam.
+ *
+ * `produto_id` do clone aponta pra este produto porque é dele que o clone
+ * nasceu — é o mesmo significado que a coluna tem em todo grupo criado pela tela.
+ */
+router.post('/produtos/:id/grupos/:grupoId/soltar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const produto = await meuProduto(loja, req.params.id);
+    const grupo = await meuGrupo(loja, req.params.grupoId);
+
+    const usos = await produtosDoGrupo(grupo.id);
+    if (!usos.includes(produto.id)) throw erroHttp(404, 'Este grupo não está neste produto.');
+    if (usos.length === 1) throw erroHttp(400, 'Este grupo já é só deste produto.');
+
+    const g = grupo as unknown as Record<string, unknown>;
+    const novoId = await comTransacao(async (tx) => {
+      const [ligacao] = await tx.prepare(
+        'SELECT ordem, obrigatorio, max_escolhas FROM produto_grupos WHERE produto_id = ? AND grupo_id = ?'
+      ).all(produto.id, grupo.id) as Array<{ ordem: number; obrigatorio: number; max_escolhas: number }>;
+
+      const info = await tx.prepare(
+        `INSERT INTO grupos_opcoes (produto_id, loja_id, nome, tipo, obrigatorio, max_escolhas, ordem, papel, modo_preco)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(produto.id, loja.id, grupo.nome, grupo.tipo,
+            ligacao.obrigatorio, ligacao.max_escolhas, ligacao.ordem,
+            g.papel ?? '', g.modo_preco ?? 'somar');
+      const clone = Number(info.lastInsertRowid);
+
+      /* Os itens vão TODOS, com preço, seção, ingredientes, foto e `sabores`.
+         Faltar qualquer um deles é o clone parecer igual na lista e vir quebrado
+         por dentro — foi o que aconteceu na duplicação de produto duas vezes. */
+      const opcoes = await tx.prepare(
+        'SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id'
+      ).all(grupo.id) as Array<Record<string, unknown>>;
+      for (const o of opcoes) {
+        await tx.prepare(
+          `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao, imagem)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(clone, o.nome, o.preco_adicional_centavos, o.disponivel, o.ordem,
+              o.sabores || 0, o.secao || '', o.descricao || '', o.imagem || '');
+      }
+
+      /* Aponta o vínculo DESTE produto pro clone. Os outros produtos seguem no
+         grupo original, sem saber que isto aconteceu. */
+      await tx.prepare(
+        'UPDATE produto_grupos SET grupo_id = ? WHERE produto_id = ? AND grupo_id = ?'
+      ).run(clone, produto.id, grupo.id);
+      return clone;
+    });
+
+    res.status(201).json({ grupo_id: novoId });
   } catch (e) { next(e); }
 });
 

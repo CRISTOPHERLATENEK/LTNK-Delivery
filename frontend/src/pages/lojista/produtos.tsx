@@ -1801,6 +1801,13 @@ function CardProduto({
  * o que já foi gravado é pior que botão nenhum.
  */
 
+/** Uma linha da biblioteca de grupos da loja. `usos` = em quantos produtos está. */
+interface GrupoBiblioteca {
+  id: number; nome: string; tipo: 'unico' | 'multiplo';
+  papel?: string | null; modo_preco?: string | null;
+  obrigatorio: number; max_escolhas: number; usos: number; itens: number;
+}
+
 function GruposEditor({ produto }: { produto: Produto }) {
   const { mostrar } = useToast();
   const confirmar = useConfirm();
@@ -1830,6 +1837,24 @@ function GruposEditor({ produto }: { produto: Produto }) {
         .then(r => r.sugestoes)
         .catch((): Record<string, SugestaoSalva[]> => ({})),
     staleTime: 5 * 60_000,
+  });
+
+  /**
+   * A BIBLIOTECA DE GRUPOS DA LOJA — os que ainda não estão neste produto.
+   *
+   * Vem com `usos` porque é esse número que decide o texto de toda ação
+   * destrutiva na tela: apertar a lixeira num grupo usado por 30 pizzas não pode
+   * significar a mesma coisa que num grupo usado por uma.
+   *
+   * Falha em silêncio de propósito: sem a biblioteca, criar grupo do zero e pelos
+   * modelos continua funcionando, e um erro aqui não pode travar o cadastro.
+   */
+  const { data: biblioteca } = useQuery({
+    queryKey: ['lojista-biblioteca-grupos', produto.id],
+    queryFn: () => api<{ grupos: GrupoBiblioteca[] }>(
+      'GET', `/api/lojista/grupos?produto_id=${produto.id}`)
+      .then(r => r.grupos)
+      .catch((): GrupoBiblioteca[] => []),
   });
 
   const { data, isLoading } = useQuery({
@@ -1949,6 +1974,81 @@ function GruposEditor({ produto }: { produto: Produto }) {
   }
 
   /** Grava campos de uma opção. Parcial, pelo mesmo motivo do grupo. */
+  /** Traz pra este produto um grupo que já existe na loja. */
+  async function usarGrupoExistente(grupoId: number) {
+    try {
+      await api('POST', `/api/lojista/produtos/${produto.id}/grupos/${grupoId}`);
+      await qc.refetchQueries({ queryKey });
+      qc.invalidateQueries({ queryKey: ['lojista-biblioteca-grupos', produto.id] });
+      setAbertoId(grupoId);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : 'Erro ao usar o grupo.';
+      mostrar({ tipo: 'erro', titulo: msg });
+    }
+  }
+
+  /**
+   * TIRAR DESTE PRODUTO — e é aqui que a palavra decide tudo.
+   *
+   * Grupo compartilhado: corta só o vínculo, e os outros produtos não sentem
+   * nada. Último vínculo: apaga de verdade, porque sem tela de biblioteca um
+   * grupo sem vínculo é invisível e inalcançável, e porque é o que a lixeira já
+   * fazia antes.
+   *
+   * As duas confirmações são DIFERENTES de propósito. "Remover este grupo?" num
+   * grupo usado por trinta pizzas é a frase que faz alguém apagar a borda de
+   * trinta achando que estava tirando de uma.
+   */
+  async function tirarDoProduto(grupo: GrupoOpcoes, usos: number) {
+    const compartilhado = usos > 1;
+    const ok = await confirmar(compartilhado
+      ? {
+        titulo: `Tirar "${grupo.nome}" deste produto?`,
+        descricao: `O grupo continua nos outros ${usos - 1} produtos que usam ele. Nada é excluído.`,
+        confirmar: 'Tirar daqui',
+      }
+      : {
+        titulo: `Excluir "${grupo.nome}"?`,
+        descricao: 'Este é o único produto que usa este grupo, então ele e os itens dele serão excluídos.',
+        confirmar: 'Excluir',
+        destrutivo: true,
+      });
+    if (!ok) return;
+    try {
+      await api('DELETE', `/api/lojista/produtos/${produto.id}/grupos/${grupo.id}`);
+      await qc.refetchQueries({ queryKey });
+      qc.invalidateQueries({ queryKey: ['lojista-biblioteca-grupos', produto.id] });
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : 'Erro ao tirar o grupo.';
+      mostrar({ tipo: 'erro', titulo: msg });
+    }
+  }
+
+  /**
+   * SOLTAR — a saída sem a qual compartilhar é armadilha.
+   *
+   * Na primeira vez que o lojista quiser a borda de UMA pizza diferente das
+   * outras 29, editar mexeria nas 30 e tirar daqui perderia a configuração
+   * inteira. Isto clona o grupo com os itens e aponta só este produto pro clone.
+   */
+  async function soltarDoGrupo(grupo: GrupoOpcoes, usos: number) {
+    if (!(await confirmar({
+      titulo: `Fazer uma cópia de "${grupo.nome}" só para este produto?`,
+      descricao: `Hoje ele é compartilhado com outros ${usos - 1} produtos. Depois da cópia, mudar aqui não mexe mais neles.`,
+      confirmar: 'Criar cópia só daqui',
+    }))) return;
+    try {
+      const r = await api<{ grupo_id: number }>(
+        'POST', `/api/lojista/produtos/${produto.id}/grupos/${grupo.id}/soltar`);
+      await qc.refetchQueries({ queryKey });
+      qc.invalidateQueries({ queryKey: ['lojista-biblioteca-grupos', produto.id] });
+      setAbertoId(r.grupo_id);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : 'Erro ao criar a cópia.';
+      mostrar({ tipo: 'erro', titulo: msg });
+    }
+  }
+
   async function salvarOpcao(opcao: OpcaoItem, patch: Record<string, unknown>) {
     try {
       await api('PUT', `/api/lojista/opcoes/${opcao.id}`, patch);
@@ -2137,15 +2237,6 @@ function GruposEditor({ produto }: { produto: Produto }) {
     });
   }
 
-  async function excluirGrupo(grupoId: number) {
-    if (!(await confirmar({ titulo: 'Remover este grupo?', descricao: 'Todas as opções dele serão removidas também.', confirmar: 'Remover', destrutivo: true }))) return;
-    try {
-      await api('DELETE', `/api/lojista/grupos/${grupoId}`);
-      qc.invalidateQueries({ queryKey });
-    } catch (e) {
-      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
-    }
-  }
 
   async function criarOpcao(grupoId: number) {
     const f = opcaoForm(grupoId);
@@ -2276,6 +2367,22 @@ function GruposEditor({ produto }: { produto: Produto }) {
                    marca sozinho pra não travar o botão de adicionar. Dizer isso
                    aqui evita a dúvida de por que o cliente não escolhe nada. */
                 const escolhaFalsa = !!grupo.obrigatorio && grupo.opcoes.length === 1;
+
+                /*
+                 * EM QUANTOS PRODUTOS ESTE GRUPO ESTÁ.
+                 *
+                 * A biblioteca traz só os grupos que NÃO estão neste produto, então
+                 * ela não sabe deste. A contagem vem daqui: os grupos deste produto
+                 * que aparecem repetidos na lista de outro produto seriam visíveis
+                 * só com uma consulta a mais — e a informação que a tela precisa é
+                 * só "é compartilhado?", que o próprio backend responde no delete.
+                 * Até a fase 4 (biblioteca), `usos` chega junto do grupo.
+                 */
+                const usos = (grupo as unknown as { usos?: number }).usos ?? 1;
+                /* `?? 1` e não `?? 0`: um grupo que a tela está mostrando está,
+                   por definição, neste produto. Zero faria a conta de "outros
+                   N-1 produtos" virar -1 na primeira resposta sem o campo. */
+                const compartilhado = usos > 1;
 
                 const aVenda = grupo.opcoes.filter(o => o.disponivel);
 
@@ -2418,6 +2525,21 @@ function GruposEditor({ produto }: { produto: Produto }) {
                       <span className="shrink-0 text-[11.5px] text-muted-foreground">
                         {fraseDaRegra(grupo, tetoVemDoTamanho ? faixaSabores : null)}
                       </span>
+                      {/*
+                        SELO DE USO, permanente e não em tooltip.
+                        Mexer no preço do Catupiry num grupo usado por 30 pizzas
+                        muda 30 pizzas. Sem esse número na cara, o lojista lê a
+                        tela como "a borda DESTA pizza" — e o reaproveitamento
+                        deixa de ser recurso e passa a ser armadilha.
+                      */}
+                      {compartilhado && (
+                        <span
+                          className="shrink-0 rounded-full border border-[#F1E3C4] bg-[#FBF3E4] px-2 py-0.5 text-[11px] font-bold text-[#92610A] dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300"
+                          title="Editar os itens ou os preços deste grupo muda todos esses produtos"
+                        >
+                          em {usos} produtos
+                        </span>
+                      )}
                       {escolhaFalsa && (
                         <span
                           className="shrink-0 text-[11.5px] text-amber-700 dark:text-amber-400"
@@ -2438,8 +2560,10 @@ function GruposEditor({ produto }: { produto: Produto }) {
                         </button>
                         <button
                           type="button"
-                          onClick={() => excluirGrupo(grupo.id)}
-                          title="Remover grupo"
+                          onClick={() => tirarDoProduto(grupo, usos)}
+                          title={compartilhado
+                            ? `Tirar deste produto (continua em outros ${usos - 1})`
+                            : 'Excluir este grupo'}
                           className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
                         >
                           <Trash2 className="size-4" />
@@ -2498,6 +2622,27 @@ function GruposEditor({ produto }: { produto: Produto }) {
                             </span>
                           )}
                         </div>
+
+                        {/*
+                          O AVISO FICA DENTRO DO GRUPO ABERTO, junto dos itens que
+                          ele governa — é onde a edição acontece. O selo lá em
+                          cima diz que é compartilhado; esta linha diz o que isso
+                          custa, e oferece a saída no mesmo lugar.
+                        */}
+                        {compartilhado && (
+                          <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-[#FBF3E4] px-3.5 py-2 dark:bg-amber-950/40">
+                            <span className="text-[11.5px] font-semibold text-[#92610A] dark:text-amber-300">
+                              Compartilhado com outros {usos - 1} {usos - 1 === 1 ? 'produto' : 'produtos'} — mudar item ou preço aqui muda em todos.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => soltarDoGrupo(grupo, usos)}
+                              className="ml-auto whitespace-nowrap rounded-lg border border-[#E4D0A6] bg-white/70 px-2 py-1 text-[11.5px] font-semibold text-[#92610A] transition-colors hover:bg-white dark:border-amber-900 dark:bg-transparent dark:text-amber-300"
+                            >
+                              Fazer cópia só daqui
+                            </button>
+                          </div>
+                        )}
 
                         {/* ─── Barra de ferramentas dos itens ─── */}
                         <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/10 px-3.5 py-2">
@@ -3040,6 +3185,47 @@ function GruposEditor({ produto }: { produto: Produto }) {
                   <p className="mt-1 text-sm text-muted-foreground">
                     Comece por um modelo — dá pra ajustar tudo depois.
                   </p>
+                </div>
+              )}
+
+              {/*
+                ─── USAR UM GRUPO QUE JÁ EXISTE ───
+
+                É a razão de ser das três fases. Antes disto, "Borda" existia uma
+                vez por pizza: 30 pizzas, 30 bordas, e subir o Catupiry era editar
+                30 grupos um por um.
+
+                Vem ANTES dos modelos prontos porque é a opção certa quando ela
+                existe: o modelo cria um grupo novo (mais um pra manter), e o grupo
+                da loja já está configurado com os itens e os preços que a loja usa.
+              */}
+              {(biblioteca ?? []).length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[12.5px] text-muted-foreground">
+                    Da sua loja — usar o mesmo grupo em vários produtos deixa preço e itens num lugar só:
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {(biblioteca ?? []).map(g => (
+                      <button
+                        key={g.id}
+                        type="button"
+                        disabled={salvandoGrupo}
+                        onClick={() => usarGrupoExistente(g.id)}
+                        className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-left shadow-sm transition-all hover:-translate-y-px hover:border-primary hover:shadow-md disabled:opacity-50"
+                      >
+                        <Plus className="size-3.5 shrink-0 text-primary" />
+                        <span className="min-w-0">
+                          <span className="block text-[13.5px] font-bold leading-tight">{g.nome}</span>
+                          <span className="block text-[11px] text-muted-foreground">
+                            {g.itens} {g.itens === 1 ? 'item' : 'itens'}
+                            {/* "usado em N" é o que diferencia trazer um grupo já
+                                compartilhado de trazer um que só uma pizza usa. */}
+                            {g.usos > 0 && ` · em ${g.usos} ${g.usos === 1 ? 'produto' : 'produtos'}`}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 

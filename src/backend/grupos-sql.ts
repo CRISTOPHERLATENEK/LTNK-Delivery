@@ -49,6 +49,25 @@ export const SQL_GRUPOS_DO_PRODUTO =
   `SELECT ${COLUNAS_GRUPO} FROM ${JOIN_GRUPOS}
     WHERE pg.produto_id = ? ORDER BY pg.ordem, g.id`;
 
+/**
+ * A MESMA COISA, MAIS "EM QUANTOS PRODUTOS ESTE GRUPO ESTÁ".
+ *
+ * Só o painel do lojista usa. `usos` é o número que decide o texto de toda ação
+ * destrutiva na tela — apertar a lixeira num grupo usado por 30 pizzas não pode
+ * significar a mesma coisa que num grupo usado por uma — e é o que acende o selo
+ * "em N produtos".
+ *
+ * Fica SEPARADO do fragmento do menu de propósito: é uma subconsulta por grupo, e
+ * o menu público carrega o cardápio inteiro a cada visita de cliente. Pagar isso
+ * no caminho quente pra mostrar um número que só o lojista vê seria trocar
+ * desempenho de todo mundo por conveniência de um.
+ */
+export const SQL_GRUPOS_DO_PRODUTO_COM_USOS =
+  `SELECT ${COLUNAS_GRUPO},
+          (SELECT COUNT(*) FROM produto_grupos x WHERE x.grupo_id = g.id) AS usos
+     FROM ${JOIN_GRUPOS}
+    WHERE pg.produto_id = ? ORDER BY pg.ordem, g.id`;
+
 /** Idem, para vários produtos de uma vez (o menu inteiro numa consulta). */
 export function sqlGruposDeProdutos(quantos: number): string {
   const marcas = Array.from({ length: quantos }, () => '?').join(',');
