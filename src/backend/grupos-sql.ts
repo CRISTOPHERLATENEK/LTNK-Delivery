@@ -64,9 +64,31 @@ export const SQL_GRUPOS_DO_PRODUTO =
  */
 export const SQL_GRUPOS_DO_PRODUTO_COM_USOS =
   `SELECT ${COLUNAS_GRUPO},
-          (SELECT COUNT(*) FROM produto_grupos x WHERE x.grupo_id = g.id) AS usos
+          (SELECT COUNT(*) FROM produto_grupos x
+             JOIN produtos px ON px.id = x.produto_id AND px.excluido = 0
+            WHERE x.grupo_id = g.id) AS usos
      FROM ${JOIN_GRUPOS}
     WHERE pg.produto_id = ? ORDER BY pg.ordem, g.id`;
+
+/*
+ * PRODUTO EXCLUÍDO NÃO CONTA COMO USO.
+ *
+ * `produtos.excluido` é apagar SUAVE: a linha fica, e com ela o vínculo com o
+ * grupo. Contar esses vínculos como uso quebrava as três coisas que `usos`
+ * governa:
+ *
+ *  - o selo mentia: "em 2 produtos" num grupo que só uma pizza viva usa;
+ *  - o aviso mentia junto: "mudar aqui muda em todos" sem haver outros;
+ *  - e o pior, "tirar deste produto" não apagava o grupo, porque achava que
+ *    sobrava vínculo. O grupo virava órfão — nenhum produto vivo o usa, nenhuma
+ *    tela alcança ele, e sem a biblioteca (fase 4) não há como remover.
+ *
+ * Aconteceu na base real antes de qualquer lojista usar o recurso: das 13
+ * ligações, SETE apontam pra produto excluído.
+ *
+ * O vínculo em si continua — apagar suave existe pra poder voltar atrás, e
+ * limpar as ligações na exclusão tiraria a configuração do produto restaurado.
+ */
 
 /** Idem, para vários produtos de uma vez (o menu inteiro numa consulta). */
 export function sqlGruposDeProdutos(quantos: number): string {

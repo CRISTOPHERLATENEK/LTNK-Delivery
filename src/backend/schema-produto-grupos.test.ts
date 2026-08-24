@@ -356,3 +356,60 @@ describe('fase 3 — ligar, desligar, soltar', () => {
       .not.toMatch(/COM_USOS/);
   });
 });
+
+/**
+ * PRODUTO EXCLUÍDO NÃO CONTA COMO USO.
+ *
+ * `produtos.excluido` é apagar SUAVE: a linha fica, e com ela o vínculo com o
+ * grupo. Contar esses vínculos quebrava as três coisas que `usos` governa — o
+ * selo ("em 2 produtos" com só uma pizza viva), o aviso ("mudar aqui muda em
+ * todos" sem haver outros) e, o pior, o "tirar deste produto", que não apagava o
+ * grupo por achar que sobrava vínculo. O grupo virava órfão: nenhum produto vivo
+ * o usa, nenhuma tela alcança, e sem a biblioteca (fase 4) não há como remover.
+ *
+ * Não é hipótese: das 13 ligações da base real, SETE apontam pra produto
+ * excluído — antes de qualquer lojista tocar no recurso.
+ */
+describe('uso conta só produto vivo', () => {
+  const lojista = fs.readFileSync(path.resolve(__dirname, 'rotas', 'lojista.ts'), 'utf8');
+  const sql = fs.readFileSync(path.resolve(__dirname, 'grupos-sql.ts'), 'utf8');
+
+  /* É esta lista que decide se "tirar daqui" apaga o grupo ou só corta o
+     vínculo — o lugar onde contar errado deixa lixo invisível. */
+  it('produtosDoGrupo ignora excluído', () => {
+    const i = lojista.indexOf('async function produtosDoGrupo');
+    const fn = lojista.slice(i, lojista.indexOf('\n}', i));
+    expect(fn).toMatch(/JOIN produtos p ON p\.id = pg\.produto_id/);
+    expect(fn).toMatch(/p\.excluido = 0/);
+  });
+
+  it('a contagem do painel ignora excluído', () => {
+    const i = sql.indexOf('SQL_GRUPOS_DO_PRODUTO_COM_USOS');
+    expect(sql.slice(i, sql.indexOf('`;', i))).toMatch(/px\.excluido = 0/);
+  });
+
+  /* Ancorado na ROTA e não na primeira ocorrência de "AS usos": a primeira
+     versão deste teste caiu numa consulta de sugestões que fica antes no
+     arquivo, e reprovou a forma correta por estar olhando o lugar errado. */
+  it('a contagem da biblioteca ignora excluído', () => {
+    const i = lojista.indexOf("router.get('/grupos',");
+    const rota = lojista.slice(i, lojista.indexOf("router.get('/grupos/:id/produtos'", i));
+    expect(rota).toMatch(/AS usos/);
+    expect(rota).toMatch(/p2\.excluido = 0/);
+  });
+
+  /*
+   * E quando o grupo é apagado de verdade, as ligações que SOBRAM (as de produto
+   * excluído, que `restantes` não conta) têm que sair antes: a FK recusa apagar
+   * o grupo com vínculo pendurado, e o DELETE inteiro estouraria num erro que
+   * não diz nada.
+   */
+  it('apagar o grupo limpa as ligações de produto excluído', () => {
+    const i = lojista.indexOf("router.delete('/produtos/:id/grupos/:grupoId'");
+    const rota = lojista.slice(i, lojista.indexOf('router.', i + 10));
+    const limpaTodas = rota.indexOf("DELETE FROM produto_grupos WHERE grupo_id = ?");
+    const apagaGrupo = rota.indexOf('DELETE FROM grupos_opcoes');
+    expect(limpaTodas).toBeGreaterThan(-1);
+    expect(limpaTodas).toBeLessThan(apagaGrupo);
+  });
+});

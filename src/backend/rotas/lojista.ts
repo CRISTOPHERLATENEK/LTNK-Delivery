@@ -1364,10 +1364,19 @@ export function modoPrecoValido(v: unknown): string {
  * De quebra, isto conserta a base existente na primeira vez que qualquer um dos
  * dois grupos for salvo.
  */
-/** Os produtos que usam este grupo. Uma lista de um, enquanto a fase 3 não vem. */
+/**
+ * Os produtos VIVOS que usam este grupo.
+ *
+ * `excluido = 0` não é detalhe: é esta lista que decide se "tirar deste produto"
+ * apaga o grupo ou só corta o vínculo. Contando produto excluído, o grupo
+ * sobreviveria a perder o último produto vivo e viraria órfão — sem tela que
+ * alcance ele e sem jeito de remover.
+ */
 async function produtosDoGrupo(grupoId: number): Promise<number[]> {
   const linhas = await db.prepare(
-    'SELECT produto_id FROM produto_grupos WHERE grupo_id = ?'
+    `SELECT pg.produto_id FROM produto_grupos pg
+       JOIN produtos p ON p.id = pg.produto_id
+      WHERE pg.grupo_id = ? AND p.excluido = 0`
   ).all(grupoId) as Array<{ produto_id: number }>;
   return linhas.map(l => l.produto_id);
 }
@@ -1559,7 +1568,9 @@ router.get('/grupos', async (req, res, next) => {
        * a lista de "usar aqui", que é uma pergunta diferente.
        */
       `SELECT g.id, g.nome, g.tipo, g.papel, g.modo_preco, g.obrigatorio, g.max_escolhas,
-              (SELECT COUNT(*) FROM produto_grupos pg WHERE pg.grupo_id = g.id) AS usos,
+              (SELECT COUNT(*) FROM produto_grupos pg
+                 JOIN produtos p2 ON p2.id = pg.produto_id AND p2.excluido = 0
+                WHERE pg.grupo_id = g.id) AS usos,
               (SELECT COUNT(*) FROM opcoes_itens o WHERE o.grupo_id = g.id) AS itens,
               (SELECT SUBSTRING(GROUP_CONCAT(o.nome ORDER BY o.ordem, o.id SEPARATOR ' · '), 1, 70)
                  FROM opcoes_itens o WHERE o.grupo_id = g.id) AS previa,
@@ -1659,6 +1670,12 @@ router.delete('/produtos/:id/grupos/:grupoId', async (req, res, next) => {
       await tx.prepare('DELETE FROM produto_grupos WHERE produto_id = ? AND grupo_id = ?')
         .run(produto.id, grupo.id);
       if (restantes.length === 0) {
+        /*
+         * As ligações que sobram apontam pra produto EXCLUÍDO — `restantes` só
+         * conta os vivos. Elas têm que sair antes, senão a FK recusa apagar o
+         * grupo e o DELETE inteiro estoura num erro que não diz nada.
+         */
+        await tx.prepare('DELETE FROM produto_grupos WHERE grupo_id = ?').run(grupo.id);
         await tx.prepare('DELETE FROM opcoes_itens WHERE grupo_id = ?').run(grupo.id);
         await tx.prepare('DELETE FROM grupos_opcoes WHERE id = ?').run(grupo.id);
       }
