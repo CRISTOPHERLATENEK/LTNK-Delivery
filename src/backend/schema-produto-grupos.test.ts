@@ -120,27 +120,86 @@ describe('as guardas de custo no boot', () => {
 });
 
 /**
- * A FASE 1 NÃO PODE MUDAR COMPORTAMENTO.
+ * A FASE 2 LIGOU A TABELA NOS TRÊS CAMINHOS QUE IMPORTAM.
  *
- * É o que a torna aplicável e reversível: ela cria e preenche, e ninguém lê. Se
- * alguma rota começar a ler `produto_grupos` sem que este teste mude, a fase 1
- * deixou de ser o ponto de volta seguro que o escopo prometeu — e a revisão
- * passa a precisar de outro tipo de cuidado.
+ * Na fase 1 este bloco verificava o contrário: que NADA lia `produto_grupos`. Era
+ * o que fazia dela um ponto de volta seguro. Agora o invariante virou: os três
+ * lugares que leem grupo têm que ler pela ligação, e nenhum deles pode voltar a
+ * consultar `grupos_opcoes` sozinha.
+ *
+ * Por que isso merece teste em vez de confiança: uma consulta que esquece o JOIN
+ * não dá erro. Ela devolve os grupos com `obrigatorio` e `max_escolhas` do
+ * PADRÃO do grupo em vez do valor da ligação — e no dia da fase 2, com uma
+ * ligação por grupo, os dois são iguais. O defeito ficaria dormindo até o
+ * primeiro grupo compartilhado, e apareceria como "a borda virou opcional na
+ * pizza sozinha".
  */
-describe('nada lê produto_grupos ainda (fase 1)', () => {
-  function arquivos(dir: string): string[] {
-    return fs.readdirSync(dir, { withFileTypes: true }).flatMap(e => {
-      const p = path.join(dir, e.name);
-      if (e.isDirectory()) return e.name === 'node_modules' ? [] : arquivos(p);
-      return /\.ts$/.test(e.name) && !/\.test\.ts$/.test(e.name) ? [p] : [];
-    });
-  }
+describe('fase 2 — quem lê grupo lê pela ligação', () => {
+  const arquivo = (rel: string) => fs.readFileSync(path.resolve(__dirname, rel), 'utf8');
 
-  it('só schema-mysql.ts menciona a tabela', () => {
-    const raiz = path.resolve(__dirname);
-    const citam = arquivos(raiz)
-      .filter(a => fs.readFileSync(a, 'utf8').includes('produto_grupos'))
-      .map(a => path.basename(a));
-    expect(citam).toEqual(['schema-mysql.ts']);
+  it('o fragmento compartilhado faz o JOIN', () => {
+    const sql = arquivo('grupos-sql.ts');
+    expect(sql).toMatch(/JOIN produto_grupos pg ON pg\.grupo_id = g\.id/);
+    expect(sql).toMatch(/WHERE pg\.produto_id = \?/);
+  });
+
+  /*
+   * O caminho do DINHEIRO. É esta consulta que decide se o pedido é aceito e
+   * quanto custa; se ela divergir da do menu, o cliente vê um preço e paga
+   * outro.
+   */
+  it('a validação do pedido usa o mesmo fragmento do menu', () => {
+    const cliente = arquivo('rotas/cliente.ts');
+    expect(cliente).toMatch(/SQL_GRUPOS_DO_PRODUTO/);
+    expect(cliente).not.toMatch(/FROM grupos_opcoes WHERE produto_id/);
+  });
+
+  it('o menu público usa o fragmento', () => {
+    expect(arquivo('rotas/publico.ts')).toMatch(/sqlGruposDeProdutos/);
+  });
+
+  it('o editor do lojista usa o fragmento', () => {
+    expect(arquivo('rotas/lojista.ts')).toMatch(/SQL_GRUPOS_DO_PRODUTO/);
+  });
+
+  /*
+   * NENHUMA rota volta a ler grupo por `produto_id`. É a assinatura exata da
+   * consulta que ignora a ligação.
+   */
+  it('nenhuma rota lê grupo por produto_id', () => {
+    for (const rel of ['rotas/cliente.ts', 'rotas/publico.ts', 'rotas/lojista.ts']) {
+      expect(arquivo(rel)).not.toMatch(/FROM grupos_opcoes\s+WHERE produto_id/);
+    }
+  });
+
+  /*
+   * CRIAR GRUPO SEM LIGAÇÃO É CRIAR GRUPO INVISÍVEL: depois da fase 2 toda
+   * leitura passa pela ligação, então o grupo existiria no banco e em lugar
+   * nenhum na tela. Vale pro POST da rota e pro seed.
+   */
+  it('quem cria grupo também cria a ligação', () => {
+    for (const rel of ['rotas/lojista.ts', 'seed.ts']) {
+      expect(arquivo(rel)).toMatch(/INSERT INTO produto_grupos/);
+    }
+  });
+
+  /* A FK recusa apagar o grupo com ligação pendurada — a ligação sai antes. */
+  it('quem apaga grupo apaga a ligação primeiro', () => {
+    const lojista = arquivo('rotas/lojista.ts');
+    const i = lojista.indexOf("DELETE FROM produto_grupos WHERE grupo_id = ?");
+    const j = lojista.indexOf("DELETE FROM grupos_opcoes WHERE id = ?");
+    expect(i).toBeGreaterThan(-1);
+    expect(i).toBeLessThan(j);
+  });
+
+  /*
+   * Excluir loja tem que levar o grupo pelo `loja_id` DELE, não pelos produtos:
+   * pelo caminho antigo, grupo sem produto ligado — estado normal depois da fase
+   * 3 — ficaria órfão apontando pra uma loja que não existe mais.
+   */
+  it('excluir loja apaga grupo por loja_id', () => {
+    const admin = arquivo('rotas/admin.ts');
+    expect(admin).toMatch(/DELETE FROM grupos_opcoes WHERE loja_id = \?/);
+    expect(admin).not.toMatch(/DELETE FROM grupos_opcoes WHERE produto_id IN/);
   });
 });

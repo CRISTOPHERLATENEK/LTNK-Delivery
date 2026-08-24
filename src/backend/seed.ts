@@ -69,14 +69,19 @@ async function criarProduto(lojaId: number, p: ProdutoSeed): Promise<void> {
   }
 
   if (!p.grupos) return;
-  const jaTemGrupos = await db.prepare('SELECT id FROM grupos_opcoes WHERE produto_id = ?').get(produto.id);
+  const jaTemGrupos = await db.prepare('SELECT id FROM produto_grupos WHERE produto_id = ?').get(produto.id);
   if (jaTemGrupos) return;
 
   for (const [ordemG, g] of p.grupos.entries()) {
     const infoGrupo = await db.prepare(
-      `INSERT INTO grupos_opcoes (produto_id, nome, tipo, obrigatorio, max_escolhas, ordem)
-       VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(produto.id, g.nome, g.tipo, g.obrigatorio ? 1 : 0, g.max || 0, ordemG);
+      `INSERT INTO grupos_opcoes (produto_id, loja_id, nome, tipo, obrigatorio, max_escolhas, ordem)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(produto.id, lojaId, g.nome, g.tipo, g.obrigatorio ? 1 : 0, g.max || 0, ordemG);
+    /* Sem a ligação o grupo nasce invisível: toda leitura passa por ela agora. */
+    await db.prepare(
+      `INSERT INTO produto_grupos (produto_id, grupo_id, ordem, obrigatorio, max_escolhas)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(produto.id, Number(infoGrupo.lastInsertRowid), ordemG, g.obrigatorio ? 1 : 0, g.max || 0);
     for (const [ordemO, [nomeOpcao, precoAdicional]] of g.opcoes.entries()) {
       await db.prepare(
         `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem)

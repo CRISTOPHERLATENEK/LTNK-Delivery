@@ -444,13 +444,29 @@ router.delete('/lojas/:id', exigirSuperAdmin, async (req, res, next) => {
       await tx.prepare('DELETE FROM categorias WHERE loja_id = ?').run(lojaId);
       await tx.prepare('DELETE FROM notas_fiscais WHERE loja_id = ?').run(lojaId);
       // Cardápio (opções → grupos → produtos)
+      /*
+       * PELO `loja_id` DO GRUPO, não pelos produtos.
+       *
+       * O caminho antigo (produtos → grupos) deixaria para trás qualquer grupo
+       * sem produto ligado — e depois da fase 3 isso é estado normal, um grupo
+       * na biblioteca da loja esperando uso. Excluir loja tem que levar tudo o
+       * que é dela, senão sobra linha órfã apontando pra uma loja que não existe.
+       *
+       * A ligação sai antes das duas por causa das FKs.
+       */
+      await tx.prepare(
+        `DELETE FROM produto_grupos WHERE grupo_id IN (
+           SELECT id FROM grupos_opcoes WHERE loja_id = ?)`
+      ).run(lojaId);
+      await tx.prepare(
+        `DELETE FROM produto_grupos WHERE produto_id IN (
+           SELECT id FROM produtos WHERE loja_id = ?)`
+      ).run(lojaId);
       await tx.prepare(
         `DELETE FROM opcoes_itens WHERE grupo_id IN (
-           SELECT g.id FROM grupos_opcoes g JOIN produtos p ON p.id = g.produto_id WHERE p.loja_id = ?)`
+           SELECT id FROM grupos_opcoes WHERE loja_id = ?)`
       ).run(lojaId);
-      await tx.prepare(
-        'DELETE FROM grupos_opcoes WHERE produto_id IN (SELECT id FROM produtos WHERE loja_id = ?)'
-      ).run(lojaId);
+      await tx.prepare('DELETE FROM grupos_opcoes WHERE loja_id = ?').run(lojaId);
       await tx.prepare('DELETE FROM produtos WHERE loja_id = ?').run(lojaId);
       await tx.prepare('DELETE FROM zonas_entrega WHERE loja_id = ?').run(lojaId);
       await tx.prepare('DELETE FROM banners WHERE loja_id = ?').run(lojaId);

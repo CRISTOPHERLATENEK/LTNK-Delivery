@@ -16,6 +16,7 @@ import { comissaoPercentualDaLoja } from '../comissao';
 import { geocodificar } from '../geo';
 import { resolverFrete, type EnderecoParaFrete } from '../frete';
 import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo, contarFracoes } from '../opcoes-preco';
+import { SQL_GRUPOS_DO_PRODUTO } from '../grupos-sql';
 import { criarCobrancaPix, pagamentoOnlineAtivo, cartaoOnlineAtivo, conferirPagamentoAgora, publicKeyMP, criarPagamentoCartao, aplicarResultadoCartao } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 import { dadosAnonimos, ehAnonimizado, ENDERECO_ANONIMO, TEXTO_ANONIMO } from '../anonimizacao';
@@ -278,9 +279,13 @@ async function validarOpcoesDoItem(produto: Produto, opcoesEscolhidas: number[] 
     ? [...new Set(opcoesEscolhidas.map(v => inteiroPositivo(v)).filter((v): v is number => v !== null))]
     : [];
 
-  const grupos = await db.prepare(
-    'SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id'
-  ).all(produto.id) as GrupoOpcao[];
+  /*
+   * É O CAMINHO DO DINHEIRO: é esta lista que decide se o pedido é aceito e
+   * quanto ele custa. Lê pela MESMA consulta do menu público (`grupos-sql.ts`),
+   * porque prévia e cobrança lendo de jeitos diferentes é como o cliente vê um
+   * preço e paga outro.
+   */
+  const grupos = await db.prepare(SQL_GRUPOS_DO_PRODUTO).all(produto.id) as GrupoOpcao[];
 
   // O preço que o cliente PAGA. Promoção vencida não vale aqui — ver
   // preco-produto.ts, que é onde a regra mora pros nove lugares que a usam.

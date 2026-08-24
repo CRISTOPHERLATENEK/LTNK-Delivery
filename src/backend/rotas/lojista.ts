@@ -13,6 +13,7 @@ import { tenantPorDbNome } from '../tenants-mysql';
 import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido, normalizarBairro, dataBrasilia} from '../util';
 import { precoVigente } from '../preco-produto';
+import { SQL_GRUPOS_DO_PRODUTO } from '../grupos-sql';
 import { resolverCanais } from '../disponibilidade-produto';
 import { transicionarStatus } from '../fluxoPedido';
 import { enviarPush } from '../push';
@@ -959,7 +960,7 @@ router.get('/produtos', async (req, res, next) => {
     ).all(loja.id) as ProdutoFull[];
 
     for (const p of produtos) {
-      const grupos = await db.prepare('SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id').all(p.id) as GrupoOpcao[];
+      const grupos = await db.prepare(SQL_GRUPOS_DO_PRODUTO).all(p.id) as GrupoOpcao[];
       const comOpcoes = [];
       for (const g of grupos) {
         const opcoes = await db.prepare('SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id').all(g.id) as OpcaoItem[];
@@ -1136,7 +1137,13 @@ router.post('/produtos/:id/duplicar', async (req, res, next) => {
       );
       const novoId = Number(info.lastInsertRowid);
 
-      const grupos = await tx.prepare('SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id').all(original.id) as any[];
+      /* Lê pela ligação, como todo o resto — senão duplicar um produto que já
+         usa grupo compartilhado copiaria os grupos errados (ou nenhum). */
+      const grupos = await tx.prepare(
+        `SELECT g.*, pg.ordem AS pg_ordem, pg.obrigatorio AS pg_obrigatorio, pg.max_escolhas AS pg_max
+           FROM grupos_opcoes g JOIN produto_grupos pg ON pg.grupo_id = g.id
+          WHERE pg.produto_id = ? ORDER BY pg.ordem, g.id`
+      ).all(original.id) as any[];
       for (const g of grupos) {
         const gInfo = await tx.prepare(
           /*
@@ -1153,11 +1160,18 @@ router.post('/produtos/:id/duplicar', async (req, res, next) => {
            * fora das opções: quem duplica um produto configurado espera a
            * configuração, não a casca dela.
            */
-          `INSERT INTO grupos_opcoes (produto_id, nome, tipo, obrigatorio, max_escolhas, ordem, papel, modo_preco)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(novoId, g.nome, g.tipo, g.obrigatorio, g.max_escolhas, g.ordem,
+          `INSERT INTO grupos_opcoes (produto_id, loja_id, nome, tipo, obrigatorio, max_escolhas, ordem, papel, modo_preco)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(novoId, loja.id, g.nome, g.tipo, g.pg_obrigatorio, g.pg_max, g.pg_ordem,
               g.papel || '', g.modo_preco || 'somar');
         const novoGrupoId = Number(gInfo.lastInsertRowid);
+        /* Duplicar COPIA o grupo, não compartilha: é o comportamento de hoje, e
+           mudar isso junto com a leitura seria duas mudanças de uma vez. Passar
+           a ligar é decisão da fase 3. */
+        await tx.prepare(
+          `INSERT INTO produto_grupos (produto_id, grupo_id, ordem, obrigatorio, max_escolhas)
+           VALUES (?, ?, ?, ?, ?)`
+        ).run(novoId, novoGrupoId, g.pg_ordem, g.pg_obrigatorio, g.pg_max);
         const opcoes = await tx.prepare('SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id').all(g.id) as any[];
         for (const o of opcoes) {
           await tx.prepare(
@@ -1224,10 +1238,17 @@ router.post('/produtos/bulk', async (req, res, next) => {
 // ----- Grupos e opções -----------------------------------------------------
 
 async function meuGrupo(loja: Loja, grupoId: number | string): Promise<GrupoOpcao> {
+  /*
+   * O DONO VEM DE `g.loja_id`, não mais de um JOIN em produtos.
+   *
+   * Enquanto o grupo era de um produto só, o produto respondia quem era o dono.
+   * Agora o grupo pode estar ligado a vários produtos — ou a nenhum, quando o
+   * lojista desliga o último. Pelo caminho antigo, um grupo sem produto não
+   * teria dono: 404 pra sempre, e a linha ficaria no banco inalcançável e
+   * indelével.
+   */
   const grupo = await db.prepare(
-    `SELECT g.* FROM grupos_opcoes g
-       JOIN produtos p ON p.id = g.produto_id
-      WHERE g.id = ? AND p.loja_id = ?`
+    'SELECT * FROM grupos_opcoes WHERE id = ? AND loja_id = ?'
   ).get(grupoId, loja.id) as GrupoOpcao | undefined;
   if (!grupo) throw erroHttp(404, 'Grupo de opções não encontrado.');
   return grupo;
@@ -1235,10 +1256,11 @@ async function meuGrupo(loja: Loja, grupoId: number | string): Promise<GrupoOpca
 
 async function minhaOpcao(loja: Loja, opcaoId: number | string): Promise<OpcaoItem> {
   const opcao = await db.prepare(
+    // Mesmo motivo do `meuGrupo`: a loja está no grupo, e o produto deixou de
+    // ser o caminho até ela.
     `SELECT o.* FROM opcoes_itens o
        JOIN grupos_opcoes g ON g.id = o.grupo_id
-       JOIN produtos p ON p.id = g.produto_id
-      WHERE o.id = ? AND p.loja_id = ?`
+      WHERE o.id = ? AND g.loja_id = ?`
   ).get(opcaoId, loja.id) as OpcaoItem | undefined;
   if (!opcao) throw erroHttp(404, 'Opção não encontrada.');
   return opcao;
@@ -1321,9 +1343,7 @@ router.get('/produtos/:id/grupos', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const produto = await meuProduto(loja, req.params.id);
-    const gruposBrutos = await db.prepare(
-      'SELECT * FROM grupos_opcoes WHERE produto_id = ? ORDER BY ordem, id'
-    ).all(produto.id) as GrupoOpcao[];
+    const gruposBrutos = await db.prepare(SQL_GRUPOS_DO_PRODUTO).all(produto.id) as GrupoOpcao[];
     const grupos = [];
     for (const g of gruposBrutos) {
       const opcoes = await db.prepare('SELECT * FROM opcoes_itens WHERE grupo_id = ? ORDER BY ordem, id').all(g.id) as OpcaoItem[];
@@ -1374,11 +1394,26 @@ export function modoPrecoValido(v: unknown): string {
  * De quebra, isto conserta a base existente na primeira vez que qualquer um dos
  * dois grupos for salvo.
  */
+/** Os produtos que usam este grupo. Uma lista de um, enquanto a fase 3 não vem. */
+async function produtosDoGrupo(grupoId: number): Promise<number[]> {
+  const linhas = await db.prepare(
+    'SELECT produto_id FROM produto_grupos WHERE grupo_id = ?'
+  ).all(grupoId) as Array<{ produto_id: number }>;
+  return linhas.map(l => l.produto_id);
+}
+
 async function papelExclusivo(produtoId: number, papel: string, exceto: number): Promise<void> {
   if (papel !== 'tamanho' && papel !== 'sabores') return;
+  /*
+   * "Outro grupo DESTE PRODUTO" deixou de ser `produto_id = ?` e passou a ser
+   * uma pergunta às ligações. O papel continua sendo do GRUPO (um grupo de
+   * tamanho é de tamanho em qualquer produto), mas a exclusividade é por
+   * produto — é dentro de um produto que dois grupos de tamanho se atropelam.
+   */
   await db.prepare(
-    "UPDATE grupos_opcoes SET papel = '' WHERE produto_id = ? AND papel = ? AND id <> ?"
-  ).run(produtoId, papel, exceto);
+    `UPDATE grupos_opcoes SET papel = '' WHERE papel = ? AND id <> ?
+       AND id IN (SELECT grupo_id FROM produto_grupos WHERE produto_id = ?)`
+  ).run(papel, exceto, produtoId);
 }
 
 router.post('/produtos/:id/grupos', async (req, res, next) => {
@@ -1390,16 +1425,37 @@ router.post('/produtos/:id/grupos', async (req, res, next) => {
     const tipo = req.body.tipo === 'multiplo' ? 'multiplo' : 'unico';
     if (nome.length < 2) throw erroHttp(400, 'Informe o nome do grupo (ex.: Tamanho, Borda, Adicionais).');
 
+    const obrigatorio = req.body.obrigatorio ? 1 : 0;
+    const maxEscolhas = inteiroPositivo(req.body.max_escolhas) || 0;
+    const ordem = inteiroPositivo(req.body.ordem) || 0;
+
+    /*
+     * As colunas `obrigatorio`, `max_escolhas` e `ordem` continuam no grupo como
+     * PADRÃO: é o que uma ligação nova herda. Quem vale na leitura é a ligação.
+     *
+     * `produto_id` continua sendo gravado porque nada além desta fase depende
+     * disso ainda, e manter a coluna coerente é o que permite voltar atrás sem
+     * perder o vínculo.
+     */
     const info = await db.prepare(
-      `INSERT INTO grupos_opcoes (produto_id, nome, tipo, obrigatorio, max_escolhas, ordem, papel, modo_preco)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(produto.id, nome, tipo,
-          req.body.obrigatorio ? 1 : 0,
-          inteiroPositivo(req.body.max_escolhas) || 0,
-          inteiroPositivo(req.body.ordem) || 0,
+      `INSERT INTO grupos_opcoes (produto_id, loja_id, nome, tipo, obrigatorio, max_escolhas, ordem, papel, modo_preco)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(produto.id, loja.id, nome, tipo, obrigatorio, maxEscolhas, ordem,
           papelValido(req.body.papel), modoPrecoValido(req.body.modo_preco));
-    await papelExclusivo(produto.id, papelValido(req.body.papel), Number(info.lastInsertRowid));
-    res.status(201).json({ grupo_id: Number(info.lastInsertRowid) });
+    const grupoId = Number(info.lastInsertRowid);
+
+    /*
+     * SEM A LIGAÇÃO, O GRUPO NASCE INVISÍVEL. Depois da fase 2 toda leitura
+     * passa por `produto_grupos` — um grupo criado sem ligação existiria no
+     * banco e em lugar nenhum na tela.
+     */
+    await db.prepare(
+      `INSERT INTO produto_grupos (produto_id, grupo_id, ordem, obrigatorio, max_escolhas)
+       VALUES (?, ?, ?, ?, ?)`
+    ).run(produto.id, grupoId, ordem, obrigatorio, maxEscolhas);
+
+    await papelExclusivo(produto.id, papelValido(req.body.papel), grupoId);
+    res.status(201).json({ grupo_id: grupoId });
   } catch (e) { next(e); }
 });
 
@@ -1412,21 +1468,57 @@ router.put('/grupos/:id', async (req, res, next) => {
     const papel = req.body.papel !== undefined
       ? papelValido(req.body.papel)
       : ((grupo as unknown as { papel?: string }).papel ?? '');
+    /*
+     * DOIS DESTINOS, e é a mudança central da fase 2.
+     *
+     * `nome`, `tipo`, `papel` e `modo_preco` são do GRUPO: valem em todo produto
+     * que o usa. `ordem`, `obrigatorio` e `max_escolhas` são da LIGAÇÃO: a ordem
+     * é a daquele produto, e borda é obrigatória na pizza e opcional na esfiha.
+     *
+     * Gravar os três no grupo também seria "manter coerente" — e seria o começo
+     * da divergência: dois lugares com a mesma verdade, um lido e outro não. As
+     * colunas do grupo ficam como PADRÃO para ligações novas, e ninguém as lê.
+     */
     await db.prepare(
-      `UPDATE grupos_opcoes SET nome = ?, tipo = ?, obrigatorio = ?, max_escolhas = ?, ordem = ?,
-              papel = ?, modo_preco = ? WHERE id = ?`
+      'UPDATE grupos_opcoes SET nome = ?, tipo = ?, papel = ?, modo_preco = ? WHERE id = ?'
     ).run(nome,
           req.body.tipo !== undefined ? (req.body.tipo === 'multiplo' ? 'multiplo' : 'unico') : grupo.tipo,
-          req.body.obrigatorio !== undefined ? (req.body.obrigatorio ? 1 : 0) : grupo.obrigatorio,
-          req.body.max_escolhas !== undefined ? (inteiroPositivo(req.body.max_escolhas) || 0) : grupo.max_escolhas,
-          // A ordem dos grupos é a ordem em que o cliente monta o pedido (tamanho
-          // antes de adicional, borda antes de bebida), então é o lojista quem
-          // define arrastando. `?? grupo.ordem` mantém quem só renomeou no lugar.
-          req.body.ordem !== undefined ? (inteiroPositivo(req.body.ordem) || 0) : grupo.ordem,
           papel,
           req.body.modo_preco !== undefined ? modoPrecoValido(req.body.modo_preco) : ((grupo as unknown as { modo_preco?: string }).modo_preco ?? 'somar'),
           grupo.id);
-    await papelExclusivo(grupo.produto_id, papel, grupo.id);
+
+    /*
+     * QUAL LIGAÇÃO ATUALIZAR. O corpo pode dizer de qual produto se trata; sem
+     * isso, valem todas as ligações do grupo.
+     *
+     * Hoje cada grupo tem exatamente uma ligação, então os dois caminhos dão no
+     * mesmo — mas o editor já manda `produto_id`, e é o que faz esta rota
+     * continuar correta no dia em que um grupo servir dois produtos. Sem o
+     * escopo, mudar o máximo de escolhas da borda numa pizza mudaria em todas.
+     */
+    const alvoProduto = inteiroPositivo(req.body.produto_id);
+    const campos: string[] = [];
+    const valores: unknown[] = [];
+    if (req.body.obrigatorio !== undefined) { campos.push('obrigatorio = ?'); valores.push(req.body.obrigatorio ? 1 : 0); }
+    if (req.body.max_escolhas !== undefined) { campos.push('max_escolhas = ?'); valores.push(inteiroPositivo(req.body.max_escolhas) || 0); }
+    // A ordem é a ordem em que o cliente monta o pedido (tamanho antes de
+    // adicional), então é o lojista quem define arrastando. Ausente = não mexe.
+    if (req.body.ordem !== undefined) { campos.push('ordem = ?'); valores.push(inteiroPositivo(req.body.ordem) || 0); }
+    if (campos.length > 0) {
+      await db.prepare(
+        `UPDATE produto_grupos SET ${campos.join(', ')} WHERE grupo_id = ?`
+        + (alvoProduto ? ' AND produto_id = ?' : '')
+      ).run(...valores, grupo.id, ...(alvoProduto ? [alvoProduto] : []));
+    }
+
+    /*
+     * A exclusividade do papel é por PRODUTO. Sem `produto_id` no corpo, vale
+     * pra todos os produtos onde este grupo está — que é o mesmo conjunto que
+     * herdaria o papel novo.
+     */
+    for (const pid of alvoProduto ? [alvoProduto] : await produtosDoGrupo(grupo.id)) {
+      await papelExclusivo(pid, papel, grupo.id);
+    }
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -1436,6 +1528,16 @@ router.delete('/grupos/:id', async (req, res, next) => {
     const loja = await minhaLoja(req);
     const grupo = await meuGrupo(loja, req.params.id);
     await comTransacao(async (tx) => {
+      /*
+       * A LIGAÇÃO SAI PRIMEIRO, senão a FK recusa o DELETE do grupo.
+       *
+       * Nesta fase apagar continua apagando: cada grupo tem uma ligação só, e o
+       * botão do editor significa "tira este grupo daqui" — que hoje é a mesma
+       * coisa. Separar "desligar" de "excluir" é da fase 3, e vai precisar de
+       * palavras diferentes na tela: com o grupo compartilhado, apertar a
+       * lixeira de uma pizza apagaria a borda de trinta.
+       */
+      await tx.prepare('DELETE FROM produto_grupos WHERE grupo_id = ?').run(grupo.id);
       await tx.prepare('DELETE FROM opcoes_itens WHERE grupo_id = ?').run(grupo.id);
       await tx.prepare('DELETE FROM grupos_opcoes WHERE id = ?').run(grupo.id);
     });

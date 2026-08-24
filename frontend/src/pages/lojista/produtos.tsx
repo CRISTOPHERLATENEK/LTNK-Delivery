@@ -1916,7 +1916,16 @@ function GruposEditor({ produto }: { produto: Produto }) {
    */
   async function salvarGrupo(grupo: GrupoOpcoes, patch: Record<string, unknown>) {
     try {
-      await api('PUT', `/api/lojista/grupos/${grupo.id}`, patch);
+      /*
+       * `produto_id` VAI SEMPRE, e não é redundante.
+       *
+       * Depois da fase 2, `obrigatorio`, `max_escolhas` e `ordem` moram na
+       * LIGAÇÃO produto↔grupo, não no grupo. Sem dizer de qual produto se trata,
+       * o servidor atualiza todas as ligações daquele grupo — hoje dá no mesmo
+       * (cada grupo tem uma), mas no dia em que a borda servir trinta pizzas,
+       * mudar o máximo numa mudaria nas trinta.
+       */
+      await api('PUT', `/api/lojista/grupos/${grupo.id}`, { produto_id: produto.id, ...patch });
       await qc.refetchQueries({ queryKey });
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao salvar o grupo.';
@@ -2050,7 +2059,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
     qc.setQueryData(queryKey, novos.map((g, i) => ({ ...g, ordem: i })));
     try {
       await Promise.all(novos.map((g, i) =>
-        api('PUT', `/api/lojista/grupos/${g.id}`, { nome: g.nome, ordem: i })));
+        api('PUT', `/api/lojista/grupos/${g.id}`, { produto_id: produto.id, nome: g.nome, ordem: i })));
       await qc.refetchQueries({ queryKey });
     } catch {
       // Falhou a gravação: refaz do servidor pra tela não mentir sobre a ordem

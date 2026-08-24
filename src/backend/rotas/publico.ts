@@ -5,6 +5,7 @@ import { Router } from 'express';
 import db, { bancoTenantAtual } from '../db-mysql';
 import { erroHttp, dataBrasilia} from '../util';
 import { sqlPromocaoVigente } from '../preco-produto';
+import { sqlGruposDeProdutos } from '../grupos-sql';
 import { chavePublicaVapid } from '../push';
 import { ehMaster, lerRodapeCredito } from '../tenants-mysql';
 import { montarLandingPublica } from '../landing-campos';
@@ -311,11 +312,8 @@ router.get('/lojas/:id', async (req, res, next) => {
        * Quem mexer nesta lista de colunas: `opcoes-preco.ts` é quem diz de
        * quais campos a regra depende.
        */
-      const grupos = await db.prepare(
-        `SELECT id, nome, tipo, obrigatorio, max_escolhas, papel, modo_preco, produto_id
-           FROM grupos_opcoes WHERE produto_id IN (${idsProd.map(() => '?').join(',')})
-          ORDER BY ordem, id`
-      ).all(...idsProd) as Array<GrupoComOpcoes & { produto_id: number }>;
+      const grupos = await db.prepare(sqlGruposDeProdutos(idsProd.length))
+        .all(...idsProd) as Array<GrupoComOpcoes & { produto_id: number }>;
 
       const opcoesPorGrupo = new Map<number, OpcaoItem[]>();
       if (grupos.length > 0) {

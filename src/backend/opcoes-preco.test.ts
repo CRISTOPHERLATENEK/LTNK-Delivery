@@ -168,12 +168,45 @@ describe('precoVariavel', () => {
  */
 describe('a consulta pública tem que trazer os campos da pizza', () => {
   const publico = fs.readFileSync(path.resolve(__dirname, 'rotas', 'publico.ts'), 'utf8');
+  /*
+   * A consulta de grupos MUDOU DE ARQUIVO na fase 2: virou fragmento em
+   * `grupos-sql.ts`, compartilhado pelo menu público, pela validação do pedido e
+   * pelo editor. Continuar lendo `publico.ts` faria este teste passar por
+   * ausência — não encontraria SELECT nenhum e a expectativa de `papel` nunca
+   * seria avaliada. É o modo mais silencioso de um teste morrer.
+   */
+  const gruposSql = fs.readFileSync(path.resolve(__dirname, 'grupos-sql.ts'), 'utf8');
 
   it('a consulta de grupos traz papel e modo_preco', () => {
-    const sel = publico.match(/SELECT[^`]*FROM grupos_opcoes/);
+    const sel = gruposSql.match(/COLUNAS_GRUPO = `[^`]*`/);
     expect(sel).not.toBeNull();
     expect(sel![0]).toMatch(/papel/);
     expect(sel![0]).toMatch(/modo_preco/);
+  });
+
+  /*
+   * `obrigatorio` e `max_escolhas` TÊM QUE VIR DA LIGAÇÃO (`pg.`), não do grupo.
+   * As duas colunas continuam existindo em `grupos_opcoes` como padrão de
+   * ligação nova — ler dali devolve o padrão em vez do valor, e o sintoma só
+   * aparece quando alguém muda a regra de um produto só.
+   */
+  it('a regra do grupo vem da ligação, não do grupo', () => {
+    const sel = gruposSql.match(/COLUNAS_GRUPO = `[^`]*`/)![0];
+    expect(sel).toMatch(/pg\.obrigatorio/);
+    expect(sel).toMatch(/pg\.max_escolhas/);
+    expect(sel).toMatch(/pg\.ordem/);
+    /* `(?<!p)` porque `g\.obrigatorio` casa DENTRO de `pg.obrigatorio` — o ponto
+       do regex aceita qualquer caractere, e sem o lookbehind este teste
+       reprovaria justamente a forma correta. */
+    expect(sel).not.toMatch(/(?<!p)g\.obrigatorio/);
+    expect(sel).not.toMatch(/(?<!p)g\.max_escolhas/);
+    expect(sel).not.toMatch(/g\.\*/);
+  });
+
+  /* O menu público usa o fragmento, e não uma cópia própria. */
+  it('publico.ts monta os grupos pelo módulo compartilhado', () => {
+    expect(publico).toMatch(/sqlGruposDeProdutos/);
+    expect(publico).not.toMatch(/FROM grupos_opcoes/);
   });
 
   it('a consulta de opções traz sabores e secao', () => {
