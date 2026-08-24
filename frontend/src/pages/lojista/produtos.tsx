@@ -3,7 +3,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CheckSquare, ChevronDown, Copy, FileText, GripVertical, Image as ImageIcon, Layers, Pencil, Plus, Rows3, Rows4, Search, Square, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
+import { Check, CheckSquare, ChevronDown, Copy, FileText, GripVertical, Image as ImageIcon, Layers, Minus, Pencil, Plus, Rows3, Rows4, Search, Square, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +19,8 @@ import { api, ApiError } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { gtinValido } from '@/lib/gtin';
+import { agruparPorSecao } from '@/lib/opcoes-preco';
+import { ingredientesDeTexto, textoDeIngredientes, comIngredientes, fraseDaRegra, linhasColadas } from '@/lib/complementos-editor';
 import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes, indiceDeSugestoes, type SugestaoSalva } from '@/lib/avisos-produto';
 import type { Produto } from '@/types';
 
@@ -188,15 +190,7 @@ function rotuloRegra(obrigatorio: boolean, tipo: 'unico' | 'multiplo', maxEscolh
   return maxEscolhas > 0 ? `Opcional · até ${maxEscolhas}` : 'Opcional · quantos quiser';
 }
 const regraDoModelo = (t: Modelo) => rotuloRegra(t.obrigatorio, t.tipo, t.max_escolhas);
-const regraDoGrupo = (g: GrupoOpcoes) => rotuloRegra(!!g.obrigatorio, g.tipo, g.max_escolhas);
 
-/** "Bacon +R$ 4 · Queijo extra +R$ 3" — o conteúdo do grupo sem precisar abri-lo. */
-function resumoDosItens(g: GrupoOpcoes): string {
-  if (g.opcoes.length === 0) return 'Nenhum item ainda — clique em "Editar itens"';
-  return g.opcoes
-    .map(o => o.preco_adicional_centavos > 0 ? `${o.nome} +${brl(o.preco_adicional_centavos)}` : o.nome)
-    .join(' · ');
-}
 
 /* ─────────────────────── componente principal ──────────────────────── */
 export function ProdutosLoja() {
@@ -1816,16 +1810,6 @@ function GruposEditor({ produto }: { produto: Produto }) {
   const [salvandoGrupo, setSalvandoGrupo] = useState(false);
   /** Qual grupo está com o painel de itens aberto (só um por vez). */
   const [abertoId, setAbertoId] = useState<number | null>(null);
-  /**
-   * Grupos em que o lojista pediu pra ver ingredientes e seção.
-   *
-   * Os dois campos estavam sempre na tela, em TODO grupo: quem cadastra "Sem
-   * borda / Catupiry / Cheddar" passava por duas linhas de campo vazio a cada
-   * item, por causa de um recurso que e de pizza. Aparecem sozinhos onde fazem
-   * sentido (grupo de sabores, ou grupo que ja usa algum dos dois) e sob
-   * demanda no resto -- nunca escondem valor ja preenchido.
-   */
-  const [detalhesAbertos, setDetalhesAbertos] = useState<Record<number, boolean>>({});
   /** Índice sendo arrastado, pra saber o que soltar onde. */
   const [arrastando, setArrastando] = useState<number | null>(null);
 
@@ -1877,14 +1861,43 @@ function GruposEditor({ produto }: { produto: Produto }) {
   type FormGrupo = { nome: string; tipo: 'unico' | 'multiplo'; obrigatorio: boolean; max_escolhas: string; papel: string; modo_preco: string };
   const [novoGrupo, setNovoGrupo] = useState<FormGrupo | null>(null);
   const [novasOpcoes, setNovasOpcoes] = useState<Record<number, { nome: string; preco: string; secao: string; descricao: string }>>({});
-  const [editandoGrupoId, setEditandoGrupoId] = useState<number | null>(null);
-  const [editandoGrupoForm, setEditandoGrupoForm] = useState<FormGrupo | null>(null);
-  const [editandoOpcaoId, setEditandoOpcaoId] = useState<number | null>(null);
-  const [editandoOpcaoNome, setEditandoOpcaoNome] = useState('');
-  const [editandoOpcaoPreco, setEditandoOpcaoPreco] = useState('');
-  const [editandoOpcaoSecao, setEditandoOpcaoSecao] = useState('');
-  const [editandoOpcaoDesc, setEditandoOpcaoDesc] = useState('');
-  const [editandoOpcaoImg, setEditandoOpcaoImg] = useState('');
+
+  /*
+   * NÃO EXISTE MAIS "MODO EDIÇÃO".
+   *
+   * Antes, mexer no nome de um item trocava a linha inteira por um formulário
+   * com dois botões (✓ e ✕) — e mexer na regra do grupo trocava o cabeçalho por
+   * outro formulário, com mais dois. Eram quatro botões de confirmar numa tela
+   * onde NADA precisa ser confirmado: toda mutação já vai direto pra API.
+   *
+   * Agora cada campo é o próprio campo, e grava ao sair dele (ou no Enter). O
+   * que sobrou de estado é só rascunho de digitação, não cópia do registro:
+   * cópia é o que fazia a tela e o banco divergirem quando uma gravação falhava.
+   */
+  /** Texto sendo digitado no campo de ingrediente, por opção. */
+  const [rascunhoIng, setRascunhoIng] = useState<Record<number, string>>({});
+  /** Qual opção está com o painel de foto aberto (uma por vez: o upload é alto). */
+  const [fotoAberta, setFotoAberta] = useState<number | null>(null);
+  /** Grupo com a área de colar em lote aberta, e o texto colado. */
+  const [colandoEm, setColandoEm] = useState<number | null>(null);
+  const [textoColado, setTextoColado] = useState('');
+  const [colando, setColando] = useState(false);
+  /**
+   * Agrupamento por seção, por grupo. Sem resposta explícita, LIGADO quando o
+   * grupo já usa seção — ninguém que organizou os sabores em Tradicionais e
+   * Doces quer abrir a tela e ver a lista achatada.
+   */
+  const [secoesLigadas, setSecoesLigadas] = useState<Record<number, boolean>>({});
+  /**
+   * Seções criadas agora e ainda sem item nenhum.
+   *
+   * Seção não é registro: ela existe porque algum item tem aquele nome em
+   * `opcoes_itens.secao`. Então "Nova seção" não tem o que gravar — o cabeçalho
+   * vive aqui até o primeiro item cair dentro dela, e é isso que permite criar a
+   * seção ANTES de cadastrar os itens, que é a ordem em que a pessoa pensa.
+   */
+  const [secoesExtras, setSecoesExtras] = useState<Record<number, string[]>>({});
+  const [criandoSecao, setCriandoSecao] = useState<number | null>(null);
 
   function opcaoForm(grupoId: number) {
     return novasOpcoes[grupoId] ?? { nome: '', preco: '', secao: '', descricao: '' };
@@ -1893,80 +1906,129 @@ function GruposEditor({ produto }: { produto: Produto }) {
     setNovasOpcoes(prev => ({ ...prev, [grupoId]: { ...opcaoForm(grupoId), [campo]: valor } }));
   }
 
-  function abrirEdicaoGrupo(grupo: GrupoOpcoes) {
-    setEditandoGrupoId(grupo.id);
-    setEditandoGrupoForm({
-      nome: grupo.nome,
-      tipo: grupo.tipo,
-      obrigatorio: !!grupo.obrigatorio,
-      max_escolhas: grupo.max_escolhas > 0 ? String(grupo.max_escolhas) : '',
-      papel: grupo.papel || '',
-      modo_preco: grupo.modo_preco || 'somar',
-    });
-  }
-
-  async function salvarEdicaoGrupo() {
-    if (!editandoGrupoForm || !editandoGrupoId) return;
-    if (!editandoGrupoForm.nome.trim()) {
-      mostrar({ tipo: 'erro', titulo: 'O nome do grupo não pode ser vazio.' });
-      return;
-    }
+  /**
+   * Grava UM punhado de campos do grupo.
+   *
+   * O PUT do servidor mantém o que não vem no corpo, então mandar só o que
+   * mudou é o suficiente — e é mais seguro que remontar o registro inteiro a
+   * partir da tela: era assim que renomear um grupo reenviava um `modo_preco`
+   * desatualizado e mudava o preço da pizza sem ninguém pedir.
+   */
+  async function salvarGrupo(grupo: GrupoOpcoes, patch: Record<string, unknown>) {
     try {
-      await api('PUT', `/api/lojista/grupos/${editandoGrupoId}`, {
-        nome: editandoGrupoForm.nome.trim(),
-        tipo: editandoGrupoForm.tipo,
-        obrigatorio: editandoGrupoForm.obrigatorio,
-        max_escolhas: editandoGrupoForm.tipo === 'multiplo'
-          ? (Number(editandoGrupoForm.max_escolhas) || 0)
-          : 1,
-        papel: editandoGrupoForm.papel,
-        /*
-         * A COBRANÇA DO SABOR É ESCOLHA DO LOJISTA, não decisão nossa.
-         *
-         * Isto forçava 'maior' sempre que o papel era 'sabores'. Dois problemas:
-         *
-         *  - Cobrava MENOS que o mercado. Pizzaria brasileira soma 100% do
-         *    acréscimo de cada sabor especial, mesmo ocupando meia pizza
-         *    (R$ 94,90 + R$ 16,00 = R$ 110,90). 'maior' cobraria só R$ 16,00 de
-         *    acréscimo no total.
-         *  - E era INCONSISTENTE: criar o grupo pelo modelo gravava 'somar',
-         *    editar o grupo gravava 'maior'. Mexer no nome do grupo mudava o
-         *    preço da pizza em silêncio.
-         *
-         * Grupo que não é de sabores continua somando: dois bacons custam dois
-         * bacons, e não faz sentido oferecer 'maior' ali.
-         */
-        modo_preco: editandoGrupoForm.papel === 'sabores' ? editandoGrupoForm.modo_preco : 'somar',
-      });
+      await api('PUT', `/api/lojista/grupos/${grupo.id}`, patch);
       await qc.refetchQueries({ queryKey });
-      setEditandoGrupoId(null);
-      setEditandoGrupoForm(null);
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : 'Erro ao salvar grupo.';
+      const msg = e instanceof ApiError ? e.message : 'Erro ao salvar o grupo.';
       mostrar({ tipo: 'erro', titulo: msg });
+      // Volta ao valor do servidor: campo inline que falhou não pode ficar
+      // mostrando o texto novo como se tivesse gravado.
+      await qc.refetchQueries({ queryKey });
     }
   }
 
   /**
-   * Liga/desliga "obrigatório" direto na lista.
+   * O TETO DE ESCOLHAS DEFINE O TIPO, e não um seletor separado.
    *
-   * Vem junto o `tipo`: obrigatório com múltipla escolha e sem mínimo é uma
-   * regra que o cardápio não sabe cobrar, então o switch já deixa o grupo em
-   * escolha única — que é o que "obrigatório" quer dizer na prática (escolha 1).
+   * "Única escolha / Múltipla" e "Máx. 3" eram dois controles pra uma decisão
+   * só, e davam combinação sem sentido (única com máximo 3). Teto 1 É escolha
+   * única; qualquer outro é múltipla. Um controle, nenhum estado impossível.
    */
-  async function alternarObrigatorio(grupo: GrupoOpcoes) {
-    const virando = !grupo.obrigatorio;
+  function definirTeto(grupo: GrupoOpcoes, max: number) {
+    const limpo = Math.max(0, Math.min(12, max));
+    salvarGrupo(grupo, { max_escolhas: limpo, tipo: limpo === 1 ? 'unico' : 'multiplo' });
+  }
+
+  /** Grava campos de uma opção. Parcial, pelo mesmo motivo do grupo. */
+  async function salvarOpcao(opcao: OpcaoItem, patch: Record<string, unknown>) {
     try {
-      await api('PUT', `/api/lojista/grupos/${grupo.id}`, {
-        nome: grupo.nome,
-        tipo: virando ? 'unico' : grupo.tipo,
-        obrigatorio: virando,
-        max_escolhas: virando ? 1 : grupo.max_escolhas,
-      });
+      await api('PUT', `/api/lojista/opcoes/${opcao.id}`, patch);
       await qc.refetchQueries({ queryKey });
     } catch (e) {
-      const msg = e instanceof ApiError ? e.message : 'Erro ao mudar a regra do grupo.';
+      const msg = e instanceof ApiError ? e.message : 'Erro ao salvar o item.';
       mostrar({ tipo: 'erro', titulo: msg });
+      await qc.refetchQueries({ queryKey });
+    }
+  }
+
+  /**
+   * Renomeia uma seção mexendo em TODOS os itens dela.
+   *
+   * Seção não tem tabela: é um texto repetido em cada item. Renomear é reescrever
+   * o texto em todos — se sobrar um, ele vira uma seção órfã de um item só na
+   * tela do cliente. Por isso vai tudo junto e só depois recarrega.
+   */
+  async function renomearSecao(grupo: GrupoOpcoes, de: string, para: string) {
+    const alvo = para.trim().slice(0, 40);
+    if (alvo === de) return;
+    const itens = grupo.opcoes.filter(o => (o.secao || '').trim() === de);
+    if (itens.length === 0) {
+      // Seção ainda sem item: só existe na tela, então renomeia na tela.
+      setSecoesExtras(m => ({ ...m, [grupo.id]: (m[grupo.id] || []).map(x => (x === de ? alvo : x)).filter(Boolean) }));
+      return;
+    }
+    try {
+      await Promise.all(itens.map(o => api('PUT', `/api/lojista/opcoes/${o.id}`, { secao: alvo })));
+      await qc.refetchQueries({ queryKey });
+      qc.invalidateQueries({ queryKey: ['lojista-sugestoes-opcoes'] });
+    } catch {
+      mostrar({ tipo: 'erro', titulo: 'Não consegui renomear a seção.' });
+      await qc.refetchQueries({ queryKey });
+    }
+  }
+
+  /**
+   * Desfaz a seção SEM APAGAR ITEM.
+   *
+   * O botão fica ao lado de uma lixeira de item, então tem que ser óbvio que ele
+   * devolve os sabores pra lista solta em vez de removê-los — daí o rótulo
+   * "Desfazer seção" e a confirmação dizendo quantos itens voltam.
+   */
+  async function desfazerSecao(grupo: GrupoOpcoes, secao: string) {
+    const itens = grupo.opcoes.filter(o => (o.secao || '').trim() === secao);
+    if (itens.length > 0 && !(await confirmar({
+      titulo: `Desfazer a seção "${secao}"?`,
+      descricao: `Os ${itens.length} itens continuam no grupo, sem seção. Nada é excluído.`,
+      confirmar: 'Desfazer seção',
+    }))) return;
+    setSecoesExtras(m => ({ ...m, [grupo.id]: (m[grupo.id] || []).filter(x => x !== secao) }));
+    if (itens.length === 0) return;
+    try {
+      await Promise.all(itens.map(o => api('PUT', `/api/lojista/opcoes/${o.id}`, { secao: '' })));
+      await qc.refetchQueries({ queryKey });
+    } catch {
+      mostrar({ tipo: 'erro', titulo: 'Não consegui desfazer a seção.' });
+      await qc.refetchQueries({ queryKey });
+    }
+  }
+
+  /** Cria os itens colados em lote, na ordem em que foram escritos. */
+  async function colarEmLote(grupo: GrupoOpcoes, secaoPadrao: string) {
+    const itens = linhasColadas(textoColado, secaoPadrao);
+    if (itens.length === 0) return;
+    setColando(true);
+    try {
+      /*
+       * EM SÉRIE, não em paralelo: `ordem` sai da ordem de criação, e trinta
+       * POSTs simultâneos chegariam fora de ordem no banco — a lista do cliente
+       * sairia embaralhada em relação ao que a pessoa colou.
+       */
+      for (const it of itens) {
+        await api('POST', `/api/lojista/grupos/${grupo.id}/opcoes`, {
+          nome: it.nome, preco_adicional: it.preco || '0', secao: it.secao, descricao: '',
+        });
+      }
+      await qc.refetchQueries({ queryKey });
+      qc.invalidateQueries({ queryKey: ['lojista-sugestoes-opcoes'] });
+      setColandoEm(null);
+      setTextoColado('');
+      mostrar({ tipo: 'sucesso', titulo: `${itens.length} ${itens.length === 1 ? 'item adicionado' : 'itens adicionados'}.` });
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : 'Erro ao adicionar os itens.';
+      mostrar({ tipo: 'erro', titulo: msg });
+      await qc.refetchQueries({ queryKey });
+    } finally {
+      setColando(false);
     }
   }
 
@@ -2052,24 +2114,6 @@ function GruposEditor({ produto }: { produto: Produto }) {
       qc.invalidateQueries({ queryKey: ['lojista-sugestoes-opcoes'] });
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao adicionar opção.';
-      mostrar({ tipo: 'erro', titulo: msg });
-    }
-  }
-
-  async function atualizarOpcao(opcaoId: number) {
-    if (!editandoOpcaoNome.trim()) return;
-    try {
-      await api('PUT', `/api/lojista/opcoes/${opcaoId}`, {
-        nome: editandoOpcaoNome.trim(),
-        preco_adicional: editandoOpcaoPreco || '0',
-        secao: editandoOpcaoSecao,
-        descricao: editandoOpcaoDesc,
-        imagem: editandoOpcaoImg,
-      });
-      await qc.refetchQueries({ queryKey });
-      setEditandoOpcaoId(null);
-    } catch (e) {
-      const msg = e instanceof ApiError ? e.message : 'Erro ao salvar opção.';
       mostrar({ tipo: 'erro', titulo: msg });
     }
   }
@@ -2184,10 +2228,28 @@ function GruposEditor({ produto }: { produto: Produto }) {
                    tela mostrava um titulo e nada mais, e o proximo passo era
                    sempre o mesmo clique. */
                 const aberto = abertoId === grupo.id || (abertoId === null && grupos.length === 1);
-                const editando = editandoGrupoId === grupo.id && editandoGrupoForm;
-                const detalhes = grupo.papel === 'sabores'
-                  || grupo.opcoes.some(o => o.secao || o.descricao)
-                  || !!detalhesAbertos[grupo.id];
+
+                /*
+                 * SEÇÕES LIGADAS por padrão em grupo que JÁ usa seção: quem
+                 * organizou os sabores em Tradicionais e Doces não quer abrir a
+                 * tela e ver a lista achatada.
+                 */
+                const secoesDoBanco = [...new Set(grupo.opcoes.map(o => (o.secao || '').trim()).filter(Boolean))];
+                const secoesNovas = (secoesExtras[grupo.id] || []).filter(x => !secoesDoBanco.includes(x));
+                const usaSecoes = secoesLigadas[grupo.id] ?? (secoesDoBanco.length > 0);
+                const nomesSecao = [...secoesDoBanco, ...secoesNovas];
+                /* A seção do formulário de adicionar é a "seção corrente": a
+                   última criada, ou a que o lojista deixou no campo. */
+                const secaoAtual = opcaoForm(grupo.id).secao;
+
+                /* Blocos a renderizar: os do banco + as seções recém-criadas
+                   ainda vazias, pra o cabeçalho existir antes do primeiro item. */
+                const blocos = usaSecoes
+                  ? [...agruparPorSecao(grupo.opcoes), ...secoesNovas.map(secao => ({ secao, opcoes: [] as OpcaoItem[] }))]
+                  : [{ secao: '', opcoes: grupo.opcoes }];
+
+                const aVenda = grupo.opcoes.filter(o => o.disponivel);
+
                 return (
                   <div
                     key={grupo.id}
@@ -2196,399 +2258,621 @@ function GruposEditor({ produto }: { produto: Produto }) {
                     className={cn('rounded-2xl border border-border bg-card shadow-sm transition-opacity',
                       arrastando === i && 'opacity-40')}
                   >
-                    {editando ? (
-                      /* ── Renomear / trocar a regra ── */
-                      <div className="space-y-2 rounded-2xl bg-accent/40 px-4 py-3.5">
-                        <Input
-                          autoFocus
-                          value={editandoGrupoForm.nome}
-                          onChange={e => setEditandoGrupoForm(f => f && ({ ...f, nome: e.target.value }))}
-                          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); salvarEdicaoGrupo(); } if (e.key === 'Escape') setEditandoGrupoId(null); }}
-                          className="h-9 text-sm font-bold"
-                          placeholder="Nome do grupo"
-                        />
-                        <div className="flex flex-wrap items-center gap-2">
-                          <div className="flex overflow-hidden rounded-lg border border-border text-xs font-semibold">
-                            <button type="button" onClick={() => setEditandoGrupoForm(f => f && ({ ...f, tipo: 'unico' }))}
-                              className={cn('px-2.5 py-1 transition-colors', editandoGrupoForm.tipo === 'unico' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-accent')}>
-                              Única escolha
-                            </button>
-                            <button type="button" onClick={() => setEditandoGrupoForm(f => f && ({ ...f, tipo: 'multiplo' }))}
-                              className={cn('border-l border-border px-2.5 py-1 transition-colors', editandoGrupoForm.tipo === 'multiplo' ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:bg-accent')}>
-                              Múltipla
-                            </button>
-                          </div>
-                          <button type="button" onClick={() => setEditandoGrupoForm(f => f && ({ ...f, obrigatorio: !f.obrigatorio }))}
-                            className={cn('flex items-center gap-1 rounded-lg border px-2.5 py-1 text-xs font-semibold transition-colors', editandoGrupoForm.obrigatorio ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-card text-muted-foreground hover:bg-accent')}>
-                            <Check className={cn('size-3', editandoGrupoForm.obrigatorio ? 'opacity-100' : 'opacity-0')} />
-                            Obrigatório
+                    {/*
+                      ─── CABEÇALHO: A REGRA EDITÁVEL NO LUGAR ───
+
+                      Havia TRÊS controles dizendo a mesma coisa: o badge
+                      "Obrigatório · até 3", um interruptor "Obrigatório" e um
+                      link "Editar nome e regra" que abria um quarto formulário
+                      com os mesmos campos. Três lugares pra mudar um campo é
+                      onde eles começam a discordar — e discordavam: o link
+                      reenviava `modo_preco` da tela e mudava o preço da pizza
+                      ao renomear o grupo.
+
+                      Agora é um controle por decisão, e cada um grava sozinho.
+                    */}
+                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 px-3 py-2.5">
+                      <span
+                        draggable
+                        onDragStart={() => setArrastando(i)}
+                        onDragEnd={() => setArrastando(null)}
+                        title="Arraste para reordenar os grupos"
+                        className="shrink-0 cursor-grab px-0.5 text-muted-foreground/60 active:cursor-grabbing"
+                      >
+                        <GripVertical className="size-4" />
+                      </span>
+
+                      {/*
+                        NOME COMO CAMPO, sem modo de edição.
+                        `key` no valor do servidor: depois de gravar, o campo
+                        remonta com o que o banco devolveu — se a gravação falhar
+                        e voltar o valor antigo, o campo mostra o antigo em vez de
+                        insistir no texto que não entrou.
+                      */}
+                      <input
+                        key={`nome-${grupo.id}-${grupo.nome}`}
+                        defaultValue={grupo.nome}
+                        aria-label="Nome do grupo"
+                        maxLength={60}
+                        onBlur={e => {
+                          const v = e.target.value.trim();
+                          if (!v) { e.target.value = grupo.nome; return; }
+                          if (v !== grupo.nome) salvarGrupo(grupo, { nome: v });
+                        }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+                          if (e.key === 'Escape') { (e.target as HTMLInputElement).value = grupo.nome; (e.target as HTMLInputElement).blur(); }
+                        }}
+                        className="min-w-[7rem] max-w-[16rem] flex-1 rounded-md bg-transparent px-1.5 py-1 text-[15px] font-extrabold outline-none transition-colors hover:bg-accent focus:bg-background focus:ring-2 focus:ring-primary"
+                      />
+
+                      {/* Obrigatório | Opcional — segmentado, porque são duas
+                          faces de uma decisão, não uma caixa pra marcar. */}
+                      <div className="flex shrink-0 overflow-hidden rounded-[9px] bg-muted p-0.5 text-[11.5px] font-semibold">
+                        {([true, false] as const).map(v => (
+                          <button
+                            key={String(v)}
+                            type="button"
+                            onClick={() => !!grupo.obrigatorio !== v && salvarGrupo(grupo, { obrigatorio: v })}
+                            className={cn('whitespace-nowrap rounded-[7px] px-2.5 py-1 transition-colors',
+                              !!grupo.obrigatorio === v
+                                ? 'bg-background text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground')}
+                          >
+                            {v ? 'Obrigatório' : 'Opcional'}
                           </button>
-                          {/*
-                            PAPEL NA PIZZA. Sem isto, o grupo de sabores usaria
-                            um limite fixo (a P aceitaria os mesmos 3 sabores da
-                            G) e somaria o preço dos três em vez de cobrar o
-                            mais caro.
-                          */}
+                        ))}
+                      </div>
+
+                      {/*
+                        STEPPER DO TETO. Substitui o par "Única/Múltipla" + "Máx.":
+                        eram dois controles pra uma decisão, e permitiam o
+                        impossível (única escolha com máximo 3). Teto 1 É escolha
+                        única. 0 = sem limite, e é o estado de todo grupo de
+                        adicionais que já existe.
+                      */}
+                      <div className="flex shrink-0 items-center gap-1 rounded-lg border border-border px-1 py-0.5">
+                        <button
+                          type="button"
+                          aria-label="Menos uma escolha"
+                          onClick={() => definirTeto(grupo, (grupo.max_escolhas || 0) - 1)}
+                          disabled={(grupo.max_escolhas || 0) <= 0}
+                          className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent disabled:opacity-30"
+                        >
+                          <Minus className="size-3.5" />
+                        </button>
+                        <span className="min-w-[4.5rem] text-center text-[11.5px] font-semibold tabular-nums">
+                          {grupo.max_escolhas > 0
+                            ? `até ${grupo.max_escolhas}`
+                            : 'sem limite'}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="Mais uma escolha"
+                          onClick={() => definirTeto(grupo, (grupo.max_escolhas || 0) + 1)}
+                          disabled={(grupo.max_escolhas || 0) >= 12}
+                          className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent disabled:opacity-30"
+                        >
+                          <Plus className="size-3.5" />
+                        </button>
+                      </div>
+
+                      {/*
+                        A REGRA EM PORTUGUÊS, e não o nome dos campos.
+                        "Obrigatório · até 3" descreve a configuração; "Precisa
+                        escolher de 1 a 3" descreve o que o CLIENTE vai viver — e
+                        é lendo isso que o lojista percebe que o grupo de tamanho
+                        está como opcional, coisa que `obrigatorio: 0` nunca
+                        mostrou.
+                      */}
+                      <span className="hidden h-4 w-px bg-border sm:block" />
+                      <span className="shrink-0 text-[11.5px] text-muted-foreground">
+                        {fraseDaRegra(grupo)}
+                      </span>
+
+                      <div className="ml-auto flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setAbertoId(aberto ? null : grupo.id)}
+                          className="flex items-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                        >
+                          <ChevronDown className={cn('size-3.5 transition-transform', aberto && 'rotate-180')} />
+                          {aberto ? 'Fechar' : `${grupo.opcoes.length} ${grupo.opcoes.length === 1 ? 'item' : 'itens'}`}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => excluirGrupo(grupo.id)}
+                          title="Remover grupo"
+                          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {aberto && (
+                      <div className="border-t border-border">
+                        {/*
+                          ─── PIZZA: papel e política de preço ───
+
+                          Continua aqui, e não escondido atrás de um "editar":
+                          é o par de campos que faz a pizza de 2 e 3 sabores
+                          funcionar, e um deles gravado errado deixa o recurso
+                          inteiro calado, sem erro nenhum na tela. Já aconteceu
+                          na base: o grupo "Sabores" com papel=tamanho fazia a
+                          pizza de 4 sabores aceitar 3.
+                        */}
+                        <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/20 px-3.5 py-2">
+                          <span className="text-[10.5px] font-bold uppercase tracking-[.11em] text-muted-foreground">Pizza</span>
                           <select
-                            value={editandoGrupoForm.papel}
-                            onChange={e => setEditandoGrupoForm(f => f && ({ ...f, papel: e.target.value }))}
+                            value={grupo.papel || ''}
+                            onChange={e => salvarGrupo(grupo, { papel: e.target.value })}
                             className="h-7 rounded-lg border border-border bg-card px-1.5 text-xs font-semibold text-muted-foreground"
-                            title="Este grupo é o tamanho, a lista de sabores, ou nenhum dos dois"
                           >
                             {/*
                               O RÓTULO DIZ O QUE O GRUPO É, não o efeito dele.
-                              Era "Tamanho (define nº de sabores)" e
-                              "Sabores (limite vem do tamanho)" — quem estava
-                              configurando o grupo de SABORES lia "define nº de
-                              sabores" e marcava Tamanho, porque é literalmente
-                              o que a frase promete. Aconteceu na base real: um
-                              grupo chamado "Sabores" ficou com papel=tamanho, e
-                              aí o campo de sabores por tamanho apareceu em cada
-                              sabor.
+                              Era "Tamanho (define nº de sabores)" e "Sabores
+                              (limite vem do tamanho)" — quem configurava o grupo
+                              de SABORES lia "define nº de sabores" e marcava
+                              Tamanho, porque é o que a frase promete.
                             */}
                             <option value="">Nenhum (grupo comum)</option>
                             <option value="tamanho">Este grupo é o TAMANHO da pizza</option>
                             <option value="sabores">Este grupo é a lista de SABORES</option>
                           </select>
-                          {/*
-                            COMO COBRAR VÁRIOS SABORES. Só aparece no grupo de
-                            sabores, porque é a única situação em que a pergunta
-                            existe — em adicionais, somar é o certo.
-
-                            O padrão é SOMAR porque é o que a pizzaria brasileira
-                            cobra. 'Maior' é legítimo (algumas casas fazem), mas
-                            cobra menos, e quem escolhe é o dono.
-                          */}
-                          {editandoGrupoForm.papel === 'sabores' && (
+                          {grupo.papel === 'sabores' && (
                             <select
-                              value={editandoGrupoForm.modo_preco}
-                              onChange={e => setEditandoGrupoForm(f => f && ({ ...f, modo_preco: e.target.value }))}
+                              value={grupo.modo_preco || 'somar'}
+                              onChange={e => salvarGrupo(grupo, { modo_preco: e.target.value })}
                               className="h-7 rounded-lg border border-border bg-card px-1.5 text-xs font-semibold text-muted-foreground"
                               title="Como cobrar quando há mais de um sabor"
                             >
+                              {/* Padrão SOMAR: é o que a pizzaria brasileira
+                                  cobra. 'maior' é legítimo e cobra menos; quem
+                                  escolhe é o dono. */}
                               <option value="somar">Cada sabor cobra 100%</option>
                               <option value="maior">Só o sabor mais caro</option>
                               <option value="proporcional">Proporcional à fração</option>
                             </select>
                           )}
-                          {editandoGrupoForm.tipo === 'multiplo' && editandoGrupoForm.papel !== 'sabores' && (
-                            <div className="flex items-center gap-1">
-                              <span className="text-xs text-muted-foreground">Máx.</span>
-                              <Input
-                                type="number" min="0" placeholder="∞"
-                                value={editandoGrupoForm.max_escolhas}
-                                onChange={e => setEditandoGrupoForm(f => f && ({ ...f, max_escolhas: e.target.value }))}
-                                className="h-7 w-14 px-1 text-center text-xs"
-                              />
-                            </div>
+                          {grupo.papel === 'tamanho' && (
+                            <span className="text-[11px] text-muted-foreground">
+                              Defina em cada tamanho quantos sabores ele libera →
+                            </span>
                           )}
-                          <div className="ml-auto flex gap-1">
-                            <button type="button" onClick={salvarEdicaoGrupo}
-                              className="flex items-center gap-1 rounded-lg bg-primary px-2.5 py-1 text-xs font-bold text-primary-foreground transition-colors hover:bg-primary/90">
-                              <Check className="size-3" /> Salvar
+                        </div>
+
+                        {/* ─── Barra de ferramentas dos itens ─── */}
+                        <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/10 px-3.5 py-2">
+                          <span className="text-[11.5px] font-bold uppercase tracking-[.09em] text-muted-foreground">
+                            Itens · {grupo.opcoes.length}
+                            {usaSecoes && nomesSecao.length > 0 && ` em ${nomesSecao.length} ${nomesSecao.length === 1 ? 'seção' : 'seções'}`}
+                          </span>
+                          <div className="ml-auto flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setSecoesLigadas(m => ({ ...m, [grupo.id]: !usaSecoes }))}
+                              className={cn('whitespace-nowrap rounded-lg px-2 py-1 text-[11.5px] font-semibold transition-colors',
+                                usaSecoes ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground')}
+                              title="Tradicionais, Especiais, Doces — separa a lista na tela do cliente"
+                            >
+                              Agrupar em seções
                             </button>
-                            <button type="button" onClick={() => setEditandoGrupoId(null)}
-                              className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent">
-                              <X className="size-3" /> Cancelar
+                            <button
+                              type="button"
+                              onClick={() => { setColandoEm(colandoEm === grupo.id ? null : grupo.id); setTextoColado(''); }}
+                              className={cn('whitespace-nowrap rounded-lg px-2 py-1 text-[11.5px] font-semibold transition-colors',
+                                colandoEm === grupo.id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent hover:text-foreground')}
+                            >
+                              Colar vários de uma vez
                             </button>
                           </div>
                         </div>
-                      </div>
-                    ) : (
-                      /* ── Linha do grupo ── */
-                      <div className="flex items-center gap-3 px-3 py-3 max-sm:flex-wrap">
-                        <span
-                          draggable
-                          onDragStart={() => setArrastando(i)}
-                          onDragEnd={() => setArrastando(null)}
-                          title="Arraste para reordenar"
-                          className="shrink-0 cursor-grab px-1 text-muted-foreground/60 active:cursor-grabbing"
-                        >
-                          <GripVertical className="size-4" />
-                        </span>
-
-                        <button
-                          type="button"
-                          onClick={() => setAbertoId(aberto ? null : grupo.id)}
-                          className="min-w-0 flex-1 text-left"
-                        >
-                          <span className="flex flex-wrap items-center gap-2">
-                            <span className="text-[15px] font-bold">{grupo.nome}</span>
-                            <span className={cn('rounded-full px-2 py-0.5 text-[10.5px] font-bold',
-                              grupo.obrigatorio
-                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-400'
-                                : 'bg-muted text-muted-foreground')}>
-                              {regraDoGrupo(grupo)}
-                            </span>
-                          </span>
-                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">
-                            {resumoDosItens(grupo)}
-                          </span>
-                        </button>
-
-                        <div className="flex shrink-0 items-center gap-1 max-sm:w-full max-sm:justify-end">
-                          {/* Mini-switch: a regra que mais muda é essa, e trocá-la
-                              não deveria custar abrir o editor do grupo. */}
-                          <button
-                            type="button"
-                            role="switch" aria-checked={!!grupo.obrigatorio}
-                            onClick={() => alternarObrigatorio(grupo)}
-                            title="Obrigatório"
-                            className="flex items-center gap-1.5 rounded-lg px-1.5 py-1 transition-colors hover:bg-accent"
-                          >
-                            <span className="text-[11px] font-semibold text-muted-foreground">Obrigatório</span>
-                            <span className={cn('flex h-5 w-[34px] shrink-0 items-center rounded-full p-0.5 transition-colors',
-                              grupo.obrigatorio ? 'bg-primary' : 'bg-muted-foreground/25')}>
-                              <span className={cn('size-4 rounded-full bg-white shadow-sm transition-transform',
-                                grupo.obrigatorio && 'translate-x-[14px]')} />
-                            </span>
-                          </button>
-
-                          <span className="h-5 w-px bg-border" />
-
-                          <button
-                            type="button"
-                            onClick={() => setAbertoId(aberto ? null : grupo.id)}
-                            className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                          >
-                            <Pencil className="size-3.5" />
-                            {aberto ? 'Fechar' : 'Editar itens'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => excluirGrupo(grupo.id)}
-                            title="Remover grupo"
-                            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                          >
-                            <Trash2 className="size-4" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* ── Painel de itens ── */}
-                    {aberto && !editando && (
-                      <div className="border-t border-border">
-                        <div className="flex items-center justify-between gap-2 px-4 pt-3">
-                          <p className="text-[11px] font-extrabold uppercase tracking-[.11em] text-muted-foreground">
-                            Itens deste grupo
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => abrirEdicaoGrupo(grupo)}
-                            className="text-[11px] font-semibold text-primary hover:underline"
-                          >
-                            Editar nome e regra
-                          </button>
-                        </div>
 
                         {/*
-                          AS SUGESTÕES FICAM NA TELA ATÉ ACABAREM.
-                          A condição era `grupo.opcoes.length === 0`: a fileira
-                          inteira sumia no instante em que a primeira opção
-                          entrava. Pra montar "Sem borda, Catupiry, Cheddar" o
-                          lojista clicava uma e digitava as outras duas — numa
-                          pizzaria, isso repetido por dezenas de produtos é
-                          trabalho manual que o sistema estava criando.
-
-                          Cada chip sai da lista quando JÁ EXISTE no grupo
-                          (comparando sem caixa e sem espaço, porque "catupiry"
-                          digitado à mão é o mesmo item). Assim não vira botão
-                          que gera duplicata, e a fileira encolhe conforme o
-                          grupo enche — quando a última é usada, ela desaparece
-                          sozinha em vez de virar uma linha vazia.
+                          O TOGGLE É DE VISTA, NÃO DE DADO — e isso precisa estar
+                          escrito. A seção mora em cada item; desligar o
+                          agrupamento achata ESTA lista e não apaga nada, então
+                          sem este aviso o lojista desligaria, veria a lista
+                          plana e concluiria que tirou as seções do app.
                         */}
-                        {(() => {
-                          const disponiveis = mesclarSugestoes(
-                            (historico?.[grupo.nome] || []).map(x => x.nome),
-                            SUGESTOES[grupo.nome]);
-                          const faltam = sugestoesFaltantes(disponiveis, grupo.opcoes);
-                          if (faltam.length === 0) return null;
-                          return (
-                            <div className="px-4 pt-3">
-                              <p className="mb-2 text-xs text-muted-foreground">
-                                {grupo.opcoes.length === 0 ? 'Clique para adicionar:' : 'Adicionar mais:'}
-                              </p>
-                              <div className="flex flex-wrap gap-2">
-                                {faltam.map(sug => (
-                                  <button
-                                    key={sug}
-                                    type="button"
-                                    onClick={() => adicionarSugestao(grupo.id, sug, grupo.nome)}
-                                    className="flex items-center gap-1 rounded-full border border-dashed border-border px-3 py-1.5 text-xs font-semibold transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary active:scale-95"
-                                  >
-                                    <Plus className="size-3" />{sug}
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })()}
+                        {!usaSecoes && secoesDoBanco.length > 0 && (
+                          <p className="border-b border-border/60 bg-muted/10 px-3.5 py-1.5 text-[11.5px] text-muted-foreground">
+                            Os itens continuam com seção no app ({secoesDoBanco.join(', ')}) — desligar aqui só achata esta lista.
+                          </p>
+                        )}
 
-                        <div className={cn('space-y-1 px-3', grupo.opcoes.length > 0 ? 'py-2' : 'pt-2')}>
-                          {grupo.opcoes.map(o => (
-                            editandoOpcaoId === o.id ? (
-                              <div key={o.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-accent/60 px-2 py-2">
-                                <Input
-                                  autoFocus
-                                  value={editandoOpcaoNome}
-                                  onChange={e => setEditandoOpcaoNome(e.target.value)}
-                                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); atualizarOpcao(o.id); } if (e.key === 'Escape') setEditandoOpcaoId(null); }}
-                                  className="h-8 flex-1 text-sm"
-                                  placeholder="Nome da opção"
-                                />
-                                <div className="relative w-20 shrink-0">
-                                  <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">+R$</span>
-                                  <Input
-                                    type="number" step="0.01" min="0" placeholder="0,00"
-                                    value={editandoOpcaoPreco}
-                                    onChange={e => setEditandoOpcaoPreco(e.target.value)}
-                                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); atualizarOpcao(o.id); } }}
-                                    className="h-8 pl-6 text-xs"
-                                  />
-                                </div>
-                                {/*
-                                  SEÇÃO TAMBÉM NA EDIÇÃO.
-                                  O campo só existia ao CRIAR a opção — quem já
-                                  tinha os sabores cadastrados teria que apagar e
-                                  recadastrar os quatro só pra agrupá-los, que é
-                                  o trabalho manual que a seção veio evitar.
-
-                                  `list` reaproveita as seções já usadas no grupo,
-                                  pra "Doces" e "doces" não virarem dois títulos.
-                                */}
-                                {(detalhes || o.descricao || o.secao) && (<>
-                                <Input
-                                  value={editandoOpcaoDesc}
-                                  onChange={e => setEditandoOpcaoDesc(e.target.value)}
-                                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); atualizarOpcao(o.id); } if (e.key === 'Escape') setEditandoOpcaoId(null); }}
-                                  placeholder="Ingredientes"
-                                  maxLength={160}
-                                  className="h-8 w-36 shrink-0 text-xs"
-                                  aria-label="Ingredientes deste item"
-                                />
-                                <Input
-                                  value={editandoOpcaoSecao}
-                                  onChange={e => setEditandoOpcaoSecao(e.target.value)}
-                                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); atualizarOpcao(o.id); } if (e.key === 'Escape') setEditandoOpcaoId(null); }}
-                                  placeholder="Seção"
-                                  maxLength={40}
-                                  className="h-8 w-28 shrink-0 text-xs"
-                                  list={`secoes-${grupo.id}`}
-                                  aria-label="Seção deste item"
-                                />
-                                </>)}
-                                {/*
-                                  A FOTO OCUPA A LINHA INTEIRA, abaixo dos campos.
-                                  O ImageUpload tem área de arrastar e três botões;
-                                  espremido entre nome e preço ele viraria o
-                                  elemento dominante de uma linha que é sobre
-                                  texto. Aqui embaixo, quem só quer corrigir o
-                                  nome não passa por ele.
-                                */}
-                                <div className="w-full">
-                                  <ImageUpload
-                                    value={editandoOpcaoImg}
-                                    onChange={setEditandoOpcaoImg}
-                                    label="Foto do sabor (opcional)"
-                                  />
-                                </div>
-                                <button type="button" onClick={() => atualizarOpcao(o.id)} className="shrink-0 rounded-lg bg-primary p-1.5 text-primary-foreground transition-colors hover:bg-primary/90">
-                                  <Check className="size-3.5" />
-                                </button>
-                                <button type="button" onClick={() => setEditandoOpcaoId(null)} className="shrink-0 rounded-lg border border-border p-1.5 text-muted-foreground transition-colors hover:bg-accent">
-                                  <X className="size-3.5" />
-                                </button>
-                              </div>
-                            ) : (
-                              <div
-                                key={o.id}
-                                className={cn('group flex items-center gap-2 rounded-lg px-2 py-2 transition-colors hover:bg-accent/40', !o.disponivel && 'opacity-45')}
+                        {/*
+                          ─── COLAR EM LOTE ───
+                          Cadastrar sabor é cadastrar em lote: uma pizzaria tem
+                          trinta. Um por um, com preço e seção em cada, é o
+                          trabalho que faz o lojista desistir e jogar tudo num
+                          grupo só. O formato é o que ele já tem escrito.
+                        */}
+                        {colandoEm === grupo.id && (
+                          <div className="border-b border-border/60 bg-muted/10 px-3.5 py-3">
+                            <textarea
+                              autoFocus
+                              value={textoColado}
+                              onChange={e => setTextoColado(e.target.value)}
+                              rows={6}
+                              spellCheck={false}
+                              placeholder={'[Tradicionais]\nCalabresa\nPortuguesa / 5\n[Especiais]\nCamarão / 18,50'}
+                              className="w-full rounded-xl border border-border bg-background p-2.5 font-mono text-[12.5px] leading-relaxed outline-none focus:ring-2 focus:ring-primary"
+                            />
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={colando || linhasColadas(textoColado, secaoAtual).length === 0}
+                                onClick={() => colarEmLote(grupo, secaoAtual)}
                               >
-                                {/* Miniatura na lista: dá pra conferir quais sabores
-                                    já têm foto sem abrir um por um. */}
-                                {o.imagem && (
-                                  <img src={o.imagem} alt="" loading="lazy"
-                                    className="size-8 shrink-0 rounded-md border border-border/60 object-cover" />
-                                )}
-                                <button
-                                  type="button"
-                                  className="min-w-0 flex-1 text-left"
-                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); setEditandoOpcaoDesc(o.descricao || ''); setEditandoOpcaoImg(o.imagem || ''); }}
-                                >
-                                  <span className="block truncate text-sm font-medium">{o.nome}</span>
-                                  {o.descricao && (
-                                    <span className="block truncate text-[11px] text-muted-foreground">{o.descricao}</span>
-                                  )}
-                                </button>
-                                {/* A seção precisa ser VISÍVEL na lista: sem isso não
-                                    dá pra conferir o agrupamento sem abrir cada item. */}
-                                {o.secao && (
-                                  <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10.5px] font-semibold text-muted-foreground">
-                                    {o.secao}
-                                  </span>
-                                )}
-                                {o.preco_adicional_centavos > 0 && (
-                                  <span className="shrink-0 text-xs font-bold text-primary">+ {brl(o.preco_adicional_centavos)}</span>
-                                )}
-                                {/*
-                                  QUANTOS SABORES ESTE TAMANHO LIBERA.
-                                  O CONTROLE QUE FALTAVA: a coluna existia, a
-                                  função de gravar existia (`definirSabores`) e
-                                  NINGUÉM a chamava — era código morto. Sem
-                                  este campo, `opcoes_itens.sabores` ficava
-                                  inalcançável pelo painel, `saboresLiberados`
-                                  sempre devolvia 0, e a pizza de 2 e 3 sabores
-                                  não funcionava mesmo com tudo o resto no lugar.
+                                <Plus className="size-4" />
+                                {colando
+                                  ? 'Adicionando…'
+                                  : `Adicionar ${linhasColadas(textoColado, secaoAtual).length} ${linhasColadas(textoColado, secaoAtual).length === 1 ? 'item' : 'itens'}`}
+                              </Button>
+                              <button type="button" onClick={() => setColandoEm(null)}
+                                className="rounded-lg px-2 py-1 text-[12px] font-semibold text-muted-foreground hover:bg-accent">
+                                Cancelar
+                              </button>
+                              <span className="text-[11.5px] text-muted-foreground">
+                                Um por linha. <code className="font-mono">/ 12</code> define o preço,
+                                {' '}<code className="font-mono">[Especiais]</code> muda a seção das linhas seguintes.
+                              </span>
+                            </div>
+                          </div>
+                        )}
 
-                                  Só no grupo de TAMANHO: em borda ou adicional
-                                  a pergunta não existe.
-
-                                  Vazio = não define nada, e aí o limite cai no
-                                  máximo do grupo de sabores. É o estado de todo
-                                  tamanho já cadastrado — ninguém muda de preço
-                                  nem de regra por causa deste campo aparecer.
-                                */}
-                                {grupo.papel === 'tamanho' && (
-                                  <span className="flex shrink-0 items-center gap-1" title="Quantos sabores este tamanho permite">
-                                    <Input
-                                      type="number" min="1" max="8" placeholder="—"
-                                      defaultValue={o.sabores ? String(o.sabores) : ''}
-                                      onBlur={e => {
-                                        const n = Number(e.target.value) || 0;
-                                        if (n !== (o.sabores || 0)) definirSabores(o, n);
-                                      }}
-                                      className="h-7 w-12 px-1 text-center text-xs"
-                                      aria-label={`Sabores liberados por ${o.nome}`}
-                                    />
-                                    <span className="text-[10.5px] text-muted-foreground">sabores</span>
+                        {/* ─── Lista de itens ─── */}
+                        <div className="px-1.5 py-1">
+                          {grupo.opcoes.length === 0 && !usaSecoes && (
+                            <p className="px-2 py-3 text-[12.5px] text-muted-foreground">
+                              Nenhum item ainda — adicione abaixo.
+                            </p>
+                          )}
+                          {blocos.map(({ secao, opcoes }) => (
+                            <div key={secao || '__sem__'}>
+                              {/*
+                                SUBCABEÇALHO DA SEÇÃO. O bloco "sem seção" tem
+                                rótulo ESTÁTICO: não é uma seção, é a ausência
+                                dela — dar a ele um campo de nome e um botão de
+                                desfazer prometeria uma operação que não existe.
+                              */}
+                              {usaSecoes && (secao ? (
+                                <div className="mt-1 flex items-center gap-1.5 px-2 pt-2">
+                                  <input
+                                    key={`sec-${grupo.id}-${secao}`}
+                                    defaultValue={secao}
+                                    aria-label={`Nome da seção ${secao}`}
+                                    maxLength={40}
+                                    onBlur={e => {
+                                      const v = e.target.value.trim();
+                                      if (!v) { e.target.value = secao; return; }
+                                      renomearSecao(grupo, secao, v);
+                                    }}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+                                      if (e.key === 'Escape') { (e.target as HTMLInputElement).value = secao; (e.target as HTMLInputElement).blur(); }
+                                    }}
+                                    className="w-[9rem] rounded-md bg-transparent px-1 py-0.5 text-[11px] font-extrabold uppercase tracking-[.11em] text-muted-foreground outline-none transition-colors hover:bg-accent focus:bg-background focus:ring-2 focus:ring-primary"
+                                  />
+                                  <span className="text-[11px] tabular-nums text-muted-foreground/70">
+                                    {opcoes.length} {opcoes.length === 1 ? 'item' : 'itens'}
                                   </span>
-                                )}
-                                <Pencil
-                                  className="size-3.5 shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60"
-                                  onClick={() => { setEditandoOpcaoId(o.id); setEditandoOpcaoNome(o.nome); setEditandoOpcaoPreco(o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''); setEditandoOpcaoSecao(o.secao || ''); setEditandoOpcaoDesc(o.descricao || ''); setEditandoOpcaoImg(o.imagem || ''); }}
-                                />
-                                <button type="button" onClick={() => toggleDisponivel(o)} title={o.disponivel ? 'Desativar' : 'Ativar'} className="shrink-0">
-                                  {o.disponivel ? <ToggleRight className="size-5 text-primary" /> : <ToggleLeft className="size-5 text-muted-foreground" />}
-                                </button>
-                                <button type="button" onClick={() => excluirOpcao(o.id)} className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-destructive">
-                                  <Trash2 className="size-3.5" />
-                                </button>
-                              </div>
-                            )
+                                  <span className="h-px flex-1 bg-border/60" />
+                                  <button
+                                    type="button"
+                                    onClick={() => desfazerSecao(grupo, secao)}
+                                    className="whitespace-nowrap rounded px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                                  >
+                                    Desfazer seção
+                                  </button>
+                                </div>
+                              ) : opcoes.length > 0 && nomesSecao.length > 0 && (
+                                <p className="mt-1 px-3 pt-2 text-[11px] font-extrabold uppercase tracking-[.11em] text-muted-foreground/70">
+                                  Sem seção
+                                </p>
+                              ))}
+
+                              {opcoes.map(o => {
+                                const chips = ingredientesDeTexto(o.descricao);
+                                const rascunho = rascunhoIng[o.id] ?? '';
+                                function gravarChips(novos: string[]) {
+                                  salvarOpcao(o, { descricao: textoDeIngredientes(novos) });
+                                }
+                                return (
+                                  <div key={o.id}
+                                    className={cn('group rounded-lg px-2 py-2 transition-colors hover:bg-accent/30',
+                                      !o.disponivel && 'opacity-60')}
+                                  >
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {/* Miniatura: dá pra conferir quais sabores já
+                                          têm foto sem abrir um por um. */}
+                                      <button
+                                        type="button"
+                                        onClick={() => setFotoAberta(fotoAberta === o.id ? null : o.id)}
+                                        title={o.imagem ? 'Trocar a foto' : 'Adicionar foto'}
+                                        className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted text-muted-foreground/60 transition-colors hover:border-primary hover:text-primary"
+                                      >
+                                        {o.imagem
+                                          ? <img src={o.imagem} alt="" loading="lazy" className="size-full object-cover" />
+                                          : <ImageIcon className="size-4" />}
+                                      </button>
+
+                                      <input
+                                        key={`op-${o.id}-${o.nome}`}
+                                        defaultValue={o.nome}
+                                        aria-label="Nome do item"
+                                        maxLength={80}
+                                        onBlur={e => {
+                                          const v = e.target.value.trim();
+                                          if (!v) { e.target.value = o.nome; return; }
+                                          if (v !== o.nome) salvarOpcao(o, { nome: v });
+                                        }}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+                                          if (e.key === 'Escape') { (e.target as HTMLInputElement).value = o.nome; (e.target as HTMLInputElement).blur(); }
+                                        }}
+                                        className="min-w-[6rem] flex-1 rounded-md bg-transparent px-1.5 py-1 text-[14.5px] font-semibold outline-none transition-colors hover:bg-accent focus:bg-background focus:ring-2 focus:ring-primary"
+                                      />
+
+                                      {/* Mover de seção sem arrastar. */}
+                                      {usaSecoes && nomesSecao.length > 0 && (
+                                        <select
+                                          value={(o.secao || '').trim()}
+                                          onChange={e => salvarOpcao(o, { secao: e.target.value })}
+                                          aria-label="Seção deste item"
+                                          className="h-8 w-[7.5rem] shrink-0 rounded-lg border border-border bg-card px-1 text-[11.5px] font-semibold text-muted-foreground"
+                                        >
+                                          <option value="">Sem seção</option>
+                                          {nomesSecao.map(x => <option key={x} value={x}>{x}</option>)}
+                                        </select>
+                                      )}
+
+                                      {/*
+                                        QUANTOS SABORES ESTE TAMANHO LIBERA.
+                                        Só no grupo de TAMANHO: em borda ou
+                                        adicional a pergunta não existe. Vazio
+                                        não define nada, e o limite cai no teto do
+                                        grupo de sabores — é o estado de todo
+                                        tamanho já cadastrado.
+                                      */}
+                                      {grupo.papel === 'tamanho' && (
+                                        <span className="flex shrink-0 items-center gap-1" title="Quantos sabores este tamanho permite">
+                                          <Input
+                                            key={`sab-${o.id}-${o.sabores || 0}`}
+                                            type="number" min="1" max="8" placeholder="—"
+                                            defaultValue={o.sabores ? String(o.sabores) : ''}
+                                            onBlur={e => {
+                                              const n = Number(e.target.value) || 0;
+                                              if (n !== (o.sabores || 0)) definirSabores(o, n);
+                                            }}
+                                            className="h-8 w-12 px-1 text-center text-xs"
+                                            aria-label={`Sabores liberados por ${o.nome}`}
+                                          />
+                                          <span className="text-[10.5px] text-muted-foreground">sabores</span>
+                                        </span>
+                                      )}
+
+                                      {/*
+                                        PREÇO NA LINHA, sempre visível.
+                                        Estava atrás de um clique pra entrar em
+                                        modo edição — o que fazia o meio da linha
+                                        ficar vazio em todo item sem acréscimo, e
+                                        obrigava a abrir cada um pra descobrir se
+                                        era grátis ou se ninguém preencheu.
+                                        Esmaecido = zero, que se lê "grátis".
+                                      */}
+                                      <span className={cn('relative flex shrink-0 items-center rounded-lg border transition-colors',
+                                        o.preco_adicional_centavos > 0 ? 'border-border bg-background' : 'border-dashed border-border/70 bg-muted/30')}>
+                                        <span className="pl-2 text-[10.5px] text-muted-foreground">R$</span>
+                                        <Input
+                                          key={`pr-${o.id}-${o.preco_adicional_centavos}`}
+                                          type="number" step="0.01" min="0" placeholder="0,00"
+                                          defaultValue={o.preco_adicional_centavos > 0 ? String(o.preco_adicional_centavos / 100) : ''}
+                                          aria-label={`Acréscimo de ${o.nome}`}
+                                          onBlur={e => {
+                                            const centavos = Math.round((Number(e.target.value) || 0) * 100);
+                                            if (centavos !== o.preco_adicional_centavos) {
+                                              salvarOpcao(o, { preco_adicional: e.target.value || '0' });
+                                            }
+                                          }}
+                                          className="h-8 w-[4.5rem] border-0 bg-transparent px-1 text-right text-xs tabular-nums focus-visible:ring-0"
+                                        />
+                                      </span>
+
+                                      {/*
+                                        INTERRUPTOR COM RÓTULO. Era um ícone de
+                                        alternar sem legenda: dava pra ver que
+                                        havia dois estados, não QUAL era o atual —
+                                        e "esgotado" é a informação que o cliente
+                                        sente na hora.
+                                      */}
+                                      <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={!!o.disponivel}
+                                        onClick={() => toggleDisponivel(o)}
+                                        className="flex shrink-0 items-center gap-1.5 rounded-lg px-1 py-1 transition-colors hover:bg-accent"
+                                      >
+                                        <span className={cn('flex h-[18px] w-[31px] shrink-0 items-center rounded-full p-0.5 transition-colors',
+                                          o.disponivel ? 'bg-primary' : 'bg-muted-foreground/25')}>
+                                          <span className={cn('size-[14px] rounded-full bg-white shadow-sm transition-transform',
+                                            o.disponivel && 'translate-x-[13px]')} />
+                                        </span>
+                                        <span className={cn('whitespace-nowrap text-[11px] font-semibold',
+                                          o.disponivel ? 'text-muted-foreground' : 'text-destructive')}>
+                                          {o.disponivel ? 'À venda' : 'Esgotado'}
+                                        </span>
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => excluirOpcao(o.id)}
+                                        title="Remover item"
+                                        className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                                      >
+                                        <Trash2 className="size-3.5" />
+                                      </button>
+                                    </div>
+
+                                    {/*
+                                      ─── INGREDIENTES COMO CHIPS ───
+
+                                      Era um campo de texto solto no rodapé do
+                                      grupo, longe do item: pra dizer o que tem na
+                                      Portuguesa, o lojista abria o modo edição
+                                      dela e digitava numa caixa de 160
+                                      caracteres, com vírgulas na mão. Chip mostra
+                                      o que já está lá, apaga um sem reescrever os
+                                      outros, e aceita colar "molho, mussarela,
+                                      presunto" de uma vez.
+                                    */}
+                                    <div className="mt-1 flex flex-wrap items-center gap-1 pl-11">
+                                      {chips.map(chip => (
+                                        <span key={chip} className="flex h-6 items-center gap-1 rounded-full bg-muted px-2 text-[11px] font-medium text-muted-foreground">
+                                          {chip}
+                                          <button
+                                            type="button"
+                                            aria-label={`Remover ${chip}`}
+                                            onClick={() => gravarChips(chips.filter(x => x !== chip))}
+                                            className="text-muted-foreground/60 transition-colors hover:text-destructive"
+                                          >
+                                            <X className="size-3" />
+                                          </button>
+                                        </span>
+                                      ))}
+                                      <input
+                                        value={rascunho}
+                                        onChange={e => {
+                                          const v = e.target.value;
+                                          /* Vírgula fecha o chip na hora: é como a
+                                             pessoa digita lista, e esperar o Enter
+                                             faria "molho, mussarela" virar um chip só. */
+                                          if (v.includes(',')) {
+                                            gravarChips(comIngredientes(chips, v));
+                                            setRascunhoIng(m => ({ ...m, [o.id]: '' }));
+                                          } else {
+                                            setRascunhoIng(m => ({ ...m, [o.id]: v }));
+                                          }
+                                        }}
+                                        onKeyDown={e => {
+                                          if (e.key === 'Enter') {
+                                            e.preventDefault();
+                                            if (!rascunho.trim()) return;
+                                            gravarChips(comIngredientes(chips, rascunho));
+                                            setRascunhoIng(m => ({ ...m, [o.id]: '' }));
+                                          }
+                                          /* Backspace no campo vazio tira o último
+                                             chip — o gesto que todo campo de tag tem,
+                                             e sem ele a mão vai pro mouse. */
+                                          if (e.key === 'Backspace' && !rascunho && chips.length > 0) {
+                                            e.preventDefault();
+                                            gravarChips(chips.slice(0, -1));
+                                          }
+                                        }}
+                                        onBlur={() => {
+                                          if (!rascunho.trim()) return;
+                                          gravarChips(comIngredientes(chips, rascunho));
+                                          setRascunhoIng(m => ({ ...m, [o.id]: '' }));
+                                        }}
+                                        placeholder={chips.length ? '+ ingrediente' : '+ ingredientes (separe por vírgula)'}
+                                        aria-label={`Ingredientes de ${o.nome}`}
+                                        className="h-6 min-w-[11rem] flex-1 rounded-md bg-transparent px-1 text-[11.5px] outline-none transition-colors placeholder:text-muted-foreground/60 hover:bg-accent/60 focus:bg-background focus:ring-2 focus:ring-primary"
+                                      />
+                                    </div>
+
+                                    {/* Foto: painel próprio, aberto sob demanda. O
+                                        ImageUpload tem área de arrastar e três
+                                        botões; na linha ele seria o elemento
+                                        dominante de uma lista que é sobre texto. */}
+                                    {fotoAberta === o.id && (
+                                      <div className="mt-2 rounded-xl border border-border bg-muted/20 p-2.5">
+                                        <ImageUpload
+                                          value={o.imagem || ''}
+                                          onChange={v => salvarOpcao(o, { imagem: v })}
+                                          label={`Foto de ${o.nome} (opcional)`}
+                                        />
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+
+                              {usaSecoes && secao && opcoes.length === 0 && (
+                                <p className="px-3 py-2 text-[11.5px] text-muted-foreground">
+                                  Seção vazia — os próximos itens entram aqui se você escolher "{secao}" abaixo.
+                                </p>
+                              )}
+                            </div>
                           ))}
                         </div>
 
+                        {/* ─── Nova seção ─── */}
+                        {usaSecoes && (
+                          <div className="px-3.5 pb-2">
+                            {criandoSecao === grupo.id ? (
+                              <input
+                                autoFocus
+                                placeholder="Nome da seção — Enter para criar"
+                                maxLength={40}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    const v = (e.target as HTMLInputElement).value.trim();
+                                    if (v) {
+                                      setSecoesExtras(m => ({ ...m, [grupo.id]: [...(m[grupo.id] || []), v] }));
+                                      /* Passa a ser a seção padrão dos próximos:
+                                         quem cria "Especiais" vai cadastrar especiais. */
+                                      setOpcaoForm(grupo.id, 'secao', v);
+                                    }
+                                    setCriandoSecao(null);
+                                  }
+                                  if (e.key === 'Escape') setCriandoSecao(null);
+                                }}
+                                onBlur={() => setCriandoSecao(null)}
+                                className="h-8 w-full rounded-lg border border-dashed border-border bg-background px-2 text-[12.5px] outline-none focus:ring-2 focus:ring-primary"
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setCriandoSecao(grupo.id)}
+                                className="w-full rounded-lg border border-dashed border-border px-2 py-1.5 text-[12px] font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                              >
+                                + Nova seção
+                              </button>
+                            )}
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              Seções organizam a lista no app — Tradicionais, Especiais, Doces.
+                            </p>
+                          </div>
+                        )}
+
+                        {/* ─── Adicionar item: uma linha ─── */}
                         <div className="border-t border-border/60 px-3 py-3">
-                          <div className="flex items-center gap-2 max-sm:flex-wrap">
+                          <div className="flex flex-wrap items-center gap-2">
                             <Input
                               id={`opcao-nome-${grupo.id}`}
-                              placeholder={SUGESTOES[grupo.nome]?.[0] ? `Ex.: ${SUGESTOES[grupo.nome][0]}…` : 'Nome da opção…'}
+                              placeholder={SUGESTOES[grupo.nome]?.[0]
+                                ? `Ex.: ${SUGESTOES[grupo.nome][0]} — Enter para adicionar`
+                                : 'Nome do item — Enter para adicionar'}
                               value={opcaoForm(grupo.id).nome}
                               onChange={e => setOpcaoForm(grupo.id, 'nome', e.target.value)}
                               onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), criarOpcao(grupo.id))}
-                              className="h-10 flex-1 text-sm max-sm:w-full max-sm:flex-none"
+                              className="h-10 min-w-[10rem] flex-1 text-sm"
                             />
+                            {usaSecoes && (
+                              <select
+                                value={opcaoForm(grupo.id).secao}
+                                onChange={e => setOpcaoForm(grupo.id, 'secao', e.target.value)}
+                                aria-label="Seção do novo item"
+                                className="h-10 w-[8.5rem] shrink-0 rounded-lg border border-border bg-background px-2 text-[12.5px] font-semibold text-muted-foreground"
+                              >
+                                <option value="">Sem seção</option>
+                                {nomesSecao.map(x => <option key={x} value={x}>{x}</option>)}
+                              </select>
+                            )}
                             <div className="relative w-24 shrink-0">
                               <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground">+R$</span>
                               <Input
@@ -2601,7 +2885,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
                             </div>
                             <Button
                               type="button"
-                              className="h-10 shrink-0 px-4"
+                              className="h-10 shrink-0 whitespace-nowrap px-4"
                               onClick={() => criarOpcao(grupo.id)}
                               disabled={!opcaoForm(grupo.id).nome.trim()}
                             >
@@ -2610,76 +2894,64 @@ function GruposEditor({ produto }: { produto: Produto }) {
                           </div>
 
                           {/*
-                            SEÇÃO — separa sabor por faixa ('Tradicionais',
-                            'Especiais', 'Doces') DENTRO do grupo.
+                            ─── SUGESTÕES, ABAIXO DO CAMPO DE ADICIONAR ───
 
-                            Não são grupos separados de propósito: o limite de
-                            sabores vem do tamanho e o preço cobra só o maior
-                            acréscimo. Três grupos deixariam a pizza de 3 sabores
-                            aceitar 3 de cada, e somariam três "maiores".
+                            Estavam ACIMA da lista, no topo do painel: chips
+                            tracejados na mesma posição em que os itens do grupo
+                            apareceriam, então se leem como itens já cadastrados.
+                            Aqui embaixo, ao lado do campo que os cria, ficam onde
+                            a ação está.
 
-                            O campo fica embaixo, não ao lado do nome: a maioria
-                            dos grupos (bordas, adicionais, bebida) não usa
-                            seção, e um campo a mais na linha principal cobraria
-                            atenção de todo mundo por causa de um caso.
+                            Cada chip sai da lista quando o item JÁ EXISTE no
+                            grupo (comparando sem caixa e sem espaço), então nunca
+                            é um botão que gera duplicata — e a fileira desaparece
+                            sozinha quando a última é usada.
                           */}
-                          {/*
-                            INGREDIENTES. Uma linha, embaixo do nome do sabor na
-                            tela do cliente — é o que faz "Portuguesa" virar uma
-                            escolha informada em vez de um chute.
+                          {(() => {
+                            const disponiveis = mesclarSugestoes(
+                              (historico?.[grupo.nome] || []).map(x => x.nome),
+                              SUGESTOES[grupo.nome]);
+                            const faltam = sugestoesFaltantes(disponiveis, grupo.opcoes);
+                            if (faltam.length === 0) return null;
+                            return (
+                              <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                                <span className="text-[11.5px] text-muted-foreground">
+                                  {grupo.opcoes.length === 0 ? 'Comuns aqui:' : 'Adicionar mais:'}
+                                </span>
+                                {faltam.map(sug => (
+                                  <button
+                                    key={sug}
+                                    type="button"
+                                    onClick={() => adicionarSugestao(grupo.id, sug, grupo.nome)}
+                                    className="flex items-center gap-1 rounded-full border border-dashed border-border px-2.5 py-1 text-[11.5px] font-semibold transition-colors hover:border-primary hover:bg-primary/5 hover:text-primary active:scale-95"
+                                  >
+                                    <Plus className="size-3" />{sug}
+                                  </button>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                        </div>
 
-                            Junto da seção e não na linha principal: nem todo
-                            grupo precisa (borda, bebida), e mais um campo na
-                            linha de cima cobraria atenção de todos por causa de
-                            um caso.
-                          */}
-                          {detalhes ? (<>
-                          <div className="mt-2 flex items-center gap-2">
-                            <label htmlFor={`opcao-desc-${grupo.id}`} className="shrink-0 text-[11px] text-muted-foreground">
-                              Ingredientes
-                            </label>
-                            <Input
-                              id={`opcao-desc-${grupo.id}`}
-                              placeholder="opcional — ex.: molho, mussarela, presunto, ovo"
-                              value={opcaoForm(grupo.id).descricao}
-                              onChange={e => setOpcaoForm(grupo.id, 'descricao', e.target.value)}
-                              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), criarOpcao(grupo.id))}
-                              maxLength={160}
-                              className="h-8 flex-1 text-xs"
-                            />
-                          </div>
-                          <div className="mt-2 flex items-center gap-2">
-                            <label htmlFor={`opcao-secao-${grupo.id}`} className="shrink-0 text-[11px] text-muted-foreground">
-                              Seção
-                            </label>
-                            <Input
-                              id={`opcao-secao-${grupo.id}`}
-                              placeholder="opcional — ex.: Tradicionais, Especiais, Doces"
-                              value={opcaoForm(grupo.id).secao}
-                              onChange={e => setOpcaoForm(grupo.id, 'secao', e.target.value)}
-                              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), criarOpcao(grupo.id))}
-                              maxLength={40}
-                              className="h-8 flex-1 text-xs"
-                              list={`secoes-${grupo.id}`}
-                            />
-                            {/*
-                              As seções que este grupo já usa, como autocomplete.
-                              Sem isso, "Tradicionais" e "tradicionais" viram duas
-                              seções na tela do cliente por causa de uma letra.
-                            */}
-                            <datalist id={`secoes-${grupo.id}`}>
-                              {[...new Set(grupo.opcoes.map(o => (o.secao || '').trim()).filter(Boolean))]
-                                .map(sec => <option key={sec} value={sec} />)}
-                            </datalist>
-                          </div>
-                          </>) : (
-                            <button
-                              type="button"
-                              onClick={() => setDetalhesAbertos(d => ({ ...d, [grupo.id]: true }))}
-                              className="mt-2 text-[11.5px] font-semibold text-muted-foreground transition-colors hover:text-primary"
-                            >
-                              + ingredientes e seção
-                            </button>
+                        {/*
+                          ─── ESPELHO DO RESULTADO ───
+                          O lojista configura aqui e o cliente vê lá; sem esta
+                          linha, descobrir que o grupo não aparece no app exige
+                          abrir a loja e procurar. E o caso que mais acontece é o
+                          silencioso: grupo com itens, todos pausados.
+                        */}
+                        <div className="border-t border-border/60 bg-muted/20 px-3.5 py-2.5">
+                          {aVenda.length === 0 ? (
+                            <p className="text-[12px] font-semibold text-amber-700 dark:text-amber-400">
+                              {grupo.opcoes.length === 0
+                                ? 'Sem itens, este grupo não aparece no app.'
+                                : 'Todos os itens estão esgotados — o grupo não aparece no app.'}
+                            </p>
+                          ) : (
+                            <p className="line-clamp-2 text-[12px] text-muted-foreground">
+                              <span className="font-semibold text-foreground">No app: </span>
+                              {aVenda.map(o => o.nome).join(' · ')}
+                            </p>
                           )}
                         </div>
                       </div>
