@@ -944,7 +944,9 @@ function VitrineDestaques({ produtos, podeAbrir, onAbrir, visual, corMarca }: {
                     src={p.foto_url}
                     alt={p.nome}
                     loading="lazy"
-                    className={cn('size-full object-cover transition-transform duration-300',
+                    /* `contain` como na grade: é a mesma foto do mesmo produto,
+                       e cortar só no destaque faria o item parecer outro. */
+                    className={cn('size-full object-contain transition-transform duration-300',
                       podeAbrir && 'group-hover:scale-105')}
                   />
                 ) : (
@@ -1113,6 +1115,22 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
         <div className={cn('relative overflow-hidden bg-white', layoutGrid
           ? (c.formato_foto === 'retrato' ? 'aspect-[3/4]' : c.formato_foto === 'paisagem' ? 'aspect-[16/10]' : 'aspect-square')
           : 'size-16 shrink-0 rounded-xl')}>
+          {/*
+            A FOTO INTEIRA, SEM CORTE.
+
+            `object-cover` preenche a moldura cortando o que sobra — e o que
+            sobra é sempre a borda: a pizza perdia a crosta, a lata perdia o
+            topo. A moldura tem proporção fixa (o lojista escolhe quadrada,
+            retrato ou paisagem) e a foto vem de qualquer câmera, então o corte
+            era garantido em quase todas.
+
+            `contain` cabe a foto inteira e sobra faixa nas laterais — o troco
+            certo: faixa branca não engana ninguém, foto cortada mostra um
+            produto que não é o que chega.
+
+            NO FORMATO LISTA CONTINUA `cover`: ali a foto é miniatura de 64px, e
+            `contain` encolheria a imagem dentro de uma caixa já minúscula.
+          */}
           {produto.foto_url
             ? <img src={produto.foto_url} alt={produto.nome}
                 onError={e => {
@@ -1124,7 +1142,9 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
                   const ph = img.nextElementSibling as HTMLElement | null;
                   if (ph) ph.style.display = 'flex';
                 }}
-                className={cn('size-full object-cover transition-transform duration-300', abrivel && 'group-hover:scale-105', esgotado && 'grayscale')} />
+                className={cn('size-full transition-transform duration-300',
+                  layoutGrid ? 'object-contain' : 'object-cover',
+                  abrivel && 'group-hover:scale-105', esgotado && 'grayscale')} />
             : null}
           <div className="size-full items-center justify-center bg-muted text-muted-foreground/60" style={{ display: produto.foto_url ? 'none' : 'flex' }}>
             <UtensilsCrossed className={layoutGrid ? 'size-9' : 'size-6'} strokeWidth={1.5} />

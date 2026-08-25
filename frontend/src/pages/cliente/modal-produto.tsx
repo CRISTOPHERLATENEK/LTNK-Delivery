@@ -426,11 +426,15 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
             vende, mas quem decide a compra é a lista de escolhas — e ela tem que
             estar visível sem rolar.
           */
-          <div className="relative h-[190px] shrink-0 overflow-hidden sm:h-60">
+          <div className="relative h-[190px] shrink-0 overflow-hidden bg-white sm:h-60">
+            {/* `contain` como na vitrine: o cliente abriu o card justamente pra
+                ver o produto, e é aqui que o corte mais incomoda. O `bg-white`
+                na moldura existe porque a faixa que sobra é transparente — sem
+                fundo, o degradê de baixo apareceria por trás da foto. */}
             <img
               src={produto.foto_url}
               alt={produto.nome}
-              className="size-full object-cover"
+              className="size-full object-contain"
             />
             {/* Degradê até o fundo: sem ele a foto termina numa faixa dura e o
                 nome parece colado numa borda. */}
