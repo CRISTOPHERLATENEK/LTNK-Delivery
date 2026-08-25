@@ -437,7 +437,9 @@ export function ProdutosLoja() {
   function alternarSelecao(id: number) {
     setSelecionados(prev => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      /* `if/else` e nao ternario: ternario existe pra PRODUZIR um valor, e aqui
+         os dois lados sao efeito colateral. O lint reclamava disso com razao. */
+      if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
   }
@@ -1991,6 +1993,36 @@ function GruposEditor({ produto }: { produto: Produto }) {
   }
 
   /** Grava campos de uma opção. Parcial, pelo mesmo motivo do grupo. */
+  /**
+   * VOLTA TODOS OS ITENS DO GRUPO PRA VENDA.
+   *
+   * Pausar sabor que acabou é coisa do meio do expediente, item por item. No fim
+   * do dia tudo volta — e numa pizzaria de dezesseis sabores isso é dezesseis
+   * cliques, todo dia. O sabor esgotado que ninguém reativou é venda perdida
+   * silenciosa: o cardápio abre sem ele e ninguém percebe.
+   *
+   * Em série e não em paralelo: dezesseis PUTs simultâneos no mesmo grupo é
+   * carga de pico por conveniência, e a diferença de tempo aqui não é sentida.
+   */
+  async function reativarTodos(grupo: GrupoOpcoes) {
+    const pausados = grupo.opcoes.filter(o => !o.disponivel);
+    if (pausados.length === 0) return;
+    try {
+      for (const o of pausados) {
+        await api('PUT', `/api/lojista/opcoes/${o.id}`, { disponivel: true });
+      }
+      await qc.refetchQueries({ queryKey });
+      mostrar({
+        tipo: 'sucesso',
+        titulo: `${pausados.length} ${pausados.length === 1 ? 'item voltou' : 'itens voltaram'} pra venda.`,
+      });
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : 'Erro ao reativar os itens.';
+      mostrar({ tipo: 'erro', titulo: msg });
+      await qc.refetchQueries({ queryKey });
+    }
+  }
+
   /** Traz pra este produto um grupo que já existe na loja. */
   async function usarGrupoExistente(grupoId: number) {
     try {
@@ -2417,6 +2449,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
                 const compartilhado = usos > 1;
 
                 const aVenda = grupo.opcoes.filter(o => o.disponivel);
+                const esgotados = grupo.opcoes.length - aVenda.length;
 
                 return (
                   <div
@@ -2683,6 +2716,22 @@ function GruposEditor({ produto }: { produto: Produto }) {
                             {usaSecoes && nomesSecao.length > 0 && ` em ${nomesSecao.length} ${nomesSecao.length === 1 ? 'seção' : 'seções'}`}
                           </span>
                           <div className="ml-auto flex items-center gap-1">
+                            {/*
+                              SÓ APARECE QUANDO HÁ ITEM PAUSADO, e diz QUANTOS.
+                              Botão permanente aqui seria mais um controle pra ler
+                              em toda visita; com a contagem, ele é a resposta pra
+                              uma pergunta que o lojista tem no fim do expediente.
+                            */}
+                            {esgotados > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => reativarTodos(grupo)}
+                                className="whitespace-nowrap rounded-lg bg-primary/10 px-2 py-1 text-[11.5px] font-semibold text-primary transition-colors hover:bg-primary/20"
+                                title="Marca como disponível tudo que está pausado neste grupo"
+                              >
+                                Voltar {esgotados} pra venda
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => setSecoesLigadas(m => ({ ...m, [grupo.id]: !usaSecoes }))}
