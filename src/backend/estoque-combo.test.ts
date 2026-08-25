@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { agregarEstoque, type LinhaCarrinho, type ComponenteCombo } from './estoque-combo';
 
 const info = (nome: string, estoque?: number | null) => ({
@@ -83,5 +85,34 @@ describe('agregarEstoque', () => {
     const { qtd, dentroDeCombo } = agregarEstoque([linha(ARTESANAL, 1, info('Artesanal', 5))], []);
     expect([...qtd]).toEqual([[ARTESANAL, 1]]);
     expect(dentroDeCombo.size).toBe(0);
+  });
+});
+
+/*
+ * A LIGAÇÃO COM A ROTA.
+ *
+ * `agregarEstoque` pode estar perfeito e a rota continuar descontando errado —
+ * bastava ela seguir percorrendo `itensValidados` em vez do agregado, que é
+ * como o componente ficava de fora. O módulo puro não pega isso.
+ */
+describe('a rota de pedido usa o agregado', () => {
+  const cliente = fs.readFileSync(path.resolve(__dirname, 'rotas', 'cliente.ts'), 'utf8');
+  const codigo = cliente.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('busca os componentes dos produtos do carrinho', () => {
+    expect(codigo).toMatch(/FROM combo_itens ci JOIN produtos p ON p\.id = ci\.produto_id/);
+    expect(codigo).toMatch(/WHERE ci\.combo_id IN/);
+  });
+
+  it('a checagem percorre o agregado, não o carrinho', () => {
+    expect(codigo).toMatch(/for \(const \[produtoId, pedido\] of qtdPorProduto\)/);
+    /* O laço antigo — `for (const { produto } of itensValidados)` seguido de
+       leitura de `controla_estoque` — deixava o componente de fora. */
+    expect(codigo).not.toMatch(/for \(const \{ produto \} of itensValidados\)/);
+  });
+
+  it('a baixa lê do mapa, não de itensValidados.find', () => {
+    expect(codigo).toMatch(/const alvo = infoProduto\.get\(produtoId\)/);
+    expect(codigo).not.toMatch(/itensValidados\.find\(i => i\.produto\.id === produtoId\)!/);
   });
 });
