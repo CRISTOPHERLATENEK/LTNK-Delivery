@@ -15,6 +15,7 @@ import { adicionarAoCarrinho, vooCarrinho } from '@/lib/carrinho';
 import { useToast } from '@/components/ui/toast';
 import type { GrupoOpcoes, Loja, OpcaoItem, Produto } from '@/types';
 import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo, agruparPorSecao, contarFracoes } from '@/lib/opcoes-preco';
+import { montarSlots, chaveEscolha, escolhasParaEnvio, faltandoPorSlot, ehCombo } from '@/lib/slots-produto';
 
 interface Props {
   produto: Produto;
@@ -24,8 +25,30 @@ interface Props {
 }
 
 export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
-  const grupos = produto.grupos || [];
-  const [escolhidas, setEscolhidas] = useState<Record<number, number[]>>({});
+  /*
+   * OS SLOTS SÃO A ESTRUTURA DA TELA AGORA.
+   *
+   * Produto comum devolve UM slot sem rótulo, e a tela sai idêntica ao que
+   * sempre foi. Combo devolve o slot 0 (grupos do próprio combo, tipo a bebida
+   * inclusa) mais um por componente. Ver `lib/slots-produto.ts`, onde a promessa
+   * de "produto comum não muda" está testada.
+   */
+  const slots = useMemo(() => montarSlots(produto), [produto]);
+  const combo = ehCombo(produto);
+  /** Todos os grupos de todos os slots, com o slot ao lado — pra varrer sem aninhar. */
+  const paresSlotGrupo = useMemo(
+    () => slots.flatMap(s => s.grupos.map(g => ({ slot: s.slot, rotulo: s.rotulo, grupo: g }))),
+    [slots],
+  );
+
+  /*
+   * A CHAVE É `slot:grupo`, não o id do grupo.
+   *
+   * Dois slots do mesmo produto — "2× Pizza Artesanal", o combo mais comum de
+   * pizzaria — usam o MESMO grupo de sabores. Indexar por id fazia escolher
+   * calabresa na pizza 1 aparecer marcado na 2.
+   */
+  const [escolhidas, setEscolhidas] = useState<Record<string, number[]>>({});
   const [qtd, setQtd] = useState(1);
   const [observacao, setObservacao] = useState('');
   const [descAberta, setDescAberta] = useState(false);
@@ -47,11 +70,13 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
    * trás do sheet, e o modal não se moveria.
    */
   const areaRolagem = useRef<HTMLDivElement | null>(null);
-  const refsGrupo = useRef<Record<number, HTMLDivElement | null>>({});
+  /* Indexada por `slot:grupo`: com dois slots do mesmo produto, o id do grupo
+     sozinho guardaria uma ref só e o chip levaria sempre à primeira pizza. */
+  const refsGrupo = useRef<Record<string, HTMLDivElement | null>>({});
 
-  function irParaGrupo(grupoId: number) {
+  function irParaGrupo(chave: string) {
     const area = areaRolagem.current;
-    const alvo = refsGrupo.current[grupoId];
+    const alvo = refsGrupo.current[chave];
     if (!area || !alvo) return;
     // -8px pra o cabeçalho sticky não cobrir a primeira linha do grupo.
     area.scrollTo({ top: alvo.offsetTop - 8, behavior: 'smooth' });
@@ -97,49 +122,55 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
   const esgotado = controlaEstoque && estoqueDisp <= 0;
   const noLimite = qtd >= estoqueDisp;
 
-  const { precoUnit, opcoesTexto, opcoesIds, faltando } = useMemo(() => {
+  const { precoUnit, opcoesTexto, faltando } = useMemo(() => {
     let preco = precoBase;
     const partes: string[] = [];
-    const ids: number[] = [];
     const faltandoLocal: string[] = [];
 
-    for (const g of grupos) {
-      const ids_g = escolhidas[g.id] || [];
-      if (g.obrigatorio && ids_g.length === 0) faltandoLocal.push(g.nome);
+    /*
+     * O PREÇO É POR SLOT, e é a mesma regra do servidor.
+     *
+     * Juntar as escolhas de dois slots e chamar `precoDoGrupo` uma vez — que é a
+     * coisa natural, porque o grupo é o MESMO objeto — cobraria, com
+     * `modo_preco = 'maior'`, o maior acréscimo de TODAS as pizzas em vez do
+     * maior de CADA uma. A prévia mostraria menos do que o servidor cobra, que é
+     * o pior jeito de errar preço. Ver `precoDosSlots` em opcoes-preco.ts.
+     */
+    for (const s of slots) {
+      /* `saboresLiberados` é POR SLOT: num combo "1 Grande + 1 Broto" o Grande
+         libera 2 sabores e o Broto 1 — mesma função, dois resultados. */
+      const doSlot = s.grupos.map(g => ({
+        grupo: g,
+        escolhidas: (escolhidas[chaveEscolha(s.slot, g.id)] || [])
+          .map(id => g.opcoes.find(o => o.id === id))
+          .filter((o): o is OpcaoItem => !!o),
+      }));
 
-      const opcoes = ids_g
-        .map(id => g.opcoes.find(o => o.id === id))
-        .filter((o): o is OpcaoItem => !!o);
-      if (opcoes.length === 0) continue;
+      for (const { grupo: g, escolhidas: opcoes } of doSlot) {
+        if (g.obrigatorio && opcoes.length === 0 && (g.opcoes ?? []).length > 0) {
+          faltandoLocal.push(s.rotulo ? `${s.rotulo} · ${g.nome}` : g.nome);
+        }
+        if (opcoes.length === 0) continue;
 
-      /*
-       * `precoDoGrupo` E NÃO SOMA À MÃO.
-       *
-       * Esta tela somava os acréscimos direto, ignorando o `modo_preco` do
-       * grupo — e o servidor usa `precoDoGrupo`. Numa pizza com 'maior', a tela
-       * somava três acréscimos e a cobrança era de um: prévia diferente do que
-       * se paga, que é o pior jeito de errar preço. A função estava até
-       * importada aqui, e nunca era chamada.
-       */
-      preco += precoDoGrupo(g, opcoes);
-      ids.push(...ids_g);
+        preco += precoDoGrupo(g, opcoes);
 
-      /*
-       * O texto mostra a FRAÇÃO quando o sabor se repete ("2/4 Calabresa"), e o
-       * nome puro quando não. É este texto que vai pro carrinho e pro cupom da
-       * cozinha — sem a fração ali, a tela promete uma divisão que quem produz
-       * não recebe.
-       */
-      const total = opcoes.length;
-      for (const p of contarFracoes(opcoes)) {
-        const nome = (p.opcao as OpcaoItem).nome;
-        partes.push(p.fracoes > 1 && total > 1
-          ? `${g.nome}: ${p.fracoes}/${total} ${nome}`
-          : `${g.nome}: ${nome}`);
+        /*
+         * O TEXTO GUARDA A FRAÇÃO E O RÓTULO DO SLOT. É ele que vai pro carrinho
+         * e pro cupom: sem a fração a cozinha não sabe a divisão, e sem o rótulo
+         * não sabe de qual pizza.
+         */
+        const total = opcoes.length;
+        for (const p of contarFracoes(opcoes)) {
+          const nome = (p.opcao as OpcaoItem).nome;
+          const onde = s.rotulo ? `${s.rotulo} · ` : '';
+          partes.push(p.fracoes > 1 && total > 1
+            ? `${onde}${g.nome}: ${p.fracoes}/${total} ${nome}`
+            : `${onde}${g.nome}: ${nome}`);
+        }
       }
     }
-    return { precoUnit: preco, opcoesTexto: partes.join(' · '), opcoesIds: ids, faltando: faltandoLocal };
-  }, [escolhidas, grupos, precoBase]);
+    return { precoUnit: preco, opcoesTexto: partes.join(' · '), faltando: faltandoLocal };
+  }, [escolhidas, slots, precoBase]);
 
   /*
    * GRUPO OBRIGATÓRIO COM UMA OPÇÃO SÓ NÃO É ESCOLHA — É INFORMAÇÃO.
@@ -153,44 +184,64 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
    * múltipla escolha com um item só.
    */
   useEffect(() => {
-    const unicas = grupos.filter(g => g.obrigatorio && g.opcoes.length === 1);
+    const unicas = paresSlotGrupo.filter(p => p.grupo.obrigatorio && p.grupo.opcoes.length === 1);
     if (unicas.length === 0) return;
     setEscolhidas(antigo => {
       let mudou = false;
       const novo = { ...antigo };
-      for (const g of unicas) {
-        if ((novo[g.id] || []).length === 0) { novo[g.id] = [g.opcoes[0].id]; mudou = true; }
+      for (const { slot, grupo: g } of unicas) {
+        const k = chaveEscolha(slot, g.id);
+        if ((novo[k] || []).length === 0) { novo[k] = [g.opcoes[0].id]; mudou = true; }
       }
       return mudou ? novo : antigo;
     });
-  }, [grupos]);
+  }, [paresSlotGrupo]);
 
-  /** Sabores liberados pelo tamanho escolhido — 0 quando ninguém definiu. */
-  const saboresPermitidos = useMemo(() => saboresLiberados(
-    grupos.map(g => ({
-      grupo: g,
-      escolhidas: (escolhidas[g.id] || [])
-        .map(id => g.opcoes.find(o => o.id === id))
-        .filter((o): o is OpcaoItem => !!o),
-    })),
-  ), [escolhidas, grupos]);
+  /**
+   * Sabores liberados pelo tamanho escolhido, POR SLOT.
+   *
+   * Num combo "1 Grande + 1 Broto" o Grande libera 2 sabores e o Broto libera 1.
+   * Um número só pro item inteiro daria o limite de uma pizza à outra — e o
+   * servidor, que calcula por slot, recusaria o pedido no fim.
+   */
+  const saboresPorSlot = useMemo(() => {
+    const mapa = new Map<number, number>();
+    for (const s of slots) {
+      mapa.set(s.slot, saboresLiberados(s.grupos.map(g => ({
+        grupo: g,
+        escolhidas: (escolhidas[chaveEscolha(s.slot, g.id)] || [])
+          .map(id => g.opcoes.find(o => o.id === id))
+          .filter((o): o is OpcaoItem => !!o),
+      }))));
+    }
+    return mapa;
+  }, [escolhidas, slots]);
 
-  function alternar(grupo: GrupoOpcoes, opcao: OpcaoItem) {
+  function alternar(slot: number, grupo: GrupoOpcoes, opcao: OpcaoItem) {
+    const k = chaveEscolha(slot, grupo.id);
+    const saboresPermitidos = saboresPorSlot.get(slot) ?? 0;
     setEscolhidas(antigo => {
-      const atual = antigo[grupo.id] || [];
+      const atual = antigo[k] || [];
       if (grupo.tipo === 'unico') {
         /*
          * Trocar de TAMANHO pode reduzir o limite de sabores (da G pra P, de 3
          * pra 1). Sem limpar, o cliente ficaria com 3 sabores numa pizza que só
          * aceita 1 — e o servidor recusaria o pedido no final, depois de ele já
          * ter montado tudo.
+         *
+         * A LIMPEZA É SÓ DO SLOT. Trocar o tamanho da Pizza 1 num combo não pode
+         * apagar os sabores da Pizza 2 — seria o cliente perdendo trabalho num
+         * lugar por causa de um clique em outro.
          */
         if (grupo.papel === 'tamanho') {
-          const limpo = { ...antigo, [grupo.id]: [opcao.id] };
-          for (const g of grupos) if (g.papel === 'sabores') limpo[g.id] = [];
+          const limpo = { ...antigo, [k]: [opcao.id] };
+          const doSlot = slots.find(x => x.slot === slot);
+          for (const g of doSlot?.grupos ?? []) {
+            if (g.papel === 'sabores') limpo[chaveEscolha(slot, g.id)] = [];
+          }
           return limpo;
         }
-        return { ...antigo, [grupo.id]: [opcao.id] };
+        return { ...antigo, [k]: [opcao.id] };
       }
       /*
        * GRUPO DE SABORES: repetir o mesmo sabor é ADICIONAR FRAÇÃO, não
@@ -201,11 +252,11 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
       const max = maxEscolhasEfetivo(grupo, saboresPermitidos);
       if (grupo.papel === 'sabores') {
         if (max > 0 && atual.length >= max) return antigo;
-        return { ...antigo, [grupo.id]: [...atual, opcao.id] };
+        return { ...antigo, [k]: [...atual, opcao.id] };
       }
-      if (atual.includes(opcao.id)) return { ...antigo, [grupo.id]: atual.filter(i => i !== opcao.id) };
+      if (atual.includes(opcao.id)) return { ...antigo, [k]: atual.filter(i => i !== opcao.id) };
       if (max > 0 && atual.length >= max) return antigo;
-      return { ...antigo, [grupo.id]: [...atual, opcao.id] };
+      return { ...antigo, [k]: [...atual, opcao.id] };
     });
   }
 
@@ -215,12 +266,13 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
    * Tira só a última ocorrência, não todas: quem tem 2/4 de calabresa e toca em
    * "−" quer 1/4, não perder o sabor inteiro.
    */
-  function removerFracao(grupo: GrupoOpcoes, opcao: OpcaoItem) {
+  function removerFracao(slot: number, grupo: GrupoOpcoes, opcao: OpcaoItem) {
+    const k = chaveEscolha(slot, grupo.id);
     setEscolhidas(antigo => {
-      const atual = antigo[grupo.id] || [];
+      const atual = antigo[k] || [];
       const i = atual.lastIndexOf(opcao.id);
       if (i < 0) return antigo;
-      return { ...antigo, [grupo.id]: [...atual.slice(0, i), ...atual.slice(i + 1)] };
+      return { ...antigo, [k]: [...atual.slice(0, i), ...atual.slice(i + 1)] };
     });
   }
 
@@ -233,12 +285,25 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
    * `faltando` já era calculado junto do preço; aqui ele vira contagem e lista
    * de chips, sem recalcular nada.
    */
-  const obrigatorios = grupos.filter(g => g.obrigatorio);
-  const resolvidos = obrigatorios.filter(g => !faltando.includes(g.nome));
+  /*
+   * Conta os obrigatórios de TODOS os slots. Num combo de duas pizzas são seis
+   * escolhas (tamanho, sabores e borda de cada), e a barra dizer "2 de 3" faria
+   * o cliente achar que terminou no meio.
+   *
+   * `faltandoPorSlot` é a mesma função que decide o rótulo — chave e texto saem
+   * do mesmo lugar, senão o chip levaria a um grupo e a mensagem citaria outro.
+   */
+  const pendentes = faltandoPorSlot(slots, escolhidas);
+  const obrigatorios = paresSlotGrupo.filter(p => p.grupo.obrigatorio && (p.grupo.opcoes ?? []).length > 0);
+  const resolvidos = obrigatorios.filter(
+    p => !pendentes.some(f => f.chave === chaveEscolha(p.slot, p.grupo.id)));
 
   function adicionar(e: React.MouseEvent<HTMLButtonElement>) {
     if (faltando.length) {
       mostrar({ tipo: 'erro', titulo: 'Faltam escolhas obrigatórias', descricao: faltando.join(', ') });
+      /* Rola até o primeiro pendente: num combo, dizer "falta Sabores" sem levar
+         lá deixa o cliente procurando entre duas pizzas iguais. */
+      if (pendentes[0]) irParaGrupo(pendentes[0].chave);
       return;
     }
     const r = e.currentTarget.getBoundingClientRect();
@@ -248,7 +313,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
       nome: produto.nome,
       preco_centavos: precoUnit,
       quantidade: qtd,
-      opcoes: opcoesIds,
+      opcoes: escolhasParaEnvio(slots, escolhidas),
       opcoes_texto: opcoesTexto,
       observacao: observacao.trim(),
       foto_url: produto.foto_url,
@@ -473,12 +538,13 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
                 {/* Trilha de filetes: um por grupo, verde quando resolvido. Diz
                     o tamanho do caminho, não só quanto falta. */}
                 <span className="flex flex-1 gap-1">
-                  {obrigatorios.map(g => (
+                  {obrigatorios.map(({ slot, grupo: g }) => (
                     <span
-                      key={g.id}
+                      key={chaveEscolha(slot, g.id)}
                       className={cn(
                         'h-[3px] flex-1 rounded-full transition-colors',
-                        faltando.includes(g.nome) ? 'bg-border' : 'bg-emerald-500',
+                        pendentes.some(p => p.chave === chaveEscolha(slot, g.id))
+                          ? 'bg-border' : 'bg-emerald-500',
                       )}
                     />
                   ))}
@@ -489,13 +555,14 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
                   em tela de 360px, e quebrar em duas linhas empurraria o
                   conteúdo pra baixo a cada render. */}
               <div className="scrollbar-hide -mx-1 mt-2 flex gap-1.5 overflow-x-auto px-1 pb-0.5">
-                {obrigatorios.map(g => {
-                  const ok = !faltando.includes(g.nome);
+                {obrigatorios.map(({ slot, rotulo, grupo: g }) => {
+                  const chave = chaveEscolha(slot, g.id);
+                  const ok = !pendentes.some(p => p.chave === chave);
                   return (
                     <button
-                      key={g.id}
+                      key={chave}
                       type="button"
-                      onClick={() => irParaGrupo(g.id)}
+                      onClick={() => irParaGrupo(chave)}
                       className={cn(
                         'flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors',
                         ok
@@ -504,7 +571,9 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
                       )}
                     >
                       {ok && <Check className="size-3" strokeWidth={3} />}
-                      {g.nome}
+                      {/* No combo o chip carrega o rótulo: "Sabores" duas vezes
+                          na mesma barra não diz qual pizza está pendente. */}
+                      {rotulo ? `${rotulo} · ${g.nome}` : g.nome}
                     </button>
                   );
                 })}
@@ -519,16 +588,52 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
             o que precisa ser: foto grande, descrição, preço, quantidade e o
             botão de adicionar.
           */}
-          {grupos.map(g => (
-            <div key={g.id} ref={el => { refsGrupo.current[g.id] = el; }}>
-            <GrupoOpcao
-              grupo={g}
-              escolhidas={escolhidas[g.id] || []}
-              onAlternar={opcao => alternar(g, opcao)}
-              onRemoverFracao={opcao => removerFracao(g, opcao)}
-              saboresPermitidos={saboresPermitidos}
-              topoSticky={(obrigatorios.length > 1 ? 70 : 0) + (compacto ? 44 : 0)}
-            />
+          {/*
+            SLOTS EMPILHADOS, NÃO ASSISTENTE DE PASSOS.
+
+            O concorrente analisado faz wizard — "Pizza 1 de 2", avançar, voltar —
+            e paga dois preços: navegação com estado próprio ("dá pra avançar?") e,
+            no caso dele, a troca de passo APAGANDO o que já foi escolhido.
+
+            Empilhado, o combo é a mesma tela de sempre com cabeçalhos: nada pra
+            navegar, nada pra apagar, e a barra de progresso no topo já diz o que
+            falta em qual pizza. O cliente rola, que é o gesto que ele ia fazer de
+            qualquer jeito dentro de cada passo.
+          */}
+          {slots.map(s => (
+            <div key={s.slot}>
+              {/*
+                O cabeçalho do slot só existe no combo. Em produto comum o rótulo
+                é vazio, e a tela sai idêntica ao que sempre foi — sem seção,
+                sem faixa, sem nada a mais.
+              */}
+              {combo && s.rotulo && (
+                <div className="sticky z-[19] flex items-center gap-2 border-y border-border/60 bg-muted/60 px-5 py-2 backdrop-blur"
+                  style={{ top: (obrigatorios.length > 1 ? 70 : 0) + (compacto ? 44 : 0) }}>
+                  <span className="flex size-5 items-center justify-center rounded-full bg-foreground/85 text-[10.5px] font-bold text-background">
+                    {s.slot}
+                  </span>
+                  <span className="text-[13px] font-extrabold">{s.rotulo}</span>
+                </div>
+              )}
+              {s.grupos.map(g => {
+                const chave = chaveEscolha(s.slot, g.id);
+                return (
+                  <div key={chave} ref={el => { refsGrupo.current[chave] = el; }}>
+                    <GrupoOpcao
+                      grupo={g}
+                      escolhidas={escolhidas[chave] || []}
+                      onAlternar={opcao => alternar(s.slot, g, opcao)}
+                      onRemoverFracao={opcao => removerFracao(s.slot, g, opcao)}
+                      saboresPermitidos={saboresPorSlot.get(s.slot) ?? 0}
+                      /* +34 quando há cabeçalho de slot: o sticky do grupo tem
+                         que parar embaixo dele, não por cima. */
+                      topoSticky={(obrigatorios.length > 1 ? 70 : 0) + (compacto ? 44 : 0)
+                        + (combo && s.rotulo ? 34 : 0)}
+                    />
+                  </div>
+                );
+              })}
             </div>
           ))}
           {/*
@@ -627,9 +732,11 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
                 faltando.length > 0 && !esgotado && 'bg-muted text-foreground hover:bg-muted',
               )}
               onClick={e => {
-                if (faltando.length > 0) {
-                  const pendente = grupos.find(g => g.nome === faltando[0]);
-                  if (pendente) irParaGrupo(pendente.id);
+                if (pendentes.length > 0) {
+                  /* Leva ao primeiro pendente pela CHAVE, e não procurando o
+                     grupo pelo nome: num combo há dois "Sabores", e achar pelo
+                     nome levava sempre à primeira pizza. */
+                  irParaGrupo(pendentes[0].chave);
                   return;
                 }
                 adicionar(e);

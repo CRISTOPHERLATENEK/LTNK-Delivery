@@ -453,7 +453,12 @@ export interface ItemCarrinho {
   nome: string;
   preco_centavos: number;
   quantidade: number;
-  opcoes: number[];
+  /**
+   * As opções escolhidas. Lista de ids em produto comum; `{s,o}` quando há slot
+   * (combo com mais de um item configurável) — o mesmo contrato que o servidor
+   * lê em `lerEscolhas`.
+   */
+  opcoes: Array<number | { s: number; o: number }>;
   opcoes_texto: string;
   foto_url?: string;
   /** Observação DESTE item ("sem cebola"). Entra na chave — ver chaveItem. */

@@ -323,8 +323,34 @@ router.get('/lojas/:id', async (req, res, next) => {
        * Quem mexer nesta lista de colunas: `opcoes-preco.ts` é quem diz de
        * quais campos a regra depende.
        */
-      const grupos = await db.prepare(sqlGruposDeProdutos(idsProd.length))
-        .all(...idsProd) as Array<GrupoComOpcoes & { produto_id: number }>;
+      /*
+       * A COMPOSIÇÃO DOS COMBOS.
+       *
+       * Um combo é um produto que contém outros, um por slot — e cada componente
+       * traz OS GRUPOS DELE. Sem isso no cardápio, o modal não tem como montar
+       * "Pizza 1: escolha 2 sabores / Pizza 2: escolha 2 sabores".
+       *
+       * O produto-componente pode estar FORA da lista do cardápio
+       * (`vendido_sozinho = 0` — a "Pizza Broto" que só existe dentro do combo),
+       * então os grupos dele não viriam pela consulta de baixo. Por isso os ids
+       * dos componentes entram no mesmo `IN`: uma consulta a mais, não uma por
+       * componente.
+       */
+      const composicao = await db.prepare(
+        `SELECT ci.combo_id, ci.slot, ci.rotulo, ci.produto_id, p.nome AS produto_nome
+           FROM combo_itens ci JOIN produtos p ON p.id = ci.produto_id
+          WHERE ci.combo_id IN (${idsProd.map(() => '?').join(',')})
+          ORDER BY ci.combo_id, ci.slot`
+      ).all(...idsProd) as Array<{
+        combo_id: number; slot: number; rotulo: string; produto_id: number; produto_nome: string;
+      }>;
+
+      /* Os componentes entram na consulta de grupos junto dos produtos listados.
+         `Set` porque dois slots podem apontar pro MESMO produto ("2× Pizza
+         Artesanal" é o combo de pizzaria mais comum). */
+      const idsComGrupo = [...new Set([...idsProd, ...composicao.map(c => c.produto_id)])];
+      const grupos = await db.prepare(sqlGruposDeProdutos(idsComGrupo.length))
+        .all(...idsComGrupo) as Array<GrupoComOpcoes & { produto_id: number }>;
 
       const opcoesPorGrupo = new Map<number, OpcaoItem[]>();
       if (grupos.length > 0) {
@@ -360,6 +386,33 @@ router.get('/lojas/:id', async (req, res, next) => {
         gruposPorProduto.set(produto_id, lista);
       }
       for (const p of produtos) p.grupos = gruposPorProduto.get(p.id) ?? [];
+
+      /*
+       * A composição vai no produto com os grupos JÁ RESOLVIDOS por slot.
+       *
+       * Dois slots do mesmo produto recebem a mesma lista de grupos — repetida
+       * de propósito. Mandar uma referência ("veja os grupos do produto 32")
+       * economizaria bytes e obrigaria o cliente a resolver o vínculo, que é
+       * exatamente o tipo de trabalho que o servidor já fez.
+       */
+      const porCombo = new Map<number, unknown[]>();
+      for (const c of composicao) {
+        const lista = porCombo.get(c.combo_id) ?? [];
+        lista.push({
+          slot: c.slot,
+          rotulo: c.rotulo,
+          produto_id: c.produto_id,
+          produto_nome: c.produto_nome,
+          grupos: gruposPorProduto.get(c.produto_id) ?? [],
+        });
+        porCombo.set(c.combo_id, lista);
+      }
+      for (const p of produtos) {
+        const comp = porCombo.get(p.id);
+        /* Produto que NÃO é combo não ganha o campo: `composicao` ausente é o
+           sinal de "um slot só", e o modal já se comporta assim hoje. */
+        if (comp && comp.length > 0) (p as unknown as Record<string, unknown>).composicao = comp;
+      }
     }
 
     const cardapio: Record<string, typeof produtos> = {};

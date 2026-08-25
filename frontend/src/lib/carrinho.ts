@@ -53,9 +53,38 @@ export function useCarrinho(): CarrinhoLocal | null {
  * dois em "2× X-Burguer" — e uma das instruções desapareceria sem aviso, com o
  * cliente achando que pediu certo.
  */
-function chaveItem(produtoId: number, opcoes: number[], observacao = ''): string {
+/*
+ * A CHAVE NÃO PODE ACHATAR CONFIGURAÇÕES DE SLOTS DIFERENTES.
+ *
+ * Ela ordenava os ids pra decidir se dois itens são "o mesmo" e viram
+ * quantidade 2. Com combo, isso é um defeito: "Calabresa na pizza 1 + Bacon na
+ * pizza 2" e "Bacon na pizza 1 + Calabresa na pizza 2" têm os MESMOS ids, então
+ * geravam a MESMA chave — os dois viravam `2× Combo` e uma das configurações
+ * desaparecia sem aviso.
+ *
+ * Ordenar continua certo DENTRO de uma configuração (a ordem em que o cliente
+ * clicou não faz dois itens diferentes). O que mudou é que o slot entra na
+ * comparação.
+ *
+ * PRODUTO COMUM MANTÉM A CHAVE BYTE A BYTE. Quando tudo é número, usa a ordenação
+ * NUMÉRICA de antes — não é preciosismo: carrinho já salvo no `localStorage`
+ * guarda a chave calculada, e mudar o formato faria o mesmo item entrar como
+ * linha nova em vez de somar quantidade.
+ */
+function chaveItem(
+  produtoId: number,
+  opcoes: Array<number | { s: number; o: number }>,
+  observacao = '',
+): string {
   const obs = observacao.trim().toLowerCase();
-  return produtoId + ':' + [...opcoes].sort((a, b) => a - b).join(',') + (obs ? '|' + obs : '');
+  const soNumeros = opcoes.every(o => typeof o === 'number');
+  const corpo = soNumeros
+    ? [...(opcoes as number[])].sort((a, b) => a - b).join(',')
+    : opcoes
+      .map(o => (typeof o === 'number' ? `0:${o}` : `${o.s}:${o.o}`))
+      .sort()
+      .join(',');
+  return produtoId + ':' + corpo + (obs ? '|' + obs : '');
 }
 
 /**
