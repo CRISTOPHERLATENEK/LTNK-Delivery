@@ -50,9 +50,9 @@ export const URL_EDITOR_FISCAL = `${BASE}/#cupom`;
  * cacheiam por URL, e um nome fixo entregaria o instalador velho pra quem já
  * baixou uma vez.
  */
-export const VERSAO_INSTALADOR = '1.3.0';
+export const VERSAO_INSTALADOR = '1.3.1';
 export const URL_INSTALADOR =
-  'https://maxxpedidos.com.br/download/AgenteImpressao-Instalador-1.3.0.exe';
+  'https://maxxpedidos.com.br/download/AgenteImpressao-Instalador-1.3.1.exe';
 
 /** Heurística p/ reconhecer impressora térmica pelo nome. */
 const RE_TERMICA = /elgin|bematech|epson|daruma|sweda|tanca|pos\b|term|58mm|80mm|i[789]\b/i;
