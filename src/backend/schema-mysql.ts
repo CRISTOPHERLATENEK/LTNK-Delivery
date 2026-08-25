@@ -624,6 +624,33 @@ const TABELAS: string[] = [
   FOREIGN KEY (loja_id) REFERENCES lojas(id)
 ) ${SUFIXO_TABELA}`,
 
+/*
+ * A SUBCATEGORIA GANHA CADASTRO — ATÉ AQUI ELA ERA SÓ TEXTO EM `produtos`.
+ *
+ * Sem tabela não havia onde guardar posição, e a consequência aparecia na tela:
+ * a faixa "SUCO NATURAL" vinha antes de "REFRIGERANTES" não por escolha de
+ * ninguém, mas porque o suco era destaque e arrastava a faixa junto. Mexer no
+ * destaque de UM produto reordenava a seção inteira.
+ *
+ * `categoria` é o texto, não um id: em `produtos` ela também é texto livre, e
+ * usar id aqui exigiria que toda categoria existisse na tabela `categorias` —
+ * o que não é verdade pra produto criado antes dela ou renomeado por fora.
+ *
+ * A linha nasce sozinha quando o lojista usa uma subcategoria nova; o UNIQUE
+ * deixa o INSERT ser cego (`INSERT IGNORE`) em vez de exigir consulta antes.
+ */
+`CREATE TABLE IF NOT EXISTS subcategorias (
+  id        INT PRIMARY KEY AUTO_INCREMENT,
+  loja_id   INT NOT NULL,
+  categoria VARCHAR(120) NOT NULL,
+  nome      VARCHAR(120) NOT NULL,
+  ordem     INT NOT NULL DEFAULT 0,
+  criado_em VARCHAR(32) NOT NULL,
+  UNIQUE KEY uq_subcategoria (loja_id, categoria, nome),
+  KEY idx_subcategorias_loja (loja_id),
+  FOREIGN KEY (loja_id) REFERENCES lojas(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
 `CREATE TABLE IF NOT EXISTS categorias (
   id        INT PRIMARY KEY AUTO_INCREMENT,
   loja_id   INT NOT NULL,
@@ -1357,6 +1384,36 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         LIMIT 1`, [coluna],
     ) as any;
     if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE produtos ADD COLUMN ${ddl}`);
+  }
+
+  /*
+   * BACKFILL DAS SUBCATEGORIAS: a tela de hoje vira a ordem inicial.
+   *
+   * Roda uma vez por tenant. O critério reproduz o que o painel mostra hoje —
+   * a faixa aparece na posição do seu primeiro produto, e "primeiro" era
+   * `destaque DESC, nome`. Assim, no deploy, NADA muda de lugar: só passa a
+   * ser editável.
+   */
+  {
+    const [feito] = await pool.query(
+      "SELECT valor FROM configuracoes WHERE chave = 'mig_ordem_subcategorias' LIMIT 1",
+    ) as any;
+    if (feito.length === 0) {
+      await pool.query(
+        `INSERT IGNORE INTO subcategorias (loja_id, categoria, nome, ordem, criado_em)
+         SELECT loja_id, categoria, nome, ROW_NUMBER() OVER (
+                  PARTITION BY loja_id, categoria ORDER BY tem_destaque DESC, primeiro
+                ), NOW()
+           FROM (SELECT loja_id, categoria, subcategoria AS nome,
+                        MAX(destaque) AS tem_destaque, MIN(nome) AS primeiro
+                   FROM produtos
+                  WHERE excluido = 0 AND subcategoria IS NOT NULL AND subcategoria <> ''
+                  GROUP BY loja_id, categoria, subcategoria) g`,
+      );
+      await pool.query(
+        "INSERT IGNORE INTO configuracoes (chave, valor) VALUES ('mig_ordem_subcategorias', '1')",
+      );
+    }
   }
 
   /*

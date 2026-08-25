@@ -171,7 +171,20 @@ router.get('/destaques', async (_req, res, next) => {
      * cópia, e o teste de duplicação (preco-produto.test.ts) recusa.
      */
     const promocoes = await db.prepare(
-      `SELECT p.id, p.nome, p.descricao, p.preco_centavos, p.preco_promocional_centavos, p.promo_fim, p.promo_fim,
+      /*
+     * SEM SUBCATEGORIA VEM PRIMEIRO — é o que o CASE no ORDER BY garante.
+     *
+     * Antes o critério era ORDER BY subcategoria, e string vazia ordena antes de
+     * qualquer letra: os produtos soltos da categoria apareciam no topo, acima das
+     * faixas. Trocar por sc.ordem sem o CASE mandaria esses produtos pro FIM (não
+     * têm linha em subcategorias, caem no COALESCE 999) — o cardápio inteiro
+     * reorganizado por um detalhe de JOIN.
+     *
+     * NOTA: sem crases neste bloco de propósito. Ele fica colado a uma template
+     * string, e uma crase aqui dentro FECHA a string — o erro sai como "',' expected"
+     * dez linhas adiante, sem relação aparente com o comentário.
+     */
+    `SELECT p.id, p.nome, p.descricao, p.preco_centavos, p.preco_promocional_centavos, p.promo_fim, p.promo_fim,
               p.foto_url, p.serve_pessoas, p.destaque,
               l.id AS loja_id, l.nome AS loja_nome, l.categoria AS loja_categoria
          FROM produtos p JOIN lojas l ON l.id = p.loja_id
@@ -281,12 +294,16 @@ router.get('/lojas/:id', async (req, res, next) => {
          * lojista que desmarca "vender avulso" espera o produto sair do cardápio.
          */
     const produtos = await db.prepare(
-      `SELECT id, nome, descricao, categoria, subcategoria, preco_centavos,
-              preco_promocional_centavos, promo_fim, serve_pessoas, destaque, foto_url,
-              controla_estoque, estoque
-         FROM produtos
-        WHERE loja_id = ? AND disponivel = 1 AND excluido = 0 AND vendido_sozinho = 1
-        ORDER BY categoria, subcategoria, destaque DESC, nome`
+      `SELECT p.id, p.nome, p.descricao, p.categoria, p.subcategoria, p.preco_centavos,
+              p.preco_promocional_centavos, p.promo_fim, p.serve_pessoas, p.destaque, p.foto_url,
+              p.controla_estoque, p.estoque
+         FROM produtos p
+         LEFT JOIN subcategorias sc ON sc.loja_id = p.loja_id
+                AND sc.categoria = p.categoria AND sc.nome = p.subcategoria
+        WHERE p.loja_id = ? AND p.disponivel = 1 AND p.excluido = 0 AND p.vendido_sozinho = 1
+        ORDER BY p.categoria,
+                 CASE WHEN p.subcategoria IS NULL OR p.subcategoria = '' THEN 0 ELSE 1 END,
+                 COALESCE(sc.ordem, 999), p.subcategoria, p.destaque DESC, p.nome`
     ).all(loja.id) as (Produto & { grupos?: GrupoComOpcoes[] })[];
 
     /*

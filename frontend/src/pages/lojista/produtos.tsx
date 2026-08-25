@@ -520,13 +520,35 @@ export function ProdutosLoja() {
 
   const disponiveis = todos.filter(ehVendido).length;
 
-  const categoriasExistentes = [...new Set(todos.map(p => p.categoria).filter(Boolean))].sort() as string[];
+  /*
+   * ORDEM DO CARDÁPIO, NÃO ALFABÉTICA.
+   *
+   * `todos` já chega do servidor na ordem em que a vitrine mostra, então a
+   * primeira aparição de cada nome É a posição dele — `new Set` preserva ordem
+   * de inserção. O `.sort()` que estava aqui desfazia na tela exatamente a
+   * ordenação que o lojista tinha acabado de escolher, e o seletor de fileira
+   * abaixo marcaria a posição errada.
+   */
+  const categoriasExistentes = [...new Set(todos.map(p => p.categoria).filter(Boolean))] as string[];
   const subcategoriasDaCategoria = [...new Set(
     todos
       .filter(p => !form.categoria || p.categoria === form.categoria)
       .map(p => p.subcategoria)
       .filter(Boolean)
-  )].sort() as string[];
+  )] as string[];
+
+  /** Move a categoria/subcategoria para a fileira pedida. O servidor renumera. */
+  async function moverFileira(tipo: 'categoria' | 'subcategoria', nome: string, posicao: number) {
+    try {
+      await api('PUT', '/api/lojista/ordem-cardapio', {
+        tipo, nome, posicao,
+        categoria: tipo === 'subcategoria' ? form.categoria : undefined,
+      });
+      qc.invalidateQueries({ queryKey: ['lojista-produtos'] });
+    } catch {
+      mostrar({ tipo: 'erro', titulo: 'Não deu para mover' });
+    }
+  }
 
   return (
     /*
@@ -963,6 +985,10 @@ export function ProdutosLoja() {
                         onChange={v => setForm(f => ({ ...f, categoria: v }))}
                         placeholderNovo="Ex.: Lanches, Bebidas, Sobremesas…"
                         rotuloNovo="Nova categoria"
+                        fileira={{
+                          onMover: p => moverFileira('categoria', form.categoria, p),
+                          aviso: 'Salve o produto para poder escolher a fileira desta categoria.',
+                        }}
                       />
                       <SeletorChips
                         label="Subcategoria"
@@ -972,6 +998,10 @@ export function ProdutosLoja() {
                         placeholderNovo="Ex.: Especiais, Veganos…"
                         rotuloNovo="Nova subcategoria"
                         dica={form.categoria ? undefined : 'Escolha uma categoria primeiro'}
+                        fileira={{
+                          onMover: p => moverFileira('subcategoria', form.subcategoria, p),
+                          aviso: 'Salve o produto para poder escolher a fileira desta subcategoria.',
+                        }}
                       />
                     </div>
                   </section>
@@ -1483,7 +1513,7 @@ function LinhaInterruptor({ titulo, descricao, ativo, onAlternar, children }: {
 }
 
 function SeletorChips({
-  label, valor, opcoes, onChange, placeholderNovo, rotuloNovo, obrigatorio = false, dica,
+  label, valor, opcoes, onChange, placeholderNovo, rotuloNovo, obrigatorio = false, dica, fileira,
 }: {
   label: string;
   valor: string;
@@ -1493,6 +1523,13 @@ function SeletorChips({
   rotuloNovo: string;
   obrigatorio?: boolean;
   dica?: string;
+  /**
+   * Em que fileira do cardápio esta categoria/subcategoria aparece.
+   *
+   * `opcoes` já vem na ordem do cardápio, então a posição é o índice + 1 — não
+   * há segunda fonte de verdade pra sair de sincronia com a lista mostrada.
+   */
+  fileira?: { onMover: (posicao: number) => void; aviso?: string };
 }) {
   const [criando, setCriando] = useState(false);
   const [novo, setNovo] = useState('');
@@ -1594,6 +1631,51 @@ function SeletorChips({
           </button>
         )}
       </div>
+
+      {/*
+        A FILEIRA — em que posição do cardápio esta faixa aparece.
+        Só existe depois que há uma escolhida, e só pra nome que JÁ está na
+        lista: mover um nome recém-digitado criaria a categoria no banco antes
+        de o produto ser salvo, e desistir do cadastro deixaria uma faixa vazia
+        no cardápio do cliente.
+      */}
+      {fileira && valor && (
+        valorForaDaLista
+          ? <p className="mt-2.5 text-xs text-muted-foreground">{fileira.aviso}</p>
+          : (
+            <div className="mt-3">
+              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Fileira no cardápio
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {opcoes.map((_, i) => {
+                  const posicao = i + 1;
+                  const atual = opcoes.indexOf(valor) + 1;
+                  return (
+                    <button
+                      key={posicao}
+                      type="button"
+                      onClick={() => posicao !== atual && fileira.onMover(posicao)}
+                      className={cn(
+                        'h-8 min-w-8 rounded-lg border px-2 text-xs font-semibold transition-colors',
+                        posicao === atual
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : 'border-input bg-background hover:border-primary/50 hover:bg-accent',
+                      )}
+                    >
+                      {posicao}ª
+                    </button>
+                  );
+                })}
+              </div>
+              {/* Sem isso o lojista não sabe o que a fileira 1 significa — a
+                  tela do cliente é outra, e a relação não é óbvia. */}
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                1ª é a primeira que o cliente vê ao abrir o cardápio.
+              </p>
+            </div>
+          )
+      )}
     </div>
   );
 }

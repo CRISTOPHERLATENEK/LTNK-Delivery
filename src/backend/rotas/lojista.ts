@@ -14,6 +14,7 @@ import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido, normalizarBairro, dataBrasilia} from '../util';
 import { precoVigente } from '../preco-produto';
 import { SQL_GRUPOS_DO_PRODUTO, SQL_GRUPOS_DO_PRODUTO_COM_USOS } from '../grupos-sql';
+import { reordenar } from '../ordem-cardapio';
 import { resolverCanais } from '../disponibilidade-produto';
 import { transicionarStatus } from '../fluxoPedido';
 import { enviarPush } from '../push';
@@ -956,7 +957,41 @@ router.get('/produtos', async (req, res, next) => {
     const loja = await minhaLoja(req);
     type ProdutoFull = Produto & { grupos: Array<GrupoOpcao & { opcoes: OpcaoItem[] }> };
     const produtos = await db.prepare(
-      'SELECT * FROM produtos WHERE loja_id = ? AND excluido = 0 ORDER BY categoria, destaque DESC, nome'
+      /*
+       * O PAINEL LISTA NA MESMA ORDEM DA VITRINE.
+       *
+       * Antes era alfabético nos dois eixos, e isso tornava a ordenação
+       * impossível de conferir: o lojista arrastava na tela de Categorias e o
+       * cardápio dele continuava em ordem de dicionário AQUI. Pra decidir a
+       * posição de um produto é preciso ver os vizinhos como o cliente vê.
+       *
+       * O JOIN é `LEFT` porque categoria é texto livre em `produtos`: um produto
+       * pode ter categoria que não existe na tabela `categorias` (criada antes
+       * dela, ou renomeada por fora). Sem `LEFT` esses produtos SUMIRIAM do
+       * painel — o `COALESCE(..., 999)` joga esses casos pro fim em vez de
+       * escondê-los.
+       */
+      /*
+       * SEM SUBCATEGORIA VEM PRIMEIRO — é o que o CASE no ORDER BY garante.
+       *
+       * Antes o critério era ORDER BY subcategoria, e string vazia ordena antes de
+       * qualquer letra: os produtos soltos da categoria apareciam no topo, acima das
+       * faixas. Trocar por sc.ordem sem o CASE mandaria esses produtos pro FIM (não
+       * têm linha em subcategorias, caem no COALESCE 999) — o cardápio inteiro
+       * reorganizado por um detalhe de JOIN.
+       *
+       * NOTA: sem crases neste bloco de propósito. Ele fica colado a uma template
+       * string, e uma crase aqui dentro FECHA a string — o erro sai como "',' expected"
+       * dez linhas adiante, sem relação aparente com o comentário.
+       */
+      `SELECT p.* FROM produtos p
+         LEFT JOIN categorias c ON c.loja_id = p.loja_id AND c.nome = p.categoria
+         LEFT JOIN subcategorias sc ON sc.loja_id = p.loja_id
+                AND sc.categoria = p.categoria AND sc.nome = p.subcategoria
+        WHERE p.loja_id = ? AND p.excluido = 0
+        ORDER BY COALESCE(c.ordem, 999), p.categoria,
+                 CASE WHEN p.subcategoria IS NULL OR p.subcategoria = '' THEN 0 ELSE 1 END,
+                 COALESCE(sc.ordem, 999), p.subcategoria, p.destaque DESC, p.nome`
     ).all(loja.id) as ProdutoFull[];
 
     for (const p of produtos) {
@@ -4146,7 +4181,99 @@ router.put('/categorias', async (req, res, next) => {
         ).run(loja.id, nomeFinal, icone, imagem, ordem, setorId, agoraUTC());
       }
     });
+
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/*
+ * A FILEIRA DA CATEGORIA / SUBCATEGORIA, ESCOLHIDA DE DENTRO DO CADASTRO.
+ *
+ * Existe uma tela de Categorias com setas ↑↓, mas ela não resolve o momento em
+ * que a decisão nasce: o lojista está criando "Pizza Doce", acabou de digitar a
+ * subcategoria, e é AÍ que ele sabe onde ela deve ficar. Mandá-lo salvar o
+ * produto, sair, abrir outra tela e procurar a faixa é onde a ordenação morre.
+ *
+ * O RENUMERO É DO SERVIDOR, NÃO DO CLIENTE. O formulário manda "põe na 2ª" e
+ * mais nada. Se ele mandasse a lista inteira já renumerada, duas abas abertas
+ * gravariam ordens calculadas sobre fotos diferentes do cardápio e a última a
+ * escrever apagaria a outra — inclusive ressuscitando categoria apagada no
+ * meio tempo.
+ */
+router.put('/ordem-cardapio', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const nome = textoLimpo(req.body?.nome || '');
+    const posicao = Number(req.body?.posicao);
+    if (!nome) throw erroHttp(400, 'Informe o nome.');
+    if (!Number.isFinite(posicao)) throw erroHttp(400, 'Informe a posição.');
+
+    if (req.body?.tipo === 'subcategoria') {
+      const categoria = textoLimpo(req.body?.categoria || '');
+      if (!categoria) throw erroHttp(400, 'Informe a categoria da subcategoria.');
+
+      /*
+       * A LISTA VEM DOS DOIS LADOS: o cadastro e os produtos.
+       *
+       * Subcategoria era texto livre antes desta tabela existir, e continua
+       * podendo entrar por importação ou edição em massa. Ler só `subcategorias`
+       * daria uma lista mais curta do que a que está na tela, e o lojista veria
+       * "3ª fileira" numa seção que é a 5ª.
+       */
+      const atuais = await db.prepare(
+        `SELECT nome FROM subcategorias WHERE loja_id = ? AND categoria = ? ORDER BY ordem, nome`
+      ).all(loja.id, categoria) as Array<{ nome: string }>;
+      const soltas = await db.prepare(
+        `SELECT DISTINCT subcategoria AS nome FROM produtos
+          WHERE loja_id = ? AND categoria = ? AND excluido = 0
+            AND subcategoria IS NOT NULL AND subcategoria <> ''
+          ORDER BY subcategoria`
+      ).all(loja.id, categoria) as Array<{ nome: string }>;
+
+      const lista = [...atuais.map(r => r.nome)];
+      for (const r of soltas) if (!lista.includes(r.nome)) lista.push(r.nome);
+      const nova = reordenar(lista, nome, posicao);
+
+      await comTransacao(async () => {
+        for (let i = 0; i < nova.length; i++) {
+          await db.prepare(
+            `INSERT INTO subcategorias (loja_id, categoria, nome, ordem, criado_em)
+             VALUES (?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE ordem = VALUES(ordem)`
+          ).run(loja.id, categoria, nova[i], i + 1, agoraUTC());
+        }
+      });
+      res.json({ ok: true, ordem: nova });
+      return;
+    }
+
+    // ── categoria ──
+    const atuais = await db.prepare(
+      'SELECT nome FROM categorias WHERE loja_id = ? ORDER BY ordem, nome'
+    ).all(loja.id) as Array<{ nome: string }>;
+    const soltas = await db.prepare(
+      `SELECT DISTINCT categoria AS nome FROM produtos
+        WHERE loja_id = ? AND excluido = 0 AND categoria <> '' ORDER BY categoria`
+    ).all(loja.id) as Array<{ nome: string }>;
+
+    const lista = [...atuais.map(r => r.nome)];
+    for (const r of soltas) if (!lista.includes(r.nome)) lista.push(r.nome);
+    const nova = reordenar(lista, nome, posicao);
+
+    await comTransacao(async () => {
+      for (let i = 0; i < nova.length; i++) {
+        /* `icone`/`imagem` ficam de fora do UPDATE de propósito: a categoria
+           que já existe tem os dela escolhidos pelo lojista, e um INSERT ...
+           ON DUPLICATE que os reescrevesse apagaria o ícone a cada
+           reordenação. */
+        await db.prepare(
+          `INSERT INTO categorias (loja_id, nome, icone, imagem, ordem, criado_em)
+           VALUES (?, ?, '', '', ?, ?)
+           ON DUPLICATE KEY UPDATE ordem = VALUES(ordem)`
+        ).run(loja.id, nova[i], i + 1, agoraUTC());
+      }
+    });
+    res.json({ ok: true, ordem: nova });
   } catch (e) { next(e); }
 });
 

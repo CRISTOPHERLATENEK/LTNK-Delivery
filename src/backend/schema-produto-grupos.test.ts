@@ -554,8 +554,12 @@ describe('fase 1 do combo', () => {
      * âncora deu 4 onde havia 3 consultas. Terceira vez nesta base que um
      * comentário dispara a própria varredura que ele documenta.
      */
-    expect((publico.match(/AND vendido_sozinho = 1/g) || []).length).toBe(1);      // cardápio
-    expect((publico.match(/AND p\.vendido_sozinho = 1/g) || []).length).toBe(2);   // destaques + busca
+    /* O `p.` é OPCIONAL na varredura: a consulta do cardápio ganhou alias quando
+       passou a fazer JOIN com `subcategorias` pra ordenar as faixas, e o teste
+       quebrou sem que a REGRA tivesse mudado. Contar por alias amarrava o teste
+       à forma da query em vez de ao que ele existe pra garantir — que as três
+       telas de cliente filtram a coluna. */
+    expect((publico.match(/AND (?:p\.)?vendido_sozinho = 1/g) || []).length).toBe(3);
   });
 
   it('o cadastro grava a coluna na criação e na edição', () => {
