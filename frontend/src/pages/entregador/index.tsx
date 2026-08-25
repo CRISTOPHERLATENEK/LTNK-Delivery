@@ -787,7 +787,10 @@ function EntregaAtiva() {
                   {p.forma_pagamento === 'cartao_entrega' && 'Cartão'}
                 </span>
               </div>
-              {p.troco_para_centavos && (
+              {/* `!!` porque troco ZERO e o caso comum: sem isto a tela do
+                  entregador mostrava um "0" solto no lugar da linha de troco. */
+              }
+              {!!p.troco_para_centavos && (
                 <div className="flex justify-between text-muted-foreground">
                   <span>Troco para</span>
                   <span className="tabular-nums font-semibold text-foreground">{brl(p.troco_para_centavos)}</span>

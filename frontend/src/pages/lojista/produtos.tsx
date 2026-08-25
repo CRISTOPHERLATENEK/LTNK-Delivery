@@ -845,7 +845,7 @@ export function ProdutosLoja() {
                             !form.nome.trim() && 'text-muted-foreground/60')}>
                             {form.nome.trim() || 'Nome do produto'}
                           </span>
-                          {form.destaque && (
+                          {!!form.destaque && (
                             <span className="shrink-0 rounded-md border border-[#F1E3C4] bg-[#FBF3E4] px-1.5 py-0.5 text-[10px] font-bold text-[#92610A] dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300">
                               Destaque
                             </span>
@@ -1197,7 +1197,7 @@ export function ProdutosLoja() {
                       ativo={form.controla_estoque}
                       onAlternar={() => setForm(f => ({ ...f, controla_estoque: !f.controla_estoque }))}
                     >
-                      {form.controla_estoque && (
+                      {!!form.controla_estoque && (
                         <div className="mt-3">
                           <Label htmlFor="p-estoque">Quantidade disponível</Label>
                           <Input
@@ -1724,7 +1724,14 @@ function CardProduto({
           */}
           {(p.destaque || p.preco_promocional_centavos || semEstoque || p.controla_estoque || totalGrupos > 0) && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {p.destaque && (
+              {/*
+                `!!` NAO E ENFEITE. `destaque` vem do MySQL como TINYINT e o tipo
+                e `0 | 1` -- e em React `{0 && ...}` renderiza O PROPRIO ZERO. O
+                cardapio do painel mostrava um "0" solto antes das etiquetas em
+                todo produto que nao era destaque. O TypeScript nao pega: 0 e um
+                ReactNode valido.
+              */}
+              {!!p.destaque && (
                 <span className="inline-flex items-center gap-1 rounded-md border border-[#F1E3C4] bg-[#FBF3E4] px-2 py-0.5 text-[11.5px] font-bold text-[#92610A] dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300">
                   <Star className="size-3 fill-current" /> Destaque
                 </span>

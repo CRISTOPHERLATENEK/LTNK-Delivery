@@ -185,7 +185,7 @@ export function TelaBanners() {
                   {form.loja_id && !form.produto_id && (
                     <p className="text-xs text-muted-foreground mt-1">Sem produto: o banner abre o cardápio da loja.</p>
                   )}
-                  {form.produto_id && (
+                  {!!form.produto_id && (
                     <p className="text-xs text-primary mt-1">O banner vai abrir diretamente o modal deste produto.</p>
                   )}
                 </div>

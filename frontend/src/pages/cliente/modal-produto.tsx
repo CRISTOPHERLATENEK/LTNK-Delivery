@@ -433,7 +433,8 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
               )}
             </div>
           )}
-          {produto.serve_pessoas && (
+          {/* `!!` pelo mesmo motivo do `destaque`: numero 0 vira um "0" na tela. */}
+          {!!produto.serve_pessoas && (
             <p className="mt-1.5 text-xs text-muted-foreground">
               Serve {produto.serve_pessoas} pessoa{produto.serve_pessoas > 1 ? 's' : ''}
             </p>
