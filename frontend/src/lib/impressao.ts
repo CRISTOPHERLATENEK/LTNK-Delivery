@@ -22,6 +22,19 @@ export interface LinhaCupom {
   nome: string;
   valor: string;      // "R$ 24,90"
   detalhe?: string;   // ex.: "0,350 kg × R$ 39,90/kg" — vai só no cupom principal (pode ter preço)
+  /**
+   * A COMPOSIÇÃO DO ITEM, uma linha por escolha, já recuada — o que sai de
+   * `linhasDoItem`.
+   *
+   * Antes a composição inteira ia dentro de `observacao`, e a comanda a imprimia
+   * CENTRALIZADA, EM MAIÚSCULA, entre `>> <<`. Numa pizza de quatro sabores isso
+   * já era um bloco ilegível; num combo de duas pizzas o cozinheiro receberia
+   * tudo embolado, sem saber o que é de qual pizza.
+   *
+   * Separado, cada nível fica com o tratamento que merece: composição alinhada à
+   * esquerda com recuo, e o realce reservado pra instrução do cliente.
+   */
+  detalhes?: string[];
   observacao?: string; // observação de produção ("sem cebola") — realçada na comanda do setor
   categoria?: string; // categoria do produto — usada pra rotear pro setor de impressão (Cozinha, Bar...)
 }
@@ -328,6 +341,10 @@ function montarBlocosSetor(dados: DadosCupom, setorNome: string, linhas: LinhaCu
 
   for (const l of linhas) {
     b.push({ t: 'texto', txt: `${l.qtd}x  ${l.nome}` });
+    /* A composição vem antes do realce: é o QUE produzir. A observação é COMO, e
+       fecha o item — numa comanda lida de relance, a instrução tem que ser a
+       última coisa que o olho pega antes do próximo item. */
+    for (const d of l.detalhes ?? []) b.push({ t: 'texto', txt: `  ${d}` });
     if (l.observacao) b.push({ t: 'center', b: true, txt: `>> ${l.observacao.toUpperCase()} <<` });
   }
 

@@ -868,7 +868,17 @@ ${p.observacoes ? `<div class="note">📝 ${escapar(p.observacoes)}</div>` : ''}
       qtd: String(i.quantidade),
       nome: i.nome_produto,
       valor: fmt(i.preco_unit_centavos * i.quantidade),
-      observacao: detalheItem(i as { opcoes_texto?: string; observacao?: string }) || undefined,
+      /*
+       * A COMPOSIÇÃO VAI EM `detalhes`, ESTRUTURADA, e só a instrução do cliente
+       * fica em `observacao`.
+       *
+       * Antes as duas iam juntas numa string só, que a comanda imprimia em
+       * maiúscula e centralizada. `linhasDoItem` recebe só `opcoes_texto` aqui
+       * de propósito: a observação entra pelo outro campo, e passá-la nos dois
+       * lugares a imprimiria duas vezes.
+       */
+      detalhes: linhasDoItem({ opcoes_texto: (i as { opcoes_texto?: string }).opcoes_texto }),
+      observacao: ((i as { observacao?: string }).observacao || '').trim() || undefined,
       categoria: (i as { categoria?: string }).categoria || undefined,
     })),
     totais: [],

@@ -162,7 +162,10 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
         const total = opcoes.length;
         for (const p of contarFracoes(opcoes)) {
           const nome = (p.opcao as OpcaoItem).nome;
-          const onde = s.rotulo ? `${s.rotulo} · ` : '';
+          /* ` | ` e não ` · `: o ponto é o que separa uma escolha da outra em
+             `opcoes_texto`, e usar o mesmo símbolo pros dois níveis fazia o
+             cupom ler o rótulo como se fosse mais uma escolha. */
+          const onde = s.rotulo ? `${s.rotulo} | ` : '';
           partes.push(p.fracoes > 1 && total > 1
             ? `${onde}${g.nome}: ${p.fracoes}/${total} ${nome}`
             : `${onde}${g.nome}: ${nome}`);

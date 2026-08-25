@@ -50,24 +50,51 @@ export function linhasDoItem(
   if (obs) linhas.push(`Obs.: ${obs}`);
 
   const partes = (item.opcoes_texto || '').split(' · ').map(s => s.trim()).filter(Boolean);
-  const ordem: string[] = [];
-  const porGrupo = new Map<string, string[]>();
+
+  /*
+   * DOIS NÍVEIS DE AGRUPAMENTO: slot, e dentro dele o grupo.
+   *
+   * O slot é o item do combo ("Pizza 1"), e vem antes de ` | `. Sem ele a
+   * cozinha recebe quatro sabores sem saber como dividir em duas pizzas — que é
+   * o mesmo defeito da fração que faltava, um nível acima.
+   *
+   * Sem ` | ` no texto, o slot é vazio: é o caso de TODO pedido que não é combo,
+   * e de todo pedido já gravado. Aí a saída é exatamente a de antes, sem recuo.
+   */
+  const ordemSlot: string[] = [];
+  const porSlot = new Map<string, { ordem: string[]; grupos: Map<string, string[]> }>();
+
   for (const parte of partes) {
-    const corte = parte.indexOf(': ');
+    const barra = parte.indexOf(' | ');
+    const slot = barra > 0 ? parte.slice(0, barra) : '';
+    const resto = barra > 0 ? parte.slice(barra + 3) : parte;
+    const corte = resto.indexOf(': ');
     /* Sem "Grupo: " na frente é texto solto (formato antigo, ou observação que
        veio junto) — entra como está, em vez de virar um grupo sem nome. */
-    const grupo = corte > 0 ? parte.slice(0, corte) : '';
-    const valor = corte > 0 ? parte.slice(corte + 2) : parte;
-    if (!porGrupo.has(grupo)) { porGrupo.set(grupo, []); ordem.push(grupo); }
-    porGrupo.get(grupo)!.push(valor);
+    const grupo = corte > 0 ? resto.slice(0, corte) : '';
+    const valor = corte > 0 ? resto.slice(corte + 2) : resto;
+
+    if (!porSlot.has(slot)) { porSlot.set(slot, { ordem: [], grupos: new Map() }); ordemSlot.push(slot); }
+    const dentro = porSlot.get(slot)!;
+    if (!dentro.grupos.has(grupo)) { dentro.grupos.set(grupo, []); dentro.ordem.push(grupo); }
+    dentro.grupos.get(grupo)!.push(valor);
   }
 
-  for (const grupo of ordem) {
-    const valores = porGrupo.get(grupo)!;
-    if (!grupo) { linhas.push(...valores); continue; }
-    if (valores.length === 1) { linhas.push(`${grupo}: ${valores[0]}`); continue; }
-    linhas.push(`${grupo}:`);
-    for (const v of valores) linhas.push(`  ${v}`);
+  for (const slot of ordemSlot) {
+    const dentro = porSlot.get(slot)!;
+    /* O recuo é o que mostra que o grupo pertence àquela pizza. Sem slot não há
+       recuo — e é por isso que o cupom de produto comum sai idêntico. */
+    const recuo = slot ? '  ' : '';
+    if (slot) linhas.push(`${slot}:`);
+    for (const grupo of dentro.ordem) {
+      const valores = dentro.grupos.get(grupo)!;
+      if (!grupo) { linhas.push(...valores.map(v => recuo + v)); continue; }
+      /* Grupo de opção única fica na mesma linha ("Tamanho: Gigante") — gastar
+         duas linhas de papel pra uma palavra é o oposto de legível. */
+      if (valores.length === 1) { linhas.push(`${recuo}${grupo}: ${valores[0]}`); continue; }
+      linhas.push(`${recuo}${grupo}:`);
+      for (const v of valores) linhas.push(`${recuo}  ${v}`);
+    }
   }
   return linhas;
 }

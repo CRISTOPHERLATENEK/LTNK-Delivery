@@ -400,7 +400,18 @@ async function validarOpcoesDoItem(produto: Produto, opcoesEscolhidas: unknown):
       const totalFracoes = escolhidas.length;
       for (const p of contarFracoes(escolhidas)) {
         const nome = (p.opcao as OpcaoItem).nome;
-        const rotulo = alvo.rotulo ? `${alvo.rotulo} · ` : '';
+      /*
+         * O SEPARADOR DO SLOT NÃO PODE SER O MESMO QUE JUNTA AS PARTES.
+         *
+         * Estava ` · ` nos dois lugares, e ` · ` é o que separa uma escolha da
+         * outra em `opcoes_texto`. "Pizza 1 · Sabores: Calabresa" se partia em
+         * DOIS pedaços — "Pizza 1" virava texto solto, repetido a cada sabor, e o
+         * cupom saía com o rótulo intercalado em vez de agrupando.
+         *
+         * ` | ` é ASCII (imprime em qualquer code page da térmica) e não aparece
+         * em nome de grupo na prática.
+         */
+        const rotulo = alvo.rotulo ? `${alvo.rotulo} | ` : '';
         partesTexto.push(p.fracoes > 1 && totalFracoes > 1
           ? `${rotulo}${grupo.nome}: ${p.fracoes}/${totalFracoes} ${nome}`
           : `${rotulo}${grupo.nome}: ${nome}`);
