@@ -626,12 +626,15 @@ export function ProdutosLoja() {
      */
     <div className="-mx-4 -my-4 min-h-full bg-muted/40 px-4 py-6 sm:-mx-6 sm:px-6 lg:px-8">
       {/*
-        1600px E NÃO 100%: acima disso o card vira faixa e o olho perde a linha
-        entre o nome (esquerda) e o preço (direita). O padding fluido evita o
-        texto colado na borda em telas grandes sem precisar de breakpoint.
+        1800px, NÃO 1600 E NÃO 100%.
+        O medo de "card vira faixa" era legítimo com `1fr`, que estica sem
+        limite — mas o teto de 520px na grade já resolve isso. Com o teto no
+        lugar, parar em 1600 só desperdiçava a 4ª coluna em monitor largo:
+        4x400 + 48 de gap = 1648, que não cabe em 1504 de área útil e cabe em
+        1704. O padding fluido evita texto colado na borda sem breakpoint.
       */}
       <div
-        className="mx-auto max-w-[1600px] space-y-5"
+        className="mx-auto max-w-[1800px] space-y-5"
         style={{ paddingInline: 'clamp(24px, 3vw, 48px)' }}
       >
         {/* Modal de grupos de opções — sobrepõe tudo */}
@@ -2110,9 +2113,9 @@ function CategoriaSection({
 /* ─────────────────────── card do produto ──────────────────────── */
 
 /** Ícone de ação do rodapé do card: 32px, alvo aceitável sem inflar a linha. */
-function BotaoIcone({ titulo, onClick, destrutivo, desabilitado, children }: {
+function BotaoIcone({ titulo, onClick, destrutivo, desabilitado, miudo, children }: {
   titulo: string; onClick: () => void; destrutivo?: boolean; desabilitado?: boolean;
-  children: React.ReactNode;
+  miudo?: boolean; children: React.ReactNode;
 }) {
   return (
     <button
@@ -2122,7 +2125,8 @@ function BotaoIcone({ titulo, onClick, destrutivo, desabilitado, children }: {
       title={titulo}
       aria-label={titulo}
       className={cn(
-        'flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors',
+        'flex items-center justify-center rounded-lg text-muted-foreground transition-colors',
+        miudo ? 'size-7' : 'size-8',
         desabilitado && 'opacity-20',
         destrutivo
           ? 'hover:bg-destructive/10 hover:text-destructive'
@@ -2223,8 +2227,7 @@ function CardProduto({
           */}
           {/* A faixa existe mesmo vazia: um produto sem selo nenhum empurraria
               o rodapé pra cima e desalinharia a linha da grade. */}
-          {(
-            <div className="mt-2 flex min-h-[22px] flex-wrap items-center gap-1.5">
+          <div className="mt-2 flex min-h-[22px] flex-wrap items-center gap-1.5">
               {/*
                 `!!` NAO E ENFEITE. `destaque` vem do MySQL como TINYINT e o tipo
                 e `0 | 1` -- e em React `{0 && ...}` renderiza O PROPRIO ZERO. O
@@ -2274,12 +2277,20 @@ function CardProduto({
                 </span>
               ) : null}
             </div>
-          )}
         </div>
       </div>
 
+      {/*
+          `flex-wrap` PORQUE O RODAPÉ NÃO CABE SEMPRE.
+          Com o interruptor rotulado à esquerda e seis ícones à direita, a linha
+          pede ~420px — mais do que o card mínimo de 400. Sem quebrar, os ícones
+          espremem o rótulo "À venda" até ele sumir, e o rótulo é a informação
+          mais consultada do card.
+          Quebrando, a linha extra deixa TODOS os cards da fileira mais altos
+          (o corpo é `flex-1`), então o alinhamento dos rodapés se mantém.
+        */}
       {!modoSelecao && (
-        <div className="flex items-center justify-between gap-3 border-t border-border px-[18px] py-[11px]">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border px-[18px] py-[11px]">
           {/* Interruptor com RÓTULO: sozinho, um toggle não diz o que está ligado, e
               "à venda ou pausado" é a informação mais consultada do card. */}
           <button
@@ -2329,12 +2340,18 @@ function CardProduto({
                 >
                   <GripVertical className="size-[15px]" />
                 </span>
-                <BotaoIcone titulo="Subir" onClick={() => arrasto.onSubir?.()} desabilitado={!arrasto.onSubir}>
+                {/* 28px e não 32: são controles de ajuste fino, usados menos que
+                    editar/duplicar/excluir, e os 12px economizados são o que
+                    mantém a linha inteira num card de 400. */}
+                <BotaoIcone titulo="Subir" onClick={() => arrasto.onSubir?.()} desabilitado={!arrasto.onSubir} miudo>
                   <ChevronUp className="size-[15px]" />
                 </BotaoIcone>
-                <BotaoIcone titulo="Descer" onClick={() => arrasto.onDescer?.()} desabilitado={!arrasto.onDescer}>
+                <BotaoIcone titulo="Descer" onClick={() => arrasto.onDescer?.()} desabilitado={!arrasto.onDescer} miudo>
                   <ChevronDown className="size-[15px]" />
                 </BotaoIcone>
+                {/* Divisória: sem ela, seis ícones em fila viram uma régua sem
+                    hierarquia e "excluir" fica a um pixel de "descer". */}
+                <span className="mx-0.5 h-4 w-px bg-border" />
               </>
             )}
             <BotaoIcone titulo="Editar" onClick={onEditar}><Pencil className="size-[15px]" /></BotaoIcone>
