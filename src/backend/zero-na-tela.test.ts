@@ -71,15 +71,20 @@ describe('nenhum campo numérico é usado bare como guarda de JSX', () => {
      * também renderiza 0, mas é raro e a busca por `(` é a que não dá alarme
      * falso em condição composta.
      */
+    /*
+     * UM regex com alternação, compilado UMA vez — e não um por campo por linha.
+     *
+     * A primeira versão criava `new RegExp` dentro do laço de linhas: ~40 campos
+     * × milhares de linhas × dezenas de arquivos, e o teste estourou o timeout
+     * de 5s. Varredura lenta é varredura que alguém desliga.
+     */
+    const re = new RegExp(`\\{\\s*[\\w.]+\\.(${campos.join('|')})\\s*&&\\s*\\(`, 'g');
     const culpados: string[] = [];
     for (const arq of arquivosTsx(RAIZ)) {
       const linhas = fs.readFileSync(arq, 'utf8').split('\n');
       linhas.forEach((linha: string, i: number) => {
-        for (const campo of campos) {
-          const re = new RegExp(`\\{\\s*[\\w.]+\\.${campo}\\s*&&\\s*\\(`);
-          if (re.test(linha)) {
-            culpados.push(`${path.relative(RAIZ, arq)}:${i + 1} — ${campo}`);
-          }
+        for (const m of linha.matchAll(re)) {
+          culpados.push(`${path.relative(RAIZ, arq)}:${i + 1} — ${m[1]}`);
         }
       });
     }

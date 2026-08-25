@@ -470,3 +470,96 @@ describe('nenhuma rota decide por g.produto_id', () => {
     });
   }
 });
+
+/**
+ * COMBO — FASE 1: schema e cadastro, e NADA MAIS.
+ *
+ * Um combo é um produto que contém outros produtos, um por slot. Esta fase
+ * cadastra isso; o modal do cliente, o preço e o cupom ainda ignoram
+ * `combo_itens` por completo — e é o que a torna aplicável sem risco.
+ *
+ * As regras abaixo, desfeitas, não dão erro. Dão recursão infinita, slot
+ * fantasma, ou componente vendido avulso por um preço que só faz sentido dentro
+ * do combo.
+ */
+describe('fase 1 do combo', () => {
+  const lojista = fs.readFileSync(path.resolve(__dirname, 'rotas', 'lojista.ts'), 'utf8');
+  const publico = fs.readFileSync(path.resolve(__dirname, 'rotas', 'publico.ts'), 'utf8');
+
+  it('a tabela existe, com slot único por combo', () => {
+    expect(fonte).toContain('CREATE TABLE IF NOT EXISTS combo_itens');
+    /* Sem o UNIQUE, dois cliques em "adicionar" criam dois itens no mesmo slot e
+       o cliente veria "Pizza 1 de 3" duas vezes. */
+    expect(fonte).toMatch(/UNIQUE KEY uq_combo_slot \(combo_id, slot\)/);
+  });
+
+  /*
+   * `slot` E NÃO `quantidade`: duas pizzas iguais são dois slots, porque cada
+   * uma é configurada separadamente. Uma coluna de quantidade descreveria "duas
+   * pizzas idênticas", que é o oposto do recurso.
+   */
+  it('não tem coluna de quantidade', () => {
+    const ddl = fonte.slice(fonte.indexOf('CREATE TABLE IF NOT EXISTS combo_itens'));
+    const corpo = ddl.slice(0, ddl.indexOf('SUFIXO_TABELA'));
+    expect(corpo).toContain('slot');
+    expect(corpo).not.toMatch(/quantidade/);
+  });
+
+  /*
+   * COMBO DENTRO DE COMBO É RECUSADO NA ROTA, não pela FK.
+   *
+   * `combo_itens.produto_id` aponta pra `produtos`, e um combo É um produto —
+   * o banco aceitaria A conter B conter A. O ciclo não daria erro: daria
+   * recursão infinita no dia em que o modal montar a composição.
+   */
+  it('recusa combo dentro de combo', () => {
+    const i = lojista.indexOf("router.post('/produtos/:id/combo'");
+    const rota = lojista.slice(i, lojista.indexOf('router.', i + 10));
+    expect(rota).toMatch(/COUNT\(\*\) AS n FROM combo_itens WHERE combo_id = \?/);
+    /*
+     * A CONDIÇÃO, e não só as peças. A primeira versão deste teste conferia que
+     * a consulta e o `erroHttp` existiam — e trocar `if (n > 0)` por
+     * `if (false)` passava: as duas peças continuavam lá, desligadas. Verificar
+     * presença de pedaço não prova que estão ligados.
+     */
+    expect(rota).toMatch(/if \(n > 0\) throw erroHttp\(400/);
+    /* E o produto não pode conter ele mesmo. */
+    expect(rota).toMatch(/if \(componente\.id === combo\.id\) throw erroHttp\(400/);
+  });
+
+  /*
+   * TIRAR UM ITEM RENUMERA OS SLOTS. Sem isso, tirar o slot 1 de três deixa 2 e
+   * 3 — e o cliente veria "Pizza 2 de 2" como primeiro passo. Slot é posição,
+   * não identidade.
+   */
+  it('remover renumera os slots', () => {
+    const i = lojista.indexOf("router.delete('/produtos/:id/combo/:itemId'");
+    const rota = lojista.slice(i, lojista.indexOf('// ----- Grupos', i));
+    expect(rota).toMatch(/UPDATE combo_itens SET slot = \? WHERE id = \?/);
+  });
+
+  /*
+   * `vendido_sozinho` É A ÚNICA COISA DESTA FASE QUE UMA TELA LÊ, e é de
+   * propósito: interruptor que não faz nada é pior que interruptor nenhum. O
+   * lojista que desmarca "vender avulso" espera o produto sair do cardápio.
+   *
+   * Os três lugares onde produto aparece pro cliente: cardápio da loja,
+   * destaques da plataforma e busca. Faltar em um deles é o componente do combo
+   * vazando pra venda avulsa por um preço que só faz sentido dentro do combo.
+   */
+  it('componente fora do cardápio, dos destaques e da busca', () => {
+    /*
+     * Conta com o `AND` na frente porque só SQL tem `AND` — o comentário que
+     * explica a regra também escreve `vendido_sozinho = 1`, e contar sem a
+     * âncora deu 4 onde havia 3 consultas. Terceira vez nesta base que um
+     * comentário dispara a própria varredura que ele documenta.
+     */
+    expect((publico.match(/AND vendido_sozinho = 1/g) || []).length).toBe(1);      // cardápio
+    expect((publico.match(/AND p\.vendido_sozinho = 1/g) || []).length).toBe(2);   // destaques + busca
+  });
+
+  it('o cadastro grava a coluna na criação e na edição', () => {
+    expect(lojista).toMatch(/INSERT INTO produtos[\s\S]{0,400}vendido_sozinho/);
+    expect(lojista).toMatch(/UPDATE produtos SET[\s\S]{0,400}vendido_sozinho = \?/);
+  });
+});

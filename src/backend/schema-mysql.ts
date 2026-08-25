@@ -715,6 +715,46 @@ const TABELAS: string[] = [
  * ligam o mesmo grupo duas vezes, e o cliente vê "Borda" duas vezes no cardápio,
  * com dois limites independentes.
  */
+/*
+ * DE QUE UM COMBO É FEITO.
+ *
+ * Um combo é um PRODUTO que contém outros produtos: "Combo Casal = uma Pizza
+ * Artesanal + uma Coca 2L". Cada linha aqui é um pedaço dele.
+ *
+ * POR QUE REFERENCIA PRODUTO E NÃO GRUPOS. O caminho alternativo era o combo
+ * declarar os grupos de cada pizza ("slot 1: Tamanho, Sabores, Borda"). Isso
+ * obrigaria o lojista a redescrever a pizza dentro do combo, e a manter as duas
+ * descrições em pé. Referenciando o produto, o combo herda os 27 sabores, o
+ * limite que vem do tamanho e a borda de 5 opções sem redeclarar nada.
+ *
+ * `slot` E NÃO `quantidade`. Duas pizzas iguais no mesmo combo são DUAS LINHAS,
+ * slot 1 e slot 2, porque cada uma é CONFIGURADA SEPARADAMENTE — sabores e borda
+ * próprios. Uma coluna de quantidade descreveria "duas pizzas idênticas", que é
+ * exatamente o que este recurso não é.
+ *
+ * `rotulo` é o que o cliente lê no modal e o cozinheiro no cupom ("Pizza 1" /
+ * "Pizza 2"). Sem ele, dois slots do mesmo produto ficam indistinguíveis na
+ * tela — o mesmo problema do dado, agora na interface.
+ *
+ * UM PRODUTO É COMBO QUANDO TEM LINHA AQUI. Não existe coluna `eh_combo`: um
+ * booleano precisaria ser mantido em sincronia com a existência das linhas, e
+ * booleano fora de sincronia é a fonte de defeito que a tabela já responde.
+ *
+ * NADA LÊ ISTO AINDA. Esta é a fase 1: cria e cadastra. O modal do cliente, o
+ * preço e o cupom vêm depois — e é o que torna esta fase aplicável e reversível.
+ */
+`CREATE TABLE IF NOT EXISTS combo_itens (
+  id          INT PRIMARY KEY AUTO_INCREMENT,
+  combo_id    INT NOT NULL,
+  slot        INT NOT NULL,
+  produto_id  INT NOT NULL,
+  rotulo      VARCHAR(40) NOT NULL DEFAULT '',
+  UNIQUE KEY uq_combo_slot (combo_id, slot),
+  KEY idx_combo_itens_produto (produto_id),
+  FOREIGN KEY (combo_id) REFERENCES produtos(id),
+  FOREIGN KEY (produto_id) REFERENCES produtos(id)
+) ${SUFIXO_TABELA}`,
+
 `CREATE TABLE IF NOT EXISTS produto_grupos (
   id            INT PRIMARY KEY AUTO_INCREMENT,
   produto_id    INT NOT NULL,
@@ -1294,6 +1334,29 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         LIMIT 1`, [coluna],
     ) as any;
     if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE grupos_opcoes ADD COLUMN ${ddl}`);
+  }
+
+  /*
+   * VENDIDO AVULSO NO CARDÁPIO?
+   *
+   * Combo de "1 Grande + 1 Broto" precisa de um produto "Pizza Broto" que
+   * EXISTE (pra ser referenciado) e NÃO APARECE no cardápio.
+   *
+   * `disponivel = 0` não serve: ela quer dizer "pausado", e o painel mostra
+   * "pausado" no card. Um componente que nunca foi pra venda avulsa apareceria
+   * como se estivesse temporariamente fora — a tela mentindo sobre o motivo.
+   *
+   * Nasce em 1, que é o comportamento de todo produto que já existe.
+   */
+  for (const [coluna, ddl] of [
+    ['vendido_sozinho', 'vendido_sozinho TINYINT NOT NULL DEFAULT 1'],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'produtos' AND COLUMN_NAME = ?
+        LIMIT 1`, [coluna],
+    ) as any;
+    if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE produtos ADD COLUMN ${ddl}`);
   }
 
   /*

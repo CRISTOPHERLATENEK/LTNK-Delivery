@@ -29,7 +29,7 @@ import type { Produto } from '@/types';
 const FORM_VAZIO = {
   nome: '', descricao: '', categoria: '', subcategoria: '',
   preco: '', preco_promocional: '', promo_fim: '', foto_url: '',
-  disponivel: true, disponivel_pdv: true, destaque: false, serve_pessoas: '',
+  disponivel: true, disponivel_pdv: true, destaque: false, vendido_sozinho: true, serve_pessoas: '',
   vendido_por: 'un' as 'un' | 'kg', codigo_barras: '',
   controla_estoque: false, estoque: '',
   // Dados fiscais (NFC-e) — mesmos valores padrão usados pelo backend ao
@@ -202,7 +202,7 @@ export function ProdutosLoja() {
   /** Chip de categoria da toolbar. '' = todas. */
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [mostrarFiscal, setMostrarFiscal] = useState(false);
-  type Aba = 'item' | 'complementos' | 'config' | 'fiscal';
+  type Aba = 'item' | 'complementos' | 'composicao' | 'config' | 'fiscal';
   const [aba, setAba] = useState<Aba>('item');
 
   /** Qual dos dois botões de submit foi clicado (ver `salvar`). */
@@ -249,6 +249,19 @@ export function ProdutosLoja() {
   const produtoEmEdicao = grupoIdEmEdicao === null
     ? null
     : (consulta.data ?? []).find(p => p.id === grupoIdEmEdicao) ?? null;
+  /*
+   * A COMPOSIÇÃO DO PRODUTO — de que este combo é feito.
+   *
+   * Mesma condição da consulta de grupos: só depois de salvar. Produto novo não
+   * tem id, e os itens do combo apontam pra ele.
+   */
+  const comboDoProduto = useQuery({
+    queryKey: ['lojista-combo', grupoIdEmEdicao],
+    queryFn: () => api<{ itens: ItemComboProduto[] }>('GET', `/api/lojista/produtos/${grupoIdEmEdicao}/combo`)
+      .then(r => r.itens),
+    enabled: grupoIdEmEdicao !== null,
+  });
+
   const gruposDoProduto = useQuery({
     queryKey: ['lojista-grupos', grupoIdEmEdicao],
     queryFn: () => api<{ grupos: GrupoOpcoes[] }>('GET', `/api/lojista/produtos/${grupoIdEmEdicao}/grupos`)
@@ -294,6 +307,7 @@ export function ProdutosLoja() {
       disponivel: !!p.disponivel,
       disponivel_pdv: !!p.disponivel_pdv,
       destaque: !!p.destaque,
+      vendido_sozinho: (p as { vendido_sozinho?: number }).vendido_sozinho !== 0,
       serve_pessoas: p.serve_pessoas ? String(p.serve_pessoas) : '',
       vendido_por: p.vendido_por === 'kg' ? 'kg' : 'un',
       codigo_barras: p.codigo_barras || '',
@@ -345,6 +359,7 @@ export function ProdutosLoja() {
       disponivel: form.disponivel,
       disponivel_pdv: form.disponivel_pdv,
       destaque: form.destaque,
+      vendido_sozinho: form.vendido_sozinho,
       serve_pessoas: form.serve_pessoas ? Number(form.serve_pessoas) : undefined,
       vendido_por: form.vendido_por,
       codigo_barras: form.codigo_barras,
@@ -744,6 +759,18 @@ export function ProdutosLoja() {
                   {([
                     ['item', 'Item'],
                     ['complementos', 'Complementos'],
+                    /*
+                      COMPOSIÇÃO fica DEPOIS de Complementos e ANTES de
+                      Configurações: é conteúdo do produto, como os
+                      complementos, e não regra de comportamento.
+
+                      A aba existe pra TODO produto, mesmo os que nunca serão
+                      combo. Esconder atrás de um interruptor "é combo?" seria
+                      mais um estado pra manter em sincronia com a existência
+                      dos itens — e recurso escondido é recurso que não se usa.
+                      O estado vazio explica o que é.
+                    */
+                    ['composicao', 'Composição'],
                     ['config', 'Configurações'],
                     ['fiscal', 'Fiscal'],
                   ] as const).map(([id, rotulo]) => (
@@ -778,6 +805,13 @@ export function ProdutosLoja() {
                       {id === 'complementos' && (gruposDoProduto.data ?? []).length > 0 && (
                         <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10.5px] font-bold">
                           {(gruposDoProduto.data ?? []).length}
+                        </span>
+                      )}
+                      {/* Só acende quando o produto É um combo — a contagem é o
+                          que diferencia "aba que existe" de "aba que importa". */}
+                      {id === 'composicao' && (comboDoProduto.data ?? []).length > 0 && (
+                        <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-[10.5px] font-bold">
+                          {(comboDoProduto.data ?? []).length}
                         </span>
                       )}
                     </button>
@@ -1149,6 +1183,21 @@ export function ProdutosLoja() {
                 </div>
               )}
 
+              {aba === 'composicao' && (
+                <div className="min-h-0 flex-1 overflow-y-auto px-6 py-7 sm:px-8">
+                  {grupoIdEmEdicao === null || !produtoEmEdicao ? (
+                    <section>
+                      <RotuloSecao>Composição</RotuloSecao>
+                      <p className="rounded-xl border border-dashed border-border px-3.5 py-3 text-[12.5px] text-muted-foreground">
+                        Salve o produto primeiro para montar um combo com ele.
+                      </p>
+                    </section>
+                  ) : (
+                    <ComposicaoCombo produto={produtoEmEdicao} />
+                  )}
+                </div>
+              )}
+
               {aba === 'config' && (
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-7 sm:px-8">
                   {/*
@@ -1183,6 +1232,26 @@ export function ProdutosLoja() {
                     {!form.disponivel && !form.disponivel_pdv && (
                       <p className="px-1 pb-1 text-[12.5px] text-amber-600">
                         Com os dois desligados o produto fica pausado — não vende em lugar nenhum.
+                      </p>
+                    )}
+                    {/*
+                      VENDER AVULSO é diferente de PAUSADO, e a distinção existe
+                      por causa do combo.
+                      Um combo "1 Grande + 1 Broto" precisa que a Broto EXISTA
+                      como produto (pra ser referenciada) e NÃO APAREÇA na lista.
+                      Fazer isso desligando "Vender no cardápio" faria o painel
+                      dizer "pausado" numa coisa que nunca foi pra venda avulsa —
+                      a tela mentindo sobre o motivo.
+                    */}
+                    <LinhaInterruptor
+                      titulo="Vender avulso"
+                      descricao="Desligue se este produto só existe dentro de um combo"
+                      ativo={form.vendido_sozinho}
+                      onAlternar={() => setForm(f => ({ ...f, vendido_sozinho: !f.vendido_sozinho }))}
+                    />
+                    {!form.vendido_sozinho && (
+                      <p className="px-1 pb-1 text-[12.5px] text-muted-foreground">
+                        Fica fora do cardápio e da busca. Continua podendo entrar em combos.
                       </p>
                     )}
                     <LinhaInterruptor
@@ -1840,6 +1909,18 @@ interface GrupoBibliotecaCompleto {
   }>;
 }
 
+/** Um componente de combo, com o produto que ocupa o slot. */
+interface ItemComboProduto {
+  id: number; slot: number; produto_id: number; rotulo: string;
+  produto_nome: string; preco_centavos: number; foto_url?: string | null; grupos: number;
+}
+
+/** Um produto que PODE entrar num combo. */
+interface CandidatoCombo {
+  id: number; nome: string; categoria: string;
+  preco_centavos: number; vendido_sozinho: number; grupos: number;
+}
+
 /** Uma linha da biblioteca de grupos da loja. `usos` = em quantos produtos está. */
 interface GrupoBiblioteca {
   id: number; nome: string; tipo: 'unico' | 'multiplo';
@@ -1849,6 +1930,220 @@ interface GrupoBiblioteca {
   previa?: string | null;
   /** Produtos que já usam este grupo. */
   onde?: string | null;
+}
+
+/**
+ * A COMPOSIÇÃO DO COMBO — de que produtos este produto é feito.
+ *
+ * FASE 1: cadastra e mais nada. O modal do cliente, o preço e o cupom ainda
+ * ignoram `combo_itens` por completo, e é isso que torna esta fase aplicável
+ * sem risco: um combo com composição se comporta hoje igual a um sem.
+ *
+ * UM PRODUTO É COMBO QUANDO TEM ITEM AQUI. Não existe interruptor "é combo?":
+ * um booleano precisaria ser mantido em sincronia com a existência das linhas, e
+ * booleano fora de sincronia é o defeito que a própria lista já responde.
+ *
+ * SLOT E NÃO QUANTIDADE. Duas pizzas iguais no combo são DOIS itens, porque cada
+ * uma vai ser configurada separadamente — sabores e borda próprios. Por isso o
+ * mesmo produto pode entrar duas vezes, e o rótulo numera ("Pizza Artesanal 2").
+ */
+function ComposicaoCombo({ produto }: { produto: Produto }) {
+  const { mostrar } = useToast();
+  const confirmar = useConfirm();
+  const qc = useQueryClient();
+  const [ocupado, setOcupado] = useState(false);
+  const [escolhendo, setEscolhendo] = useState(false);
+
+  const chave = ['lojista-combo', produto.id];
+  const { data, isLoading } = useQuery({
+    queryKey: chave,
+    queryFn: () => api<{ itens: ItemComboProduto[] }>('GET', `/api/lojista/produtos/${produto.id}/combo`)
+      .then(r => r.itens),
+  });
+  const itens = data ?? [];
+
+  /* Só busca os candidatos quando o lojista abre a lista: é uma consulta que
+     varre o cardápio da loja, e a aba costuma ser aberta sem intenção de mexer. */
+  const { data: candidatos } = useQuery({
+    queryKey: ['lojista-combo-candidatos', produto.id],
+    queryFn: () => api<{ candidatos: CandidatoCombo[] }>(
+      'GET', `/api/lojista/produtos/${produto.id}/combo/candidatos`).then(r => r.candidatos),
+    enabled: escolhendo,
+  });
+
+  function recarregar() {
+    qc.invalidateQueries({ queryKey: ['lojista-combo'] });
+    qc.invalidateQueries({ queryKey: ['lojista-combo-candidatos', produto.id] });
+  }
+
+  async function adicionar(produtoId: number) {
+    setOcupado(true);
+    try {
+      await api('POST', `/api/lojista/produtos/${produto.id}/combo`, { produto_id: produtoId });
+      recarregar();
+      setEscolhendo(false);
+    } catch (e) {
+      /* A rota recusa combo dentro de combo com mensagem própria — mostrar ela
+         é o que diz o que fazer, em vez de só que não deu. */
+      mostrar({ tipo: 'erro', titulo: e instanceof ApiError ? e.message : 'Erro ao adicionar.' });
+    } finally { setOcupado(false); }
+  }
+
+  async function remover(item: ItemComboProduto) {
+    if (!(await confirmar({
+      titulo: `Tirar "${item.rotulo}" do combo?`,
+      descricao: 'O produto continua no cardápio; só sai deste combo.',
+      confirmar: 'Tirar do combo',
+    }))) return;
+    setOcupado(true);
+    try {
+      await api('DELETE', `/api/lojista/produtos/${produto.id}/combo/${item.id}`);
+      recarregar();
+    } catch (e) {
+      mostrar({ tipo: 'erro', titulo: e instanceof ApiError ? e.message : 'Erro ao remover.' });
+    } finally { setOcupado(false); }
+  }
+
+  async function renomear(item: ItemComboProduto, rotulo: string) {
+    if (!rotulo.trim() || rotulo === item.rotulo) return;
+    try {
+      await api('PUT', `/api/lojista/produtos/${produto.id}/combo/${item.id}`, { rotulo: rotulo.trim() });
+      recarregar();
+    } catch (e) {
+      mostrar({ tipo: 'erro', titulo: e instanceof ApiError ? e.message : 'Erro ao renomear.' });
+      recarregar();
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      {isLoading && <Skeleton className="h-24" />}
+
+      {/*
+        O AVISO DA FASE 1 FICA NO TOPO, e não em nota de pé.
+        Cadastrar composição hoje NÃO muda o que o cliente vê: o modal ainda não
+        monta combo. Sem dizer isso, o lojista monta o combo, abre a loja, não vê
+        diferença nenhuma e conclui que o sistema está quebrado.
+      */}
+      {itens.length > 0 && (
+        <p className="rounded-xl border border-[#F1E3C4] bg-[#FBF3E4] px-3.5 py-2.5 text-[12.5px] text-[#92610A] dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300">
+          A composição já fica salva, mas o app do cliente <b>ainda não monta combo</b> —
+          ele mostra este produto com os complementos dele, como qualquer outro. A montagem
+          por item do combo vem na próxima etapa.
+        </p>
+      )}
+
+      <section>
+        <RotuloSecao>Itens deste combo</RotuloSecao>
+        {itens.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border px-3.5 py-4">
+            <p className="text-[13px] font-semibold">Este produto não é um combo.</p>
+            <p className="mt-1 text-[12.5px] text-muted-foreground">
+              Combo é um produto que contém outros: <i>“Combo Casal = uma Pizza Artesanal + uma Coca 2L”</i>.
+              Cada item entra com os complementos que ele já tem — você não cadastra os sabores de novo.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border">
+            {itens.map(item => (
+              <div key={item.id} className="flex flex-wrap items-center gap-2 px-3 py-2.5">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11.5px] font-bold text-muted-foreground">
+                  {item.slot}
+                </span>
+                {item.foto_url ? (
+                  <img src={item.foto_url} alt="" loading="lazy"
+                    className="size-9 shrink-0 rounded-md border border-border/60 object-cover" />
+                ) : (
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/60 bg-muted text-muted-foreground/60">
+                    <UtensilsCrossed className="size-4" />
+                  </span>
+                )}
+                <span className="min-w-0 flex-1">
+                  {/*
+                    O RÓTULO É EDITÁVEL porque é o que o cliente vai ler ("Pizza 1"
+                    / "Pizza 2"). Com o mesmo produto em dois slots, o nome do
+                    produto sozinho não distingue — e é o caso mais comum.
+                  */}
+                  <input
+                    key={`rot-${item.id}-${item.rotulo}`}
+                    defaultValue={item.rotulo}
+                    aria-label={`Nome do item ${item.slot} do combo`}
+                    maxLength={40}
+                    onBlur={e => {
+                      const v = e.target.value.trim();
+                      if (!v) { e.target.value = item.rotulo; return; }
+                      renomear(item, v);
+                    }}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+                      if (e.key === 'Escape') { (e.target as HTMLInputElement).value = item.rotulo; (e.target as HTMLInputElement).blur(); }
+                    }}
+                    className="w-full rounded-md bg-transparent px-1 py-0.5 text-[13.5px] font-bold outline-none transition-colors hover:bg-accent focus:bg-background focus:ring-2 focus:ring-primary"
+                  />
+                  <span className="block px-1 text-[11.5px] text-muted-foreground">
+                    {item.produto_nome} · {brl(item.preco_centavos)}
+                    {item.grupos > 0 && ` · ${item.grupos} ${item.grupos === 1 ? 'complemento' : 'complementos'}`}
+                  </span>
+                </span>
+                <button type="button" disabled={ocupado} onClick={() => remover(item)}
+                  title="Tirar deste combo"
+                  className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40">
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ─── Escolher o que entra ─── */}
+        {escolhendo ? (
+          <div className="mt-2.5 rounded-xl border border-border p-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[12.5px] font-semibold">Qual produto entra no combo?</p>
+              <button type="button" onClick={() => setEscolhendo(false)}
+                className="rounded-lg p-1 text-muted-foreground hover:bg-accent">
+                <X className="size-4" />
+              </button>
+            </div>
+            <div className="mt-2 max-h-64 divide-y divide-border/60 overflow-y-auto rounded-lg border border-border">
+              {(candidatos ?? []).length === 0 ? (
+                <p className="px-3 py-3 text-[12.5px] text-muted-foreground">
+                  Nenhum produto disponível. Combos não podem conter outros combos.
+                </p>
+              ) : (candidatos ?? []).map(c => (
+                <button key={c.id} type="button" disabled={ocupado}
+                  onClick={() => adicionar(c.id)}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-accent/50 disabled:opacity-50">
+                  <Plus className="size-3.5 shrink-0 text-primary" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[13px] font-semibold">{c.nome}</span>
+                    <span className="block text-[11px] text-muted-foreground">
+                      {c.categoria} · {brl(c.preco_centavos)}
+                      {c.grupos > 0 && ` · ${c.grupos} ${c.grupos === 1 ? 'complemento' : 'complementos'}`}
+                      {/* Componente que não se vende avulso: é útil ver isso aqui,
+                          porque é o estado esperado de uma "Pizza Broto" criada
+                          só pra dentro de combo. */}
+                      {!c.vendido_sozinho && ' · fora do cardápio'}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <Button type="button" variant="outline" size="sm" className="mt-2.5"
+            disabled={ocupado} onClick={() => setEscolhendo(true)}>
+            <Plus className="size-4" /> {itens.length === 0 ? 'Transformar em combo' : 'Adicionar item'}
+          </Button>
+        )}
+
+        <p className="mt-2 text-[12.5px] text-muted-foreground">
+          O mesmo produto pode entrar duas vezes — cada um vira um item que o cliente
+          configura separado.
+        </p>
+      </section>
+    </div>
+  );
 }
 
 /**

@@ -175,7 +175,7 @@ router.get('/destaques', async (_req, res, next) => {
               p.foto_url, p.serve_pessoas, p.destaque,
               l.id AS loja_id, l.nome AS loja_nome, l.categoria AS loja_categoria
          FROM produtos p JOIN lojas l ON l.id = p.loja_id
-        WHERE p.disponivel = 1 AND p.excluido = 0
+        WHERE p.disponivel = 1 AND p.excluido = 0 AND p.vendido_sozinho = 1
           AND ${sqlPromocaoVigente('p')}
           AND (p.controla_estoque = 0 OR p.estoque > 0)
           AND l.status_aprovacao = 'aprovada' AND l.aberta = 1
@@ -231,7 +231,7 @@ router.get('/buscar', async (req, res, next) => {
               p.foto_url, p.destaque,
               l.id AS loja_id, l.nome AS loja_nome, l.aberta AS loja_aberta
          FROM produtos p JOIN lojas l ON l.id = p.loja_id
-        WHERE p.disponivel = 1 AND p.excluido = 0
+        WHERE p.disponivel = 1 AND p.excluido = 0 AND p.vendido_sozinho = 1
           AND l.status_aprovacao = 'aprovada'
           AND (p.nome LIKE ? OR p.descricao LIKE ?)
         ORDER BY l.aberta DESC, p.destaque DESC, p.nome
@@ -269,12 +269,23 @@ router.get('/lojas/:id', async (req, res, next) => {
     ).get(param) as Loja | undefined;
     if (!loja) throw erroHttp(404, 'Loja não encontrada.');
 
+        /*
+         * `vendido_sozinho = 1`: componente de combo NÃO aparece avulso.
+         *
+         * Um combo "1 Grande + 1 Broto" precisa que a Broto exista como produto
+         * pra ser referenciada, e que não apareça na lista — senão o cliente
+         * pede a Broto sozinha por um preço que só faz sentido dentro do combo.
+         *
+         * É a ÚNICA coisa da fase 1 do combo que alguma tela lê. Foi de propósito:
+         * um interruptor que não faz nada é pior que interruptor nenhum, e o
+         * lojista que desmarca "vender avulso" espera o produto sair do cardápio.
+         */
     const produtos = await db.prepare(
       `SELECT id, nome, descricao, categoria, subcategoria, preco_centavos,
               preco_promocional_centavos, promo_fim, serve_pessoas, destaque, foto_url,
               controla_estoque, estoque
          FROM produtos
-        WHERE loja_id = ? AND disponivel = 1 AND excluido = 0
+        WHERE loja_id = ? AND disponivel = 1 AND excluido = 0 AND vendido_sozinho = 1
         ORDER BY categoria, subcategoria, destaque DESC, nome`
     ).all(loja.id) as (Produto & { grupos?: GrupoComOpcoes[] })[];
 

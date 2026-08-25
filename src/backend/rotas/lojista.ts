@@ -980,6 +980,7 @@ interface CamposProduto {
   foto_url: string; destaque: 0 | 1; disponivel: 0 | 1; disponivelPdv: 0 | 1;
   vendidoPor: 'un' | 'kg'; codigoBarras: string;
   controlaEstoque: 0 | 1; estoque: number;
+  vendidoSozinho: 0 | 1;
 }
 
 function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProduto {
@@ -1047,8 +1048,20 @@ function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProdut
     estoque = Number.isFinite(n) && n > 0 ? n : 0;
   }
 
+  /*
+   * VENDIDO AVULSO NO CARDÁPIO?
+   *
+   * `0` é pra componente de combo: um produto que existe pra ser referenciado e
+   * não pra aparecer na lista. Separado de `disponivel` porque aquela quer dizer
+   * "pausado", e o painel mostra "pausado" no card — um componente que nunca foi
+   * pra venda avulsa apareceria como se estivesse temporariamente fora.
+   */
+  const vendidoSozinho: 0 | 1 = corpo.vendido_sozinho !== undefined
+    ? (corpo.vendido_sozinho ? 1 : 0)
+    : (((atual as any).vendido_sozinho ?? 1) as 0 | 1);
+
   return {
-    nome, preco, promo, promoFim, servePessoas,
+    nome, preco, promo, promoFim, servePessoas, vendidoSozinho,
     descricao: textoLimpo(valor('descricao', atual.descricao || ''), 300),
     categoria: textoLimpo(valor('categoria', atual.categoria), 50) || 'Geral',
     subcategoria: textoLimpo(valor('subcategoria', (atual as any).subcategoria || ''), 80),
@@ -1070,11 +1083,11 @@ router.post('/produtos', async (req, res, next) => {
       `INSERT INTO produtos (loja_id, nome, descricao, categoria, subcategoria, preco_centavos,
                              preco_promocional_centavos, promo_fim, serve_pessoas, destaque,
                              foto_url, disponivel, disponivel_pdv, vendido_por, codigo_barras,
-                             controla_estoque, estoque, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                             controla_estoque, estoque, vendido_sozinho, criado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(loja.id, c.nome, c.descricao, c.categoria, c.subcategoria, c.preco, c.promo, c.promoFim,
           c.servePessoas, c.destaque, c.foto_url, c.disponivel, c.disponivelPdv, c.vendidoPor, c.codigoBarras,
-          c.controlaEstoque, c.estoque, agoraUTC());
+          c.controlaEstoque, c.estoque, c.vendidoSozinho, agoraUTC());
     res.status(201).json({ produto_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });
@@ -1088,10 +1101,10 @@ router.put('/produtos/:id', async (req, res, next) => {
       `UPDATE produtos SET nome = ?, descricao = ?, categoria = ?, subcategoria = ?, preco_centavos = ?,
               preco_promocional_centavos = ?, promo_fim = ?, serve_pessoas = ?, destaque = ?,
               foto_url = ?, disponivel = ?, disponivel_pdv = ?, vendido_por = ?, codigo_barras = ?,
-              controla_estoque = ?, estoque = ? WHERE id = ?`
+              controla_estoque = ?, estoque = ?, vendido_sozinho = ? WHERE id = ?`
     ).run(c.nome, c.descricao, c.categoria, c.subcategoria, c.preco, c.promo, c.promoFim, c.servePessoas,
           c.destaque, c.foto_url, c.disponivel, c.disponivelPdv, c.vendidoPor, c.codigoBarras,
-          c.controlaEstoque, c.estoque, produto.id);
+          c.controlaEstoque, c.estoque, c.vendidoSozinho, produto.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -1202,6 +1215,148 @@ router.post('/produtos/bulk', async (req, res, next) => {
         .run(loja.id, ...ids);
     }
     res.json({ ok: true, afetados: info.changes });
+  } catch (e) { next(e); }
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * COMPOSIÇÃO DO COMBO — fase 1
+ *
+ * Um combo é um produto que CONTÉM outros produtos, um por slot. Estas rotas
+ * cadastram isso; nada no caminho do pedido lê `combo_itens` ainda.
+ *
+ * `slot` e não `quantidade`: duas pizzas iguais são dois slots, porque cada uma
+ * é configurada separadamente. Ver o comentário da tabela em schema-mysql.ts.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+interface ItemCombo { id: number; slot: number; produto_id: number; rotulo: string }
+
+/** Os componentes de um combo, na ordem em que o cliente vai configurar. */
+router.get('/produtos/:id/combo', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const produto = await meuProduto(loja, req.params.id);
+    const itens = await db.prepare(
+      `SELECT ci.id, ci.slot, ci.produto_id, ci.rotulo,
+              p.nome AS produto_nome, p.preco_centavos, p.foto_url,
+              (SELECT COUNT(*) FROM produto_grupos pg WHERE pg.produto_id = p.id) AS grupos
+         FROM combo_itens ci JOIN produtos p ON p.id = ci.produto_id
+        WHERE ci.combo_id = ? ORDER BY ci.slot`
+    ).all(produto.id) as unknown[];
+    res.json({ itens });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Candidatos a componente: os produtos da loja que PODEM entrar neste combo.
+ *
+ * Fora da lista, e cada exclusão tem um motivo diferente:
+ *  - o próprio combo (um produto não se contém);
+ *  - produtos que JÁ SÃO combo — combo dentro de combo não tem fim, e a FK não
+ *    impede a referência circular;
+ *  - excluídos.
+ *
+ * O que JÁ ESTÁ no combo continua na lista, de propósito: "2× Pizza Artesanal"
+ * é o caso mais comum de combo de pizzaria, e filtrar impediria justamente ele.
+ */
+router.get('/produtos/:id/combo/candidatos', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const produto = await meuProduto(loja, req.params.id);
+    const candidatos = await db.prepare(
+      `SELECT p.id, p.nome, p.categoria, p.preco_centavos, p.vendido_sozinho,
+              (SELECT COUNT(*) FROM produto_grupos pg WHERE pg.produto_id = p.id) AS grupos
+         FROM produtos p
+        WHERE p.loja_id = ? AND p.excluido = 0 AND p.id <> ?
+          AND NOT EXISTS (SELECT 1 FROM combo_itens c WHERE c.combo_id = p.id)
+        ORDER BY p.categoria, p.nome`
+    ).all(loja.id, produto.id) as unknown[];
+    res.json({ candidatos });
+  } catch (e) { next(e); }
+});
+
+/** Põe um produto no próximo slot do combo. */
+router.post('/produtos/:id/combo', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const combo = await meuProduto(loja, req.params.id);
+    const componente = await meuProduto(loja, req.body.produto_id);
+
+    if (componente.id === combo.id) throw erroHttp(400, 'Um produto não pode conter ele mesmo.');
+
+    /*
+     * COMBO DENTRO DE COMBO É RECUSADO AQUI, não pela FK.
+     *
+     * `combo_itens.produto_id` aponta pra `produtos`, e um combo É um produto —
+     * então o banco aceitaria A conter B conter A. O ciclo não daria erro: daria
+     * recursão infinita no dia em que o modal montar a composição.
+     *
+     * Um nível só, e é o suficiente: combo contém produto simples.
+     */
+    const [{ n }] = await db.prepare(
+      'SELECT COUNT(*) AS n FROM combo_itens WHERE combo_id = ?'
+    ).all(componente.id) as Array<{ n: number }>;
+    if (n > 0) throw erroHttp(400, `"${componente.nome}" já é um combo. Combo dentro de combo não é suportado.`);
+
+    const [{ proximo }] = await db.prepare(
+      'SELECT COALESCE(MAX(slot) + 1, 1) AS proximo FROM combo_itens WHERE combo_id = ?'
+    ).all(combo.id) as Array<{ proximo: number }>;
+
+    /*
+     * O RÓTULO PADRÃO NUMERA QUANDO REPETE. Dois slots do mesmo produto sem
+     * rótulo ficam indistinguíveis na tela — "Pizza Artesanal" e "Pizza
+     * Artesanal" —, e é justamente o caso mais comum. Com o nome do produto
+     * repetido, entra "Pizza Artesanal 2".
+     */
+    const [{ repetidos }] = await db.prepare(
+      'SELECT COUNT(*) AS repetidos FROM combo_itens WHERE combo_id = ? AND produto_id = ?'
+    ).all(combo.id, componente.id) as Array<{ repetidos: number }>;
+    const rotuloPedido = textoLimpo(req.body.rotulo, 40);
+    const rotulo = rotuloPedido
+      || (repetidos > 0 ? `${componente.nome} ${repetidos + 1}` : componente.nome).slice(0, 40);
+
+    const info = await db.prepare(
+      'INSERT INTO combo_itens (combo_id, slot, produto_id, rotulo) VALUES (?, ?, ?, ?)'
+    ).run(combo.id, proximo, componente.id, rotulo);
+    res.status(201).json({ id: Number(info.lastInsertRowid), slot: proximo, rotulo });
+  } catch (e) { next(e); }
+});
+
+/** Renomeia o rótulo de um componente. */
+router.put('/produtos/:id/combo/:itemId', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const combo = await meuProduto(loja, req.params.id);
+    const rotulo = textoLimpo(req.body.rotulo, 40);
+    if (!rotulo) throw erroHttp(400, 'Informe o nome deste item do combo.');
+    // `combo_id` no WHERE é a autorização: o item tem que ser deste combo, que
+    // `meuProduto` já provou ser desta loja.
+    await db.prepare('UPDATE combo_itens SET rotulo = ? WHERE id = ? AND combo_id = ?')
+      .run(rotulo, inteiroPositivo(req.params.itemId), combo.id);
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Tira um componente e RENUMERA os slots.
+ *
+ * Sem renumerar, tirar o slot 1 de três deixaria 2 e 3 — e o cliente veria
+ * "Pizza 2 de 2" como primeiro passo. O slot é posição, não identidade.
+ */
+router.delete('/produtos/:id/combo/:itemId', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const combo = await meuProduto(loja, req.params.id);
+    await comTransacao(async (tx) => {
+      await tx.prepare('DELETE FROM combo_itens WHERE id = ? AND combo_id = ?')
+        .run(inteiroPositivo(req.params.itemId), combo.id);
+      const restantes = await tx.prepare(
+        'SELECT id FROM combo_itens WHERE combo_id = ? ORDER BY slot'
+      ).all(combo.id) as Array<{ id: number }>;
+      for (const [i, r] of restantes.entries()) {
+        await tx.prepare('UPDATE combo_itens SET slot = ? WHERE id = ?').run(i + 1, r.id);
+      }
+    });
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
