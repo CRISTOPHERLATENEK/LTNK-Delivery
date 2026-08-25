@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo , precoMinimoItem, precoVariavel, agruparPorSecao, contarFracoes } from './opcoes-preco';
+import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo , precoMinimoItem, precoVariavel, agruparPorSecao, contarFracoes, lerEscolhas, idsPorSlot, precoDosSlots, serializarEscolhas } from './opcoes-preco';
 import { papelValido, modoPrecoValido } from './rotas/lojista';
 
 const tamanho = { papel: 'tamanho', modo_preco: 'somar', max_escolhas: 1 };
@@ -431,5 +431,172 @@ describe('papelValido / modoPrecoValido', () => {
     expect(conta(modoPrecoValido('somar'))).toBe(2400);
     expect(conta(modoPrecoValido('maior'))).toBe(1600);
     expect(conta(modoPrecoValido('proporcional'))).toBe(1200);
+  });
+});
+
+/**
+ * SLOTS — o combo com mais de uma pizza configurável.
+ *
+ * Aqui mora o defeito mais caro que este recurso pode produzir, e ele é
+ * ATRAENTE: com dois slots usando o MESMO grupo, juntar as escolhas e chamar
+ * `precoDoGrupo` uma vez parece a coisa óbvia — o grupo é o mesmo, afinal. Com
+ * `modo_preco = 'maior'` isso cobra o maior acréscimo de TODAS as pizzas em vez
+ * do maior de CADA UMA: cobra uma pizza e entrega duas.
+ */
+describe('lerEscolhas', () => {
+  /*
+   * O FORMATO ANTIGO TEM QUE PASSAR. Todo pedido já gravado é uma lista de ids
+   * sem slot, e o carrinho de quem estiver com a aba aberta durante o deploy
+   * também. Ler os dois não é gentileza: é o que impede o pedido de sumir na
+   * troca de versão.
+   */
+  it('lista de números vira tudo no slot 0', () => {
+    expect(lerEscolhas([12, 15])).toEqual([
+      { slot: 0, opcao_id: 12 }, { slot: 0, opcao_id: 15 },
+    ]);
+  });
+
+  /* REPETIÇÃO PRESERVADA: `[12,12]` são duas frações do mesmo sabor, e
+     deduplicar apagaria a divisão da pizza. */
+  it('não deduplica — repetição é fração', () => {
+    expect(lerEscolhas([12, 12])).toHaveLength(2);
+  });
+
+  it('formato curto com slot', () => {
+    expect(lerEscolhas([{ s: 1, o: 12 }, { s: 2, o: 12 }])).toEqual([
+      { slot: 1, opcao_id: 12 }, { slot: 2, opcao_id: 12 },
+    ]);
+  });
+
+  it('aceita o nome longo também', () => {
+    expect(lerEscolhas([{ slot: 3, opcao_id: 9 }])).toEqual([{ slot: 3, opcao_id: 9 }]);
+  });
+
+  it('mistura de número e objeto na mesma lista', () => {
+    expect(lerEscolhas([12, { s: 1, o: 15 }])).toEqual([
+      { slot: 0, opcao_id: 12 }, { slot: 1, opcao_id: 15 },
+    ]);
+  });
+
+  /* Lixo é descartado em silêncio: id que não é número não vira erro de pedido,
+     vira opção que não existe — e quem valida se a opção é do produto é o
+     servidor, depois, onde a mensagem faz sentido. */
+  it('descarta o que não dá pra entender', () => {
+    expect(lerEscolhas([0, -1, 1.5, null, 'x', {}, { s: 1 }, { o: 0 }])).toEqual([]);
+    expect(lerEscolhas(undefined)).toEqual([]);
+    expect(lerEscolhas('nada')).toEqual([]);
+  });
+
+  it('slot 0 explícito é igual a slot ausente', () => {
+    expect(lerEscolhas([{ s: 0, o: 7 }])).toEqual(lerEscolhas([7]));
+  });
+});
+
+describe('idsPorSlot', () => {
+  it('separa por slot, mantendo ordem e repetição', () => {
+    const m = idsPorSlot(lerEscolhas([{ s: 1, o: 5 }, { s: 2, o: 9 }, { s: 1, o: 5 }]));
+    expect(m.get(1)).toEqual([5, 5]);
+    expect(m.get(2)).toEqual([9]);
+  });
+
+  it('sem escolha, mapa vazio', () => {
+    expect(idsPorSlot([]).size).toBe(0);
+  });
+});
+
+describe('precoDosSlots — a política vale POR SLOT', () => {
+  const sabores = { papel: 'sabores', modo_preco: 'maior', max_escolhas: 2 };
+  const caro = { id: 1, preco_adicional_centavos: 1600 };
+  const barato = { id: 2, preco_adicional_centavos: 800 };
+
+  /*
+   * ESTE É O TESTE QUE IMPORTA. Duas pizzas, cada uma com um sabor de +R$ 16 e
+   * um de +R$ 8, política 'maior'.
+   *
+   *   por slot:  16 + 16 = R$ 32
+   *   achatado:  max(16, 16, 8, 8) = R$ 16   ← cobra uma, entrega duas
+   */
+  it("'maior' é o maior de CADA pizza, não o maior de todas", () => {
+    const total = precoDosSlots([
+      { slot: 1, grupos: [{ grupo: sabores, escolhidas: [caro, barato] }] },
+      { slot: 2, grupos: [{ grupo: sabores, escolhidas: [caro, barato] }] },
+    ]);
+    expect(total).toBe(3200);
+    /* E é diferente do achatamento — se um dia der igual, o teste perdeu o
+       sentido e alguém precisa olhar. */
+    expect(total).not.toBe(precoDoGrupo(sabores, [caro, barato, caro, barato]));
+  });
+
+  /*
+   * 'proporcional' achatado é ainda pior: o denominador viraria o total de
+   * frações do COMBO, e meia pizza de camarão em duas pizzas sairia por um
+   * quarto do acréscimo.
+   */
+  it("'proporcional' usa as frações DAQUELA pizza como denominador", () => {
+    const prop = { papel: 'sabores', modo_preco: 'proporcional', max_escolhas: 2 };
+    const total = precoDosSlots([
+      { slot: 1, grupos: [{ grupo: prop, escolhidas: [caro, barato] }] },
+      { slot: 2, grupos: [{ grupo: prop, escolhidas: [caro, barato] }] },
+    ]);
+    // Por pizza: 1600/2 + 800/2 = 1200. Duas pizzas: 2400.
+    expect(total).toBe(2400);
+    // Achatado (4 frações) daria 1600×2/4 + 800×2/4 = 1200 — metade.
+    expect(total).not.toBe(precoDoGrupo(prop, [caro, barato, caro, barato]));
+  });
+
+  /* Um slot só tem que dar exatamente o mesmo que a conta de hoje. É a promessa
+     da fase: combo de um slot não muda de preço. */
+  it('um slot só é idêntico ao cálculo sem slot', () => {
+    const somar = { papel: '', modo_preco: 'somar', max_escolhas: 0 };
+    expect(precoDosSlots([{ slot: 0, grupos: [{ grupo: somar, escolhidas: [caro, barato] }] }]))
+      .toBe(precoDoGrupo(somar, [caro, barato]));
+  });
+
+  it('sem slot nenhum, acréscimo zero', () => {
+    expect(precoDosSlots([])).toBe(0);
+  });
+
+  it('soma os grupos DENTRO de cada slot também', () => {
+    const borda = { papel: '', modo_preco: 'somar', max_escolhas: 1 };
+    expect(precoDosSlots([{
+      slot: 1,
+      grupos: [
+        { grupo: sabores, escolhidas: [caro, barato] },   // maior → 1600
+        { grupo: borda, escolhidas: [barato] },           // somar →  800
+      ],
+    }])).toBe(2400);
+  });
+});
+
+describe('serializarEscolhas', () => {
+  /*
+   * COMPATIBILIDADE, não economia de bytes. Produto que não é combo continua
+   * gravando `[12,15]` — então nenhum leitor antigo (relatório, "pedir de novo",
+   * exportação) muda de comportamento no dia do deploy. O formato novo aparece
+   * só onde o antigo não daria conta.
+   */
+  it('tudo no slot 0 volta como lista de ids', () => {
+    expect(serializarEscolhas(lerEscolhas([12, 15]))).toEqual([12, 15]);
+  });
+
+  it('com slot, vira objeto curto', () => {
+    expect(serializarEscolhas([{ slot: 1, opcao_id: 12 }, { slot: 2, opcao_id: 15 }]))
+      .toEqual([{ s: 1, o: 12 }, { s: 2, o: 15 }]);
+  });
+
+  /* Basta UM slot diferente de zero pra todo o item ir no formato novo: metade
+     em cada formato seria impossível de reler. */
+  it('um slot fora do zero muda a lista inteira', () => {
+    expect(serializarEscolhas([{ slot: 0, opcao_id: 1 }, { slot: 2, opcao_id: 2 }]))
+      .toEqual([{ s: 0, o: 1 }, { s: 2, o: 2 }]);
+  });
+
+  it('ida e volta não perde nada', () => {
+    const original = [{ slot: 1, opcao_id: 5 }, { slot: 1, opcao_id: 5 }, { slot: 2, opcao_id: 9 }];
+    expect(lerEscolhas(serializarEscolhas(original))).toEqual(original);
+  });
+
+  it('ida e volta do formato antigo também', () => {
+    expect(lerEscolhas(serializarEscolhas(lerEscolhas([7, 7, 9])))).toEqual(lerEscolhas([7, 7, 9]));
   });
 });

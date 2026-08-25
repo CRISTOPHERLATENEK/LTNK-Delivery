@@ -563,3 +563,47 @@ describe('fase 1 do combo', () => {
     expect(lojista).toMatch(/UPDATE produtos SET[\s\S]{0,400}vendido_sozinho = \?/);
   });
 });
+
+/**
+ * A FRAÇÃO TEM QUE SOBREVIVER AO FECHAMENTO DO PEDIDO.
+ *
+ * Isto trava a correção de um defeito que estava no ar: a validação começava com
+ *
+ *     const ids = [...new Set(opcoesEscolhidas.map(...))]
+ *
+ * e o `Set` COLAPSAVA a repetição. O cliente montava "2/4 Calabresa + 1/4 Bacon
+ * + 1/4 Frango" no modal, e o servidor gravava três sabores de uma fração cada:
+ *
+ *   - `opcoes_texto` saía "Sabores: Calabresa" em vez de "2/4 Calabresa", então
+ *     a COZINHA nunca soube da divisão — o recurso era cosmético;
+ *   - e com `modo_preco = 'proporcional'` o denominador virava o número de
+ *     sabores distintos em vez de frações, cobrando errado.
+ *
+ * A leitura agora é centralizada em `lerEscolhas`, que preserva repetição e tem
+ * teste próprio. O que este teste garante é que a rota USE essa porta, e não
+ * volte a colapsar antes de chamar.
+ */
+describe('a validação do pedido não colapsa repetição', () => {
+  const cliente = fs.readFileSync(path.resolve(__dirname, 'rotas', 'cliente.ts'), 'utf8');
+
+  it('lê pelo `lerEscolhas`, que preserva fração', () => {
+    expect(cliente).toMatch(/const escolhas = lerEscolhas\(opcoesEscolhidas\)/);
+  });
+
+  /* A assinatura exata do defeito: um Set construído a partir do que o cliente
+     mandou. O `new Set` que sobrou na rota é outro — o das escolhas já
+     reconhecidas, que existe pra recusar opção inválida. */
+  it('não constrói Set a partir do que o cliente mandou', () => {
+    expect(cliente).not.toMatch(/new Set\(\s*opcoesEscolhidas/);
+    expect(cliente).not.toMatch(/\[\.\.\.new Set\(opcoes/);
+  });
+
+  /* E o preço roda POR SLOT: `precoDoGrupo` dentro do laço de slots. Achatar
+     cobraria, com 'maior', uma pizza por duas. */
+  it('o preço é somado dentro do laço de slots', () => {
+    const i = cliente.indexOf('for (const alvo of slots)');
+    const j = cliente.indexOf('const chaveDe =', i);
+    expect(i).toBeGreaterThan(-1);
+    expect(cliente.slice(i, j)).toMatch(/precoUnit \+= precoDoGrupo\(grupo, escolhidas\)/);
+  });
+});

@@ -240,3 +240,119 @@ export function contarFracoes(escolhidas: OpcaoRegra[]): FracaoEscolhida[] {
   });
   return ordem.map(k => mapa.get(k)!);
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * SLOTS — o combo com mais de uma pizza configurável
+ *
+ * Um combo é um produto que contém outros produtos, cada um configurado
+ * separadamente. "Combo Casal = 2 pizzas grandes, escolha 2 sabores em cada" só
+ * existe se a escolha souber A QUAL pizza pertence.
+ *
+ * `slot 0` é o PRÓPRIO produto: os grupos que ele tem por conta (a "Refrigerante
+ * 2L" do combo, ou todos os grupos de um produto comum). `slot 1..N` são os
+ * componentes, na ordem de `combo_itens.slot`.
+ *
+ * PRODUTO SEM COMBO USA SÓ O SLOT 0, e é por isso que nada muda pra ele: a lista
+ * de números que o cliente sempre mandou é lida como "tudo no slot 0".
+ * ───────────────────────────────────────────────────────────────────────── */
+
+/** Uma escolha do cliente: qual opção, em qual slot. */
+export interface EscolhaSlot {
+  slot: number;
+  opcao_id: number;
+}
+
+/**
+ * Lê o que o cliente mandou, nos dois formatos.
+ *
+ * O formato antigo é `[12, 15, 12]` — uma lista de ids, sem slot. Todo pedido já
+ * gravado está assim, e o carrinho de quem estiver com a aba aberta durante o
+ * deploy também. Ler os dois não é gentileza: é o que impede o pedido de sumir
+ * na troca de versão.
+ *
+ * A REPETIÇÃO É PRESERVADA. `[12, 12]` são duas frações do mesmo sabor, e
+ * deduplicar aqui apagaria a divisão da pizza — foi um defeito real desta base.
+ *
+ * O que não dá pra entender é DESCARTADO em silêncio de propósito: um id que não
+ * é número não vira erro de pedido, vira opção que não existe. Quem valida se as
+ * opções são do produto é o servidor, depois, e é lá que a mensagem faz sentido.
+ */
+export function lerEscolhas(bruto: unknown): EscolhaSlot[] {
+  if (!Array.isArray(bruto)) return [];
+  const saida: EscolhaSlot[] = [];
+  for (const item of bruto) {
+    if (typeof item === 'number' && Number.isInteger(item) && item > 0) {
+      saida.push({ slot: 0, opcao_id: item });
+      continue;
+    }
+    if (item && typeof item === 'object') {
+      const o = item as Record<string, unknown>;
+      /* `o`/`s` é o formato curto que vai no banco — `opcoes_ids` é TEXT e o
+         nome longo repetido em trinta frações é peso que não paga nada. */
+      const id = Number(o.o ?? o.opcao_id);
+      const slot = Number(o.s ?? o.slot ?? 0);
+      if (Number.isInteger(id) && id > 0 && Number.isInteger(slot) && slot >= 0) {
+        saida.push({ slot, opcao_id: id });
+      }
+    }
+  }
+  return saida;
+}
+
+/** Os ids escolhidos em cada slot, preservando ordem e repetição. */
+export function idsPorSlot(escolhas: EscolhaSlot[]): Map<number, number[]> {
+  const mapa = new Map<number, number[]>();
+  for (const e of escolhas) {
+    const lista = mapa.get(e.slot) ?? [];
+    lista.push(e.opcao_id);
+    mapa.set(e.slot, lista);
+  }
+  return mapa;
+}
+
+/** Um slot já resolvido: seus grupos e o que foi escolhido em cada um. */
+export interface SlotResolvido {
+  slot: number;
+  grupos: Array<{ grupo: GrupoRegra; escolhidas: OpcaoRegra[] }>;
+}
+
+/**
+ * O acréscimo total de todos os slots.
+ *
+ * ESTA FUNÇÃO EXISTE PRA IMPEDIR UM ACHATAMENTO. A conta é trivial — soma de
+ * `precoDoGrupo` —, mas o jeito errado de fazer é natural: juntar as escolhas
+ * dos dois slots e chamar `precoDoGrupo` uma vez, porque o grupo é o mesmo.
+ *
+ * Com `modo_preco = 'maior'`, achatar cobra o maior acréscimo de TODAS as pizzas
+ * em vez do maior de CADA UMA:
+ *
+ *   duas pizzas, cada uma com um sabor de +R$ 16
+ *   certo:  16 + 16 = 32     achatado:  max(16, 16) = 16
+ *
+ * Ou seja: cobra uma pizza e entrega duas. E com 'proporcional' é pior ainda, o
+ * denominador viraria o total de frações do combo — meia pizza de camarão em duas
+ * pizzas sairia por um quarto do acréscimo.
+ */
+export function precoDosSlots(slots: SlotResolvido[]): number {
+  let total = 0;
+  for (const s of slots) {
+    for (const { grupo, escolhidas } of s.grupos) {
+      total += precoDoGrupo(grupo, escolhidas);
+    }
+  }
+  return total;
+}
+
+/**
+ * Serializa pro banco. Devolve a lista CURTA (só os ids) quando tudo está no
+ * slot 0.
+ *
+ * Não é economia de bytes: é compatibilidade. Todo produto que não é combo
+ * continua gravando `[12,15]`, exatamente como antes — então nenhum leitor
+ * antigo (relatório, "pedir de novo", exportação) muda de comportamento no dia
+ * do deploy. O formato novo aparece só onde o antigo não daria conta.
+ */
+export function serializarEscolhas(escolhas: EscolhaSlot[]): Array<number | { s: number; o: number }> {
+  if (escolhas.every(e => e.slot === 0)) return escolhas.map(e => e.opcao_id);
+  return escolhas.map(e => ({ s: e.slot, o: e.opcao_id }));
+}
