@@ -556,9 +556,9 @@ export function ProdutosLoja() {
    *
    * `todos` já chega do servidor na ordem em que a vitrine mostra, então a
    * primeira aparição de cada nome É a posição dele — `new Set` preserva ordem
-   * de inserção. O `.sort()` que estava aqui desfazia na tela exatamente a
-   * ordenação que o lojista tinha acabado de escolher, e o seletor de fileira
-   * abaixo marcaria a posição errada.
+   * de inserção. Com `.sort()`, os chips do cadastro apareciam em ordem
+   * alfabética enquanto a lista logo atrás mostrava a ordem real do cardápio —
+   * duas ordens na mesma tela pra mesma coisa.
    */
   const categoriasExistentes = [...new Set(todos.map(p => p.categoria).filter(Boolean))] as string[];
   const subcategoriasDaCategoria = [...new Set(
@@ -584,15 +584,14 @@ export function ProdutosLoja() {
        na mesma faixa e o nome moveria o errado. */
     nome: string,
     posicao: number,
-    /* A categoria DA SEÇÃO arrastada. Na lista não há formulário aberto, e usar
-       `form.categoria` mandaria a subcategoria pra categoria errada — ou pra
-       string vazia, que o servidor recusa. */
+    /* A categoria DA SEÇÃO arrastada. Só a grade chama isto — o seletor do
+       cadastro foi removido —, então não há `form.categoria` de reserva: quem
+       move uma subcategoria sabe de qual categoria ela é. */
     categoriaDaSub?: string,
   ) {
     try {
       await api('PUT', '/api/lojista/ordem-cardapio', {
-        tipo, nome, posicao,
-        categoria: tipo === 'subcategoria' ? (categoriaDaSub ?? form.categoria) : undefined,
+        tipo, nome, posicao, categoria: categoriaDaSub,
       });
     } catch {
       mostrar({ tipo: 'erro', titulo: 'Não deu para mover' });
@@ -1037,10 +1036,6 @@ export function ProdutosLoja() {
                         onChange={v => setForm(f => ({ ...f, categoria: v }))}
                         placeholderNovo="Ex.: Lanches, Bebidas, Sobremesas…"
                         rotuloNovo="Nova categoria"
-                        fileira={{
-                          onMover: (n, p) => moverFileira('categoria', n, p),
-                          aviso: 'Salve o produto para poder ordenar as fileiras.',
-                        }}
                       />
                       <SeletorChips
                         label="Subcategoria"
@@ -1050,10 +1045,6 @@ export function ProdutosLoja() {
                         placeholderNovo="Ex.: Especiais, Veganos…"
                         rotuloNovo="Nova subcategoria"
                         dica={form.categoria ? undefined : 'Escolha uma categoria primeiro'}
-                        fileira={{
-                          onMover: (n, p) => moverFileira('subcategoria', n, p),
-                          aviso: 'Salve o produto para poder ordenar as fileiras.',
-                        }}
                       />
                     </div>
                   </section>
@@ -1576,7 +1567,7 @@ function LinhaInterruptor({ titulo, descricao, ativo, onAlternar, children }: {
 }
 
 function SeletorChips({
-  label, valor, opcoes, onChange, placeholderNovo, rotuloNovo, obrigatorio = false, dica, fileira,
+  label, valor, opcoes, onChange, placeholderNovo, rotuloNovo, obrigatorio = false, dica,
 }: {
   label: string;
   valor: string;
@@ -1586,48 +1577,9 @@ function SeletorChips({
   rotuloNovo: string;
   obrigatorio?: boolean;
   dica?: string;
-  /**
-   * Em que fileira do cardápio esta categoria/subcategoria aparece.
-   *
-   * `opcoes` já vem na ordem do cardápio, então a posição é o índice + 1 — não
-   * há segunda fonte de verdade pra sair de sincronia com a lista mostrada.
-   */
-  fileira?: { onMover: (nome: string, posicao: number) => Promise<void>; aviso?: string };
 }) {
   const [criando, setCriando] = useState(false);
   const [novo, setNovo] = useState('');
-  const [arrastando, setArrastando] = useState<number | null>(null);
-  /* Cópia otimista durante o arrasto; `null` = seguindo o servidor. */
-  const [ordemLocal, setOrdemLocal] = useState<string[] | null>(null);
-  const ordem = ordemLocal ?? opcoes;
-
-  /**
-   * `origemExplicita` existe pros botões ↑↓.
-   *
-   * O arrasto guarda a origem em `arrastando` antes de soltar; o botão não tem
-   * esse momento. Fazer `setArrastando(i)` e chamar em seguida NÃO funciona —
-   * o estado do React só vale na próxima renderização, e a função leria o valor
-   * antigo (`null`), saindo sem fazer nada. O clique falharia em silêncio.
-   */
-  async function soltarEm(destino: number, origemExplicita?: number) {
-    const origem = origemExplicita ?? arrastando;
-    setArrastando(null);
-    if (origem === null || origem === destino || !fileira) return;
-    const movido = ordem[origem];
-    /*
-     * A MESMA função que o servidor usa pra renumerar (gêmeo em
-     * `lib/ordem-cardapio`). Reimplementar o splice aqui à mão é onde a prévia
-     * e a gravação divergem — e o sintoma seria a fileira pulando de lugar
-     * quando a resposta chega, com a gravação tendo dado certo.
-     */
-    setOrdemLocal(reordenar(ordem, movido, destino + 1));
-    try {
-      await fileira.onMover(movido, destino + 1);
-    } finally {
-      // Larga a cópia só depois do refetch: aqui os dados novos já chegaram.
-      setOrdemLocal(null);
-    }
-  }
 
   const valorForaDaLista = valor && !opcoes.includes(valor);
 
@@ -1727,97 +1679,6 @@ function SeletorChips({
         )}
       </div>
 
-      {/*
-        A FILEIRA — em que posição do cardápio esta faixa aparece.
-        Só existe depois que há uma escolhida, e só pra nome que JÁ está na
-        lista: mover um nome recém-digitado criaria a categoria no banco antes
-        de o produto ser salvo, e desistir do cadastro deixaria uma faixa vazia
-        no cardápio do cliente.
-      */}
-      {fileira && valor && (
-        valorForaDaLista
-          ? <p className="mt-2.5 text-xs text-muted-foreground">{fileira.aviso}</p>
-          : (
-            <div className="mt-3">
-              <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Fileira no cardápio
-              </div>
-              {/*
-                ARRASTAR, NÃO CLICAR NUM NÚMERO.
-                Botões [1ª][2ª][3ª] pediam que o lojista traduzisse "quero isto
-                acima daquilo" numa posição absoluta — e a conta muda a cada
-                movimento. Arrastar é a intenção direta, e a lista mostra os
-                vizinhos, que é a informação que falta pra decidir.
-
-                Qualquer fileira é arrastável, não só a do produto: com a lista
-                inteira à vista, obrigar a sair e abrir outro produto pra mexer
-                na vizinha seria arbitrário.
-              */}
-              <div className="overflow-hidden rounded-xl border border-border">
-                {ordem.map((nomeFila, i) => (
-                  <div
-                    key={nomeFila}
-                    onDragOver={e => { if (arrastando !== null) e.preventDefault(); }}
-                    onDrop={() => soltarEm(i)}
-                    className={cn(
-                      'flex items-center gap-2 border-b border-border/60 px-2.5 py-2 text-[13px] last:border-b-0 transition-opacity',
-                      arrastando === i && 'opacity-40',
-                      nomeFila === valor && 'bg-primary/[0.07] font-semibold',
-                    )}
-                  >
-                    <span
-                      draggable
-                      onDragStart={() => setArrastando(i)}
-                      onDragEnd={() => setArrastando(null)}
-                      title="Arraste para reordenar"
-                      className="shrink-0 cursor-grab text-muted-foreground/60 active:cursor-grabbing"
-                    >
-                      <GripVertical className="size-4" />
-                    </span>
-                    <span className="w-4 shrink-0 tabular-nums text-muted-foreground">{i + 1}</span>
-                    <span className="truncate">{nomeFila}</span>
-                    {/*
-                      ↑↓ NÃO É REDUNDÂNCIA COM O ARRASTO — É O QUE FUNCIONA NO
-                      CELULAR.
-
-                      `draggable` do HTML5 não emite evento nenhum em toque: no
-                      telefone a alça é um ícone morto. Trocar os botões de
-                      posição por arrasto puro teria melhorado o desktop e
-                      QUEBRADO o painel no aparelho onde o lojista mais mexe no
-                      cardápio.
-
-                      Os dois caminhos chamam `soltarEm`, então não há segunda
-                      regra de ordenação pra divergir.
-                    */}
-                    <div className="ml-auto flex shrink-0 items-center">
-                      <button
-                        type="button"
-                        aria-label={`Subir ${nomeFila}`}
-                        disabled={i === 0}
-                        onClick={() => soltarEm(i - 1, i)}
-                        className="p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-25"
-                      >
-                        <ChevronUp className="size-4" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Descer ${nomeFila}`}
-                        disabled={i === ordem.length - 1}
-                        onClick={() => soltarEm(i + 1, i)}
-                        className="p-1 text-muted-foreground transition-colors hover:text-foreground disabled:opacity-25"
-                      >
-                        <ChevronDown className="size-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Arraste ou use as setas. A 1ª é a primeira que o cliente vê.
-              </p>
-            </div>
-          )
-      )}
     </div>
   );
 }
