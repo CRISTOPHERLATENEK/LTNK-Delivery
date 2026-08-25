@@ -991,7 +991,8 @@ router.get('/produtos', async (req, res, next) => {
         WHERE p.loja_id = ? AND p.excluido = 0
         ORDER BY COALESCE(c.ordem, 999), p.categoria,
                  CASE WHEN p.subcategoria IS NULL OR p.subcategoria = '' THEN 0 ELSE 1 END,
-                 COALESCE(sc.ordem, 999), p.subcategoria, p.destaque DESC, p.nome`
+                 COALESCE(sc.ordem, 999), p.subcategoria,
+                 p.ordem, p.destaque DESC, p.nome`
     ).all(loja.id) as ProdutoFull[];
 
     for (const p of produtos) {
@@ -4207,6 +4208,44 @@ router.put('/ordem-cardapio', async (req, res, next) => {
     const posicao = Number(req.body?.posicao);
     if (!nome) throw erroHttp(400, 'Informe o nome.');
     if (!Number.isFinite(posicao)) throw erroHttp(400, 'Informe a posição.');
+
+    if (req.body?.tipo === 'produto') {
+      /*
+       * PRODUTO É POR ID, NÃO POR NOME.
+       *
+       * Categoria e subcategoria são texto e o nome as identifica. Dois
+       * produtos podem ter o mesmo nome na mesma faixa (duplicar item cria
+       * "X (cópia)", mas renomear de volta é comum) — ordenar por nome moveria
+       * o errado. `reordenar` trabalha com strings, então os ids viram string:
+       * é a mesma função testada, sem uma segunda regra de ordenação.
+       */
+      const id = Number(nome);
+      if (!Number.isInteger(id)) throw erroHttp(400, 'Informe o id do produto.');
+      const alvo = await db.prepare(
+        'SELECT id, categoria, subcategoria FROM produtos WHERE id = ? AND loja_id = ? AND excluido = 0'
+      ).get(id, loja.id) as { id: number; categoria: string; subcategoria: string } | undefined;
+      if (!alvo) throw erroHttp(404, 'Produto não encontrado.');
+
+      /* Os irmãos são os da MESMA faixa — a grade que o lojista está vendo.
+         `<=>` e não `=` porque `subcategoria` pode ser NULL, e NULL = NULL é
+         desconhecido: com `=` a faixa sem nome não casaria com ela mesma e a
+         lista viria vazia. */
+      const irmaos = await db.prepare(
+        `SELECT id FROM produtos
+          WHERE loja_id = ? AND excluido = 0 AND categoria <=> ? AND subcategoria <=> ?
+          ORDER BY ordem, destaque DESC, nome`
+      ).all(loja.id, alvo.categoria, alvo.subcategoria) as Array<{ id: number }>;
+
+      const nova = reordenar(irmaos.map(r => String(r.id)), String(id), posicao);
+      await comTransacao(async () => {
+        for (let i = 0; i < nova.length; i++) {
+          await db.prepare('UPDATE produtos SET ordem = ? WHERE id = ? AND loja_id = ?')
+            .run(i + 1, Number(nova[i]), loja.id);
+        }
+      });
+      res.json({ ok: true, ordem: nova });
+      return;
+    }
 
     if (req.body?.tipo === 'subcategoria') {
       const categoria = textoLimpo(req.body?.categoria || '');

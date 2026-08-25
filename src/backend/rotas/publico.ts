@@ -303,7 +303,8 @@ router.get('/lojas/:id', async (req, res, next) => {
         WHERE p.loja_id = ? AND p.disponivel = 1 AND p.excluido = 0 AND p.vendido_sozinho = 1
         ORDER BY p.categoria,
                  CASE WHEN p.subcategoria IS NULL OR p.subcategoria = '' THEN 0 ELSE 1 END,
-                 COALESCE(sc.ordem, 999), p.subcategoria, p.destaque DESC, p.nome`
+                 COALESCE(sc.ordem, 999), p.subcategoria,
+                 p.ordem, p.destaque DESC, p.nome`
     ).all(loja.id) as (Produto & { grupos?: GrupoComOpcoes[] })[];
 
     /*

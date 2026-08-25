@@ -578,7 +578,10 @@ export function ProdutosLoja() {
    * a prévia otimista existe pra evitar.
    */
   async function moverFileira(
-    tipo: 'categoria' | 'subcategoria',
+    tipo: 'categoria' | 'subcategoria' | 'produto',
+    /* Nome da categoria/subcategoria, ou o ID do produto como texto — o
+       servidor identifica produto por id, porque dois podem ter o mesmo nome
+       na mesma faixa e o nome moveria o errado. */
     nome: string,
     posicao: number,
     /* A categoria DA SEÇÃO arrastada. Na lista não há formulário aberto, e usar
@@ -1494,6 +1497,7 @@ export function ProdutosLoja() {
             onSubir: iCat === 0 ? undefined : () => soltarCategoria(iCat - 1, iCat),
             onDescer: iCat === catsNaTela.length - 1 ? undefined : () => soltarCategoria(iCat + 1, iCat),
             onMoverSub: (sub, posicao) => moverFileira('subcategoria', sub, posicao, cat),
+            onMoverProduto: (id, posicao) => moverFileira('produto', String(id), posicao),
           } : undefined}
           onEditar={abrirEdicao}
           onExcluir={excluir}
@@ -1844,6 +1848,7 @@ function CategoriaSection({
     onSubir?: () => void;
     onDescer?: () => void;
     onMoverSub: (sub: string, posicao: number) => Promise<void>;
+    onMoverProduto: (id: number, posicao: number) => Promise<void>;
   };
 }) {
   const [aberta, setAberta] = useState(true);
@@ -1861,6 +1866,28 @@ function CategoriaSection({
   const [arrSub, setArrSub] = useState<number | null>(null);
   const [ordemSubLocal, setOrdemSubLocal] = useState<string[] | null>(null);
   const subsNaTela = ordemSubLocal ?? subsOrdenaveis;
+
+  /*
+   * O arrasto de produto é por FAIXA: guarda qual faixa e qual índice. Sem a
+   * faixa no estado, arrastar na "Prontas" e soltar na "Monte a sua" moveria um
+   * produto pra uma lista de irmãos que não é a dele.
+   */
+  const [arrProd, setArrProd] = useState<{ sub: string; i: number } | null>(null);
+  const [ordemProdLocal, setOrdemProdLocal] = useState<{ sub: string; ids: number[] } | null>(null);
+
+  async function soltarProduto(sub: string, lista: Produto[], destino: number, origemExplicita?: number) {
+    const origem = origemExplicita ?? (arrProd?.sub === sub ? arrProd.i : null);
+    setArrProd(null);
+    if (origem === null || origem === destino || !arrasto) return;
+    const ids = lista.map(p => String(p.id));
+    const movido = ids[origem];
+    setOrdemProdLocal({ sub, ids: reordenar(ids, movido, destino + 1).map(Number) });
+    try {
+      await arrasto.onMoverProduto(Number(movido), destino + 1);
+    } finally {
+      setOrdemProdLocal(null);
+    }
+  }
 
   async function soltarSub(destino: number, origemExplicita?: number) {
     const origem = origemExplicita ?? arrSub;
@@ -1899,7 +1926,7 @@ function CategoriaSection({
             onDragStart={arrasto.onInicio}
             onDragEnd={arrasto.onFim}
             title="Arraste para reordenar as categorias"
-            className="-ml-5 shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
+            className="shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
           >
             <GripVertical className="size-4" />
           </span>
@@ -1955,6 +1982,20 @@ function CategoriaSection({
           {['', ...subsNaTela].filter(k => subs[k]?.length).map(sub => {
             const itens = subs[sub];
             const iSub = subsNaTela.indexOf(sub);
+            /*
+             * A PRÉVIA OTIMISTA DA GRADE.
+             *
+             * Durante o arrasto a ordem nova vive em `ordemProdLocal`, como ids.
+             * `filter(Boolean)` porque a lista de ids pode citar um produto que
+             * saiu da tela entre o arrasto e a resposta (exclusão em outra aba):
+             * sem ele o `map` devolveria `undefined` e a grade quebraria no
+             * meio do gesto.
+             */
+            const itensNaTela = ordemProdLocal?.sub === sub
+              ? ordemProdLocal.ids
+                  .map(id => itens.find(x => x.id === id))
+                  .filter((x): x is Produto => !!x)
+              : itens;
             return (
             <div
               key={sub}
@@ -1970,7 +2011,7 @@ function CategoriaSection({
                       onDragStart={() => setArrSub(iSub)}
                       onDragEnd={() => setArrSub(null)}
                       title="Arraste para reordenar as faixas"
-                      className="-ml-4 shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
+                      className="shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
                     >
                       <GripVertical className="size-3.5" />
                     </span>
@@ -2007,7 +2048,14 @@ function CategoriaSection({
                   gridTemplateColumns: `repeat(auto-fill, minmax(${densidade === 'compacta' ? 340 : 440}px, 1fr))`,
                 }}
               >
-                {itens.map(p => (
+                {itensNaTela.map((p, j) => (
+                  <div
+                    key={p.id}
+                    onDragOver={e => { if (arrProd?.sub === sub) e.preventDefault(); }}
+                    onDrop={() => soltarProduto(sub, itensNaTela, j)}
+                    className={cn('transition-opacity',
+                      arrProd?.sub === sub && arrProd.i === j && 'opacity-40')}
+                  >
                   <CardProduto
                     key={p.id}
                     produto={p}
@@ -2018,7 +2066,15 @@ function CategoriaSection({
                     modoSelecao={modoSelecao}
                     selecionado={selecionados.has(p.id)}
                     onToggleSelecao={() => onToggleSelecao(p.id)}
+                    arrasto={arrasto ? {
+                      onInicio: () => setArrProd({ sub, i: j }),
+                      onFim: () => setArrProd(null),
+                      onSubir: j === 0 ? undefined : () => soltarProduto(sub, itensNaTela, j - 1, j),
+                      onDescer: j === itensNaTela.length - 1
+                        ? undefined : () => soltarProduto(sub, itensNaTela, j + 1, j),
+                    } : undefined}
                   />
+                  </div>
                 ))}
               </div>
             </div>
@@ -2033,17 +2089,20 @@ function CategoriaSection({
 /* ─────────────────────── card do produto ──────────────────────── */
 
 /** Ícone de ação do rodapé do card: 32px, alvo aceitável sem inflar a linha. */
-function BotaoIcone({ titulo, onClick, destrutivo, children }: {
-  titulo: string; onClick: () => void; destrutivo?: boolean; children: React.ReactNode;
+function BotaoIcone({ titulo, onClick, destrutivo, desabilitado, children }: {
+  titulo: string; onClick: () => void; destrutivo?: boolean; desabilitado?: boolean;
+  children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={desabilitado}
       title={titulo}
       aria-label={titulo}
       className={cn(
         'flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors',
+        desabilitado && 'opacity-20',
         destrutivo
           ? 'hover:bg-destructive/10 hover:text-destructive'
           : 'hover:bg-accent hover:text-foreground',
@@ -2056,7 +2115,7 @@ function BotaoIcone({ titulo, onClick, destrutivo, children }: {
 
 function CardProduto({
   produto: p, onEditar, onExcluir, onAlternarDisponivel, onDuplicar,
-  modoSelecao, selecionado, onToggleSelecao,
+  modoSelecao, selecionado, onToggleSelecao, arrasto,
 }: {
   produto: Produto;
   onEditar: () => void;
@@ -2066,6 +2125,13 @@ function CardProduto({
   modoSelecao: boolean;
   selecionado: boolean;
   onToggleSelecao: () => void;
+  /** Ausente quando há busca/filtro: a grade na tela não é a faixa inteira. */
+  arrasto?: {
+    onInicio: () => void;
+    onFim: () => void;
+    onSubir?: () => void;
+    onDescer?: () => void;
+  };
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const grupos = (p as any).grupos as GrupoOpcoes[] | undefined;
@@ -2212,6 +2278,33 @@ function CardProduto({
             A contagem, que era a parte útil do botão, virou selo lá em cima.
           */}
           <div className="flex items-center gap-1">
+            {/*
+              A ALÇA MORA NA LINHA DE AÇÕES, não flutuando sobre o card.
+              Sobreposta ela cairia em cima da foto do produto — e é a foto que
+              o lojista usa pra achar o item na grade.
+
+              As setas ao lado não são redundância: `draggable` do HTML5 não
+              emite evento em toque, então no celular a alça é um ícone morto.
+            */}
+            {arrasto && (
+              <>
+                <span
+                  draggable
+                  onDragStart={arrasto.onInicio}
+                  onDragEnd={arrasto.onFim}
+                  title="Arraste para reordenar"
+                  className="cursor-grab px-0.5 text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
+                >
+                  <GripVertical className="size-[15px]" />
+                </span>
+                <BotaoIcone titulo="Subir" onClick={() => arrasto.onSubir?.()} desabilitado={!arrasto.onSubir}>
+                  <ChevronUp className="size-[15px]" />
+                </BotaoIcone>
+                <BotaoIcone titulo="Descer" onClick={() => arrasto.onDescer?.()} desabilitado={!arrasto.onDescer}>
+                  <ChevronDown className="size-[15px]" />
+                </BotaoIcone>
+              </>
+            )}
             <BotaoIcone titulo="Editar" onClick={onEditar}><Pencil className="size-[15px]" /></BotaoIcone>
             <BotaoIcone titulo="Duplicar" onClick={onDuplicar}><Copy className="size-[15px]" /></BotaoIcone>
             <BotaoIcone titulo="Excluir" onClick={onExcluir} destrutivo><Trash2 className="size-[15px]" /></BotaoIcone>

@@ -76,3 +76,40 @@ describe('reordenar não pode divergir do gêmeo do frontend', () => {
     expect(b).toBe(a);
   });
 });
+
+/*
+ * A ORDENAÇÃO DE PRODUTO TEM DUAS ARMADILHAS QUE O TESTE DE UNIDADE NÃO PEGA,
+ * porque vivem no SQL.
+ */
+describe('rota de ordem — produto', () => {
+  const lojista = fs.readFileSync(
+    path.resolve(__dirname, 'rotas', 'lojista.ts'), 'utf8');
+  const rota = lojista.slice(lojista.indexOf("router.put('/ordem-cardapio'"));
+  const codigo = rota.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  /*
+   * `NULL = NULL` é DESCONHECIDO, não verdadeiro. Com `=`, o produto sem
+   * subcategoria não casaria com ele mesmo: a lista de irmãos viria vazia,
+   * `reordenar` devolveria só ele, e a gravação zeraria a ordem dos outros da
+   * faixa. O `<=>` é o igual que trata NULL como valor.
+   */
+  it('compara a faixa com <=>, que é seguro com NULL', () => {
+    expect(codigo).toMatch(/categoria <=> \? AND subcategoria <=> \?/);
+    expect(codigo).not.toMatch(/AND subcategoria = \?/);
+  });
+
+  /* Identificar produto por nome moveria o errado quando dois compartilham
+     nome na mesma faixa — o que duplicar item produz. */
+  it('identifica o produto por id, não por nome', () => {
+    expect(codigo).toMatch(/SELECT id FROM produtos/);
+    expect(codigo).toMatch(/UPDATE produtos SET ordem = \? WHERE id = \? AND loja_id = \?/);
+  });
+
+  /* A gravação precisa ser cercada por loja_id: sem isso, um id de outra loja
+     no corpo da requisição reordenaria o cardápio alheio. */
+  it('a gravação é cercada por loja_id', () => {
+    const ups = codigo.match(/UPDATE produtos SET ordem[^`]*/g) || [];
+    expect(ups.length).toBe(1);
+    expect(ups[0]).toContain('loja_id = ?');
+  });
+});

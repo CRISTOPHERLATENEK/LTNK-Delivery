@@ -1375,8 +1375,20 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
    *
    * Nasce em 1, que é o comportamento de todo produto que já existe.
    */
+  /*
+   * A POSIÇÃO DO PRODUTO DENTRO DA FAIXA.
+   *
+   * Categoria e subcategoria já eram ordenáveis; dentro delas a lista era
+   * `destaque DESC, nome` — alfabética. Numa faixa "Prontas" com sete pizzas,
+   * a que sustenta a casa ficava onde a letra mandasse.
+   *
+   * Nasce em 0, e o backfill abaixo põe a posição que o produto JÁ OCUPA hoje —
+   * sem isso todo mundo empataria em 0 e o primeiro arrasto embaralharia a
+   * faixa inteira na cara do cliente.
+   */
   for (const [coluna, ddl] of [
     ['vendido_sozinho', 'vendido_sozinho TINYINT NOT NULL DEFAULT 1'],
+    ['ordem', 'ordem INT NOT NULL DEFAULT 0'],
   ] as const) {
     const [existe] = await pool.query(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
@@ -1421,6 +1433,34 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
           `ALTER TABLE subcategorias CONVERT TO CHARACTER SET utf8mb4 COLLATE ${alvo}`,
         );
       }
+    }
+  }
+
+  /*
+   * BACKFILL DA ORDEM DOS PRODUTOS: a posição de hoje vira a posição inicial.
+   *
+   * Uma vez por tenant; depois `ordem` é do lojista e reexecutar jogaria fora o
+   * arranjo dele. O critério é o `ORDER BY` que as duas telas usavam
+   * (`destaque DESC, nome`) dentro de cada faixa: no deploy nada muda de lugar.
+   */
+  {
+    const [feito] = await pool.query(
+      "SELECT valor FROM configuracoes WHERE chave = 'mig_ordem_produtos' LIMIT 1",
+    ) as any;
+    if (feito.length === 0) {
+      await pool.query(
+        `UPDATE produtos p JOIN (
+             SELECT id, ROW_NUMBER() OVER (
+                      PARTITION BY loja_id, categoria, subcategoria
+                      ORDER BY destaque DESC, nome
+                    ) AS pos
+               FROM produtos WHERE excluido = 0
+           ) t ON t.id = p.id
+            SET p.ordem = t.pos`,
+      );
+      await pool.query(
+        "INSERT IGNORE INTO configuracoes (chave, valor) VALUES ('mig_ordem_produtos', '1')",
+      );
     }
   }
 
