@@ -2051,19 +2051,46 @@ function BibliotecaGrupos({ onFechar }: { onFechar: () => void }) {
                       A DIFERENÇA, quando não são idênticos — que é a maioria dos
                       casos reais. Sem isto a tela diria só "há 5 com esse nome",
                       e o lojista abriria os cinco pra comparar item a item.
+
+                      TUDO CONTRA UMA REFERÊNCIA, e não par por par. A primeira
+                      versão disto só desenhava quando a família tinha
+                      exatamente DOIS grupos — e as duas maiores famílias da base
+                      real têm três e quatro. Justamente as que mais precisam de
+                      ajuda ficavam sem nenhuma.
+
+                      A referência é o `melhorSobrevivente`: o mais completo, que
+                      é o candidato natural a ficar. Assim cada linha responde a
+                      pergunta certa — "o que eu perco se apagar este e ficar com
+                      aquele?" — em vez de comparar dois quaisquer.
                     */}
-                    {doNome.length === 2 && !saoIdenticos(doNome[0] as GrupoComparavel, doNome[1] as GrupoComparavel) && (
-                      <div className="mt-2.5 rounded-xl border border-dashed border-border p-3">
-                        <p className="text-[11.5px] font-semibold text-muted-foreground">
-                          Diferenças entre #{doNome[0].id} e #{doNome[1].id}:
-                        </p>
-                        <ul className="mt-1 space-y-0.5">
-                          {diferencasEntre(doNome[0] as GrupoComparavel, doNome[1] as GrupoComparavel).map(d => (
-                            <li key={d} className="text-[11.5px] text-muted-foreground">· {d}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+                    {(() => {
+                      const ref = melhorSobrevivente(doNome as GrupoComparavel[]);
+                      const outros = doNome.filter(x => x.id !== ref.id
+                        && !saoIdenticos(x as GrupoComparavel, ref as GrupoComparavel));
+                      if (outros.length === 0) return null;
+                      return (
+                        <div className="mt-2.5 rounded-xl border border-dashed border-border p-3">
+                          <p className="text-[11.5px] font-semibold text-muted-foreground">
+                            Comparado com #{ref.id} ({ref.opcoes.length} {ref.opcoes.length === 1 ? 'item' : 'itens'}), o mais completo:
+                          </p>
+                          {outros.map(o => {
+                            const dif = diferencasEntre(o as GrupoComparavel, ref as GrupoComparavel);
+                            return (
+                              <div key={o.id} className="mt-1.5">
+                                <p className="text-[11.5px] font-semibold">#{o.id}</p>
+                                <ul className="space-y-0.5 pl-2">
+                                  {dif.length === 0
+                                    ? <li className="text-[11.5px] text-muted-foreground">· sem diferença de conteúdo</li>
+                                    : dif.map(d => (
+                                      <li key={d} className="text-[11.5px] text-muted-foreground">· {d}</li>
+                                    ))}
+                                </ul>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
                   </div>
                 );
               })}
