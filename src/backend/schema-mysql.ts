@@ -649,7 +649,7 @@ const TABELAS: string[] = [
   UNIQUE KEY uq_subcategoria (loja_id, categoria, nome),
   KEY idx_subcategorias_loja (loja_id),
   FOREIGN KEY (loja_id) REFERENCES lojas(id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+) ${SUFIXO_TABELA}`,
 
 `CREATE TABLE IF NOT EXISTS categorias (
   id        INT PRIMARY KEY AUTO_INCREMENT,
@@ -1384,6 +1384,44 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         LIMIT 1`, [coluna],
     ) as any;
     if (existe.length === 0) await adicionarColuna(pool, `ALTER TABLE produtos ADD COLUMN ${ddl}`);
+  }
+
+  /*
+   * COLAÇÃO IGUAL À DE `produtos` — SEM ISSO O JOIN NÃO É "MAIS LENTO", É ERRO.
+   *
+   * A tabela nasceu com `DEFAULT CHARSET=utf8mb4` no CREATE. Parece inofensivo
+   * e não é: declarar o charset RESSETA a colação pra padrão do charset
+   * (`utf8mb4_general_ci` no MariaDB), ignorando a do banco
+   * (`utf8mb4_unicode_ci`, que é a de todas as outras tabelas). Comparar
+   * VARCHAR entre colações diferentes é ER_CANT_AGGREGATE_2COLLATIONS — erro
+   * fatal, não aviso. O cardápio inteiro respondeu 500 até isto rodar.
+   *
+   * O CREATE já não declara mais charset (herda o do banco, como as demais).
+   * Este reparo é pros bancos onde a tabela já foi criada com o CREATE antigo.
+   * Alinha com `produtos` em vez de fixar `unicode_ci` no código: o que importa
+   * é ser IGUAL à coluna do outro lado do JOIN, e um tenant restaurado de dump
+   * antigo pode ter outra.
+   */
+  {
+    const [dif] = await pool.query(
+      `SELECT s.TABLE_COLLATION AS atual, p.TABLE_COLLATION AS alvo
+         FROM INFORMATION_SCHEMA.TABLES s
+         JOIN INFORMATION_SCHEMA.TABLES p
+           ON p.TABLE_SCHEMA = s.TABLE_SCHEMA AND p.TABLE_NAME = 'produtos'
+        WHERE s.TABLE_SCHEMA = DATABASE() AND s.TABLE_NAME = 'subcategorias'
+          AND s.TABLE_COLLATION <> p.TABLE_COLLATION`,
+    ) as any;
+    if (dif.length > 0) {
+      const alvo = String(dif[0].alvo);
+      /* Só nomes de colação do próprio servidor chegam aqui (vieram do
+         INFORMATION_SCHEMA), mas colação não aceita placeholder em DDL — daí a
+         checagem de formato antes de interpolar. */
+      if (/^[a-z0-9_]+$/.test(alvo)) {
+        await pool.query(
+          `ALTER TABLE subcategorias CONVERT TO CHARACTER SET utf8mb4 COLLATE ${alvo}`,
+        );
+      }
+    }
   }
 
   /*
