@@ -12,6 +12,7 @@ import { Upload, Link2, X, Image as ImageIcon, Loader2, RefreshCw } from 'lucide
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { tokenSessao } from '@/lib/api';
+import { reduzirImagem } from '@/lib/reduzir-imagem';
 import { cn } from '@/lib/utils';
 
 interface Props {
@@ -48,9 +49,21 @@ export function ImageUpload({ value, onChange, label, aspectRatio = 'free', clas
     setErro('');
     setCarregando(true);
     try {
+      /*
+       * REDUZ ANTES DE SUBIR. Nada no caminho reduzia: o servidor grava o
+       * arquivo como veio e o serve igual pra todo cliente que abre o cardapio.
+       * Foto de celular tem 3-4 MB e 4000px, e e desenhada em miniatura de 44px
+       * na lista de sabores. Dezesseis sabores fotografados eram ~50 MB num
+       * cardapio que precisa abrir no 4G.
+       *
+       * `reduzirImagem` NUNCA lanca: se o navegador nao conseguir decodificar,
+       * volta o arquivo original. Upload que funcionava nao pode parar de
+       * funcionar por causa de uma otimizacao.
+       */
+      const { arquivo } = await reduzirImagem(file);
       const token = tokenSessao();
       const form = new FormData();
-      form.append('imagem', file);
+      form.append('imagem', arquivo);
       const resp = await fetch('/api/upload/imagem', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
