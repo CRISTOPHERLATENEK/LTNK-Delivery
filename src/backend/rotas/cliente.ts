@@ -9,6 +9,7 @@ import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
 import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, telefoneDigitos, erroHttp, normalizarBairro, dataBrasilia} from '../util';
 import { precoVigente } from '../preco-produto';
+import { agregarEstoque, type InfoEstoque } from '../estoque-combo';
 import { transicionarStatus } from '../fluxoPedido';
 import { notificarLojistaNovoPedido } from '../notificacoes';
 import { notificarPedidoWhatsApp } from '../whatsapp';
@@ -510,19 +511,57 @@ router.post('/pedidos', async (req, res, next) => {
       itensValidados.push({ produto, quantidade, precoUnit, opcoesTexto, opcoesIds, observacao: textoLimpo(item.observacao, 140) });
     }
 
-    // Estoque: agrega a quantidade pedida por produto (o mesmo produto pode
-    // aparecer em vários itens com opções diferentes) e valida os que controlam estoque.
-    const qtdPorProduto = new Map<number, number>();
-    for (const { produto, quantidade } of itensValidados) {
-      qtdPorProduto.set(produto.id, (qtdPorProduto.get(produto.id) || 0) + quantidade);
-    }
-    for (const { produto } of itensValidados) {
-      if (!(produto as any).controla_estoque) continue;
-      const pedido = qtdPorProduto.get(produto.id) || 0;
-      const emEstoque = (produto as any).estoque ?? 0;
-      if (emEstoque <= 0) throw erroHttp(409, `O item "${produto.nome}" está esgotado. Remova-o do carrinho.`);
+    /*
+     * ESTOQUE — E O COMBO CONSOME O DOS COMPONENTES.
+     *
+     * Agrega a quantidade pedida por produto: o mesmo produto pode aparecer em
+     * vários itens do carrinho com opções diferentes.
+     *
+     * O que faltava era o combo. Ele descontava só a si mesmo, então vender
+     * "Combo Duas Pizzas" não tirava nenhuma pizza do estoque — e um componente
+     * marcado como esgotado seguia saindo dentro do combo. Quem controla
+     * estoque de pizza pronta via o número parado enquanto o forno trabalhava.
+     *
+     * UM COMPONENTE PODE OCUPAR DOIS SLOTS ("2× Pizza Artesanal" é o combo mais
+     * comum de pizzaria). Cada slot é uma linha em `combo_itens`, e cada linha
+     * soma — é assim que dois slots do mesmo produto consomem duas unidades.
+     */
+    const idsNoCarrinho = [...new Set(itensValidados.map(i => i.produto.id))];
+    const componentes = idsNoCarrinho.length === 0 ? [] : await db.prepare(
+      `SELECT ci.combo_id, ci.produto_id, p.nome, p.controla_estoque, p.estoque
+         FROM combo_itens ci JOIN produtos p ON p.id = ci.produto_id
+        WHERE ci.combo_id IN (${idsNoCarrinho.map(() => '?').join(',')})`
+    ).all(...idsNoCarrinho) as Array<{
+      combo_id: number; produto_id: number; nome: string;
+      controla_estoque: number; estoque: number | null;
+    }>;
+
+    const { qtd: qtdPorProduto, info: infoProduto, dentroDeCombo } = agregarEstoque(
+      itensValidados.map(v => ({
+        produtoId: v.produto.id,
+        quantidade: v.quantidade,
+        info: v.produto as unknown as InfoEstoque,
+      })),
+      componentes,
+    );
+
+    /* Percorre o AGREGADO, não o carrinho: componente não tem linha de carrinho,
+       e iterar os itens deixaria justamente ele de fora da checagem. */
+    for (const [produtoId, pedido] of qtdPorProduto) {
+      const info = infoProduto.get(produtoId);
+      if (!info?.controla_estoque) continue;
+      const emEstoque = info.estoque ?? 0;
+      const ondeEsta = dentroDeCombo.get(produtoId);
+      const alvo = ondeEsta && !itensValidados.some(i => i.produto.id === produtoId)
+        ? `"${info.nome}", que faz parte de "${ondeEsta}",`
+        : `O item "${info.nome}"`;
+      if (emEstoque <= 0) {
+        throw erroHttp(409, ondeEsta && !itensValidados.some(i => i.produto.id === produtoId)
+          ? `${alvo} está esgotado. Remova o combo do carrinho.`
+          : `${alvo} está esgotado. Remova-o do carrinho.`);
+      }
       if (pedido > emEstoque) {
-        throw erroHttp(409, `Restam apenas ${emEstoque}× de "${produto.nome}" em estoque.`);
+        throw erroHttp(409, `Restam apenas ${emEstoque}× de "${info.nome}" em estoque.`);
       }
     }
 
@@ -652,8 +691,11 @@ router.post('/pedidos', async (req, res, next) => {
       // Baixa de estoque (só produtos que controlam). UPDATE condicional: se outro
       // pedido esgotou entre a validação e aqui, changes=0 e desfazemos tudo.
       for (const [produtoId, qtd] of qtdPorProduto) {
-        const alvo = itensValidados.find(i => i.produto.id === produtoId)!.produto;
-        if (!(alvo as any).controla_estoque) continue;
+        /* `infoProduto` e não `itensValidados.find`: componente de combo não tem
+           linha no carrinho, e o `find!` estourava com "of undefined" no primeiro
+           combo cujo componente controlasse estoque. */
+        const alvo = infoProduto.get(produtoId);
+        if (!alvo?.controla_estoque) continue;
         const r = await tx.prepare(
           'UPDATE produtos SET estoque = estoque - ? WHERE id = ? AND controla_estoque = 1 AND estoque >= ?'
         ).run(qtd, produtoId, qtd);
