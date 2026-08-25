@@ -522,6 +522,36 @@ export function ProdutosLoja() {
   const disponiveis = todos.filter(ehVendido).length;
 
   /*
+   * ARRASTAR SÓ COM A LISTA INTEIRA NA TELA.
+   *
+   * Reordenar é uma operação sobre o cardápio TODO: a posição de destino é o
+   * índice na lista. Com busca ou filtro de categoria ativo, o que está na tela
+   * é um subconjunto — soltar na 2ª linha visível mandaria "põe na 2ª" quando a
+   * 2ª de verdade é outra, e o lojista veria o cardápio embaralhar sozinho.
+   *
+   * Some a alça em vez de deixá-la sem efeito: alça que não arrasta é pior que
+   * alça nenhuma.
+   */
+  const podeOrdenar = !termo && !filtroCategoria;
+
+  const [arrastandoCat, setArrastandoCat] = useState<number | null>(null);
+  const [ordemCatLocal, setOrdemCatLocal] = useState<string[] | null>(null);
+  const catsNaTela = ordemCatLocal ?? Object.keys(porCategoria);
+
+  async function soltarCategoria(destino: number, origemExplicita?: number) {
+    const origem = origemExplicita ?? arrastandoCat;
+    setArrastandoCat(null);
+    if (origem === null || origem === destino) return;
+    const movido = catsNaTela[origem];
+    setOrdemCatLocal(reordenar(catsNaTela, movido, destino + 1));
+    try {
+      await moverFileira('categoria', movido, destino + 1);
+    } finally {
+      setOrdemCatLocal(null);
+    }
+  }
+
+  /*
    * ORDEM DO CARDÁPIO, NÃO ALFABÉTICA.
    *
    * `todos` já chega do servidor na ordem em que a vitrine mostra, então a
@@ -547,11 +577,19 @@ export function ProdutosLoja() {
    * lista piscaria de volta na ordem antiga por um instante — exatamente o que
    * a prévia otimista existe pra evitar.
    */
-  async function moverFileira(tipo: 'categoria' | 'subcategoria', nome: string, posicao: number) {
+  async function moverFileira(
+    tipo: 'categoria' | 'subcategoria',
+    nome: string,
+    posicao: number,
+    /* A categoria DA SEÇÃO arrastada. Na lista não há formulário aberto, e usar
+       `form.categoria` mandaria a subcategoria pra categoria errada — ou pra
+       string vazia, que o servidor recusa. */
+    categoriaDaSub?: string,
+  ) {
     try {
       await api('PUT', '/api/lojista/ordem-cardapio', {
         tipo, nome, posicao,
-        categoria: tipo === 'subcategoria' ? form.categoria : undefined,
+        categoria: tipo === 'subcategoria' ? (categoriaDaSub ?? form.categoria) : undefined,
       });
     } catch {
       mostrar({ tipo: 'erro', titulo: 'Não deu para mover' });
@@ -1442,11 +1480,21 @@ export function ProdutosLoja() {
       {bibliotecaAberta && <BibliotecaGrupos onFechar={() => setBibliotecaAberta(false)} />}
 
       {/* ── Lista agrupada por categoria ── */}
-      {Object.entries(porCategoria).map(([cat, subs]) => (
+      {catsNaTela.map((cat, iCat) => (
         <CategoriaSection
           key={cat}
           categoria={cat}
-          subs={subs}
+          subs={porCategoria[cat] ?? {}}
+          arrasto={podeOrdenar ? {
+            arrastando: arrastandoCat === iCat,
+            ativo: arrastandoCat !== null,
+            onInicio: () => setArrastandoCat(iCat),
+            onFim: () => setArrastandoCat(null),
+            onSoltar: () => soltarCategoria(iCat),
+            onSubir: iCat === 0 ? undefined : () => soltarCategoria(iCat - 1, iCat),
+            onDescer: iCat === catsNaTela.length - 1 ? undefined : () => soltarCategoria(iCat + 1, iCat),
+            onMoverSub: (sub, posicao) => moverFileira('subcategoria', sub, posicao, cat),
+          } : undefined}
           onEditar={abrirEdicao}
           onExcluir={excluir}
           onAlternarDisponivel={alternarDisponivel}
@@ -1773,7 +1821,7 @@ function SeletorChips({
 /* ─────────────────── seção de uma categoria ─────────────────── */
 function CategoriaSection({
   categoria, subs, onEditar, onExcluir, onAlternarDisponivel, onDuplicar,
-  modoSelecao, selecionados, onToggleSelecao, densidade, onAdicionar,
+  modoSelecao, selecionados, onToggleSelecao, densidade, onAdicionar, arrasto,
 }: {
   categoria: string;
   subs: Record<string, Produto[]>;
@@ -1786,9 +1834,46 @@ function CategoriaSection({
   onToggleSelecao: (id: number) => void;
   densidade: Densidade;
   onAdicionar: (categoria: string) => void;
+  /** Ausente quando há busca/filtro: a lista na tela não é o cardápio inteiro. */
+  arrasto?: {
+    arrastando: boolean;
+    ativo: boolean;
+    onInicio: () => void;
+    onFim: () => void;
+    onSoltar: () => void;
+    onSubir?: () => void;
+    onDescer?: () => void;
+    onMoverSub: (sub: string, posicao: number) => Promise<void>;
+  };
 }) {
   const [aberta, setAberta] = useState(true);
   const total = Object.values(subs).flat().length;
+
+  /*
+   * A FAIXA SEM NOME NÃO ENTRA NA ORDENAÇÃO.
+   *
+   * A chave '' são os produtos soltos da categoria, que o servidor sempre põe
+   * antes das faixas (o CASE no ORDER BY). Incluí-la na lista arrastável daria
+   * uma posição a algo que não existe em `subcategorias` — e deslocaria em um
+   * todas as posições enviadas, movendo a faixa errada.
+   */
+  const subsOrdenaveis = Object.keys(subs).filter(Boolean);
+  const [arrSub, setArrSub] = useState<number | null>(null);
+  const [ordemSubLocal, setOrdemSubLocal] = useState<string[] | null>(null);
+  const subsNaTela = ordemSubLocal ?? subsOrdenaveis;
+
+  async function soltarSub(destino: number, origemExplicita?: number) {
+    const origem = origemExplicita ?? arrSub;
+    setArrSub(null);
+    if (origem === null || origem === destino || !arrasto) return;
+    const movido = subsNaTela[origem];
+    setOrdemSubLocal(reordenar(subsNaTela, movido, destino + 1));
+    try {
+      await arrasto.onMoverSub(movido, destino + 1);
+    } finally {
+      setOrdemSubLocal(null);
+    }
+  }
 
   return (
     <section>
@@ -1800,7 +1885,25 @@ function CategoriaSection({
         O botão de colapsar é só o nome + chevron, não a faixa inteira: com a faixa toda
         clicável, tentar clicar em "Adicionar item" colapsava a seção.
       */}
-      <div className="mb-3 flex items-center gap-3">
+      <div
+        onDragOver={e => { if (arrasto?.ativo) e.preventDefault(); }}
+        onDrop={() => arrasto?.onSoltar()}
+        className={cn('mb-3 flex items-center gap-3 transition-opacity', arrasto?.arrastando && 'opacity-40')}
+      >
+        {/* A alça fica ANTES do chevron: é a coluna que o olho segue pra baixo
+            quando se quer reordenar, e misturá-la com o controle de colapsar
+            faria arrastar e abrir competirem pelo mesmo pixel. */}
+        {arrasto && (
+          <span
+            draggable
+            onDragStart={arrasto.onInicio}
+            onDragEnd={arrasto.onFim}
+            title="Arraste para reordenar as categorias"
+            className="-ml-5 shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
+          >
+            <GripVertical className="size-4" />
+          </span>
+        )}
         <button
           type="button"
           onClick={() => setAberta(a => !a)}
@@ -1815,6 +1918,22 @@ function CategoriaSection({
           </span>
         </button>
         <div className="h-px flex-1 bg-border" />
+        {/* ↑↓ porque `draggable` do HTML5 é inerte em toque — no celular a alça
+            acima não emite evento nenhum. */}
+        {arrasto && (
+          <div className="flex shrink-0 items-center">
+            <button
+              type="button" aria-label={`Subir ${categoria}`}
+              disabled={!arrasto.onSubir} onClick={() => arrasto.onSubir?.()}
+              className="p-1 text-muted-foreground/60 transition-colors hover:text-foreground disabled:opacity-20"
+            ><ChevronUp className="size-4" /></button>
+            <button
+              type="button" aria-label={`Descer ${categoria}`}
+              disabled={!arrasto.onDescer} onClick={() => arrasto.onDescer?.()}
+              className="p-1 text-muted-foreground/60 transition-colors hover:text-foreground disabled:opacity-20"
+            ><ChevronDown className="size-4" /></button>
+          </div>
+        )}
         <button
           type="button"
           onClick={() => onAdicionar(categoria)}
@@ -1826,12 +1945,54 @@ function CategoriaSection({
 
       {aberta && (
         <div className="space-y-5">
-          {Object.entries(subs).map(([sub, itens]) => (
-            <div key={sub}>
+          {/*
+            A ORDEM VEM DE `subsNaTela`, NÃO DE `Object.entries(subs)`.
+            Durante o arrasto a prévia otimista vive em `subsNaTela`; iterar o
+            objeto mostraria a ordem do servidor e a faixa não sairia do lugar
+            até a resposta chegar — que é justamente o que a prévia evita.
+            A chave '' entra na frente, como o servidor faz.
+          */}
+          {['', ...subsNaTela].filter(k => subs[k]?.length).map(sub => {
+            const itens = subs[sub];
+            const iSub = subsNaTela.indexOf(sub);
+            return (
+            <div
+              key={sub}
+              onDragOver={e => { if (sub && arrSub !== null) e.preventDefault(); }}
+              onDrop={() => { if (sub) soltarSub(iSub); }}
+              className={cn('transition-opacity', arrSub === iSub && iSub >= 0 && 'opacity-40')}
+            >
               {sub && (
-                <p className="mb-2 px-1 text-[12px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  {sub}
-                </p>
+                <div className="mb-2 flex items-center gap-1.5 px-1">
+                  {arrasto && (
+                    <span
+                      draggable
+                      onDragStart={() => setArrSub(iSub)}
+                      onDragEnd={() => setArrSub(null)}
+                      title="Arraste para reordenar as faixas"
+                      className="-ml-4 shrink-0 cursor-grab text-muted-foreground/40 hover:text-muted-foreground active:cursor-grabbing"
+                    >
+                      <GripVertical className="size-3.5" />
+                    </span>
+                  )}
+                  <p className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                    {sub}
+                  </p>
+                  {arrasto && subsNaTela.length > 1 && (
+                    <div className="flex shrink-0 items-center">
+                      <button
+                        type="button" aria-label={`Subir ${sub}`}
+                        disabled={iSub === 0} onClick={() => soltarSub(iSub - 1, iSub)}
+                        className="p-0.5 text-muted-foreground/50 transition-colors hover:text-foreground disabled:opacity-20"
+                      ><ChevronUp className="size-3.5" /></button>
+                      <button
+                        type="button" aria-label={`Descer ${sub}`}
+                        disabled={iSub === subsNaTela.length - 1} onClick={() => soltarSub(iSub + 1, iSub)}
+                        className="p-0.5 text-muted-foreground/50 transition-colors hover:text-foreground disabled:opacity-20"
+                      ><ChevronDown className="size-3.5" /></button>
+                    </div>
+                  )}
+                </div>
               )}
               {/*
                 `auto-fill` com mínimo em px: a grade decide sozinha quantas colunas
@@ -1861,7 +2022,8 @@ function CategoriaSection({
                 ))}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>
