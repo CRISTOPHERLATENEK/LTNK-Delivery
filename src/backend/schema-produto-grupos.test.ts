@@ -20,6 +20,25 @@ import path from 'path';
 
 const fonte = fs.readFileSync(path.resolve(__dirname, 'schema-mysql.ts'), 'utf8');
 
+/**
+ * O arquivo SEM OS COMENTÁRIOS — é isto que as varreduras devem ler.
+ *
+ * Toda regra aqui é do tipo "esta forma não pode aparecer no código", e a forma
+ * proibida aparece, necessariamente, no comentário que explica por que ela é
+ * proibida. Lendo o arquivo inteiro, o teste reprova exatamente o commit que
+ * documenta a correção — foi o que aconteceu: o comentário de `cliente.ts` cita
+ * `FROM grupos_opcoes WHERE produto_id` pra contar que a varredura antiga não
+ * pegava o caso, e virou o motivo da varredura falhar.
+ *
+ * Mesma lição do scanner de SQL, que pulava `prepare()` por causa de uma crase
+ * dentro de um comentário. Comentário é prosa; varredura tem que olhar código.
+ */
+function codigo(rel: string): string {
+  return fs.readFileSync(path.resolve(__dirname, rel), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')   // bloco
+    .replace(/^\s*\/\/.*$/gm, ' ');        // linha
+}
+
 describe('produto_grupos — a tabela de ligação', () => {
   it('existe, e como CREATE TABLE IF NOT EXISTS', () => {
     expect(fonte).toContain('CREATE TABLE IF NOT EXISTS produto_grupos');
@@ -135,7 +154,8 @@ describe('as guardas de custo no boot', () => {
  * pizza sozinha".
  */
 describe('fase 2 — quem lê grupo lê pela ligação', () => {
-  const arquivo = (rel: string) => fs.readFileSync(path.resolve(__dirname, rel), 'utf8');
+  /* Comentário não conta: ver `codigo` lá em cima. */
+  const arquivo = codigo;
 
   it('o fragmento compartilhado faz o JOIN', () => {
     const sql = arquivo('grupos-sql.ts');
@@ -412,4 +432,41 @@ describe('uso conta só produto vivo', () => {
     expect(limpaTodas).toBeGreaterThan(-1);
     expect(limpaTodas).toBeLessThan(apagaGrupo);
   });
+});
+
+/**
+ * `g.produto_id` NÃO PODE MAIS DECIDIR NADA.
+ *
+ * A coluna continua existindo (é o produto pra qual o grupo foi CRIADO), mas
+ * depois da fase 3 ela não diz mais em quais produtos o grupo está — a ligação
+ * diz. Usá-la pra filtrar dá o defeito mais traiçoeiro desta migração: consulta
+ * que não acha nada, e código que trata "não achou" como "não tem".
+ *
+ * Aconteceu duas vezes, e nenhuma foi pega pela varredura antiga
+ * (`FROM grupos_opcoes WHERE produto_id`), porque nos dois casos o filtro estava
+ * no JOIN e não no WHERE:
+ *
+ *  - "pedir de novo" (cliente.ts) conferia `g.produto_id = ?` pra validar a
+ *    opção. Com a borda compartilhada por trinta pizzas, repetir o pedido de
+ *    qualquer uma das outras 29 descartava TODOS os complementos em silêncio: o
+ *    cliente recebia a pizza pelada, no preço base.
+ *  - as sugestões de item (lojista.ts) chegavam ao histórico da loja via
+ *    `JOIN produtos p ON p.id = g.produto_id`, então grupo de produto excluído
+ *    sumia do histórico — justamente o histórico que existe pra não redigitar.
+ *
+ * Por isso a regra agora é a mais burra possível: `g.produto_id` não aparece nas
+ * rotas. Ponto.
+ */
+describe('nenhuma rota decide por g.produto_id', () => {
+  for (const rel of ['rotas/cliente.ts', 'rotas/publico.ts', 'rotas/lojista.ts']) {
+    it(rel, () => {
+      /*
+       * `(?<!p)` porque `g\.produto_id` casa DENTRO de `pg.produto_id` — e
+       * `pg.produto_id` é justamente a forma CERTA. Sem o lookbehind, este teste
+       * reprovaria toda consulta corrigida, que é o inverso do que ele existe
+       * pra fazer. Mesmo tropeço do `g\.obrigatorio` dentro de `pg.obrigatorio`.
+       */
+      expect(codigo(rel)).not.toMatch(/(?<!p)g\.produto_id/);
+    });
+  }
 });

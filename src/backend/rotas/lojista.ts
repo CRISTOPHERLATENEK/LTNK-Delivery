@@ -1280,8 +1280,7 @@ router.get('/opcoes/sugestoes', async (req, res, next) => {
               MAX(o.secao) AS secao, MAX(o.descricao) AS descricao, MAX(o.imagem) AS imagem
          FROM opcoes_itens o
          JOIN grupos_opcoes g ON g.id = o.grupo_id
-         JOIN produtos p ON p.id = g.produto_id
-        WHERE p.loja_id = ? AND p.excluido = 0
+        WHERE g.loja_id = ?
         GROUP BY g.nome, o.nome
         ORDER BY usos DESC, o.nome ASC
         LIMIT 400`

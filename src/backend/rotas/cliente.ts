@@ -1015,11 +1015,26 @@ router.get('/pedidos/:id/repetir', async (req, res, next) => {
       const opcoes: OpcaoExistente[] = [];
       for (const id of idsAntigos) {
         const opcao = await db.prepare(
+          /*
+           * A OPÇÃO PERTENCE A ESTE PRODUTO? PERGUNTA-SE À LIGAÇÃO.
+           *
+           * Isto conferia `g.produto_id = ?` — o produto pra qual o grupo foi
+           * CRIADO. Com grupo compartilhado (fase 3), a borda de trinta pizzas
+           * tem `produto_id` de uma só: repetir um pedido de qualquer uma das
+           * outras 29 não encontrava opção nenhuma, e o `if (opcao)` logo abaixo
+           * descartava em silêncio. O cliente clicava em "pedir de novo" e
+           * recebia a pizza pelada, no preço base.
+           *
+           * Passou despercebido na fase 2 porque a varredura procurava
+           * `FROM grupos_opcoes WHERE produto_id`, e aqui o filtro está no JOIN.
+           */
           `SELECT o.id, o.nome, o.preco_adicional_centavos,
-                  g.id AS grupo_id, g.nome AS grupo_nome, g.modo_preco, g.max_escolhas
-             FROM opcoes_itens o JOIN grupos_opcoes g ON g.id = o.grupo_id
-            WHERE o.id = ? AND g.produto_id = ? AND o.disponivel = 1`
-        ).get(id, i.produto_id) as OpcaoExistente | undefined;
+                  g.id AS grupo_id, g.nome AS grupo_nome, g.modo_preco, pg.max_escolhas
+             FROM opcoes_itens o
+             JOIN grupos_opcoes g ON g.id = o.grupo_id
+             JOIN produto_grupos pg ON pg.grupo_id = g.id AND pg.produto_id = ?
+            WHERE o.id = ? AND o.disponivel = 1`
+        ).get(i.produto_id, id) as OpcaoExistente | undefined;
         if (opcao) opcoes.push(opcao);
       }
 
