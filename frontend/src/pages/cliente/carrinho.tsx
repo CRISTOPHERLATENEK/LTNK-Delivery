@@ -175,7 +175,7 @@ export function PaginaCarrinho() {
               <div key={item.chave} className="py-3 first:pt-0 last:pb-0">
                 <div className="flex items-start gap-3">
                   {item.foto_url ? (
-                    <img src={item.foto_url} alt="" className="size-12 shrink-0 rounded-xl object-cover" />
+                    <img src={item.foto_url} alt="" className="size-12 shrink-0 rounded-xl bg-white object-contain" />
                   ) : (
                     <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-100 to-rose-200 text-neutral-500">
                       <UtensilsCrossed className="size-5" strokeWidth={1.5} />

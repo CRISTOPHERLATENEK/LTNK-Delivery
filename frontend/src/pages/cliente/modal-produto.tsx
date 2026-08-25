@@ -406,7 +406,7 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
             <img
               src={produto.foto_url}
               alt=""
-              className="size-7 shrink-0 rounded-lg border border-border/60 object-cover"
+              className="size-7 shrink-0 rounded-lg border border-border/60 bg-white object-contain"
             />
           )}
           <span className="min-w-0 flex-1 truncate text-[13px] font-bold">{produto.nome}</span>
@@ -938,7 +938,7 @@ function GrupoOpcao({
                   src={o.imagem}
                   alt=""
                   loading="lazy"
-                  className="size-11 shrink-0 rounded-xl border border-border/60 bg-muted object-cover"
+                  className="size-11 shrink-0 rounded-xl border border-border/60 bg-white object-contain"
                 />
               )}
 

@@ -642,7 +642,7 @@ function ModalAdicionado({ produto, onFechar }: { produto: Produto | null; onFec
                 </p>
               </div>
               {produto.foto_url ? (
-                <img src={produto.foto_url} alt="" className="size-14 shrink-0 rounded-2xl object-cover border border-border/60 bg-white" />
+                <img src={produto.foto_url} alt="" className="size-14 shrink-0 rounded-2xl object-contain border border-border/60 bg-white" />
               ) : (
                 <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-muted text-muted-foreground/60">
                   <UtensilsCrossed className="size-6" strokeWidth={1.5} />
@@ -704,7 +704,7 @@ function CarrinhoLateral({ loja }: { loja: Loja }) {
             {itens.map(item => (
               <div key={item.chave} className="flex items-center gap-3 px-5 py-3">
                 {item.foto_url ? (
-                  <img src={item.foto_url} alt="" className="size-9 shrink-0 rounded-xl object-cover" />
+                  <img src={item.foto_url} alt="" className="size-9 shrink-0 rounded-xl bg-white object-contain" />
                 ) : (
                   <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-100 to-rose-200 text-neutral-500">
                     <UtensilsCrossed className="size-4" strokeWidth={1.5} />
@@ -1128,8 +1128,10 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
             certo: faixa branca não engana ninguém, foto cortada mostra um
             produto que não é o que chega.
 
-            NO FORMATO LISTA CONTINUA `cover`: ali a foto é miniatura de 64px, e
-            `contain` encolheria a imagem dentro de uma caixa já minúscula.
+            VALE PRA LISTA TAMBÉM. A miniatura de 64px é pequena, e o primeiro
+            instinto é preencher — mas é justamente nela que o corte engana
+            mais: numa lata cortada no topo sobra um cilindro sem marca, e a
+            miniatura é tudo que o cliente vê antes de tocar.
           */}
           {produto.foto_url
             ? <img src={produto.foto_url} alt={produto.nome}
@@ -1142,8 +1144,7 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
                   const ph = img.nextElementSibling as HTMLElement | null;
                   if (ph) ph.style.display = 'flex';
                 }}
-                className={cn('size-full transition-transform duration-300',
-                  layoutGrid ? 'object-contain' : 'object-cover',
+                className={cn('size-full object-contain transition-transform duration-300',
                   abrivel && 'group-hover:scale-105', esgotado && 'grayscale')} />
             : null}
           <div className="size-full items-center justify-center bg-muted text-muted-foreground/60" style={{ display: produto.foto_url ? 'none' : 'flex' }}>
