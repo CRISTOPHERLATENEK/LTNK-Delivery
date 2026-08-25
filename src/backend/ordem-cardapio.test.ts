@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { reordenar } from './ordem-cardapio';
 
 const L = ['Bebidas', 'Combos', 'Lanches', 'Pizzas'];
@@ -41,5 +43,36 @@ describe('reordenar', () => {
     const orig = [...L];
     reordenar(L, 'Pizzas', 1);
     expect(L).toEqual(orig);
+  });
+});
+
+/*
+ * O GÊMEO DO FRONTEND NÃO PODE DIVERGIR.
+ *
+ * `frontend/src/lib/ordem-cardapio.ts` é cópia deliberada: os dois lados não
+ * compartilham build, e importar o backend arrastaria ele pro bundle do
+ * navegador. O preço da cópia é este teste.
+ *
+ * A divergência aqui não gera erro nenhum — gera a fileira que o lojista acabou
+ * de soltar pulando pra outra posição quando a resposta do servidor chega,
+ * porque a prévia otimista calculou uma ordem e o servidor gravou outra.
+ */
+describe('reordenar não pode divergir do gêmeo do frontend', () => {
+  const corpo = (texto: string) => {
+    const i = texto.indexOf('export function reordenar');
+    if (i < 0) return null;
+    return texto.slice(i, texto.indexOf('\n}', i) + 2)
+      .split('\n')
+      .filter(l => !/^\s*(\/\*|\*|\/\/)/.test(l))   // tira comentário
+      .map(l => l.trimEnd())
+      .join('\n');
+  };
+  it('é idêntica nos dois lados', () => {
+    const a = corpo(fs.readFileSync(path.resolve(__dirname, 'ordem-cardapio.ts'), 'utf8'));
+    const b = corpo(fs.readFileSync(
+      path.resolve(__dirname, '..', '..', 'frontend', 'src', 'lib', 'ordem-cardapio.ts'), 'utf8'));
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+    expect(b).toBe(a);
   });
 });
