@@ -113,3 +113,90 @@ describe('rota de ordem — produto', () => {
     expect(ups[0]).toContain('loja_id = ?');
   });
 });
+
+/*
+ * AS BORDAS DA COMPOSIÇÃO — duplicar e excluir.
+ *
+ * As duas falhavam em SILÊNCIO, que é o que as torna caras: nenhuma erro,
+ * nenhum aviso, e o estrago só aparece quando o cliente recebe o pedido.
+ */
+describe('composição de combo: duplicar e excluir', () => {
+  const lojista = fs.readFileSync(path.resolve(__dirname, 'rotas', 'lojista.ts'), 'utf8');
+  const trecho = (de: string, ate: string) => {
+    const i = lojista.indexOf(de);
+    return lojista.slice(i, lojista.indexOf(ate, i));
+  };
+
+  /*
+   * Sem copiar `combo_itens`, a cópia mantinha preço e grupos do slot 0 mas
+   * deixava de ser combo: o cliente pagava o combo e recebia só a bebida.
+   */
+  it('duplicar leva a composição junto', () => {
+    const rota = trecho("router.post('/produtos/:id/duplicar'", "router.post('/produtos/bulk'");
+    expect(rota).toMatch(/SELECT slot, produto_id, rotulo FROM combo_itens WHERE combo_id = \?/);
+    expect(rota).toMatch(/INSERT INTO combo_itens \(combo_id, slot, produto_id, rotulo\)/);
+  });
+
+  /* Sem `vendido_sozinho`, duplicar um componente oculto publicava a cópia no
+     cardápio por um preço que só faz sentido dentro do combo. */
+  it('duplicar preserva vendido_sozinho', () => {
+    const rota = trecho("router.post('/produtos/:id/duplicar'", "router.post('/produtos/bulk'");
+    expect(rota).toMatch(/unidade_comercial, cest, vendido_sozinho, criado_em/);
+    expect(rota).toMatch(/original\.vendido_sozinho/);
+  });
+
+  /*
+   * A GUARDA PRECISA VIR ANTES DO UPDATE. Depois dele o produto já estaria
+   * marcado como excluído — a rota devolveria erro com o estrago feito.
+   */
+  it('excluir recusa componente de combo, antes de marcar como excluído', () => {
+    const rota = trecho("router.delete('/produtos/:id'", "router.post('/produtos/:id/duplicar'");
+    const guarda = rota.indexOf('FROM combo_itens ci');
+    const update = rota.indexOf('UPDATE produtos SET excluido = 1');
+    expect(guarda).toBeGreaterThan(-1);
+    expect(update).toBeGreaterThan(-1);
+    expect(guarda).toBeLessThan(update);
+    /* Cercada por loja_id: sem isso, um combo de OUTRA loja bloquearia a
+       exclusão aqui — e pior, vazaria o nome dele na mensagem de erro. */
+    expect(rota).toMatch(/c\.loja_id = \?/);
+    /* Só combo vivo bloqueia: combo já excluído travaria a exclusão do
+       componente pra sempre, sem tela nenhuma onde desfazer. */
+    expect(rota).toMatch(/c\.id = ci\.combo_id AND c\.excluido = 0/);
+  });
+});
+
+/*
+ * A EXCLUSÃO EM MASSA É A OUTRA PORTA PRA MESMA SALA.
+ *
+ * Guardar só o `DELETE /produtos/:id` deixava o modo "Selecionar" apagar o
+ * componente do combo em lote — mesmo estrago, caminho diferente. É o tipo de
+ * buraco que sobrevive a uma correção porque ninguém procura a segunda rota.
+ */
+describe('exclusão em massa respeita a composição', () => {
+  const lojista = fs.readFileSync(path.resolve(__dirname, 'rotas', 'lojista.ts'), 'utf8');
+  const rota = lojista.slice(
+    lojista.indexOf("router.post('/produtos/bulk'"),
+    lojista.indexOf("router.post('/produtos/:id/combo'"));
+
+  it('filtra os componentes antes de apagar', () => {
+    expect(rota).toMatch(/JOIN combo_itens ci ON ci\.produto_id = p\.id/);
+    const filtro = rota.indexOf('const podem = ids.filter');
+    const update = rota.indexOf('SET excluido = 1');
+    expect(filtro).toBeGreaterThan(-1);
+    expect(filtro).toBeLessThan(update);
+  });
+
+  /* Sem devolver os nomes, a tela mostraria "28 excluídos" de 30 e o lojista
+     não saberia quais dois seguiram vivos dentro de um combo. */
+  it('devolve os pulados para a tela poder dizer quais foram', () => {
+    expect(rota).toMatch(/bloqueados: bloqueados\.map\(b => b\.nome\)/);
+  });
+
+  /* O UPDATE tem que usar a lista FILTRADA, não a original — reaproveitar
+     `placeholders` aqui apagaria justamente quem a guarda excluiu. */
+  it('apaga usando a lista filtrada', () => {
+    const upd = rota.slice(rota.indexOf('SET excluido = 1'));
+    expect(upd).toMatch(/podem\.map\(\(\) => '\?'\)\.join\(','\)/);
+    expect(upd).toMatch(/\.run\(loja\.id, \.\.\.podem\)/);
+  });
+});

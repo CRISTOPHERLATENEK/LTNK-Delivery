@@ -479,13 +479,26 @@ export function ProdutosLoja() {
     }
     setAplicandoAcao(true);
     try {
-      const r = await api<{ afetados: number }>('POST', '/api/lojista/produtos/bulk', { ids: [...selecionados], acao });
-      mostrar({
-        tipo: 'sucesso',
-        titulo: acao === 'ativar' ? `${r.afetados} produto(s) ativado(s).`
-          : acao === 'desativar' ? `${r.afetados} produto(s) desativado(s).`
-          : `${r.afetados} produto(s) excluído(s).`,
-      });
+      const r = await api<{ afetados: number; bloqueados?: string[] }>(
+        'POST', '/api/lojista/produtos/bulk', { ids: [...selecionados], acao });
+      /* Os pulados precisam ser DITOS. Excluir trinta e ver "28 excluídos" sem
+         explicação faz o lojista procurar o que deu errado — ou pior, não
+         perceber que dois continuaram no cardápio dentro de um combo. */
+      if (r.bloqueados?.length) {
+        mostrar({
+          tipo: 'erro',
+          titulo: `${r.bloqueados.length} não pôde ser excluído`,
+          descricao: `${r.bloqueados.join(', ')} — faz parte de um combo. `
+            + 'Remova da composição do combo antes de excluir.',
+        });
+      } else {
+        mostrar({
+          tipo: 'sucesso',
+          titulo: acao === 'ativar' ? `${r.afetados} produto(s) ativado(s).`
+            : acao === 'desativar' ? `${r.afetados} produto(s) desativado(s).`
+            : `${r.afetados} produto(s) excluído(s).`,
+        });
+      }
       sairDaSelecao();
       qc.invalidateQueries({ queryKey: ['lojista-produtos'] });
     } catch (err) {

@@ -1148,6 +1148,35 @@ router.put('/produtos/:id', async (req, res, next) => {
 router.delete('/produtos/:id', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
+
+    /*
+     * COMPONENTE DE COMBO NÃO SE EXCLUI EM SILÊNCIO.
+     *
+     * A consulta que monta a composição na vitrine faz
+     * `JOIN produtos ON p.id = ci.produto_id` sem filtrar `excluido` — de
+     * propósito, porque perder o JOIN faria o combo entregar um slot a menos
+     * sem avisar ninguém. O efeito colateral era pior: o lojista excluía a
+     * "Pizza Broto", ela sumia do painel, e ela CONTINUAVA sendo vendida dentro
+     * do combo. Ele achava que tinha apagado.
+     *
+     * Recusar com o nome dos combos é melhor que apagar em cascata: tirar o
+     * componente sozinho deixaria um combo de duas pizzas entregando uma, que é
+     * o mesmo estrago por outro caminho. Quem decide o que fazer com o combo é
+     * o lojista.
+     */
+    const combos = await db.prepare(
+      `SELECT DISTINCT c.nome FROM combo_itens ci
+         JOIN produtos c ON c.id = ci.combo_id AND c.excluido = 0
+        WHERE ci.produto_id = ? AND c.loja_id = ?
+        ORDER BY c.nome`
+    ).all(req.params.id, loja.id) as Array<{ nome: string }>;
+    if (combos.length > 0) {
+      throw erroHttp(409,
+        `Este produto faz parte de ${combos.length === 1 ? 'um combo' : `${combos.length} combos`}: `
+        + `${combos.map(c => `"${c.nome}"`).join(', ')}. `
+        + 'Remova-o da composição desses combos antes de excluir.');
+    }
+
     const info = await db.prepare(
       // Excluído sai dos DOIS canais — senão o item continuaria vendável no PDV.
       'UPDATE produtos SET excluido = 1, disponivel = 0, disponivel_pdv = 0 WHERE id = ? AND loja_id = ? AND excluido = 0'
@@ -1174,14 +1203,20 @@ router.post('/produtos/:id/duplicar', async (req, res, next) => {
                                preco_promocional_centavos, serve_pessoas, destaque,
                                foto_url, disponivel, disponivel_pdv, vendido_por, codigo_barras,
                                controla_estoque, estoque, ncm, cfop, csosn, origem,
-                               unidade_comercial, cest, criado_em)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                               unidade_comercial, cest, vendido_sozinho, criado_em)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         loja.id, `${original.nome} (cópia)`, original.descricao, original.categoria, original.subcategoria,
         original.preco_centavos, original.preco_promocional_centavos, original.serve_pessoas, original.destaque,
         original.foto_url, original.vendido_por, original.codigo_barras,
         original.controla_estoque, original.estoque,
         original.ncm, original.cfop, original.csosn, original.origem, original.unidade_comercial, original.cest,
+        /* `vendido_sozinho` VIAJA COM A CÓPIA.
+           Sem ele a coluna nascia no padrão 1, e duplicar um componente de
+           combo — que existe justamente pra NÃO aparecer no cardápio — publicava
+           a cópia pra venda avulsa, por um preço que só faz sentido dentro do
+           combo. */
+        original.vendido_sozinho,
         agoraUTC(),
       );
       const novoId = Number(info.lastInsertRowid);
@@ -1211,6 +1246,26 @@ router.post('/produtos/:id/duplicar', async (req, res, next) => {
            VALUES (?, ?, ?, ?, ?)`
         ).run(novoId, l.grupo_id, l.ordem, l.obrigatorio, l.max_escolhas);
       }
+      /*
+       * A COMPOSIÇÃO VAI JUNTO — SEM ISSO A CÓPIA É UMA CASCA.
+       *
+       * `combo_itens` ficava de fora, e o resultado era o pior tipo de defeito:
+       * silencioso e caro. A cópia mantinha o preço do combo e os grupos do
+       * slot 0 (o refrigerante), mas sem componente nenhum deixava de ser combo
+       * — o cliente pagava R$ 139,90 e recebia uma Coca.
+       *
+       * Nada de recursão a temer: combo dentro de combo é bloqueado na hora de
+       * montar a composição, então os componentes são sempre produtos simples.
+       */
+      const componentes = await tx.prepare(
+        'SELECT slot, produto_id, rotulo FROM combo_itens WHERE combo_id = ? ORDER BY slot'
+      ).all(original.id) as Array<{ slot: number; produto_id: number; rotulo: string }>;
+      for (const c of componentes) {
+        await tx.prepare(
+          'INSERT INTO combo_itens (combo_id, slot, produto_id, rotulo) VALUES (?, ?, ?, ?)'
+        ).run(novoId, c.slot, c.produto_id, c.rotulo);
+      }
+
       return novoId;
     });
 
@@ -1247,8 +1302,39 @@ router.post('/produtos/bulk', async (req, res, next) => {
       info = await db.prepare(`UPDATE produtos SET disponivel = 0, disponivel_pdv = 0 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
         .run(loja.id, ...ids);
     } else {
-      info = await db.prepare(`UPDATE produtos SET excluido = 1, disponivel = 0, disponivel_pdv = 0 WHERE loja_id = ? AND excluido = 0 AND id IN (${placeholders})`)
-        .run(loja.id, ...ids);
+      /*
+       * A MESMA GUARDA DA EXCLUSÃO AVULSA — senão o buraco continua aberto pela
+       * outra porta.
+       *
+       * O modo "Selecionar" apaga em lote, e sem isto um componente de combo
+       * sairia por aqui: ele some do painel e SEGUE sendo vendido dentro do
+       * combo, porque a consulta da composição não filtra `excluido`.
+       *
+       * Aqui a guarda PULA em vez de recusar o lote inteiro. São dois casos
+       * diferentes: quem clica na lixeira de um card escolheu aquele produto e
+       * merece saber por que não deu; quem selecionou trinta itens não quer
+       * perder a operação inteira por causa de um. Os pulados voltam nomeados,
+       * e a tela diz quais foram.
+       */
+      const bloqueados = await db.prepare(
+        `SELECT DISTINCT p.id, p.nome FROM produtos p
+           JOIN combo_itens ci ON ci.produto_id = p.id
+           JOIN produtos c ON c.id = ci.combo_id AND c.excluido = 0 AND c.loja_id = p.loja_id
+          WHERE p.loja_id = ? AND p.id IN (${placeholders})`
+      ).all(loja.id, ...ids) as Array<{ id: number; nome: string }>;
+
+      const idsBloqueados = new Set(bloqueados.map(b => b.id));
+      const podem = ids.filter((i: number) => !idsBloqueados.has(i));
+      if (podem.length === 0) {
+        res.json({ ok: true, afetados: 0, bloqueados: bloqueados.map(b => b.nome) });
+        return;
+      }
+      info = await db.prepare(
+        `UPDATE produtos SET excluido = 1, disponivel = 0, disponivel_pdv = 0
+          WHERE loja_id = ? AND excluido = 0 AND id IN (${podem.map(() => '?').join(',')})`
+      ).run(loja.id, ...podem);
+      res.json({ ok: true, afetados: info.changes, bloqueados: bloqueados.map(b => b.nome) });
+      return;
     }
     res.json({ ok: true, afetados: info.changes });
   } catch (e) { next(e); }
