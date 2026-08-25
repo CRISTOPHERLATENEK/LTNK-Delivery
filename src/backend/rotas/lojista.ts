@@ -1501,25 +1501,149 @@ router.put('/grupos/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * DELETE /grupos/:id — apaga o grupo DE VEZ. Só da biblioteca.
+ *
+ * ESTA ROTA ESTAVA SEM GUARDA NENHUMA, e depois da fase 3 isso virou uma arma:
+ * um grupo compartilhado por trinta pizzas apagava de todas as trinta, com uma
+ * chamada e sem aviso. Ninguém a chamava (o editor usa "tirar deste produto"),
+ * mas rota destrutiva desprotegida é acidente esperando o próximo commit.
+ *
+ * Agora ela RECUSA enquanto algum produto vivo usar o grupo, e devolve os nomes
+ * pra tela poder dizer onde. Tirar de cada produto primeiro é um passo a mais —
+ * e é o passo que torna a exclusão uma decisão, não um efeito colateral.
+ *
+ * Produto EXCLUÍDO não impede: o vínculo dele é resquício de apagar suave, e
+ * exigir "restaure o produto pra poder apagar o grupo" seria travar a limpeza
+ * por causa de algo que não existe mais na tela.
+ */
 router.delete('/grupos/:id', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const grupo = await meuGrupo(loja, req.params.id);
+
+    const emUso = await db.prepare(
+      `SELECT p.nome FROM produto_grupos pg
+         JOIN produtos p ON p.id = pg.produto_id
+        WHERE pg.grupo_id = ? AND p.excluido = 0 ORDER BY p.nome LIMIT 20`
+    ).all(grupo.id) as Array<{ nome: string }>;
+    if (emUso.length > 0) {
+      throw erroHttp(409, `Este grupo está em uso: ${emUso.map(p => p.nome).join(', ')}. Tire dele desses produtos antes de excluir.`);
+    }
+
     await comTransacao(async (tx) => {
-      /*
-       * A LIGAÇÃO SAI PRIMEIRO, senão a FK recusa o DELETE do grupo.
-       *
-       * Nesta fase apagar continua apagando: cada grupo tem uma ligação só, e o
-       * botão do editor significa "tira este grupo daqui" — que hoje é a mesma
-       * coisa. Separar "desligar" de "excluir" é da fase 3, e vai precisar de
-       * palavras diferentes na tela: com o grupo compartilhado, apertar a
-       * lixeira de uma pizza apagaria a borda de trinta.
-       */
+      // A ligação sai primeiro, senão a FK recusa o DELETE do grupo. As que
+      // sobram aqui apontam pra produto excluído — ver acima.
       await tx.prepare('DELETE FROM produto_grupos WHERE grupo_id = ?').run(grupo.id);
       await tx.prepare('DELETE FROM opcoes_itens WHERE grupo_id = ?').run(grupo.id);
       await tx.prepare('DELETE FROM grupos_opcoes WHERE id = ?').run(grupo.id);
     });
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/**
+ * GET /grupos/completo — a biblioteca com os ITENS de cada grupo.
+ *
+ * Separada do `GET /grupos` de propósito: aquela é a lista curta que o editor
+ * usa pra oferecer "usar um grupo que já existe", e carrega uma prévia de 70
+ * caracteres. Esta traz os itens inteiros, porque a tela de limpeza precisa
+ * COMPARAR grupo com grupo — e comparar é o que decide se dá pra juntar sem
+ * mudar preço de cardápio.
+ *
+ * A comparação em si fica no navegador (`lib/grupos-biblioteca.ts`), onde é
+ * função pura e testada. Fazer no SQL seria a mesma regra escrita duas vezes, em
+ * duas linguagens, pra decidir sobre dinheiro.
+ *
+ * Duas consultas e não N+1: uma loja com 30 grupos de 30 itens daria 31
+ * requisições ao banco pra desenhar uma tela.
+ */
+router.get('/grupos/completo', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const grupos = await db.prepare(
+      `SELECT g.id, g.nome, g.tipo, g.papel, g.modo_preco, g.obrigatorio, g.max_escolhas,
+              (SELECT COUNT(*) FROM produto_grupos pg
+                 JOIN produtos p ON p.id = pg.produto_id AND p.excluido = 0
+                WHERE pg.grupo_id = g.id) AS usos,
+              (SELECT SUBSTRING(GROUP_CONCAT(p.nome ORDER BY p.nome SEPARATOR ', '), 1, 120)
+                 FROM produto_grupos pg JOIN produtos p ON p.id = pg.produto_id
+                WHERE pg.grupo_id = g.id AND p.excluido = 0) AS onde
+         FROM grupos_opcoes g WHERE g.loja_id = ? ORDER BY g.nome, g.id`
+    ).all(loja.id) as Array<{ id: number } & Record<string, unknown>>;
+
+    const opcoes = grupos.length === 0 ? [] : await db.prepare(
+      `SELECT id, grupo_id, nome, preco_adicional_centavos, secao, sabores, descricao, imagem, disponivel
+         FROM opcoes_itens WHERE grupo_id IN (${grupos.map(() => '?').join(',')})
+        ORDER BY ordem, id`
+    ).all(...grupos.map(g => g.id)) as Array<{ grupo_id: number } & Record<string, unknown>>;
+
+    const porGrupo = new Map<number, unknown[]>();
+    for (const o of opcoes) {
+      const lista = porGrupo.get(o.grupo_id) ?? [];
+      lista.push(o);
+      porGrupo.set(o.grupo_id, lista);
+    }
+    res.json({ grupos: grupos.map(g => ({ ...g, opcoes: porGrupo.get(g.id) ?? [] })) });
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /grupos/:id/mesclar — os grupos de `absorver` viram este.
+ *
+ * O QUE ELA FAZ: repõe as ligações dos absorvidos apontando pro sobrevivente, e
+ * apaga os absorvidos. As ligações levam `ordem`, `obrigatorio` e `max_escolhas`
+ * consigo, então cada produto continua com a regra que tinha — é exatamente o
+ * motivo de esses três campos morarem na ligação desde a fase 2.
+ *
+ * O QUE ELA NÃO FAZ: conferir se os grupos são iguais. Quem decide isso é a
+ * tela, com `saoIdenticos` — função pura, testada, e que o servidor não tem como
+ * repetir sem duplicar a regra. O servidor confere o que é DELE: que os grupos
+ * são da loja, e que a operação não deixa produto sem nada.
+ *
+ * PRODUTO LIGADO AOS DOIS é o caso que quebraria: repontar criaria duas ligações
+ * iguais e bateria no UNIQUE. Aí a ligação do absorvido é só APAGADA — o produto
+ * já tem o sobrevivente, com a regra dele, e não perde nada.
+ */
+router.post('/grupos/:id/mesclar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const sobrevivente = await meuGrupo(loja, req.params.id);
+    const pedidos = Array.isArray(req.body.absorver) ? req.body.absorver : [];
+    const ids = [...new Set(pedidos.map((v: unknown) => inteiroPositivo(v)).filter(Boolean))] as number[];
+    if (ids.length === 0) throw erroHttp(400, 'Informe quais grupos absorver.');
+    if (ids.includes(sobrevivente.id)) throw erroHttp(400, 'Um grupo não absorve a si mesmo.');
+
+    // Todos têm que ser da loja: `meuGrupo` é quem responde isso, e responde 404
+    // pra id de outra loja antes de qualquer escrita.
+    for (const id of ids) await meuGrupo(loja, id);
+
+    let religadas = 0;
+    await comTransacao(async (tx) => {
+      const jaTem = new Set((await tx.prepare(
+        'SELECT produto_id FROM produto_grupos WHERE grupo_id = ?'
+      ).all(sobrevivente.id) as Array<{ produto_id: number }>).map(l => l.produto_id));
+
+      for (const id of ids) {
+        const ligacoes = await tx.prepare(
+          'SELECT produto_id FROM produto_grupos WHERE grupo_id = ?'
+        ).all(id) as Array<{ produto_id: number }>;
+        for (const l of ligacoes) {
+          if (jaTem.has(l.produto_id)) {
+            await tx.prepare('DELETE FROM produto_grupos WHERE grupo_id = ? AND produto_id = ?')
+              .run(id, l.produto_id);
+          } else {
+            await tx.prepare('UPDATE produto_grupos SET grupo_id = ? WHERE grupo_id = ? AND produto_id = ?')
+              .run(sobrevivente.id, id, l.produto_id);
+            jaTem.add(l.produto_id);
+            religadas++;
+          }
+        }
+        await tx.prepare('DELETE FROM opcoes_itens WHERE grupo_id = ?').run(id);
+        await tx.prepare('DELETE FROM grupos_opcoes WHERE id = ?').run(id);
+      }
+    });
+    res.json({ ok: true, absorvidos: ids.length, religadas });
   } catch (e) { next(e); }
 });
 

@@ -20,6 +20,7 @@ import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { gtinValido } from '@/lib/gtin';
 import { agruparPorSecao } from '@/lib/opcoes-preco';
+import { familiasDuplicadas, saoIdenticos, melhorSobrevivente, diferencasEntre, type GrupoComparavel } from '@/lib/grupos-biblioteca';
 import { ingredientesDeTexto, textoDeIngredientes, comIngredientes, fraseDaRegra, rotuloTeto, limiteDeSabores, linhasColadas } from '@/lib/complementos-editor';
 import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes, indiceDeSugestoes, type SugestaoSalva } from '@/lib/avisos-produto';
 import type { Produto } from '@/types';
@@ -207,6 +208,7 @@ export function ProdutosLoja() {
   /** Qual dos dois botões de submit foi clicado (ver `salvar`). */
   const criarOutroRef = useRef(false);
   const [modoSelecao, setModoSelecao] = useState(false);
+  const [bibliotecaAberta, setBibliotecaAberta] = useState(false);
   const [densidade, setDensidade] = useState<Densidade>(
     () => (localStorage.getItem(CHAVE_DENSIDADE) as Densidade) || 'confortavel',
   );
@@ -564,6 +566,20 @@ export function ProdutosLoja() {
                 {densidade === 'confortavel' ? <Rows4 className="size-4" /> : <Rows3 className="size-4" />}
               </Button>
             )}
+            {/*
+              A porta da biblioteca fica AQUI, e não dentro do cadastro de um
+              produto. Limpar grupo duplicado é trabalho sobre a loja inteira —
+              dentro de um produto, a pergunta "quais grupos existem?" nem se faz.
+            */}
+            <Button
+              variant="outline"
+              onClick={() => setBibliotecaAberta(true)}
+              disabled={editando !== null || modoSelecao}
+              className="h-11 rounded-[11px] shadow-sm"
+              title="Ver e limpar os grupos de complemento da loja"
+            >
+              <Layers className="size-4" /> Complementos
+            </Button>
             {todos.length > 0 && (
               modoSelecao ? (
                 <Button variant="outline" onClick={sairDaSelecao} className="h-11 rounded-[11px] shadow-sm">
@@ -1313,6 +1329,8 @@ export function ProdutosLoja() {
         </Card>
       )}
 
+      {bibliotecaAberta && <BibliotecaGrupos onFechar={() => setBibliotecaAberta(false)} />}
+
       {/* ── Lista agrupada por categoria ── */}
       {Object.entries(porCategoria).map(([cat, subs]) => (
         <CategoriaSection
@@ -1803,6 +1821,18 @@ function CardProduto({
  * o que já foi gravado é pior que botão nenhum.
  */
 
+/** Um grupo da biblioteca COM os itens — o que a tela de limpeza compara. */
+interface GrupoBibliotecaCompleto {
+  id: number; nome: string; tipo?: string | null;
+  papel?: string | null; modo_preco?: string | null;
+  usos?: number; onde?: string | null;
+  opcoes: Array<{
+    id: number; nome: string; preco_adicional_centavos: number;
+    secao?: string | null; sabores?: number | null;
+    descricao?: string | null; imagem?: string | null;
+  }>;
+}
+
 /** Uma linha da biblioteca de grupos da loja. `usos` = em quantos produtos está. */
 interface GrupoBiblioteca {
   id: number; nome: string; tipo: 'unico' | 'multiplo';
@@ -1812,6 +1842,275 @@ interface GrupoBiblioteca {
   previa?: string | null;
   /** Produtos que já usam este grupo. */
   onde?: string | null;
+}
+
+/**
+ * A BIBLIOTECA DE GRUPOS DA LOJA — ver, comparar e limpar.
+ *
+ * POR QUE ELA EXISTE. O reaproveitamento (fases 1-3) resolveu o futuro: daqui
+ * pra frente a borda é uma só. Mas o passado ficou: no mostruário são CINCO
+ * grupos chamados "Tamanho", três deles VAZIOS, dois "Adicionais" com preços
+ * diferentes, dois "Borda" em que um é subconjunto do outro. Isso nasceu de o
+ * grupo ser, antes, obrigatoriamente de um produto só.
+ *
+ * O QUE ELA NÃO FAZ: mesclar por nome. Juntar dois grupos que só PARECEM iguais
+ * muda preço de cardápio, e preço mudado por engano não tem desfazer — o pedido
+ * já saiu. Então a mesclagem automática só aparece quando os grupos são
+ * IDÊNTICOS no que o cliente vê e paga (`saoIdenticos`).
+ *
+ * Numa loja real isso significa que quase nada mescla sozinho. E é por isso que
+ * a parte mais útil da tela não é o botão de mesclar: é a lista com o que tem
+ * DENTRO de cada grupo e a diferença entre eles, que é o que o lojista precisa
+ * pra escolher qual manter.
+ */
+function BibliotecaGrupos({ onFechar }: { onFechar: () => void }) {
+  const { mostrar } = useToast();
+  const confirmar = useConfirm();
+  const qc = useQueryClient();
+  const [ocupado, setOcupado] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['lojista-biblioteca-completa'],
+    queryFn: () => api<{ grupos: GrupoBibliotecaCompleto[] }>('GET', '/api/lojista/grupos/completo')
+      .then(r => r.grupos),
+  });
+  const grupos = data ?? [];
+
+  function recarregar() {
+    qc.invalidateQueries({ queryKey: ['lojista-biblioteca-completa'] });
+    qc.invalidateQueries({ queryKey: ['lojista-biblioteca-grupos'] });
+    qc.invalidateQueries({ queryKey: ['lojista-grupos'] });
+    qc.invalidateQueries({ queryKey: ['lojista-produtos'] });
+  }
+
+  /* Grupo sem item e sem produto vivo: não tem o que perder, e é a limpeza que
+     dá pra fazer sem pensar. Três dos cinco "Tamanho" da base real são estes. */
+  const descartaveis = grupos.filter(g => g.opcoes.length === 0 && (g.usos ?? 0) === 0);
+  const familias = familiasDuplicadas(grupos as GrupoComparavel[]);
+
+  async function excluir(g: GrupoBibliotecaCompleto) {
+    if (!(await confirmar({
+      titulo: `Excluir "${g.nome}"?`,
+      descricao: g.opcoes.length > 0
+        ? `Os ${g.opcoes.length} itens dele serão excluídos também. Nenhum produto usa este grupo.`
+        : 'Este grupo está vazio e nenhum produto usa ele.',
+      confirmar: 'Excluir',
+      destrutivo: true,
+    }))) return;
+    setOcupado(true);
+    try {
+      await api('DELETE', `/api/lojista/grupos/${g.id}`);
+      recarregar();
+    } catch (e) {
+      /* O 409 da rota traz os produtos que usam — é a mensagem que diz o que
+         fazer antes, e não só que não deu. */
+      mostrar({ tipo: 'erro', titulo: e instanceof ApiError ? e.message : 'Erro ao excluir.' });
+    } finally { setOcupado(false); }
+  }
+
+  async function excluirVazios() {
+    if (!(await confirmar({
+      titulo: `Excluir ${descartaveis.length} ${descartaveis.length === 1 ? 'grupo vazio' : 'grupos vazios'}?`,
+      descricao: 'Nenhum deles tem item nem produto usando. Nada de cardápio muda.',
+      confirmar: 'Excluir todos',
+      destrutivo: true,
+    }))) return;
+    setOcupado(true);
+    try {
+      /* Em série: são poucos, e um erro no meio deixa o resto intacto em vez de
+         meia dúzia de falhas simultâneas sem ordem. */
+      for (const g of descartaveis) await api('DELETE', `/api/lojista/grupos/${g.id}`);
+      recarregar();
+      mostrar({ tipo: 'sucesso', titulo: `${descartaveis.length} grupos removidos.` });
+    } catch (e) {
+      mostrar({ tipo: 'erro', titulo: e instanceof ApiError ? e.message : 'Erro ao excluir.' });
+      recarregar();
+    } finally { setOcupado(false); }
+  }
+
+  async function mesclar(iguais: GrupoBibliotecaCompleto[]) {
+    const fica = melhorSobrevivente(iguais as GrupoComparavel[]);
+    const vao = iguais.filter(g => g.id !== fica.id);
+    if (!(await confirmar({
+      titulo: `Juntar ${iguais.length} grupos em um?`,
+      descricao: `São idênticos — mesmos itens, mesmos preços. Os produtos que usavam os outros passam a usar este, com a regra que cada um já tinha. Nenhum preço muda.`,
+      confirmar: 'Juntar',
+    }))) return;
+    setOcupado(true);
+    try {
+      await api('POST', `/api/lojista/grupos/${fica.id}/mesclar`, { absorver: vao.map(g => g.id) });
+      recarregar();
+      mostrar({ tipo: 'sucesso', titulo: `${vao.length + 1} grupos viraram um.` });
+    } catch (e) {
+      mostrar({ tipo: 'erro', titulo: e instanceof ApiError ? e.message : 'Erro ao juntar.' });
+    } finally { setOcupado(false); }
+  }
+
+  return (
+    <Modal open onOpenChange={aberto => { if (!aberto) onFechar(); }}>
+      <ModalConteudo className="sm:w-[min(880px,calc(100vw-56px))]">
+        <div className="flex shrink-0 items-start gap-3 border-b border-border px-7 py-5 max-sm:px-4">
+          <div className="min-w-0 flex-1">
+            <ModalTitulo className="text-[19px] font-extrabold leading-tight">Complementos da loja</ModalTitulo>
+            <ModalDescricao className="mt-0.5 text-[13.5px] text-muted-foreground">
+              Todos os grupos, e em quais produtos cada um está.
+            </ModalDescricao>
+          </div>
+          <ModalClose className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent" title="Fechar">
+            <X className="size-5" />
+          </ModalClose>
+        </div>
+
+        <div className="flex-1 space-y-6 overflow-y-auto px-7 py-6 max-sm:px-4">
+          {isLoading && <Skeleton className="h-24" />}
+
+          {/* ─── Os vazios: a limpeza sem risco ─── */}
+          {descartaveis.length > 0 && (
+            <div className="rounded-2xl border border-border bg-muted/20 p-4">
+              <p className="text-sm font-bold">
+                {descartaveis.length} {descartaveis.length === 1 ? 'grupo vazio' : 'grupos vazios'} e sem uso
+              </p>
+              <p className="mt-1 text-[12.5px] text-muted-foreground">
+                {descartaveis.map(g => g.nome).join(', ')} — sem item nenhum e sem produto usando.
+                Excluir não muda nada no cardápio.
+              </p>
+              <Button type="button" size="sm" variant="outline" className="mt-2.5"
+                disabled={ocupado} onClick={excluirVazios}>
+                <Trash2 className="size-4" /> Excluir {descartaveis.length === 1 ? 'o vazio' : 'os vazios'}
+              </Button>
+            </div>
+          )}
+
+          {/* ─── Nomes repetidos ─── */}
+          {familias.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="shrink-0 text-[12px] font-extrabold uppercase tracking-[.11em] text-muted-foreground">
+                  Nomes repetidos
+                </span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+              {familias.map(fam => {
+                const doNome = grupos.filter(g => fam.grupos.some(x => x.id === g.id));
+                return (
+                  <div key={fam.nome} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
+                    <p className="text-sm font-bold">{fam.nome} — {doNome.length} grupos</p>
+
+                    {/* Idênticos: o único caso em que juntar não muda nada. */}
+                    {fam.identicos.map((iguais, i) => (
+                      <div key={i} className="mt-2.5 rounded-xl border border-emerald-500/40 bg-emerald-500/5 p-3">
+                        <p className="text-[12.5px] font-semibold text-emerald-700 dark:text-emerald-400">
+                          {iguais.length} são idênticos — mesmos itens e mesmos preços.
+                        </p>
+                        <Button type="button" size="sm" className="mt-2" disabled={ocupado}
+                          onClick={() => mesclar(doNome.filter(g => iguais.some(x => x.id === g.id)))}>
+                          <Layers className="size-4" /> Juntar em um
+                        </Button>
+                      </div>
+                    ))}
+
+                    <div className="mt-2.5 divide-y divide-border/60 overflow-hidden rounded-xl border border-border">
+                      {doNome.map(g => (
+                        <div key={g.id} className="flex flex-wrap items-start gap-2 px-3 py-2.5">
+                          <span className="min-w-0 flex-1">
+                            <span className="flex flex-wrap items-baseline gap-x-2">
+                              <span className="text-[13px] font-bold">#{g.id}</span>
+                              <span className="text-[11.5px] text-muted-foreground">
+                                {g.opcoes.length} {g.opcoes.length === 1 ? 'item' : 'itens'}
+                              </span>
+                              {g.papel && (
+                                <span className="rounded-full bg-muted px-1.5 text-[10.5px] font-bold text-muted-foreground">
+                                  {g.papel}
+                                </span>
+                              )}
+                            </span>
+                            {g.opcoes.length > 0 && (
+                              <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+                                {g.opcoes.map(o => o.preco_adicional_centavos > 0
+                                  ? `${o.nome} +${brl(o.preco_adicional_centavos)}` : o.nome).join(' · ')}
+                              </span>
+                            )}
+                            {/* Onde está é o que decide se dá pra excluir — e a
+                                rota recusa enquanto houver produto vivo. */}
+                            <span className="mt-0.5 block text-[11px] text-muted-foreground/70">
+                              {g.onde ? `em ${g.onde}` : 'nenhum produto usa'}
+                            </span>
+                          </span>
+                          {(g.usos ?? 0) === 0 && (
+                            <button type="button" disabled={ocupado} onClick={() => excluir(g)}
+                              title="Excluir este grupo"
+                              className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-40">
+                              <Trash2 className="size-4" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    {/*
+                      A DIFERENÇA, quando não são idênticos — que é a maioria dos
+                      casos reais. Sem isto a tela diria só "há 5 com esse nome",
+                      e o lojista abriria os cinco pra comparar item a item.
+                    */}
+                    {doNome.length === 2 && !saoIdenticos(doNome[0] as GrupoComparavel, doNome[1] as GrupoComparavel) && (
+                      <div className="mt-2.5 rounded-xl border border-dashed border-border p-3">
+                        <p className="text-[11.5px] font-semibold text-muted-foreground">
+                          Diferenças entre #{doNome[0].id} e #{doNome[1].id}:
+                        </p>
+                        <ul className="mt-1 space-y-0.5">
+                          {diferencasEntre(doNome[0] as GrupoComparavel, doNome[1] as GrupoComparavel).map(d => (
+                            <li key={d} className="text-[11.5px] text-muted-foreground">· {d}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {!isLoading && familias.length === 0 && descartaveis.length === 0 && (
+            <p className="rounded-xl border border-dashed border-border px-3.5 py-6 text-center text-[12.5px] text-muted-foreground">
+              Nenhum grupo duplicado nem vazio. A biblioteca está limpa.
+            </p>
+          )}
+
+          {/* ─── Todos, pra referência ─── */}
+          {grupos.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <span className="shrink-0 text-[12px] font-extrabold uppercase tracking-[.11em] text-muted-foreground">
+                  Todos os {grupos.length}
+                </span>
+                <span className="h-px flex-1 bg-border" />
+              </div>
+              <div className="divide-y divide-border/60 overflow-hidden rounded-xl border border-border">
+                {grupos.map(g => (
+                  <div key={g.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                    <span className="text-[13px] font-semibold">{g.nome}</span>
+                    <span className="text-[11.5px] text-muted-foreground">
+                      #{g.id} · {g.opcoes.length} {g.opcoes.length === 1 ? 'item' : 'itens'}
+                    </span>
+                    <span className="ml-auto truncate text-[11px] text-muted-foreground/70">
+                      {g.onde || 'sem produto'}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-muted/30 px-7 py-4 max-sm:px-4">
+          <p className="text-[13px] text-muted-foreground">
+            Excluir só é liberado em grupo que nenhum produto usa.
+          </p>
+          <Button type="button" variant="outline" className="h-11" onClick={onFechar}>Fechar</Button>
+        </div>
+      </ModalConteudo>
+    </Modal>
+  );
 }
 
 function GruposEditor({ produto }: { produto: Produto }) {
