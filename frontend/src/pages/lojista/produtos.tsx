@@ -625,18 +625,7 @@ export function ProdutosLoja() {
      * uma loja de paleta verde perderia a distinção entre promoção e o resto.
      */
     <div className="-mx-4 -my-4 min-h-full bg-muted/40 px-4 py-6 sm:-mx-6 sm:px-6 lg:px-8">
-      {/*
-        1800px, NÃO 1600 E NÃO 100%.
-        O medo de "card vira faixa" era legítimo com `1fr`, que estica sem
-        limite — mas o teto de 520px na grade já resolve isso. Com o teto no
-        lugar, parar em 1600 só desperdiçava a 4ª coluna em monitor largo:
-        4x400 + 48 de gap = 1648, que não cabe em 1504 de área útil e cabe em
-        1704. O padding fluido evita texto colado na borda sem breakpoint.
-      */}
-      <div
-        className="mx-auto max-w-[1800px] space-y-5"
-        style={{ paddingInline: 'clamp(24px, 3vw, 48px)' }}
-      >
+      <div className="mx-auto max-w-[1160px] space-y-5">
         {/* Modal de grupos de opções — sobrepõe tudo */}
 
         {/* ─────────── Header ─────────── */}
@@ -2056,20 +2045,7 @@ function CategoriaSection({
               <div
                 className="grid gap-4"
                 style={{
-                  /*
-                   * O TETO DE 520px É PARTE DA REGRA, e `1fr` não o respeita.
-                   *
-                   * Com `minmax(400px, 1fr)` a faixa entre duas e três colunas
-                   * estica o card até ~600px por volta de 1300px de viewport —
-                   * e card largo demais afasta o nome (esquerda) do preço
-                   * (direita) a ponto de o olho perder a linha.
-                   *
-                   * `minmax(min, 520px)` fixa o teto; a sobra fica à direita, e
-                   * `start` mantém a grade alinhada com o cabeçalho da seção —
-                   * centralizar deixaria os cards fora do prumo do filete.
-                   */
-                  gridTemplateColumns: `repeat(auto-fill, minmax(${densidade === 'compacta' ? 340 : 400}px, 520px))`,
-                  justifyContent: 'start',
+                  gridTemplateColumns: `repeat(auto-fill, minmax(${densidade === 'compacta' ? 340 : 440}px, 1fr))`,
                 }}
               >
                 {itensNaTela.map((p, j) => (
@@ -2113,9 +2089,9 @@ function CategoriaSection({
 /* ─────────────────────── card do produto ──────────────────────── */
 
 /** Ícone de ação do rodapé do card: 32px, alvo aceitável sem inflar a linha. */
-function BotaoIcone({ titulo, onClick, destrutivo, desabilitado, miudo, children }: {
+function BotaoIcone({ titulo, onClick, destrutivo, desabilitado, children }: {
   titulo: string; onClick: () => void; destrutivo?: boolean; desabilitado?: boolean;
-  miudo?: boolean; children: React.ReactNode;
+  children: React.ReactNode;
 }) {
   return (
     <button
@@ -2125,8 +2101,7 @@ function BotaoIcone({ titulo, onClick, destrutivo, desabilitado, miudo, children
       title={titulo}
       aria-label={titulo}
       className={cn(
-        'flex items-center justify-center rounded-lg text-muted-foreground transition-colors',
-        miudo ? 'size-7' : 'size-8',
+        'flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors',
         desabilitado && 'opacity-20',
         destrutivo
           ? 'hover:bg-destructive/10 hover:text-destructive'
@@ -2168,10 +2143,7 @@ function CardProduto({
       className={cn(
         // Sombra de repouso quase invisível + sombra difusa no hover. Borda E sombra
         // forte juntas é o que faz card parecer "caixa dentro de caixa".
-        /* `h-full` + coluna: sem isso o card só tem a altura do próprio
-           conteúdo, e numa linha da grade os rodapés ficam em alturas
-           diferentes. Com o corpo em `flex-1`, o rodapé desce até o fim. */
-        'group flex h-full flex-col rounded-[18px] border border-border bg-card shadow-[0_1px_2px_rgba(28,25,23,0.04)] transition-all duration-[180ms]',
+        'group rounded-[18px] border border-border bg-card shadow-[0_1px_2px_rgba(28,25,23,0.04)] transition-all duration-[180ms]',
         'hover:-translate-y-0.5 hover:shadow-[0_16px_40px_-20px_rgba(28,25,23,0.25)]',
         !ehVendido(p) && 'opacity-70',
         selecionado && 'ring-2 ring-primary',
@@ -2179,7 +2151,7 @@ function CardProduto({
       )}
       onClick={modoSelecao ? onToggleSelecao : undefined}
     >
-      <div className="flex flex-1 gap-[18px] p-[18px]">
+      <div className="flex gap-[18px] p-[18px]">
         {modoSelecao && (
           <button type="button" onClick={e => { e.stopPropagation(); onToggleSelecao(); }} className="shrink-0 text-primary">
             {selecionado ? <CheckSquare className="size-5" /> : <Square className="size-5 text-muted-foreground" />}
@@ -2209,15 +2181,9 @@ function CardProduto({
             <span className="shrink-0 text-[16px] font-extrabold tabular-nums">{brl(p.preco_centavos)}</span>
           </div>
 
-          {/*
-            DUAS LINHAS SEMPRE RESERVADAS, mesmo sem descrição.
-            Renderizar só quando existe fazia o card de descrição vazia encolher
-            e o vizinho da mesma linha ficar mais alto — com os rodapés
-            desalinhados, que é o que salta aos olhos numa grade.
-          */}
-          <p className="mt-1 line-clamp-2 min-h-[2.9em] text-[13.5px] leading-snug text-muted-foreground">
-            {p.descricao}
-          </p>
+          {p.descricao && (
+            <p className="mt-1 line-clamp-2 text-[13.5px] leading-snug text-muted-foreground">{p.descricao}</p>
+          )}
 
           {/*
             BADGES COM BORDA TONAL, não chapados: chapado com cor forte grita mais que o
@@ -2225,9 +2191,8 @@ function CardProduto({
             promoção) — seguindo a cor da marca, uma loja de paleta verde perderia a
             distinção entre promoção e o resto.
           */}
-          {/* A faixa existe mesmo vazia: um produto sem selo nenhum empurraria
-              o rodapé pra cima e desalinharia a linha da grade. */}
-          <div className="mt-2 flex min-h-[22px] flex-wrap items-center gap-1.5">
+          {(p.destaque || p.preco_promocional_centavos || semEstoque || p.controla_estoque || totalGrupos > 0) && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               {/*
                 `!!` NAO E ENFEITE. `destaque` vem do MySQL como TINYINT e o tipo
                 e `0 | 1` -- e em React `{0 && ...}` renderiza O PROPRIO ZERO. O
@@ -2277,20 +2242,12 @@ function CardProduto({
                 </span>
               ) : null}
             </div>
+          )}
         </div>
       </div>
 
-      {/*
-          `flex-wrap` PORQUE O RODAPÉ NÃO CABE SEMPRE.
-          Com o interruptor rotulado à esquerda e seis ícones à direita, a linha
-          pede ~420px — mais do que o card mínimo de 400. Sem quebrar, os ícones
-          espremem o rótulo "À venda" até ele sumir, e o rótulo é a informação
-          mais consultada do card.
-          Quebrando, a linha extra deixa TODOS os cards da fileira mais altos
-          (o corpo é `flex-1`), então o alinhamento dos rodapés se mantém.
-        */}
       {!modoSelecao && (
-        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t border-border px-[18px] py-[11px]">
+        <div className="flex items-center justify-between gap-3 border-t border-border px-[18px] py-[11px]">
           {/* Interruptor com RÓTULO: sozinho, um toggle não diz o que está ligado, e
               "à venda ou pausado" é a informação mais consultada do card. */}
           <button
@@ -2340,18 +2297,12 @@ function CardProduto({
                 >
                   <GripVertical className="size-[15px]" />
                 </span>
-                {/* 28px e não 32: são controles de ajuste fino, usados menos que
-                    editar/duplicar/excluir, e os 12px economizados são o que
-                    mantém a linha inteira num card de 400. */}
-                <BotaoIcone titulo="Subir" onClick={() => arrasto.onSubir?.()} desabilitado={!arrasto.onSubir} miudo>
+                <BotaoIcone titulo="Subir" onClick={() => arrasto.onSubir?.()} desabilitado={!arrasto.onSubir}>
                   <ChevronUp className="size-[15px]" />
                 </BotaoIcone>
-                <BotaoIcone titulo="Descer" onClick={() => arrasto.onDescer?.()} desabilitado={!arrasto.onDescer} miudo>
+                <BotaoIcone titulo="Descer" onClick={() => arrasto.onDescer?.()} desabilitado={!arrasto.onDescer}>
                   <ChevronDown className="size-[15px]" />
                 </BotaoIcone>
-                {/* Divisória: sem ela, seis ícones em fila viram uma régua sem
-                    hierarquia e "excluir" fica a um pixel de "descer". */}
-                <span className="mx-0.5 h-4 w-px bg-border" />
               </>
             )}
             <BotaoIcone titulo="Editar" onClick={onEditar}><Pencil className="size-[15px]" /></BotaoIcone>
