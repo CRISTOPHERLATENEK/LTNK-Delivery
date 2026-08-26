@@ -57,3 +57,27 @@ describe('a rota de configuração da loja usa a lista', () => {
     expect(grava).toBeGreaterThan(checagem);
   });
 });
+
+/*
+ * TODA ROTA DO PAINEL QUE COMPARA SENHA PRECISA DE TETO DE TENTATIVAS.
+ *
+ * Este teste é sobre a CLASSE, não sobre uma rota: varre o arquivo atrás de
+ * `bcrypt.compare` e exige limitador em cada uma. Assim a próxima rota que
+ * validar senha — e vai existir — não nasce sem teto por esquecimento.
+ */
+describe('rotas do painel que validam senha têm limitador', () => {
+  const lojista = fs.readFileSync(path.resolve(__dirname, 'rotas', 'lojista.ts'), 'utf8');
+  const codigo = lojista.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('cada bcrypt.compare está numa rota com rateLimit', () => {
+    const semTeto: string[] = [];
+    for (const m of codigo.matchAll(/bcrypt\.compare/g)) {
+      /* Volta até o `router.<verbo>(` que abre a rota e olha a linha dela. */
+      const antes = codigo.slice(0, m.index);
+      const i = antes.lastIndexOf('router.');
+      const linha = codigo.slice(i, codigo.indexOf('\n', i));
+      if (!/limite\w*/.test(linha)) semTeto.push(linha.trim().slice(0, 60));
+    }
+    expect(semTeto).toEqual([]);
+  });
+});

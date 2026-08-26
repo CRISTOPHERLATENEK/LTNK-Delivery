@@ -3000,7 +3000,30 @@ router.delete('/cozinha-contas/:id', async (req, res, next) => {
  * login cai automaticamente na tela de configurar o 2FA de novo (2FA
  * continua obrigatório — isso não desativa, só força reconfiguração).
  */
-router.post('/2fa/resetar', async (req, res, next) => {
+/*
+ * DESLIGAR O 2FA VALIDA SENHA — ENTÃO PRECISA DE TETO DE TENTATIVAS.
+ *
+ * Login, verificação de 2FA e "esqueci a senha" já têm limitador. Esta rota
+ * não tinha, e ela compara a senha da conta: sem teto, é um oráculo de senha
+ * dentro do painel — quem alcançar uma sessão aberta (máquina destravada,
+ * token vazado) tenta senha à vontade até derrubar o segundo fator, que é
+ * justamente o que deveria segurar essa situação.
+ *
+ * A chave é o USUÁRIO, não o IP: a loja inteira costuma sair pelo mesmo IP, e
+ * limitar por IP puniria o caixa por causa do gerente. `ipKeyGenerator` fica
+ * como reserva pra requisição sem sessão (que aqui não deveria existir, mas o
+ * limitador não é o lugar de confiar nisso).
+ */
+const limiteResetar2fa = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.usuario?.id ? `u:${req.usuario.id}` : ipKeyGenerator(req.ip ?? '')),
+  message: { erro: 'Muitas tentativas de senha. Aguarde 15 minutos e tente de novo.' },
+});
+
+router.post('/2fa/resetar', limiteResetar2fa, async (req, res, next) => {
   try {
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
     const usuario = await db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?')
