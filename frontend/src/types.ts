@@ -174,11 +174,19 @@ export interface VisualJson {
 }
 
 /** Um dia da agenda semanal de funcionamento. dia: 0=domingo … 6=sábado. */
+export interface Turno {
+  abre: string;
+  fecha: string;
+}
+
 export interface DiaHorario {
   dia: number;
   aberto: boolean;
+  /** Primeiro turno — mantido para agenda gravada antes de `turnos` existir. */
   abre: string;
   fecha: string;
+  /** Turnos do dia; quando presente, manda. Ausente = um turno só. */
+  turnos?: Turno[];
 }
 
 /** Identidade visual da plataforma (white label global). */

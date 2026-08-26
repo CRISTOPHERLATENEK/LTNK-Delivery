@@ -11,7 +11,7 @@ import fs from 'fs';
 import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
 import { tenantPorDbNome } from '../tenants-mysql';
 import { autenticar, exigirPerfil } from '../auth';
-import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, emailValido, normalizarBairro, dataBrasilia} from '../util';
+import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, proximaAberturaISO, emailValido, normalizarBairro, dataBrasilia} from '../util';
 import { precoVigente } from '../preco-produto';
 import { SQL_GRUPOS_DO_PRODUTO, SQL_GRUPOS_DO_PRODUTO_COM_USOS } from '../grupos-sql';
 import { reordenar } from '../ordem-cardapio';
@@ -449,9 +449,35 @@ function validarHorarioJson(bruto: unknown): string {
     .filter(d => d && typeof d.dia === 'number' && d.dia >= 0 && d.dia <= 6)
     .map(d => {
       const aberto = !!d.aberto;
-      const abre = typeof d.abre === 'string' && hhmm.test(d.abre) ? d.abre : '00:00';
-      const fecha = typeof d.fecha === 'string' && hhmm.test(d.fecha) ? d.fecha : '00:00';
-      return { dia: d.dia, aberto, abre, fecha };
+      const hora = (v: unknown) => (typeof v === 'string' && hhmm.test(v) ? v : null);
+      /*
+       * TURNOS: quem fecha entre o almoço e a janta.
+       *
+       * `abre`/`fecha` continuam sendo gravados com o PRIMEIRO turno. Não é
+       * redundância: toda agenda já no banco tem esse formato, e é por ele que
+       * um leitor antigo (ou um backup restaurado) continua enxergando horário
+       * em vez de dia vazio.
+       *
+       * Turno com hora inválida é DESCARTADO em vez de virar 00:00 — um par
+       * 00:00–00:00 no meio da lista fecharia a loja num horário que o lojista
+       * nunca digitou.
+       */
+      const brutos: unknown[] = Array.isArray(d.turnos) && d.turnos.length > 0
+        ? d.turnos
+        : [{ abre: d.abre, fecha: d.fecha }];
+      const turnos = brutos
+        .map(t => {
+          const o = t as { abre?: unknown; fecha?: unknown };
+          const a = hora(o?.abre), f = hora(o?.fecha);
+          return a && f ? { abre: a, fecha: f } : null;
+        })
+        .filter((t): t is { abre: string; fecha: string } => t !== null)
+        .sort((a, b) => a.abre.localeCompare(b.abre))
+        /* Dois turnos bastam pra almoço e janta; o limite existe pra uma lista
+           enorme vinda do cliente não virar JSON gigante gravado a cada save. */
+        .slice(0, 4);
+      const primeiro = turnos[0] || { abre: '00:00', fecha: '00:00' };
+      return { dia: d.dia, aberto, abre: primeiro.abre, fecha: primeiro.fecha, turnos };
     });
   return JSON.stringify(norm);
 }
@@ -632,12 +658,27 @@ router.post('/loja/abrir-fechar', async (req, res, next) => {
     const lojaQualquer = loja as any;
     const novo = loja.aberta ? 0 : 1;
 
-    // No modo automático, fechar manualmente = pausa temporária até a próxima
-    // abertura agendada; abrir manualmente = cancela a pausa.
+    /*
+     * NO AUTOMÁTICO, FECHAR É PAUSAR — E A TELA PRECISA SABER ATÉ QUANDO.
+     *
+     * O tick de horário reabre a loja assim que a pausa vence. Antes a rota
+     * devolvia só `{ aberta: false }` e a tela dizia "Loja fechada.", ponto: o
+     * lojista fechava numa noite fraca, ia embora, e a loja reabria sozinha
+     * duas horas depois aceitando pedido que ninguém ia preparar.
+     *
+     * Agora o instante da reabertura volta junto, e `ate: 'expediente'` fecha
+     * até a PRÓXIMA ABERTURA da agenda — que é o que "fechei hoje" quer dizer.
+     */
+    let reabreEm: string | null = null;
     if (lojaQualquer.auto_horario) {
       if (novo === 0) {
-        // Pausa por 2h (ou até o fim do expediente, o tick reavalia).
-        const ate = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+        const ate = req.body?.ate === 'expediente'
+          ? (proximaAberturaISO(lojaQualquer.horario_json || '')
+            /* Sem agenda válida não há "próxima abertura" — cai nas 2h em vez
+               de pausar pra sempre sem o lojista ter pedido isso. */
+            ?? new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString())
+          : new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+        reabreEm = ate;
         await db.prepare('UPDATE lojas SET aberta = 0, pausado_ate = ? WHERE id = ?').run(ate, loja.id);
       } else {
         await db.prepare("UPDATE lojas SET aberta = 1, pausado_ate = '' WHERE id = ?").run(loja.id);
@@ -645,7 +686,7 @@ router.post('/loja/abrir-fechar', async (req, res, next) => {
     } else {
       await db.prepare('UPDATE lojas SET aberta = ? WHERE id = ?').run(novo, loja.id);
     }
-    res.json({ aberta: !!novo });
+    res.json({ aberta: !!novo, reabre_em: reabreEm, automatico: !!lojaQualquer.auto_horario });
   } catch (e) { next(e); }
 });
 

@@ -133,19 +133,54 @@ export function erroHttp(status: number, mensagem: string): ErroHttp {
 /* ─────────────── Horário de funcionamento automático ─────────────── */
 
 /** Um dia da agenda semanal. dia: 0=domingo … 6=sábado. */
+/** Uma janela de atendimento: "11:00" às "15:00". */
+export interface Turno {
+  abre: string;   // "HH:MM"
+  fecha: string;  // "HH:MM"
+}
+
 export interface DiaHorario {
   dia: number;
   aberto: boolean;
-  abre: string;   // "HH:MM"
-  fecha: string;  // "HH:MM"
+  /**
+   * PRIMEIRO turno do dia. Continua aqui, e não só dentro de `turnos`, porque
+   * toda agenda já gravada tem este formato — ler só `turnos` faria as lojas
+   * existentes aparecerem sem horário nenhum no dia do deploy.
+   */
+  abre: string;
+  fecha: string;
+  /**
+   * Turnos além do primeiro — quem fecha entre o almoço e a janta.
+   *
+   * Quando presente, esta lista MANDA (e o primeiro item repete `abre`/`fecha`).
+   * Ausente, o dia tem um turno só, que é `abre`–`fecha`. Assim agenda antiga e
+   * nova passam pelo mesmo caminho, sem migração.
+   */
+  turnos?: Turno[];
+}
+
+/**
+ * Os turnos do dia, em ordem — a forma única de ler a agenda.
+ *
+ * Todo leitor passa por aqui de propósito: enquanto `abre`/`fecha` e `turnos`
+ * coexistem, cada lugar que decidisse por conta própria qual dos dois vale
+ * seria uma chance de divergir — e divergir aqui significa a loja aparecer
+ * aberta quando está fechada.
+ */
+export function turnosDoDia(regra: DiaHorario): Turno[] {
+  const lista = Array.isArray(regra.turnos) && regra.turnos.length > 0
+    ? regra.turnos
+    : [{ abre: regra.abre, fecha: regra.fecha }];
+  /* Ordenado por abertura: "a próxima abertura" percorre esta lista, e turno
+     fora de ordem devolveria a janta antes do almoço. */
+  return [...lista].sort((a, b) => (hhmmParaMinutos(a.abre) ?? 0) - (hhmmParaMinutos(b.abre) ?? 0));
 }
 
 /** Fuso de Brasília (UTC-3). O app é voltado ao Brasil. */
 const OFFSET_BR_MINUTOS = -3 * 60;
 
 /** Retorna { diaSemana, minutos } no horário de Brasília, independente do TZ do servidor. */
-function agoraBrasilia(): { dia: number; minutos: number } {
-  const agora = new Date();
+function agoraBrasilia(agora: Date = new Date()): { dia: number; minutos: number } {
   // Converte para minutos UTC e aplica offset do Brasil.
   const utcMin = agora.getUTCHours() * 60 + agora.getUTCMinutes();
   let totalMin = utcMin + OFFSET_BR_MINUTOS;
@@ -168,52 +203,86 @@ function hhmmParaMinutos(hhmm: string): number | null {
  * Suporta turnos que cruzam a meia-noite (ex.: abre 18:00, fecha 02:00).
  * Retorna null quando não há agenda válida (não deve sobrescrever o manual).
  */
-export function lojaAbertaPorAgenda(horarioJson: string): boolean | null {
+export function lojaAbertaPorAgenda(horarioJson: string, agora: Date = new Date()): boolean | null {
   let agenda: DiaHorario[];
   try { agenda = JSON.parse(horarioJson || '[]'); }
   catch { return null; }
   if (!Array.isArray(agenda) || agenda.length === 0) return null;
 
-  const { dia, minutos } = agoraBrasilia();
+  const { dia, minutos } = agoraBrasilia(agora);
 
   // Checa o dia de hoje e o de ontem (para turnos que viram a noite).
   for (const offset of [0, -1]) {
     const d = (dia + offset + 7) % 7;
     const regra = agenda.find(r => r.dia === d);
     if (!regra || !regra.aberto) continue;
-    const ini = hhmmParaMinutos(regra.abre);
-    const fim = hhmmParaMinutos(regra.fecha);
-    if (ini === null || fim === null) continue;
-    if (fim > ini) {
-      // Turno normal no mesmo dia.
-      if (offset === 0 && minutos >= ini && minutos < fim) return true;
-    } else {
-      // Turno cruza a meia-noite.
-      if (offset === 0 && minutos >= ini) return true;        // antes da meia-noite
-      if (offset === -1 && minutos < fim) return true;        // depois da meia-noite (madrugada de hoje)
+    for (const t of turnosDoDia(regra)) {
+      const ini = hhmmParaMinutos(t.abre);
+      const fim = hhmmParaMinutos(t.fecha);
+      if (ini === null || fim === null) continue;
+      if (fim > ini) {
+        // Turno normal no mesmo dia.
+        if (offset === 0 && minutos >= ini && minutos < fim) return true;
+      } else {
+        // Turno cruza a meia-noite.
+        if (offset === 0 && minutos >= ini) return true;        // antes da meia-noite
+        if (offset === -1 && minutos < fim) return true;        // depois da meia-noite (madrugada de hoje)
+      }
     }
   }
   return false;
 }
 
 /** Próxima abertura legível, ex.: "abre seg 18:00". Retorna '' se sempre fechada. */
-export function proximaAbertura(horarioJson: string): string {
+export function proximaAbertura(horarioJson: string, agora: Date = new Date()): string {
+  const nomes = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  const p = proximaAberturaBruta(horarioJson, agora);
+  return p ? `abre ${nomes[p.dia]} ${p.hhmm}` : '';
+}
+
+/**
+ * O INSTANTE da próxima abertura, em ISO — não o texto.
+ *
+ * Existe porque "fechar até o fim do expediente" precisa gravar até QUANDO, e
+ * porque a tela precisa dizer a hora exata em que a loja reabre sozinha. Antes
+ * só havia a versão legível, e derivar um horário a partir de "abre seg 18:00"
+ * seria reparsear o que esta função já sabe.
+ */
+export function proximaAberturaISO(horarioJson: string, agora: Date = new Date()): string | null {
+  const p = proximaAberturaBruta(horarioJson, agora);
+  return p ? p.iso : null;
+}
+
+function proximaAberturaBruta(
+  horarioJson: string, agora: Date,
+): { dia: number; hhmm: string; iso: string } | null {
   let agenda: DiaHorario[];
   try { agenda = JSON.parse(horarioJson || '[]'); }
-  catch { return ''; }
-  if (!Array.isArray(agenda)) return '';
-  const nomes = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
-  const { dia, minutos } = agoraBrasilia();
-  for (let i = 0; i < 7; i++) {
+  catch { return null; }
+  if (!Array.isArray(agenda)) return null;
+
+  /* Desloca pro fuso e usa os getters UTC como relógio de parede de Brasília:
+     assim a conta não depende do fuso do servidor. */
+  const desloc = new Date(agora.getTime() + OFFSET_BR_MINUTOS * 60000);
+  const dia = desloc.getUTCDay();
+  const minutos = desloc.getUTCHours() * 60 + desloc.getUTCMinutes();
+  const meiaNoite = Date.UTC(desloc.getUTCFullYear(), desloc.getUTCMonth(), desloc.getUTCDate());
+
+  /* Até 8 e não 7: se a única abertura do dia já passou, a próxima é no MESMO
+     dia da semana que vem — com 7 o laço terminava sem resposta. */
+  for (let i = 0; i < 8; i++) {
     const d = (dia + i) % 7;
     const regra = agenda.find(r => r.dia === d && r.aberto);
     if (!regra) continue;
-    const ini = hhmmParaMinutos(regra.abre);
-    if (ini === null) continue;
-    if (i === 0 && minutos >= ini) continue; // já passou hoje
-    return `abre ${nomes[d]} ${regra.abre}`;
+    for (const t of turnosDoDia(regra)) {
+      const ini = hhmmParaMinutos(t.abre);
+      if (ini === null) continue;
+      if (i === 0 && minutos >= ini) continue; // já passou hoje
+      const alvo = meiaNoite + i * 86400000 + ini * 60000 - OFFSET_BR_MINUTOS * 60000;
+      return { dia: d, hhmm: t.abre, iso: new Date(alvo).toISOString() };
+    }
   }
-  return '';
+  return null;
 }
 
 /**

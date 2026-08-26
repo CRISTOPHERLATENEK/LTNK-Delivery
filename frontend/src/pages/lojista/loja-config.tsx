@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
 import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import { AreasEntrega } from './areas-entrega';
-import type { DiaHorario, Loja } from '@/types';
+import type { DiaHorario, Turno, Loja } from '@/types';
 
 export function LojaConfiguracao() {
   const { mostrar } = useToast();
@@ -114,13 +114,37 @@ export function LojaConfiguracao() {
     }
   }
 
-  async function alternarAberta() {
+  /**
+   * Abre/fecha a loja. `ate` só vale ao FECHAR no modo automático.
+   *
+   * No automático, fechar é pausar: o tick de horário reabre quando a pausa
+   * vence. A tela dizia só "Loja fechada." — e o lojista que fechava numa noite
+   * fraca e ia embora tinha a loja reaberta sozinha duas horas depois,
+   * aceitando pedido que ninguém ia preparar. Agora a hora da reabertura vem na
+   * resposta e é DITA.
+   */
+  async function alternarAberta(ate?: 'expediente') {
     if (!loja) return;
     setAlternando(true);
     try {
-      const r = await api<{ aberta: boolean }>('POST', '/api/lojista/loja/abrir-fechar');
+      const r = await api<{ aberta: boolean; reabre_em: string | null; automatico: boolean }>(
+        'POST', '/api/lojista/loja/abrir-fechar', ate ? { ate } : undefined);
       setLoja(l => l ? { ...l, aberta: r.aberta ? 1 : 0 } : l);
-      mostrar({ tipo: 'sucesso', titulo: r.aberta ? 'Loja aberta para pedidos!' : 'Loja fechada.' });
+      if (r.aberta) {
+        mostrar({ tipo: 'sucesso', titulo: 'Loja aberta para pedidos!' });
+      } else if (r.reabre_em) {
+        const q = new Date(r.reabre_em);
+        const hoje = q.toDateString() === new Date().toDateString();
+        const hora = q.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const dia = hoje ? '' : ` de ${q.toLocaleDateString('pt-BR', { weekday: 'short' })}`;
+        mostrar({
+          tipo: 'sucesso',
+          titulo: 'Loja fechada.',
+          descricao: `No horário automático, ela reabre sozinha às ${hora}${dia}.`,
+        });
+      } else {
+        mostrar({ tipo: 'sucesso', titulo: 'Loja fechada.' });
+      }
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
@@ -159,14 +183,29 @@ export function LojaConfiguracao() {
               </div>
             </div>
           </div>
+          {/* `() => alternarAberta()` e não `alternarAberta`: passado direto, o
+              React entrega o evento do clique como primeiro argumento, e ele
+              cairia no parâmetro `ate`. */}
           <Button
             variant={loja.aberta ? 'destructive' : 'success'}
-            onClick={alternarAberta}
+            onClick={() => alternarAberta()}
             disabled={alternando || loja.status_aprovacao !== 'aprovada'}
           >
             <Power className="size-4" />
             {alternando ? '…' : loja.aberta ? 'Fechar agora' : 'Abrir agora'}
           </Button>
+          {/*
+            FECHAR PELO RESTO DO DIA — só faz sentido aberta e no automático.
+            "Fechar agora" pausa por 2h porque o caso comum é a pausa curta
+            (fila cheia, faltou insumo). Quem encerrou o dia mais cedo quer a
+            loja fechada ATÉ A PRÓXIMA ABERTURA da agenda, e sem esta opção
+            precisava desligar o horário automático e lembrar de religar.
+          */}
+          {!!loja.aberta && !!loja.auto_horario && loja.status_aprovacao === 'aprovada' && (
+            <Button variant="outline" onClick={() => alternarAberta('expediente')} disabled={alternando}>
+              Encerrar o dia
+            </Button>
+          )}
           {loja.status_aprovacao !== 'aprovada' && (
             <p className="w-full text-xs text-muted-foreground">
               ⚠️ A loja precisa estar aprovada pelo administrador antes de abrir.
@@ -428,8 +467,47 @@ export function HorarioLoja() {
     setAgenda(a => a.map(d => d.dia === dia ? { ...d, ...patch } : d));
   }
 
+  /*
+   * OS TURNOS SÃO A FONTE ÚNICA NA TELA.
+   *
+   * `abre`/`fecha` continuam viajando pro servidor (agenda antiga depende
+   * deles), mas quem edita aqui é sempre a lista — deixar os dois editáveis em
+   * paralelo é onde eles divergem, e o sintoma seria a loja abrindo num horário
+   * que a tela não mostra.
+   */
+  const turnosDe = (d: DiaHorario): Turno[] =>
+    d.turnos && d.turnos.length > 0 ? d.turnos : [{ abre: d.abre, fecha: d.fecha }];
+
+  function porTurnos(dia: number, novos: Turno[]) {
+    const lista = novos.length > 0 ? novos : [{ abre: '18:00', fecha: '23:00' }];
+    atualizarDia(dia, { turnos: lista, abre: lista[0].abre, fecha: lista[0].fecha });
+  }
+
+  function mudarTurno(d: DiaHorario, i: number, patch: Partial<Turno>) {
+    porTurnos(d.dia, turnosDe(d).map((t, j) => (j === i ? { ...t, ...patch } : t)));
+  }
+
+  function adicionarTurno(d: DiaHorario) {
+    const atuais = turnosDe(d);
+    /* O novo turno começa DEPOIS do último: quem adiciona intervalo está
+       abrindo a janta, e nascer em 18:00 sobre um turno que vai até 23:00
+       criaria sobreposição já no clique. */
+    const ultimo = atuais[atuais.length - 1];
+    const inicio = ultimo.fecha >= '22:00' ? '23:00' : ultimo.fecha;
+    porTurnos(d.dia, [...atuais, { abre: inicio, fecha: '23:00' }]);
+  }
+
+  function removerTurno(d: DiaHorario, i: number) {
+    porTurnos(d.dia, turnosDe(d).filter((_, j) => j !== i));
+  }
+
   function copiarParaTodos(origem: DiaHorario) {
-    setAgenda(a => a.map(d => ({ ...d, abre: origem.abre, fecha: origem.fecha, aberto: origem.aberto })));
+    setAgenda(a => a.map(d => ({
+      ...d, aberto: origem.aberto, abre: origem.abre, fecha: origem.fecha,
+      /* Cópia da LISTA, não da referência: sem isso os sete dias passariam a
+         apontar pro mesmo array, e editar a terça mexeria na quinta. */
+      turnos: origem.turnos ? origem.turnos.map(t => ({ ...t })) : undefined,
+    })));
     mostrar({ tipo: 'info', titulo: 'Horário copiado para todos os dias.' });
   }
 
@@ -486,7 +564,7 @@ export function HorarioLoja() {
           {agenda.map(d => {
             const nome = DIAS.find(x => x.dia === d.dia)?.nome ?? '';
             return (
-              <div key={d.dia} className="flex items-center gap-2 rounded-xl border border-border/60 p-2.5">
+              <div key={d.dia} className="flex items-start gap-2 rounded-xl border border-border/60 p-2.5">
                 {/* toggle aberto */}
                 <button
                   type="button"
@@ -496,30 +574,63 @@ export function HorarioLoja() {
                 >
                   <span className={cn('absolute top-0.5 size-4 rounded-full bg-white shadow transition-all', d.aberto ? 'left-[18px]' : 'left-0.5')} />
                 </button>
-                <span className="w-20 text-sm font-semibold shrink-0">{nome}</span>
+                <span className="w-20 shrink-0 pt-2 text-sm font-semibold">{nome}</span>
                 {d.aberto ? (
-                  <div className="flex items-center gap-1.5 flex-1">
-                    <Input
-                      type="time" disabled={!auto}
-                      value={d.abre}
-                      onChange={e => atualizarDia(d.dia, { abre: e.target.value })}
-                      className="h-9 text-sm px-2 flex-1 min-w-0"
-                    />
-                    <span className="text-muted-foreground text-xs">às</span>
-                    <Input
-                      type="time" disabled={!auto}
-                      value={d.fecha}
-                      onChange={e => atualizarDia(d.dia, { fecha: e.target.value })}
-                      className="h-9 text-sm px-2 flex-1 min-w-0"
-                    />
-                    <button
-                      type="button" disabled={!auto}
-                      onClick={() => copiarParaTodos(d)}
-                      title="Copiar este horário para todos os dias"
-                      className="shrink-0 text-[11px] font-semibold text-primary hover:underline disabled:opacity-40 px-1"
-                    >
-                      todos
-                    </button>
+                  <div className="flex-1 space-y-1.5">
+                    {/*
+                      UMA LINHA POR TURNO — é o que permite fechar entre o
+                      almoço e a janta. Com um par só, quem serve os dois tinha
+                      que declarar 11:00–23:00 e ficava "aberta" às 16h,
+                      recebendo pedido com a cozinha vazia.
+                    */}
+                    {turnosDe(d).map((t, i) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <Input
+                          type="time" disabled={!auto}
+                          value={t.abre}
+                          onChange={e => mudarTurno(d, i, { abre: e.target.value })}
+                          className="h-9 text-sm px-2 flex-1 min-w-0"
+                        />
+                        <span className="text-muted-foreground text-xs">às</span>
+                        <Input
+                          type="time" disabled={!auto}
+                          value={t.fecha}
+                          onChange={e => mudarTurno(d, i, { fecha: e.target.value })}
+                          className="h-9 text-sm px-2 flex-1 min-w-0"
+                        />
+                        {i === 0 ? (
+                          <button
+                            type="button" disabled={!auto}
+                            onClick={() => copiarParaTodos(d)}
+                            title="Copiar este horário para todos os dias"
+                            className="shrink-0 px-1 text-[11px] font-semibold text-primary hover:underline disabled:opacity-40"
+                          >
+                            todos
+                          </button>
+                        ) : (
+                          <button
+                            type="button" disabled={!auto}
+                            onClick={() => removerTurno(d, i)}
+                            title="Remover este turno"
+                            aria-label="Remover turno"
+                            className="shrink-0 px-1 text-muted-foreground hover:text-destructive disabled:opacity-40"
+                          >
+                            <X className="size-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {/* Dois turnos cobrem almoço e janta; mais que isso é raro e
+                        vira uma coluna de campos difícil de conferir. */}
+                    {turnosDe(d).length < 2 && (
+                      <button
+                        type="button" disabled={!auto}
+                        onClick={() => adicionarTurno(d)}
+                        className="text-[11px] font-semibold text-primary hover:underline disabled:opacity-40"
+                      >
+                        + fechar no intervalo
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <span className="flex-1 text-sm text-muted-foreground">Fechado</span>
