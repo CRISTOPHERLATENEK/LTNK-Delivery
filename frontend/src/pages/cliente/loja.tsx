@@ -1135,6 +1135,13 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
           */}
           {produto.foto_url
             ? <img src={produto.foto_url} alt={produto.nome}
+                /* `lazy` porque o cardápio inteiro cabe numa página: 21 das 30
+                   imagens estavam abaixo da dobra e baixavam junto, competindo
+                   com as que o cliente está olhando. O navegador carrega na
+                   hora as que já estão na viewport, então nada some da
+                   primeira tela. */
+                loading="lazy"
+                decoding="async"
                 onError={e => {
                   // Foto quebrada (ex.: arquivo /uploads/... que não existe no
                   // servidor) — troca por um placeholder em vez de mostrar o

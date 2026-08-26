@@ -65,6 +65,8 @@ export const FONTES: Record<FonteMarca, { label: string; stack: string; google?:
 
 interface TemaCtx {
   marca: TemaMarca;
+  /** `/api/tema` já respondeu (ou havia cache)? Antes disso `marca` é palpite. */
+  resolvido: boolean;
   aplicarCorPrimaria: (hex: string | undefined | null, corSecundaria?: string | null) => void;
   resetarCorPrimaria: () => void;
   /** Sobrepõe o favicon (ex.: ao visitar a página de uma loja). */
@@ -78,6 +80,10 @@ interface TemaCtx {
 
 export const TemaContext = createContext<TemaCtx>({
   marca: PADRAO,
+  /* `true` no valor padrão do contexto: quem usa `useTema` FORA do provider
+     (telas do painel, admin) não está esperando resolução de domínio nenhuma —
+     `false` aqui deixaria essas telas em branco pra sempre. */
+  resolvido: true,
   aplicarCorPrimaria: () => {},
   resetarCorPrimaria: () => {},
   aplicarFaviconLoja: () => {},
@@ -306,6 +312,19 @@ export function useTemaProvider(): TemaCtx {
   // "pisca pra landing" num F5 num domínio já amarrado a uma loja, antes do
   // /api/tema (assíncrono) responder de verdade.
   const [marca, setMarca] = useState<TemaMarca>(() => lerTemaCacheado() ?? PADRAO);
+  /*
+   * O CACHE RESOLVE O F5; A PRIMEIRA VISITA NÃO TINHA SAÍDA.
+   *
+   * Sem cache (cliente novo, aba anônima, outro aparelho) `marca` nasce no
+   * PADRAO com `loja_id: 0`, e a raiz decide "não é loja" — renderiza a landing
+   * da plataforma por alguns instantes. O pisca já era conhecido; o que passou
+   * despercebido foi o custo: os dois mockups da landing somam 716 KB e começam
+   * a baixar antes da troca. Numa primeira visita, o pior momento possível.
+   *
+   * `resolvido` diz se `/api/tema` já respondeu. Nasce `true` quando havia
+   * cache: aí a decisão já é confiável e nada precisa esperar.
+   */
+  const [resolvido, setResolvido] = useState(() => lerTemaCacheado() !== null);
 
   const aplicarCorPrimaria = useCallback((hex: string | undefined | null, corSecundaria?: string | null) => {
     if (!hex) return;
@@ -339,10 +358,15 @@ export function useTemaProvider(): TemaCtx {
       gravarTemaCache(tema);
     } catch {
       // Sem internet ou backend caiu: mantém o padrão
+    } finally {
+      /* No `finally`: se o /api/tema falhar, a tela não pode ficar em branco
+         pra sempre esperando uma resposta que não vem. Falhou, mostra o que
+         der com o padrão. */
+      setResolvido(true);
     }
   }, []);
 
   useEffect(() => { recarregar(); }, [recarregar]);
 
-  return { marca, aplicarCorPrimaria, resetarCorPrimaria, aplicarFaviconLoja, resetarFavicon, previsualizar, recarregar };
+  return { marca, resolvido, aplicarCorPrimaria, resetarCorPrimaria, aplicarFaviconLoja, resetarFavicon, previsualizar, recarregar };
 }

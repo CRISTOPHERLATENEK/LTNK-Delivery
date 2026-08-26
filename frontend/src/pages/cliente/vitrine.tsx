@@ -12,7 +12,14 @@ import { PaginaLoja } from './loja';
 import { ClienteLayout } from '@/App';
 
 export function PaginaVitrine() {
-  const { marca } = useTema();
+  const { marca, resolvido } = useTema();
+  /*
+   * Não decide antes de saber. Com `loja_id: 0` por falta de resposta, a
+   * escolha "não é loja" é um palpite — e o palpite errado renderiza a landing
+   * da plataforma, que puxa 716 KB de mockup antes de ser trocada pelo
+   * cardápio. Esperar aqui é mais rápido do que baixar a página errada.
+   */
+  if (!resolvido) return null;
   if (marca.loja_id > 0) {
     return <ClienteLayout><PaginaLoja idFixo={marca.loja_id} /></ClienteLayout>;
   }
