@@ -60,7 +60,11 @@ describe('as telas de configuração usam o aviso', () => {
 
   it('o hook é importado e usado', () => {
     expect(cfg).toMatch(/import \{[^}]*useAvisoNaoSalvo[^}]*\} from '@\/lib\/nao-salvo'/);
-    expect((cfg.match(/useAvisoNaoSalvo\(/g) || []).length).toBeGreaterThanOrEqual(2);
+    /* CINCO telas: Dados da loja, Horário, Impressão, Zonas e Pagamentos. O
+       número está aqui pra que remover o aviso de uma delas FALHE — é uma
+       proteção invisível quando funciona, então nada na tela denunciaria a
+       ausência. Ao ligar numa sexta tela, suba o número. */
+    expect((cfg.match(/useAvisoNaoSalvo\(/g) || []).length).toBeGreaterThanOrEqual(5);
   });
 
   /* `marcarSalvo` tem que ser chamado no CARREGAMENTO também — só no save, a

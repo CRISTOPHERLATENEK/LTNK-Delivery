@@ -849,6 +849,18 @@ export function ZonasEntrega() {
   const [qtdAreas, setQtdAreas] = useState(0);
   /** Tempo padrão da loja — vira placeholder do campo por bairro. */  const [taxaPadraoTempo, setTaxaPadraoTempo] = useState(40);
   const [tempoZona, setTempoZona] = useState('');
+  /*
+   * AQUI O "NÃO SALVO" É OUTRA COISA.
+   *
+   * Não há formulário da tela inteira: cada bairro grava na hora. O que se
+   * perde é o bairro DIGITADO e ainda não adicionado — e ele custa caro, porque
+   * vem junto da distância consultada. Por isso `useRascunho` não serve: não
+   * existe ponto salvo a comparar, e sim campo preenchido pendente.
+   */
+  useAvisoNaoSalvo(
+    bairro.trim() !== '' || taxa.trim() !== '' || tempoZona.trim() !== '',
+    'Você digitou um bairro que ainda não foi adicionado. Sair e perder?',
+  );
   /** Distância e sugestão do bairro digitado — o número que ninguém tem de cabeça. */
   const [sugestao, setSugestao] = useState<{ km: number; sugestao_centavos: number; explicacao: string } | null>(null);
   const [sugerindo, setSugerindo] = useState(false);
@@ -1271,6 +1283,16 @@ export function PagamentosLoja() {
   const [onzId, setOnzId] = useState('');
   const [onzSecret, setOnzSecret] = useState('');
   const [onzChave, setOnzChave] = useState('');
+  /*
+   * Os campos de credencial são de ESCRITA: o servidor devolve versão
+   * mascarada, então não há valor carregado pra comparar — o que existe é
+   * "colou e não salvou". Perder um access token colado do portal do Mercado
+   * Pago significa voltar lá e gerar outro.
+   */
+  useAvisoNaoSalvo(
+    [tokenTeste, tokenProducao, onzId, onzSecret, onzChave].some(v => v.trim() !== ''),
+    'Você colou uma credencial que ainda não foi salva. Sair e perder?',
+  );
   const [mostrarTeste, setMostrarTeste] = useState(false);
   const [mostrarProducao, setMostrarProducao] = useState(false);
   const [enviando, setEnviando] = useState(false);
