@@ -15,6 +15,7 @@ import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos
 import { precoVigente } from '../preco-produto';
 import { SQL_GRUPOS_DO_PRODUTO, SQL_GRUPOS_DO_PRODUTO_COM_USOS } from '../grupos-sql';
 import { reordenar } from '../ordem-cardapio';
+import { slugReservado } from '../slug-reservado';
 import { validarHorarioJson } from '../agenda-validacao';
 import { resolverCanais } from '../disponibilidade-produto';
 import { transicionarStatus } from '../fluxoPedido';
@@ -313,6 +314,16 @@ router.put('/loja', async (req, res, next) => {
       const s = textoLimpo(req.body.slug, 60).toLowerCase().replace(/\s+/g, '-');
       if (s && !/^[a-z0-9][a-z0-9-]{1,58}[a-z0-9]$/.test(s)) {
         throw erroHttp(400, 'Slug inválido: use apenas letras minúsculas, números e hífens (mín. 3 chars).');
+      }
+      /*
+       * O formato estar certo não basta: a loja vive em `/:id`, a rota mais
+       * genérica do cliente. Slug `pedidos` faz a loja SUMIR — `/pedidos` casa
+       * com a rota estática, que é mais específica e vence. E some em silêncio:
+       * o lojista salva, lê "Loja atualizada!", e o link que ele espalhou abre
+       * a tela errada.
+       */
+      if (s && slugReservado(s)) {
+        throw erroHttp(400, `"${s}" é um endereço reservado do sistema e abriria outra tela. Escolha outro.`);
       }
       if (s && SLUGS_RESERVADOS.has(s)) {
         throw erroHttp(400, `"${s}" é uma URL reservada do sistema — escolha outro slug.`);
