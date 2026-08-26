@@ -15,6 +15,7 @@ import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos
 import { precoVigente } from '../preco-produto';
 import { SQL_GRUPOS_DO_PRODUTO, SQL_GRUPOS_DO_PRODUTO_COM_USOS } from '../grupos-sql';
 import { reordenar } from '../ordem-cardapio';
+import { validarHorarioJson } from '../agenda-validacao';
 import { resolverCanais } from '../disponibilidade-produto';
 import { transicionarStatus } from '../fluxoPedido';
 import { enviarPush } from '../push';
@@ -435,52 +436,6 @@ router.put('/loja', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-/** Valida o JSON da agenda semanal e devolve uma versão normalizada. */
-function validarHorarioJson(bruto: unknown): string {
-  let arr: any;
-  if (typeof bruto === 'string') {
-    try { arr = JSON.parse(bruto); } catch { throw erroHttp(400, 'Agenda de horários inválida.'); }
-  } else {
-    arr = bruto;
-  }
-  if (!Array.isArray(arr)) throw erroHttp(400, 'Agenda de horários inválida.');
-  const hhmm = /^(\d{1,2}):(\d{2})$/;
-  const norm = arr
-    .filter(d => d && typeof d.dia === 'number' && d.dia >= 0 && d.dia <= 6)
-    .map(d => {
-      const aberto = !!d.aberto;
-      const hora = (v: unknown) => (typeof v === 'string' && hhmm.test(v) ? v : null);
-      /*
-       * TURNOS: quem fecha entre o almoço e a janta.
-       *
-       * `abre`/`fecha` continuam sendo gravados com o PRIMEIRO turno. Não é
-       * redundância: toda agenda já no banco tem esse formato, e é por ele que
-       * um leitor antigo (ou um backup restaurado) continua enxergando horário
-       * em vez de dia vazio.
-       *
-       * Turno com hora inválida é DESCARTADO em vez de virar 00:00 — um par
-       * 00:00–00:00 no meio da lista fecharia a loja num horário que o lojista
-       * nunca digitou.
-       */
-      const brutos: unknown[] = Array.isArray(d.turnos) && d.turnos.length > 0
-        ? d.turnos
-        : [{ abre: d.abre, fecha: d.fecha }];
-      const turnos = brutos
-        .map(t => {
-          const o = t as { abre?: unknown; fecha?: unknown };
-          const a = hora(o?.abre), f = hora(o?.fecha);
-          return a && f ? { abre: a, fecha: f } : null;
-        })
-        .filter((t): t is { abre: string; fecha: string } => t !== null)
-        .sort((a, b) => a.abre.localeCompare(b.abre))
-        /* Dois turnos bastam pra almoço e janta; o limite existe pra uma lista
-           enorme vinda do cliente não virar JSON gigante gravado a cada save. */
-        .slice(0, 4);
-      const primeiro = turnos[0] || { abre: '00:00', fecha: '00:00' };
-      return { dia: d.dia, aberto, abre: primeiro.abre, fecha: primeiro.fecha, turnos };
-    });
-  return JSON.stringify(norm);
-}
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 function cor(v: unknown, atual: string): string {

@@ -16,6 +16,7 @@ import { brl, dataLocal, tempoRelativo } from '@/lib/format';
 import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import { AreasEntrega } from './areas-entrega';
 import type { DiaHorario, Turno, Loja } from '@/types';
+import { useRascunho, useAvisoNaoSalvo } from '@/lib/nao-salvo';
 
 export function LojaConfiguracao() {
   const { mostrar } = useToast();
@@ -28,6 +29,10 @@ export function LojaConfiguracao() {
   });
   const [enviando, setEnviando] = useState(false);
   const [alternando, setAlternando] = useState(false);
+  /* O ponto salvo é fixado ao CARREGAR e ao GRAVAR. Sem a chamada no
+     carregamento a tela nasceria suja e avisaria sobre edição inexistente. */
+  const { sujo, marcarSalvo } = useRascunho(form);
+  useAvisoNaoSalvo(sujo);
   // CEP não é salvo na loja: serve só pra montar o endereço (é o endereço que o
   // backend geocodifica). Guardar o CEP sem uso só criaria dois campos pra manter
   // em sincronia.
@@ -80,6 +85,7 @@ export function LojaConfiguracao() {
         dominio_personalizado: (l as any).dominio_personalizado || '',
         aceita_retirada: !!(l as { aceita_retirada?: number }).aceita_retirada,
       });
+      marcarSalvo();
     }).catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar os dados da loja.' }));
   }, []);
 
@@ -106,6 +112,7 @@ export function LojaConfiguracao() {
         dominio_personalizado: form.dominio_personalizado.trim() || null,
       });
       setLoja(r.loja);
+      marcarSalvo();
       mostrar({ tipo: 'sucesso', titulo: 'Loja atualizada!' });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
@@ -449,6 +456,8 @@ export function HorarioLoja() {
   const [agenda, setAgenda] = useState<DiaHorario[]>(agendaPadrao());
   const [carregado, setCarregado] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  const { sujo, marcarSalvo } = useRascunho({ auto, agenda });
+  useAvisoNaoSalvo(sujo);
 
   useEffect(() => {
     api<{ loja: Loja }>('GET', '/api/lojista/loja').then(r => {
@@ -460,6 +469,7 @@ export function HorarioLoja() {
       const mapa = new Map(parsed.map(d => [d.dia, d]));
       setAgenda(DIAS.map(d => mapa.get(d.dia) ?? { dia: d.dia, aberto: d.dia !== 0, abre: '18:00', fecha: '23:00' }));
       setCarregado(true);
+      marcarSalvo();
     }).catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar o horário.' }));
   }, []);
 
@@ -518,6 +528,7 @@ export function HorarioLoja() {
         auto_horario: auto,
         horario_json: JSON.stringify(agenda),
       });
+      marcarSalvo();
       mostrar({ tipo: 'sucesso', titulo: auto ? 'Horário automático ativado!' : 'Horário salvo.' });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
@@ -1977,6 +1988,8 @@ export function ImpressaoLoja() {
   const [auto, setAuto] = useState(true);
   const [rodape, setRodape] = useState('');
   const [enviando, setEnviando] = useState(false);
+  const { sujo, marcarSalvo } = useRascunho({ largura, auto, rodape });
+  useAvisoNaoSalvo(sujo);
   // Nosso Agente de Impressão (preferido) — impressora salva neste PC.
   const [agImpressoras, setAgImpressoras] = useState<string[]>([]);
   const [agSelecionada, setAgSelecionada] = useState(impressoraAgente());
@@ -2023,6 +2036,7 @@ export function ImpressaoLoja() {
       setLargura(r.loja.impressora_largura === '58' ? '58' : '80');
       setAuto(r.loja.impressora_auto === undefined ? true : !!r.loja.impressora_auto);
       setRodape(r.loja.cupom_rodape || '');
+      marcarSalvo();
     }).catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar a configuração.' }));
     conectarAgente(); // detecta o nosso agente automaticamente ao abrir
     api<{ setores: { id: number; nome: string; categorias: number }[] }>('GET', '/api/lojista/setores')
@@ -2045,6 +2059,7 @@ export function ImpressaoLoja() {
         cupom_rodape: rodape,
       });
       setLoja(r.loja);
+      marcarSalvo();
       mostrar({ tipo: 'sucesso', titulo: 'Impressão configurada!' });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
