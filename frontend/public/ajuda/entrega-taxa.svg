@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 290" width="700" height="290" font-family="-apple-system, Segoe UI, Roboto, Arial, sans-serif">
+  <rect width="700" height="290" fill="#fff"/>
+  <text x="24" y="30" font-size="15" font-weight="700" fill="#111">Como a taxa de entrega é decidida</text>
+  <text x="24" y="50" font-size="12.5" fill="#8a8a8a">o sistema tenta na ordem, e para no primeiro que casar</text>
+
+  <g font-size="12.5">
+    <rect x="24" y="72" width="652" height="52" rx="10" fill="#fff" stroke="#111" stroke-width="1.5"/>
+    <text x="44" y="94" font-weight="700" fill="#111">1º — Área desenhada no mapa</text>
+    <text x="44" y="112" fill="#8a8a8a">quando o bairro não descreve bem a região (rio, morro, avenida que corta)</text>
+    <text x="656" y="103" text-anchor="end" font-size="13" font-weight="700" fill="#111">a taxa da área</text>
+
+    <rect x="24" y="132" width="652" height="52" rx="10" fill="#fafaf9" stroke="#e3e0dc"/>
+    <text x="44" y="154" font-weight="700" fill="#111">2º — Taxa do bairro</text>
+    <text x="44" y="172" fill="#8a8a8a">cadastrada por nome; o sistema sugere a distância ao digitar</text>
+    <text x="656" y="163" text-anchor="end" font-size="13" font-weight="700" fill="#111">a taxa do bairro</text>
+
+    <rect x="24" y="192" width="652" height="52" rx="10" fill="#fdf3f1" stroke="#f0d9d4"/>
+    <text x="44" y="214" font-weight="700" fill="#a33a28">3º — Taxa padrão da loja</text>
+    <text x="44" y="232" fill="#a33a28">tudo que não casou acima cai aqui — inclusive endereço longe</text>
+    <text x="656" y="223" text-anchor="end" font-size="13" font-weight="700" fill="#a33a28">a taxa padrão</text>
+  </g>
+
+  <path d="M24 264 h652" stroke="#e8e5e1"/>
+  <text x="24" y="284" font-size="12.5" fill="#444">
+    <tspan font-weight="700">A taxa padrão é a rede de segurança — e o buraco.</tspan>
+    <tspan fill="#8a8a8a"> Baixa demais, você entrega longe de graça.</tspan>
+  </text>
+</svg>

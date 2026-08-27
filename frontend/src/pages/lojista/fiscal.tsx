@@ -14,6 +14,7 @@
  * dígito contra um papel, e em fonte proporcional 0/O e 1/l se confundem.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Ajuda } from '@/components/ui/ajuda';
 import {
   FileText, ShieldCheck, Upload, AlertTriangle, CheckCircle2, Save, FlaskConical,
   Download, Package, Ban, RefreshCw, Receipt, Loader2, FolderArchive, Mail, Landmark,
@@ -451,7 +452,7 @@ export function FiscalLoja() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <FileText className="size-5 text-primary" />
-          <h1 className="text-lg font-extrabold">Emissão de NFC-e</h1>
+          <span className="inline-flex items-baseline gap-1.5"><h1 className="text-lg font-extrabold">Emissão de NFC-e</h1><Ajuda chave="fiscal" /></span>
         </div>
         <div className="flex items-center gap-3">
           {/* Progresso: um traço por etapa. Barra contínua sugeriria

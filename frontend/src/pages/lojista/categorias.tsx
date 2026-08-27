@@ -3,6 +3,7 @@
  * estilo de exibição na vitrine do cliente (cards com ícone ou chips de texto).
  */
 import { createElement, useEffect, useState } from 'react';
+import { Ajuda } from '@/components/ui/ajuda';
 import { Tag, Save, ChevronUp, ChevronDown, LayoutGrid, Type, Printer, Plus, X, Pencil } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -168,7 +169,7 @@ export function CategoriasLoja() {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Tag className="size-5 text-primary" />
-        <h1 className="text-lg font-extrabold">Categorias</h1>
+        <span className="inline-flex items-baseline gap-1.5"><h1 className="text-lg font-extrabold">Categorias</h1><Ajuda chave="categorias" /></span>
       </div>
 
       {/* Setores de impressão */}

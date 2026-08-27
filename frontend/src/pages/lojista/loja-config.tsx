@@ -711,7 +711,7 @@ function ResumoEntrega({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-bold">Entrega</h2>
+        <span className="inline-flex items-baseline gap-1.5"><h2 className="text-lg font-bold">Entrega</h2><Ajuda chave="entrega-taxa" /></span>
         <p className="mt-0.5 text-sm text-muted-foreground">
           Onde você entrega e quanto cobra por isso.
         </p>
@@ -1471,7 +1471,7 @@ export function PagamentosLoja() {
   return (
     <div className="mx-auto max-w-[720px] space-y-4">
       <div>
-        <h2 className="text-lg font-bold">Pagamentos</h2>
+        <span className="inline-flex items-baseline gap-1.5"><h2 className="text-lg font-bold">Pagamentos</h2><Ajuda chave="pagamentos" /></span>
         <p className="mt-0.5 text-sm text-muted-foreground">
           O dinheiro cai direto na sua conta — a plataforma não fica no meio.
         </p>
@@ -2463,7 +2463,7 @@ export function UsuariosLoja() {
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="text-lg font-bold">Usuários</h2>
+        <span className="inline-flex items-baseline gap-1.5"><h2 className="text-lg font-bold">Usuários</h2><Ajuda chave="usuarios" /></span>
         <p className="mt-0.5 text-sm text-muted-foreground">
           Quem pode entrar no painel desta loja.
         </p>

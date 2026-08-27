@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Ajuda } from '@/components/ui/ajuda';
 import { useQuery } from '@tanstack/react-query';
 import { BarChart3, TrendingUp, ShoppingBag, Ticket, Wallet, Download, XCircle, Clock,
   ArrowUpRight, ArrowDownRight, Layers, Package } from 'lucide-react';
@@ -198,7 +199,7 @@ export function RelatoriosLoja() {
             <BarChart3 className="size-6" />
           </div>
           <div>
-            <h1 className="text-xl font-extrabold">Relatórios</h1>
+            <span className="inline-flex items-baseline gap-1.5"><h1 className="text-xl font-extrabold">Relatórios</h1><Ajuda chave="relatorios" /></span>
             <p className="text-sm text-muted-foreground">Vendas, financeiro e desempenho.</p>
           </div>
         </div>

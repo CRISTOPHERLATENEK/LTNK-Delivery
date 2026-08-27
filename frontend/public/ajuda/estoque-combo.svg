@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 290" width="700" height="290" font-family="-apple-system, Segoe UI, Roboto, Arial, sans-serif">
+  <rect width="700" height="290" fill="#fff"/>
+  <text x="24" y="30" font-size="15" font-weight="700" fill="#111">Estoque: o combo desconta os componentes</text>
+  <text x="24" y="50" font-size="12.5" fill="#8a8a8a">vender 1 combo tira do estoque de cada item dentro dele</text>
+
+  <rect x="24" y="74" width="200" height="62" rx="10" fill="#fff" stroke="#111" stroke-width="1.5"/>
+  <text x="44" y="98" font-size="13" font-weight="700" fill="#111">1× Combo 2 Pizzas</text>
+  <text x="44" y="118" font-size="12.5" fill="#8a8a8a">uma venda no balcão</text>
+
+  <g stroke="#c9c4be" stroke-width="1.5" fill="none">
+    <path d="M224 92 C 270 92, 270 92, 300 92"/><path d="M292 87 l8 5 l-8 5"/>
+    <path d="M224 118 C 270 118, 270 148, 300 148"/><path d="M292 143 l8 5 l-8 5"/>
+    <path d="M224 128 C 260 128, 260 204, 300 204"/><path d="M292 199 l8 5 l-8 5"/>
+  </g>
+
+  <g font-size="12.5">
+    <rect x="300" y="74" width="376" height="38" rx="9" fill="#fafaf9" stroke="#e3e0dc"/>
+    <text x="318" y="98" fill="#111">Pizza Gigante</text>
+    <text x="500" y="98" fill="#8a8a8a">estoque</text>
+    <text x="600" y="98" font-weight="700" fill="#a33a28">−1</text>
+
+    <rect x="300" y="128" width="376" height="38" rx="9" fill="#fafaf9" stroke="#e3e0dc"/>
+    <text x="318" y="152" fill="#111">Pizza Broto</text>
+    <text x="500" y="152" fill="#8a8a8a">estoque</text>
+    <text x="600" y="152" font-weight="700" fill="#a33a28">−2</text>
+    <text x="628" y="152" font-size="11" fill="#8a8a8a">(2 slots)</text>
+
+    <rect x="300" y="184" width="376" height="38" rx="9" fill="#fafaf9" stroke="#e3e0dc"/>
+    <text x="318" y="208" fill="#111">Refrigerante 2L</text>
+    <text x="500" y="208" fill="#8a8a8a">estoque</text>
+    <text x="600" y="208" font-weight="700" fill="#a33a28">−1</text>
+  </g>
+
+  <path d="M24 242 h652" stroke="#e8e5e1"/>
+  <text x="24" y="262" font-size="12.5" fill="#444">
+    <tspan font-weight="700">Dois pedaços da mesma pizza consomem duas unidades.</tspan>
+  </text>
+  <text x="24" y="280" font-size="12.5" fill="#8a8a8a">
+    E se um componente esgotar, o combo para de vender — mesmo com o combo em estoque.
+  </text>
+</svg>

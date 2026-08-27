@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 330" width="760" height="330" font-family="-apple-system, Segoe UI, Roboto, Arial, sans-serif">
+  <rect width="760" height="330" fill="#fff"/>
+  <text x="24" y="30" font-size="15" font-weight="700" fill="#111">O caminho de um pedido</text>
+  <text x="24" y="50" font-size="12.5" fill="#8a8a8a">cada etapa avisa o cliente automaticamente</text>
+
+  <g font-size="12">
+    <rect x="24" y="76" width="118" height="50" rx="10" fill="#fff" stroke="#111" stroke-width="1.5"/>
+    <text x="83" y="98" text-anchor="middle" font-weight="700" fill="#111">Pendente</text>
+    <text x="83" y="115" text-anchor="middle" fill="#8a8a8a">esperando você</text>
+
+    <rect x="166" y="76" width="112" height="50" rx="10" fill="#fafaf9" stroke="#e3e0dc"/>
+    <text x="222" y="98" text-anchor="middle" font-weight="700" fill="#111">Aceito</text>
+    <text x="222" y="115" text-anchor="middle" fill="#8a8a8a">vai pra cozinha</text>
+
+    <rect x="302" y="76" width="112" height="50" rx="10" fill="#fafaf9" stroke="#e3e0dc"/>
+    <text x="358" y="98" text-anchor="middle" font-weight="700" fill="#111">Produção</text>
+    <text x="358" y="115" text-anchor="middle" fill="#8a8a8a">no KDS</text>
+
+    <rect x="438" y="76" width="130" height="50" rx="10" fill="#fafaf9" stroke="#e3e0dc"/>
+    <text x="503" y="98" text-anchor="middle" font-weight="700" fill="#111">Saiu p/ entrega</text>
+    <text x="503" y="115" text-anchor="middle" fill="#8a8a8a">com o entregador</text>
+
+    <rect x="592" y="76" width="144" height="50" rx="10" fill="#f1f7f2" stroke="#d3e5d7"/>
+    <text x="664" y="98" text-anchor="middle" font-weight="700" fill="#2f6b41">Concluído</text>
+    <text x="664" y="115" text-anchor="middle" fill="#5c8a6b">entra no faturamento</text>
+  </g>
+  <g stroke="#c9c4be" stroke-width="1.5" fill="none">
+    <path d="M142 101 h18"/><path d="M154 96 l6 5 l-6 5"/>
+    <path d="M278 101 h18"/><path d="M290 96 l6 5 l-6 5"/>
+    <path d="M414 101 h18"/><path d="M426 96 l6 5 l-6 5"/>
+    <path d="M568 101 h18"/><path d="M580 96 l6 5 l-6 5"/>
+  </g>
+
+  <path d="M83 126 v42" stroke="#a33a28" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <path d="M78 160 l5 8 l5 -8" fill="none" stroke="#a33a28" stroke-width="1.5"/>
+  <rect x="24" y="172" width="330" height="66" rx="10" fill="#fdf3f1" stroke="#f0d9d4"/>
+  <text x="40" y="194" font-size="13" font-weight="700" fill="#a33a28">Recusar</text>
+  <text x="40" y="212" font-size="12.5" fill="#a33a28">Se o pedido já foi pago, o dinheiro é ESTORNADO</text>
+  <text x="40" y="229" font-size="12.5" fill="#a33a28">automaticamente, e o estoque volta.</text>
+
+  <rect x="380" y="172" width="356" height="66" rx="10" fill="#fafaf9" stroke="#e3e0dc"/>
+  <text x="396" y="194" font-size="13" font-weight="700" fill="#111">Venda de balcão não passa por aqui</text>
+  <text x="396" y="212" font-size="12.5" fill="#8a8a8a">Ela nasce já concluída: o cliente está na sua frente</text>
+  <text x="396" y="229" font-size="12.5" fill="#8a8a8a">e já pagou. Só o delivery tem fila de aceite.</text>
+
+  <path d="M24 264 h712" stroke="#e8e5e1"/>
+  <text x="24" y="286" font-size="12.5" fill="#444">
+    <tspan font-weight="700">Não deixe pedido pago parado na fila.</tspan>
+    <tspan fill="#8a8a8a"> O cliente pagou e está esperando: aceite ou recuse — recusar devolve o dinheiro.</tspan>
+  </text>
+  <text x="24" y="310" font-size="12.5" fill="#8a8a8a">
+    Cancelado e recusado NÃO entram no faturamento dos relatórios.
+  </text>
+</svg>

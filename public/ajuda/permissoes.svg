@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 300" width="700" height="300" font-family="-apple-system, Segoe UI, Roboto, Arial, sans-serif">
+  <rect width="700" height="300" fill="#fff"/>
+  <text x="24" y="30" font-size="15" font-weight="700" fill="#111">Um login por pessoa</text>
+  <text x="24" y="50" font-size="12.5" fill="#8a8a8a">em vez de todos usando a senha do dono</text>
+
+  <rect x="24" y="72" width="200" height="180" rx="12" fill="#fff" stroke="#111" stroke-width="1.5"/>
+  <text x="44" y="96" font-size="13" font-weight="700" fill="#111">Dono</text>
+  <text x="44" y="114" font-size="12" fill="#8a8a8a">tem tudo, sempre</text>
+  <g font-size="12.5" fill="#111">
+    <text x="44" y="142">Produtos</text>
+    <text x="44" y="163">Vendas e Caixa</text>
+    <text x="44" y="184">Relatórios</text>
+    <text x="44" y="205">Configurações</text>
+    <text x="44" y="226">Usuários</text>
+  </g>
+
+  <rect x="248" y="72" width="200" height="180" rx="12" fill="#fafaf9" stroke="#e3e0dc"/>
+  <text x="268" y="96" font-size="13" font-weight="700" fill="#111">Caixa</text>
+  <text x="268" y="114" font-size="12" fill="#8a8a8a">só o que ela usa</text>
+  <g font-size="12.5">
+    <text x="268" y="142" fill="#c6c1bb">Produtos</text>
+    <text x="268" y="163" fill="#111">Vendas e Caixa</text>
+    <text x="268" y="184" fill="#c6c1bb">Relatórios</text>
+    <text x="268" y="205" fill="#c6c1bb">Configurações</text>
+    <text x="268" y="226" fill="#c6c1bb">Usuários</text>
+  </g>
+
+  <rect x="472" y="72" width="204" height="180" rx="12" fill="#fafaf9" stroke="#e3e0dc"/>
+  <text x="492" y="96" font-size="13" font-weight="700" fill="#111">Gerente</text>
+  <text x="492" y="114" font-size="12" fill="#8a8a8a">opera e acompanha</text>
+  <g font-size="12.5">
+    <text x="492" y="142" fill="#111">Produtos</text>
+    <text x="492" y="163" fill="#111">Vendas e Caixa</text>
+    <text x="492" y="184" fill="#111">Relatórios</text>
+    <text x="492" y="205" fill="#c6c1bb">Configurações</text>
+    <text x="492" y="226" fill="#c6c1bb">Usuários</text>
+  </g>
+
+  <path d="M24 268 h652" stroke="#e8e5e1"/>
+  <text x="24" y="288" font-size="12.5" fill="#444">
+    <tspan font-weight="700">Bloquear é melhor que excluir:</tspan>
+    <tspan fill="#8a8a8a"> preserva o histórico de quem fez o quê. Quem saiu perde o acesso sem apagar o passado.</tspan>
+  </text>
+</svg>

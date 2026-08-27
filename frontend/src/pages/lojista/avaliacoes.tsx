@@ -2,6 +2,7 @@
  * Avaliações da loja — média, lista de notas e resposta do lojista.
  */
 import { useState } from 'react';
+import { Ajuda } from '@/components/ui/ajuda';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Star, MessageSquare, Send } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -43,7 +44,7 @@ export function AvaliacoesLoja() {
           <Star className="size-6 text-amber-500 fill-amber-500" />
         </div>
         <div>
-          <h1 className="text-xl font-extrabold">Avaliações</h1>
+          <span className="inline-flex items-baseline gap-1.5"><h1 className="text-xl font-extrabold">Avaliações</h1><Ajuda chave="avaliacoes" /></span>
           <p className="text-sm text-muted-foreground">O que seus clientes acharam.</p>
         </div>
       </div>

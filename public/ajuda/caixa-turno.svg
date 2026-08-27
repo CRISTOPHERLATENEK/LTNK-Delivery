@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 350" width="700" height="350" font-family="-apple-system, Segoe UI, Roboto, Arial, sans-serif">
+  <rect width="700" height="350" fill="#fff"/>
+  <text x="24" y="30" font-size="15" font-weight="700" fill="#111">O turno do caixa</text>
+  <text x="24" y="50" font-size="12.5" fill="#8a8a8a">e como o esperado é calculado no fechamento</text>
+
+  <g font-size="12.5">
+    <rect x="24" y="74" width="200" height="46" rx="10" fill="#fff" stroke="#111" stroke-width="1.5"/>
+    <text x="40" y="94" font-weight="700" fill="#111">1. Abrir o caixa</text>
+    <text x="40" y="111" fill="#8a8a8a">informe o fundo de troco</text>
+
+    <rect x="24" y="132" width="316" height="112" rx="10" fill="#fafaf9" stroke="#e3e0dc"/>
+    <text x="40" y="153" font-weight="700" fill="#111">2. Durante o turno</text>
+    <text x="40" y="175" fill="#111">Vendas em dinheiro</text>
+    <text x="326" y="175" text-anchor="end" font-weight="700" fill="#2f6b41">+</text>
+    <text x="40" y="196" fill="#111">Suprimento</text>
+    <text x="140" y="196" fill="#8a8a8a">(entra troco)</text>
+    <text x="326" y="196" text-anchor="end" font-weight="700" fill="#2f6b41">+</text>
+    <text x="40" y="217" fill="#111">Sangria</text>
+    <text x="140" y="217" fill="#8a8a8a">(sai dinheiro, com motivo)</text>
+    <text x="326" y="217" text-anchor="end" font-weight="700" fill="#a33a28">−</text>
+    <text x="40" y="236" font-size="11.5" fill="#8a8a8a">Lançou errado? CANCELE o movimento.</text>
+
+    <rect x="24" y="256" width="316" height="46" rx="10" fill="#fff" stroke="#111" stroke-width="1.5"/>
+    <text x="40" y="276" font-weight="700" fill="#111">3. Fechar</text>
+    <text x="40" y="293" fill="#8a8a8a">conte a gaveta e digite o valor contado</text>
+  </g>
+
+  <path d="M366 100 h20" stroke="#c9c4be" stroke-width="1.5"/>
+  <rect x="386" y="74" width="290" height="228" rx="12" fill="#fff" stroke="#e3e0dc"/>
+  <text x="406" y="98" font-size="13" font-weight="700" fill="#111">A conta do esperado</text>
+  <g font-size="12.5" fill="#111">
+    <text x="406" y="126">Fundo de troco</text>
+    <text x="406" y="148">+ vendas em dinheiro</text>
+    <text x="406" y="170">+ suprimentos</text>
+    <text x="406" y="192">− sangrias</text>
+  </g>
+  <path d="M406 204 h250" stroke="#111"/>
+  <text x="406" y="226" font-size="13" font-weight="700" fill="#111">= esperado na gaveta</text>
+  <text x="406" y="252" font-size="12.5" fill="#8a8a8a">contado − esperado = diferença</text>
+  <rect x="406" y="264" width="250" height="26" rx="7" fill="#fafaf9"/>
+  <text x="418" y="281" font-size="11.5" fill="#8a8a8a">quebra de centavos é normal e tolerada</text>
+
+  <path d="M24 320 h652" stroke="#e8e5e1"/>
+  <text x="24" y="342" font-size="12.5" fill="#444">
+    <tspan font-weight="700">A sangria não passa do que está na gaveta.</tspan>
+    <tspan fill="#8a8a8a"> Se for recusada, confira o valor — quase sempre é um zero a mais.</tspan>
+  </text>
+</svg>
