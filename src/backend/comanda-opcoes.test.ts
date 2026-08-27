@@ -209,3 +209,36 @@ describe('fase 4: o ticket da cozinha leva a composição', () => {
     expect(cozinha).toMatch(/detalhe: i\.observacao \|\| ''/);
   });
 });
+
+/*
+ * COMPONENTE DE COMBO NÃO PODE SER VENDIDO AVULSO — EM CANAL NENHUM.
+ *
+ * `vendido_sozinho = 0` já era respeitado no cardápio, nos destaques e na busca.
+ * O PDV e a mesa ficaram de fora: a "Pizza Broto 25cm", que existe só dentro do
+ * combo, aparecia na grade do balcão vendável por R$ 35. Achado olhando a tela
+ * real — nenhum teste apontava, porque todos olhavam o lado do cliente.
+ */
+describe('o PDV e a mesa escondem componente de combo', () => {
+  const tela = (nome: string) => semComentarios(fs.readFileSync(
+    path.resolve(__dirname, '..', '..', 'frontend', 'src', 'pages', 'lojista', nome), 'utf8'));
+
+  it('o balcão filtra por vendido_sozinho', () => {
+    expect(tela('balcao.tsx')).toMatch(/p\.disponivel_pdv && p\.vendido_sozinho !== 0/);
+  });
+
+  it('a mesa também', () => {
+    expect(tela('mesas.tsx')).toMatch(/p\.disponivel && p\.vendido_sozinho !== 0/);
+  });
+
+  /*
+   * `!== 0` E NÃO `=== 1`. Produto cadastrado antes da coluna existir vem sem o
+   * campo; tratá-lo como componente sumiria com meio cardápio do PDV — falha
+   * silenciosa e desesperadora, porque o produto existe no cadastro e não
+   * aparece na venda.
+   */
+  it('produto sem o campo continua vendável', () => {
+    for (const f of ['balcao.tsx', 'mesas.tsx']) {
+      expect(tela(f)).not.toMatch(/vendido_sozinho === 1/);
+    }
+  });
+});

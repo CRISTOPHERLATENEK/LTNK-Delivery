@@ -168,7 +168,20 @@ export function BalcaoLoja() {
    * O primeiro é "vende no balcão"; o segundo é "aparece no cardápio". Eram a
    * mesma coluna, então pausar um item no delivery sumia com ele daqui também.
    */
-  const disponiveis = (produtosQ.data ?? []).filter(p => p.disponivel_pdv);
+  /*
+   * COMPONENTE DE COMBO NÃO ENTRA NO PDV.
+   *
+   * O balcão filtrava só por `disponivel_pdv`, e as "Pizza Broto 25cm" e
+   * "Pizza Gigante 45cm" — que existem apenas dentro do Combo Duas Pizzas —
+   * apareciam na grade, vendáveis avulsas por R$ 35 e R$ 99. `vendido_sozinho`
+   * existe justamente pra impedir isso, e o cardápio já respeitava: faltava o
+   * PDV, que é onde o preço avulso vira dinheiro perdido no caixa.
+   *
+   * `!== 0` e não `=== 1`: produto cadastrado antes da coluna vem sem o campo, e
+   * tratá-lo como componente sumiria com meio cardápio.
+   */
+  const disponiveis = (produtosQ.data ?? [])
+    .filter(p => p.disponivel_pdv && p.vendido_sozinho !== 0);
   const categorias = useMemo(
     () => Array.from(new Set(disponiveis.map(p => p.categoria).filter(Boolean))),
     [disponiveis],

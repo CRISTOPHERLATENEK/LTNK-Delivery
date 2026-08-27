@@ -79,7 +79,7 @@ export const AJUDA: Record<string, ConteudoAjuda> = {
   },
   'balcao-atalhos': {
     titulo: 'Atalhos do balcão',
-    resumo: 'Cada opção tem um número. Com mais de 9 opções, o primeiro dígito espera o segundo.',
+    resumo: 'Cada opção tem um número — digite o número completo. Enquanto ele ainda puder crescer (numa lista longa, "3" pode virar 31), o sistema espera: o que você digitou aparece no topo da janela e some quando aplica.',
     imagem: '/ajuda/atalhos-balcao.svg',
     imprimivel: '/ajuda/cola-balcao.html',
   },

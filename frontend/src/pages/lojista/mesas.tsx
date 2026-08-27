@@ -714,7 +714,9 @@ function PainelComanda({
           <div className="space-y-2 max-h-64 overflow-y-auto">
             {produtosQ.isLoading && <Skeleton className="h-20" />}
             {(produtosQ.data ?? [])
-              .filter(p => p.disponivel)
+              /* Componente de combo fora daqui também: a mesa lança pelo mesmo
+                 preço base que o balcão lançava. */
+              .filter(p => p.disponivel && p.vendido_sozinho !== 0)
               .map(p => (
                 <button
                   key={p.id}
