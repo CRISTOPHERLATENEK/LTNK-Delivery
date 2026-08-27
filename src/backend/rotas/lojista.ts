@@ -44,7 +44,7 @@ import { geocodificarTexto, buscarLocais } from '../geo';
 import { resolverFrete } from '../frete';
 import { distanciaKm } from '../geometria';
 import { sugerirFreteCentavos, explicarSugestao } from '../sugestao-frete';
-import { somarVendas, montarResumo, diferencaDeCaixa, classificarDiferenca, somarMovimentos, tempoAberto } from '../caixa';
+import { somarVendas, montarResumo, diferencaDeCaixa, classificarDiferenca, somarMovimentos, tempoAberto, sangriaCabeNoCaixa } from '../caixa';
 import { resolverPeriodo, rotuloPeriodo, periodoAnterior, variacaoPercentual, type NomePeriodo } from '../periodo';
 import { classificarCurvaAbc, resumirClassesAbc } from '../curva-abc';
 import { GrupoOpcao, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
@@ -5380,6 +5380,21 @@ router.post('/caixa/movimento', async (req, res, next) => {
     // lançamento que ninguém consegue explicar na conferência do fim do dia.
     const motivo = textoLimpo(req.body?.motivo, 200);
     if (tipo === 'sangria' && !motivo) throw erroHttp(400, 'Descreva o motivo da sangria.');
+
+    /*
+     * Sangria não pode passar do que está na gaveta — é erro de digitação, não
+     * operação incomum. Recusar aqui pega o dedo errado no momento em que ele
+     * acontece; sem isto, o estrago aparece só no fechamento, como uma falta
+     * que ninguém consegue explicar horas depois.
+     */
+    if (tipo === 'sangria') {
+      const { resumo } = await dadosDoCaixa(caixa);
+      if (!sangriaCabeNoCaixa(valor, resumo.esperado_centavos)) {
+        const disp = (resumo.esperado_centavos / 100).toFixed(2).replace('.', ',');
+        throw erroHttp(409,
+          `A sangria é maior que o dinheiro em caixa (R$ ${disp}). Confira o valor digitado.`);
+      }
+    }
 
     await db.prepare(
       `INSERT INTO caixa_movimentos (caixa_id, tipo, valor_centavos, motivo, usuario_nome, criado_em)

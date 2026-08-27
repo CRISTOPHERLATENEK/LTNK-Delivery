@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import fsCaixa from 'fs';
+import pathCaixa from 'path';
 import {
   esperadoEmDinheiro, diferencaDeCaixa, classificarDiferenca, somarVendas, montarResumo,
-  somarMovimentos, tempoAberto,
-} from './caixa';
+  somarMovimentos, tempoAberto, sangriaCabeNoCaixa } from './caixa';
 
 /**
  * Conferência de caixa é conta de dinheiro que alguém vai contar na mão e comparar.
@@ -162,5 +163,62 @@ describe('tempoAberto — caixa esquecido', () => {
   });
   it('relógio atrasado não devolve horas negativas', () => {
     expect(tempoAberto(abriu, new Date('2026-08-05T10:00:00Z')).horas).toBe(0);
+  });
+});
+
+/*
+ * SANGRIA MAIOR QUE A GAVETA É ERRO DE DIGITAÇÃO — tipicamente um zero a mais.
+ *
+ * Recusar no lançamento é o que separa "pega o dedo errado agora" de "falta de
+ * R$ 900 no fechamento, horas depois, com o turno inteiro de movimentação no
+ * meio pra atrapalhar a reconstituição".
+ */
+describe('sangriaCabeNoCaixa', () => {
+  it('recusa acima do que existe', () => {
+    expect(sangriaCabeNoCaixa(100_000, 10_000)).toBe(false);
+  });
+
+  it('aceita abaixo', () => {
+    expect(sangriaCabeNoCaixa(5_000, 10_000)).toBe(true);
+  });
+
+  /* Esvaziar a gaveta é operação legítima de fim de turno. */
+  it('aceita exatamente o total', () => {
+    expect(sangriaCabeNoCaixa(10_000, 10_000)).toBe(true);
+  });
+
+  /* Gaveta vazia (ou negativa, se a conferência já estava estranha) não
+     comporta retirada nenhuma. */
+  it('gaveta vazia não comporta sangria', () => {
+    expect(sangriaCabeNoCaixa(1, 0)).toBe(false);
+    expect(sangriaCabeNoCaixa(1, -500)).toBe(false);
+  });
+
+  /* O esperado JÁ desconta as sangrias anteriores (`esperadoEmDinheiro`), então
+     duas retiradas seguidas não conseguem furar o total somadas — que é o
+     caminho pelo qual uma checagem ingênua vazaria. */
+  it('a segunda sangria enxerga a primeira', () => {
+    const esperadoDepois = esperadoEmDinheiro({
+      aberturaCentavos: 10_000, vendasDinheiroCentavos: 0,
+      suprimentosCentavos: 0, sangriasCentavos: 8_000,
+    });
+    expect(esperadoDepois).toBe(2_000);
+    expect(sangriaCabeNoCaixa(5_000, esperadoDepois)).toBe(false);
+    expect(sangriaCabeNoCaixa(2_000, esperadoDepois)).toBe(true);
+  });
+});
+
+describe('a rota de movimento aplica o limite', () => {
+  const lojista = fsCaixa.readFileSync(
+    pathCaixa.resolve(__dirname, 'rotas', 'lojista.ts'), 'utf8');
+  const rota = lojista.slice(
+    lojista.indexOf("router.post('/caixa/movimento'"),
+    lojista.indexOf("router.post('/caixa/movimento/:id/cancelar'"));
+
+  it('checa antes de gravar', () => {
+    const checa = rota.indexOf('sangriaCabeNoCaixa');
+    const grava = rota.indexOf('INSERT INTO caixa_movimentos');
+    expect(checa).toBeGreaterThan(-1);
+    expect(checa).toBeLessThan(grava);
   });
 });

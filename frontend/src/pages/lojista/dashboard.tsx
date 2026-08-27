@@ -4,13 +4,13 @@
  */
 import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { avisoCertificado, textoAvisoCertificado } from '@/lib/certificado';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Bell, TrendingUp, ShoppingBag,
   Clock, ArrowRight, Users, Printer, ChefHat, CheckCircle2,
   XCircle, Package, Bike, Box, UtensilsCrossed, Settings, BarChart3, Ticket, Star, Eye,
-  Store, ChevronRight, MessagesSquare,
-} from 'lucide-react';
+  Store, ChevronRight, MessagesSquare, ShieldAlert } from 'lucide-react';
 import { detalheItem } from '@/lib/item-pedido';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -157,8 +157,40 @@ export function DashboardLoja() {
     }
   }
 
+  /*
+   * O AVISO DO CERTIFICADO MORA AQUI, e não só na tela Fiscal.
+   *
+   * Lá ele já existia — com a data e a frase certa. Mas só aparece pra quem
+   * ABRE aquela tela, e o certificado vale um ano: ninguém visita Fiscal por
+   * meses. O jeito normal de descobrir era numa segunda de manhã, com a nota
+   * falhando e o cliente esperando no balcão.
+   *
+   * O dashboard é a tela que o lojista abre todo dia. Nenhum dado novo precisou
+   * ser buscado: `GET /loja` já traz a validade e o `nfce_ativo`.
+   */
+  const aviso = avisoCertificado(loja?.nfce_cert_validade, !!loja?.nfce_ativo);
+
   return (
     <div className="space-y-5">
+      {aviso && (
+        <div className={cn(
+          'flex items-start gap-3 rounded-2xl border px-4 py-3.5',
+          aviso.nivel === 'atencao'
+            ? 'border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-200'
+            : 'border-destructive/40 bg-destructive/10 text-destructive',
+        )}>
+          <ShieldAlert className="mt-0.5 size-5 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-[14px] font-semibold leading-snug">{textoAvisoCertificado(aviso)}</p>
+            {/* O aviso leva ONDE SE RESOLVE. Dizer que vence sem dizer onde
+                trocar transfere o problema sem oferecer a saída. */}
+            <Link to="/lojista/fiscal" className="mt-1 inline-block text-[13px] font-semibold underline underline-offset-2">
+              Instalar novo certificado
+            </Link>
+          </div>
+        </div>
+      )}
+
       {/* ── Status da loja ── */}
       {lojaQ.isLoading ? (
         <Skeleton className="h-40 rounded-2xl" />

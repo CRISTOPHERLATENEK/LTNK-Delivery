@@ -146,6 +146,24 @@ export function montarResumo(dados: {
 }
 
 /**
+ * A sangria cabe no que existe na gaveta?
+ *
+ * Ninguém retira mais dinheiro do que está lá — então uma sangria acima do
+ * esperado não é uma operação incomum, é ERRO DE DIGITAÇÃO. Tipicamente um zero
+ * a mais: R$ 1.000 no lugar de R$ 100.
+ *
+ * Sem esta checagem o lançamento passa e o estrago só aparece no fechamento,
+ * como uma falta de R$ 900 que ninguém consegue explicar — horas depois, com o
+ * turno inteiro de movimentação no meio pra atrapalhar a reconstituição.
+ *
+ * Igual ao esperado é permitido: esvaziar a gaveta é operação legítima de fim
+ * de turno.
+ */
+export function sangriaCabeNoCaixa(valorCentavos: number, esperadoCentavos: number): boolean {
+  return valorCentavos <= esperadoCentavos;
+}
+
+/**
  * Soma os movimentos IGNORANDO os cancelados.
  *
  * É o par indispensável do cancelamento marcado: se a soma contasse a linha
