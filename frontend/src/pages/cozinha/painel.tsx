@@ -6,6 +6,7 @@
  * cards grandes, cor por tempo de espera e alerta sonoro em pedido novo.
  */
 import { useEffect, useRef, useState } from 'react';
+import { linhasDoItem } from '@/lib/item-pedido';
 import { Routes, Route, Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -30,6 +31,8 @@ interface ItemCozinha {
   nome_produto: string;
   quantidade: number;
   detalhe: string;
+  /** O que produzir — sabores, tamanho, borda. Vazio em item sem opção. */
+  composicao?: string;
 }
 interface PedidoCozinha {
   fonte: FonteCozinha;
@@ -524,8 +527,22 @@ function TicketCozinha({
                 <span className="tabular-nums text-muted-foreground mr-1">{it.quantidade}×</span>
                 {it.nome_produto}
               </div>
+              {/*
+                A COMPOSIÇÃO VEM ANTES DA OBSERVAÇÃO, e mais forte.
+                É O QUE produzir; a observação é COMO. Numa pizza de quatro
+                sabores, ler "sem cebola" antes de saber quais sabores são é a
+                ordem errada — e `linhasDoItem` já quebra em uma linha por
+                escolha, com recuo por pizza no caso de combo.
+              */}
+              {it.composicao && (
+                <div className="pl-5 text-xs font-medium leading-snug text-foreground">
+                  {linhasDoItem({ opcoes_texto: it.composicao }).map((l, i) => (
+                    <div key={i} className="whitespace-pre">{l}</div>
+                  ))}
+                </div>
+              )}
               {it.detalhe && (
-                <div className="text-xs text-muted-foreground pl-5">{it.detalhe}</div>
+                <div className="pl-5 text-xs text-muted-foreground">{it.detalhe}</div>
               )}
             </div>
           ))}

@@ -599,6 +599,11 @@ const TABELAS: string[] = [
   id           INT PRIMARY KEY AUTO_INCREMENT,
   ticket_id    INT NOT NULL,
   nome_produto TEXT NOT NULL,
+  -- A composicao do item, no mesmo formato de itens_pedido.opcoes_texto: e o que
+  -- a cozinha precisa pra PRODUZIR. Sem ela o ticket dizia "Pizza Artesanal" e
+  -- nada mais -- impossivel de fazer.
+  -- (Sem crases: este bloco vive dentro de uma template string.)
+  opcoes_texto TEXT,
   quantidade   INT NOT NULL DEFAULT 1 CHECK (quantidade > 0),
   observacao   TEXT,
   KEY idx_cozinha_ticket_itens (ticket_id),
@@ -1441,6 +1446,27 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
           `ALTER TABLE subcategorias CONVERT TO CHARACTER SET utf8mb4 COLLATE ${alvo}`,
         );
       }
+    }
+  }
+
+  /*
+   * FASE 4: A COZINHA RECEBE A COMPOSIÇÃO.
+   *
+   * O ticket guardava só nome e quantidade. Com a venda de balcão já gravando as
+   * escolhas (fase 3), o item finalizado saía certo no cupom — mas "enviar
+   * cozinha" antes de fechar a venda mandava a pizza pelada, e é justamente o
+   * envio antecipado que existe pra cozinha começar a produzir.
+   */
+  for (const [coluna, ddl] of [
+    ['opcoes_texto', 'opcoes_texto TEXT'],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'cozinha_ticket_itens' AND COLUMN_NAME = ?
+        LIMIT 1`, [coluna],
+    ) as any;
+    if (existe.length === 0) {
+      await adicionarColuna(pool, `ALTER TABLE cozinha_ticket_itens ADD COLUMN ${ddl}`);
     }
   }
 

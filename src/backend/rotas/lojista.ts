@@ -2487,12 +2487,23 @@ router.post('/balcao/enviar-cozinha', async (req, res, next) => {
     const itensReq = Array.isArray(req.body.itens) ? req.body.itens : [];
     if (itensReq.length === 0) throw erroHttp(400, 'Adicione itens antes de enviar à cozinha.');
 
-    const itens: Array<{ nome_produto: string; quantidade: number }> = [];
+    const itens: Array<{ nome_produto: string; quantidade: number; opcoesTexto: string }> = [];
     for (const it of itensReq) {
       const quantidade = inteiroPositivo(it.quantidade);
       if (!quantidade) throw erroHttp(400, 'Quantidade inválida.');
       const produto = await meuProduto(loja, it.produto_id); // valida que o produto é da loja
-      itens.push({ nome_produto: produto.nome, quantidade });
+      /*
+       * VALIDA AS OPÇÕES PRA TER O TEXTO — o preço não interessa aqui (este
+       * envio não cobra nada), mas a COMPOSIÇÃO interessa: é o que a cozinha
+       * precisa pra produzir.
+       *
+       * `exigirObrigatorios` fica no padrão (ligado), igual à venda: mandar pra
+       * produção uma pizza sem sabor é o mesmo defeito, e deixar passar aqui
+       * criaria a porta dos fundos — o atendente manda pra cozinha primeiro e a
+       * regra não vale.
+       */
+      const opc = await validarOpcoesDoItem(produto, it.opcoes);
+      itens.push({ nome_produto: produto.nome, quantidade, opcoesTexto: opc.opcoesTexto });
     }
     const observacao = textoLimpo(req.body.observacoes || '', 200);
     const agora = agoraUTC();
@@ -2503,8 +2514,10 @@ router.post('/balcao/enviar-cozinha', async (req, res, next) => {
       ).run(loja.id, observacao, agora);
       const tid = Number(info.lastInsertRowid);
       for (const it of itens) {
-        await tx.prepare("INSERT INTO cozinha_ticket_itens (ticket_id, nome_produto, quantidade) VALUES (?, ?, ?)")
-          .run(tid, it.nome_produto, it.quantidade);
+        await tx.prepare(
+          `INSERT INTO cozinha_ticket_itens (ticket_id, nome_produto, quantidade, opcoes_texto)
+           VALUES (?, ?, ?, ?)`
+        ).run(tid, it.nome_produto, it.quantidade, it.opcoesTexto || null);
       }
       return tid;
     });
@@ -5161,9 +5174,14 @@ router.post('/comandas/:id/enviar-cozinha', async (req, res, next) => {
     ).get(req.params.id, loja.id) as { id: number; mesa_numero: string } | undefined;
     if (!comanda) throw erroHttp(404, 'Comanda aberta não encontrada.');
 
+    /* `opcoes_texto` entra aqui: a comanda já grava a composição desde a fase 2,
+       e só faltava ela atravessar até o ticket da cozinha. */
     const itens = await db.prepare(
-      'SELECT id, nome_produto, quantidade, observacao FROM comanda_itens WHERE comanda_id = ? AND enviado_cozinha = 0'
-    ).all(comanda.id) as Array<{ id: number; nome_produto: string; quantidade: number; observacao: string }>;
+      'SELECT id, nome_produto, quantidade, observacao, opcoes_texto FROM comanda_itens WHERE comanda_id = ? AND enviado_cozinha = 0'
+    ).all(comanda.id) as Array<{
+      id: number; nome_produto: string; quantidade: number;
+      observacao: string; opcoes_texto: string | null;
+    }>;
     if (itens.length === 0) throw erroHttp(400, 'Nenhum item novo para enviar à cozinha.');
 
     const agora = agoraUTC();
@@ -5173,8 +5191,18 @@ router.post('/comandas/:id/enviar-cozinha', async (req, res, next) => {
       ).run(loja.id, `Mesa ${comanda.mesa_numero}`, comanda.id, agora);
       const tid = Number(info.lastInsertRowid);
       for (const it of itens) {
-        await tx.prepare('INSERT INTO cozinha_ticket_itens (ticket_id, nome_produto, quantidade, observacao) VALUES (?, ?, ?, ?)')
-          .run(tid, it.nome_produto, it.quantidade, it.observacao || '');
+        /*
+         * COMPOSIÇÃO E OBSERVAÇÃO EM CAMPOS SEPARADOS.
+         *
+         * Empilhar as duas em `observacao` já foi tentado nesta base e a comanda
+         * imprimia tudo em MAIÚSCULA e centralizado, entre `>> <<` — numa pizza
+         * de quatro sabores, um bloco ilegível. Composição é O QUE produzir;
+         * observação é COMO. Tratamento diferente exige campo diferente.
+         */
+        await tx.prepare(
+          `INSERT INTO cozinha_ticket_itens (ticket_id, nome_produto, quantidade, observacao, opcoes_texto)
+           VALUES (?, ?, ?, ?, ?)`
+        ).run(tid, it.nome_produto, it.quantidade, it.observacao || '', it.opcoes_texto || null);
         await tx.prepare('UPDATE comanda_itens SET enviado_cozinha = 1 WHERE id = ?').run(it.id);
       }
       return tid;

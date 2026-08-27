@@ -120,8 +120,11 @@ router.get('/pedidos', async (req, res, next) => {
 
     const filaTickets = [];
     for (const t of tickets) {
-      const itens = await db.prepare('SELECT nome_produto, quantidade, observacao FROM cozinha_ticket_itens WHERE ticket_id = ?')
-        .all(t.id) as Array<{ nome_produto: string; quantidade: number; observacao: string }>;
+      const itens = await db.prepare(
+        'SELECT nome_produto, quantidade, observacao, opcoes_texto FROM cozinha_ticket_itens WHERE ticket_id = ?')
+        .all(t.id) as Array<{
+          nome_produto: string; quantidade: number; observacao: string; opcoes_texto: string | null;
+        }>;
       filaTickets.push({
         fonte: t.origem,
         id: t.id,
@@ -129,7 +132,21 @@ router.get('/pedidos', async (req, res, next) => {
         etapa: t.status === 'na_fila' ? 'novo' : 'preparando',
         observacao: t.observacao || '',
         criado_em: t.criado_em,
-        itens: itens.map(i => ({ nome_produto: i.nome_produto, quantidade: i.quantidade, detalhe: i.observacao || '' })),
+        /*
+         * `composicao` SEPARADA de `detalhe`.
+         *
+         * `detalhe` carrega a observação do cliente ("sem cebola") — instrução
+         * de COMO fazer. `composicao` é O QUE fazer (sabores, borda, tamanho).
+         * Juntar as duas numa string já foi tentado nesta base: a comanda saía
+         * com tudo em maiúscula e centralizado, e numa pizza de quatro sabores
+         * virava um bloco ilegível.
+         */
+        itens: itens.map(i => ({
+          nome_produto: i.nome_produto,
+          quantidade: i.quantidade,
+          detalhe: i.observacao || '',
+          composicao: i.opcoes_texto || '',
+        })),
       });
     }
 

@@ -159,3 +159,53 @@ describe('fase 3: a venda de balcão também usa o validador', () => {
     expect(rota).toMatch(/precoBase \* pesoG \/ 1000/);
   });
 });
+
+/**
+ * FASE 4: A COZINHA RECEBE O QUE PRODUZIR.
+ *
+ * A venda finalizada já saía certa depois da fase 3. O que faltava era o envio
+ * ANTECIPADO — "enviar cozinha" antes de fechar a conta, que é justamente o que
+ * existe pra produção começar. Ele mandava "Pizza Artesanal" e nada mais.
+ */
+describe('fase 4: o ticket da cozinha leva a composição', () => {
+  const lojista = semComentarios(fs.readFileSync(raiz('rotas', 'lojista.ts'), 'utf8'));
+  const cozinha = semComentarios(fs.readFileSync(raiz('rotas', 'cozinha.ts'), 'utf8'));
+  const schema = fs.readFileSync(raiz('schema-mysql.ts'), 'utf8');
+
+  it('a coluna existe, na tabela nova e na já criada', () => {
+    const i = schema.indexOf('CREATE TABLE IF NOT EXISTS cozinha_ticket_itens');
+    expect(schema.slice(i, schema.indexOf('`,', i))).toMatch(/opcoes_texto TEXT/);
+    expect(schema).toMatch(/ALTER TABLE cozinha_ticket_itens ADD COLUMN/);
+  });
+
+  /* Os DOIS caminhos gravam: mesa e balcão mandam pra cozinha por rotas
+     diferentes, e corrigir um só deixaria metade da operação cega. */
+  it('os dois envios gravam a composição', () => {
+    const inserts = lojista.match(/INSERT INTO cozinha_ticket_itens[^`']*/g) || [];
+    expect(inserts.length).toBe(2);
+    for (const sql of inserts) expect(sql).toMatch(/opcoes_texto/);
+  });
+
+  /*
+   * A PORTA DOS FUNDOS. Se o envio pra cozinha não exigisse os obrigatórios, o
+   * atendente mandaria a pizza pra produção primeiro e a regra da fase 3 não
+   * valeria — o mesmo defeito, por outro caminho.
+   */
+  it('o envio à cozinha valida as opções, sem desligar a exigência', () => {
+    const rota = lojista.slice(
+      lojista.indexOf("router.post('/balcao/enviar-cozinha'"),
+      lojista.indexOf("router.post('/balcao/enviar-cozinha'") + 2000);
+    expect(rota).toMatch(/validarOpcoesDoItem\(produto, it\.opcoes\)/);
+    expect(rota).not.toMatch(/exigirObrigatorios/);
+  });
+
+  /*
+   * COMPOSIÇÃO E OBSERVAÇÃO EM CAMPOS SEPARADOS — a lição que esta base já
+   * pagou: empilhadas numa string só, a comanda imprimia tudo em maiúscula e
+   * centralizado, e uma pizza de quatro sabores virava bloco ilegível.
+   */
+  it('a cozinha recebe composição e observação separadas', () => {
+    expect(cozinha).toMatch(/composicao: i\.opcoes_texto \|\| ''/);
+    expect(cozinha).toMatch(/detalhe: i\.observacao \|\| ''/);
+  });
+});
