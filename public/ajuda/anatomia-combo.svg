@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 400" width="760" height="400" font-family="-apple-system, Segoe UI, Roboto, Arial, sans-serif">
+  <rect width="760" height="400" fill="#fff"/>
+  <text x="24" y="30" font-size="15" font-weight="700" fill="#111">Como um combo é montado</text>
+  <text x="24" y="50" font-size="12.5" fill="#8a8a8a">cada item vira um bloco na tela do cliente, com os complementos dele</text>
+
+  <rect x="24" y="70" width="330" height="288" rx="12" fill="#fafaf9" stroke="#e3e0dc"/>
+  <text x="44" y="96" font-size="13.5" font-weight="700" fill="#111">Combo Duas Pizzas</text>
+  <text x="44" y="114" font-size="12.5" fill="#8a8a8a">R$ 139,90 — um produto normal</text>
+
+  <rect x="44" y="128" width="290" height="52" rx="9" fill="#fff" stroke="#d8d4cf"/>
+  <text x="58" y="148" font-size="12.5" font-weight="700" fill="#111">Refrigerante 2L</text>
+  <text x="58" y="166" font-size="12" fill="#8a8a8a">complemento do próprio combo</text>
+
+  <rect x="44" y="190" width="290" height="70" rx="9" fill="#fff" stroke="#d8d4cf"/>
+  <text x="58" y="210" font-size="12.5" font-weight="700" fill="#111">Pizza Gigante 45cm</text>
+  <text x="58" y="228" font-size="12" fill="#8a8a8a">Sabores: até 4</text>
+  <text x="58" y="246" font-size="12" fill="#8a8a8a">Borda</text>
+
+  <rect x="44" y="270" width="290" height="70" rx="9" fill="#fff" stroke="#d8d4cf"/>
+  <text x="58" y="290" font-size="12.5" font-weight="700" fill="#111">Broto 25cm</text>
+  <text x="58" y="308" font-size="12" fill="#8a8a8a">Sabores: até 1</text>
+  <text x="58" y="326" font-size="12" fill="#8a8a8a">Borda</text>
+
+  <path d="M362 214 h34" stroke="#c9c4be" stroke-width="1.5"/>
+  <path d="M389 208 l8 6 l-8 6" fill="none" stroke="#c9c4be" stroke-width="1.5"/>
+
+  <rect x="406" y="70" width="330" height="288" rx="12" fill="#fff" stroke="#e3e0dc"/>
+  <text x="426" y="96" font-size="13.5" font-weight="700" fill="#111">Os componentes, no cadastro</text>
+
+  <rect x="426" y="112" width="290" height="76" rx="9" fill="#fafaf9" stroke="#d8d4cf"/>
+  <text x="440" y="132" font-size="12.5" font-weight="700" fill="#111">Pizza Gigante 45cm</text>
+  <text x="440" y="152" font-size="12" fill="#8a8a8a">produto de verdade, com preço</text>
+  <rect x="440" y="160" width="176" height="20" rx="6" fill="#fdf3f1"/>
+  <text x="448" y="175" font-size="11.5" font-weight="700" fill="#a33a28">vender avulso: DESLIGADO</text>
+
+  <rect x="426" y="198" width="290" height="76" rx="9" fill="#fafaf9" stroke="#d8d4cf"/>
+  <text x="440" y="218" font-size="12.5" font-weight="700" fill="#111">Broto 25cm</text>
+  <text x="440" y="238" font-size="12" fill="#8a8a8a">mesmo grupo de sabores, outro limite</text>
+  <rect x="440" y="246" width="176" height="20" rx="6" fill="#fdf3f1"/>
+  <text x="448" y="261" font-size="11.5" font-weight="700" fill="#a33a28">vender avulso: DESLIGADO</text>
+
+  <text x="426" y="298" font-size="12.5" fill="#444" font-weight="700">Por que desligado?</text>
+  <text x="426" y="316" font-size="12" fill="#8a8a8a">Eles existem para o combo e não devem</text>
+  <text x="426" y="332" font-size="12" fill="#8a8a8a">aparecer sozinhos no cardápio.</text>
+
+  <path d="M24 372 h712" stroke="#e8e5e1"/>
+  <text x="24" y="394" font-size="12.5" fill="#8a8a8a">
+    Não use “pausado” para esconder: pausado quer dizer temporariamente fora, e o painel vai mostrar assim.
+  </text>
+</svg>

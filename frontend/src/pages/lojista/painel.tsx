@@ -6,8 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Routes, Route, Link } from 'react-router-dom';
 import {
   CheckCircle2, ChefHat, XCircle, Package, Bell, Save, Eye, EyeOff, History,
-  Printer, Store, Banknote,
-} from 'lucide-react';
+  Printer, Store, Banknote, HelpCircle } from 'lucide-react';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { ContaDeOutroPerfil } from '@/components/conta-outro-perfil';
@@ -41,6 +40,7 @@ import { despacharImpressao, imprimirComandasProducao } from '@/lib/impressao';
 import type { BlocoImpressao } from '@/lib/agente';
 import { ProdutosLoja } from './produtos';
 import { LojaConfiguracao, HorarioLoja, ZonasEntrega, PagamentosLoja, ImpressaoLoja, EntregadoresLoja, SegurancaLoja, UsuariosLoja } from './loja-config';
+import { AjudaLoja } from './ajuda';
 import { VisualLoja } from './visual';
 import { FiscalLoja } from './fiscal';
 import { CategoriasLoja } from './categorias';
@@ -192,6 +192,7 @@ export function PainelLojista() {
         { rota: '/lojista/clientes', icone: Users, rotulo: 'Clientes' },
         { rota: '/lojista/avaliacoes', icone: Star, rotulo: 'Avaliações' },
         { rota: '/lojista/cozinha-equipe', icone: ChefHat, rotulo: 'Cozinha (KDS)' },
+        { rota: '/lojista/ajuda', icone: HelpCircle, rotulo: 'Treinamento' },
       ],
     },
     {
@@ -253,6 +254,7 @@ export function PainelLojista() {
         <Route path="personalizacao" element={<VisualLoja />} />
         <Route path="loja" element={<LojaConfiguracao />} />
         <Route path="config" element={<ConfiguracoesLoja />} />
+        <Route path="ajuda" element={<AjudaLoja />} />
         <Route path="relatorios" element={<RelatoriosLoja />} />
         <Route path="avaliacoes" element={<AvaliacoesLoja />} />
         <Route path="clientes" element={<ClientesLoja />} />
@@ -565,6 +567,9 @@ function MenuMais() {
         { rota: '/lojista/clientes', icone: Users, rotulo: 'Clientes', desc: 'Quem já comprou de você' },
         { rota: '/lojista/avaliacoes', icone: Star, rotulo: 'Avaliações', desc: 'Notas e respostas dos clientes' },
         { rota: '/lojista/cozinha-equipe', icone: ChefHat, rotulo: 'Cozinha (KDS)', desc: 'Logins do painel de cozinha' },
+        /* Junto das telas de operação, e não escondido no rodapé: quem procura
+           treinamento procura onde procuraria a função. */
+        { rota: '/lojista/ajuda', icone: HelpCircle, rotulo: 'Treinamento', desc: 'Como usar o sistema, com imagens' },
       ],
     },
     {

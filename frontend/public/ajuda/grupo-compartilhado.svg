@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 380" width="760" height="380" font-family="-apple-system, Segoe UI, Roboto, Arial, sans-serif">
+  <rect width="760" height="380" fill="#fff"/>
+  <!-- ESQUERDA: cada pizza com o seu grupo -->
+  <text x="24" y="30" font-size="15" font-weight="700" fill="#111">Cada pizza com o seu grupo</text>
+  <text x="24" y="50" font-size="12.5" fill="#8a8a8a">o que acontece por padrão em outros sistemas</text>
+  <g font-size="12.5">
+    <rect x="24" y="66" width="118" height="34" rx="8" fill="#f6f5f3" stroke="#e3e0dc"/>
+    <text x="83" y="88" text-anchor="middle" fill="#111">Calabresa</text>
+    <rect x="176" y="66" width="112" height="34" rx="8" fill="#fff" stroke="#d8d4cf"/>
+    <text x="232" y="88" text-anchor="middle" fill="#555">Borda</text>
+    <path d="M142 83 h30" stroke="#c9c4be" stroke-width="1.5"/>
+
+    <rect x="24" y="112" width="118" height="34" rx="8" fill="#f6f5f3" stroke="#e3e0dc"/>
+    <text x="83" y="134" text-anchor="middle" fill="#111">Portuguesa</text>
+    <rect x="176" y="112" width="112" height="34" rx="8" fill="#fff" stroke="#d8d4cf"/>
+    <text x="232" y="134" text-anchor="middle" fill="#555">Borda</text>
+    <path d="M142 129 h30" stroke="#c9c4be" stroke-width="1.5"/>
+
+    <rect x="24" y="158" width="118" height="34" rx="8" fill="#f6f5f3" stroke="#e3e0dc"/>
+    <text x="83" y="180" text-anchor="middle" fill="#111">4 Queijos</text>
+    <rect x="176" y="158" width="112" height="34" rx="8" fill="#fff" stroke="#d8d4cf"/>
+    <text x="232" y="180" text-anchor="middle" fill="#555">Borda</text>
+    <path d="M142 175 h30" stroke="#c9c4be" stroke-width="1.5"/>
+
+    <text x="24" y="216" font-size="12.5" fill="#8a8a8a">… e assim por diante</text>
+  </g>
+  <rect x="24" y="238" width="264" height="52" rx="10" fill="#fdf3f1" stroke="#f0d9d4"/>
+  <text x="40" y="260" font-size="13" font-weight="700" fill="#a33a28">Subir o Catupiry R$ 1</text>
+  <text x="40" y="279" font-size="13" fill="#a33a28">= 30 edições, uma por pizza</text>
+
+  <!-- divisor -->
+  <path d="M380 40 v300" stroke="#e8e5e1" stroke-width="1.5" stroke-dasharray="4 5"/>
+
+  <!-- DIREITA: um grupo para todas -->
+  <text x="424" y="30" font-size="15" font-weight="700" fill="#111">Um grupo para todas</text>
+  <text x="424" y="50" font-size="12.5" fill="#8a8a8a">o que este sistema faz ao duplicar</text>
+  <g font-size="12.5">
+    <rect x="424" y="66" width="118" height="34" rx="8" fill="#f6f5f3" stroke="#e3e0dc"/>
+    <text x="483" y="88" text-anchor="middle" fill="#111">Calabresa</text>
+    <rect x="424" y="112" width="118" height="34" rx="8" fill="#f6f5f3" stroke="#e3e0dc"/>
+    <text x="483" y="134" text-anchor="middle" fill="#111">Portuguesa</text>
+    <rect x="424" y="158" width="118" height="34" rx="8" fill="#f6f5f3" stroke="#e3e0dc"/>
+    <text x="483" y="180" text-anchor="middle" fill="#111">4 Queijos</text>
+    <text x="424" y="216" font-size="12.5" fill="#8a8a8a">… e assim por diante</text>
+  </g>
+  <path d="M542 83 C 590 83, 590 129, 616 129" fill="none" stroke="#c9c4be" stroke-width="1.5"/>
+  <path d="M542 129 h74" stroke="#c9c4be" stroke-width="1.5"/>
+  <path d="M542 175 C 590 175, 590 129, 616 129" fill="none" stroke="#c9c4be" stroke-width="1.5"/>
+  <rect x="616" y="110" width="118" height="38" rx="9" fill="#fff" stroke="#111" stroke-width="1.6"/>
+  <text x="675" y="134" text-anchor="middle" font-size="13" font-weight="700" fill="#111">Borda</text>
+  <rect x="424" y="238" width="310" height="52" rx="10" fill="#f1f7f2" stroke="#d3e5d7"/>
+  <text x="440" y="260" font-size="13" font-weight="700" fill="#2f6b41">Subir o Catupiry R$ 1</text>
+  <text x="440" y="279" font-size="13" fill="#2f6b41">= 1 edição, vale para todas</text>
+
+  <path d="M24 316 h710" stroke="#e8e5e1"/>
+  <text x="24" y="342" font-size="13" fill="#444">
+    <tspan font-weight="700">Duplicar um produto LIGA ao mesmo grupo — não copia.</tspan>
+  </text>
+  <text x="24" y="362" font-size="12.5" fill="#8a8a8a">
+    Quando UMA precisar ser diferente, use “soltar deste produto”: só ela sai do grupo.
+  </text>
+</svg>
