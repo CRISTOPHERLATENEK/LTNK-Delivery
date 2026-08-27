@@ -644,7 +644,8 @@ export function ProdutosLoja() {
         {/* ─────────── Header ─────────── */}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-[28px] font-extrabold leading-none tracking-[-0.03em]">Produtos</h2>
+            <span className="inline-flex items-center gap-2"><h2 className="text-[28px] font-extrabold leading-none tracking-[-0.03em]">Produtos</h2>{/* O `?` no título da tela, não no botão: quem nunca cadastrou não sabe
+                    ainda que vai precisar de ajuda ao clicar em "Novo produto". */}<Ajuda chave="produto-cadastrar" /></span>
             {todos.length > 0 && (
               <p className="mt-2 text-[13.5px] text-muted-foreground">
                 {todos.length} {todos.length === 1 ? 'item' : 'itens'} no cardápio

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 470" width="760" height="470" font-family="-apple-system, Segoe UI, Roboto, Arial, sans-serif">
+  <rect width="760" height="470" fill="#fff"/>
+  <text x="24" y="30" font-size="15" font-weight="700" fill="#111">Cadastrar um produto: as 5 abas, na ordem do trabalho</text>
+  <text x="24" y="50" font-size="12.5" fill="#8a8a8a">Produtos → + Novo produto</text>
+
+  <!-- barra de abas -->
+  <rect x="24" y="70" width="712" height="38" rx="9" fill="#fafaf9" stroke="#e3e0dc"/>
+  <rect x="30" y="76" width="86" height="26" rx="6" fill="#fff" stroke="#111"/>
+  <text x="73" y="94" text-anchor="middle" font-size="12.5" font-weight="700" fill="#111">Item</text>
+  <text x="176" y="94" text-anchor="middle" font-size="12.5" fill="#8a8a8a">Complementos</text>
+  <text x="300" y="94" text-anchor="middle" font-size="12.5" fill="#8a8a8a">Composição</text>
+  <text x="430" y="94" text-anchor="middle" font-size="12.5" fill="#8a8a8a">Configurações</text>
+  <text x="536" y="94" text-anchor="middle" font-size="12.5" fill="#8a8a8a">Fiscal</text>
+
+  <g font-size="12.5">
+    <circle cx="40" cy="140" r="12" fill="#111"/>
+    <text x="40" y="145" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">1</text>
+    <text x="62" y="138" font-size="13" font-weight="700" fill="#111">Item — o que o cliente vê</text>
+    <text x="62" y="157" fill="#8a8a8a">Nome, foto, descrição, preço e categoria. TODO campo obrigatório está aqui.</text>
+    <text x="62" y="175" fill="#8a8a8a">Se o botão salvar reclamar, é nesta aba que falta algo.</text>
+
+    <circle cx="40" cy="212" r="12" fill="#111"/>
+    <text x="40" y="217" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">2</text>
+    <text x="62" y="210" font-size="13" font-weight="700" fill="#111">Complementos — o que o cliente escolhe</text>
+    <text x="62" y="229" fill="#8a8a8a">Tamanho, sabores, borda, adicionais. Antes de criar um grupo novo, veja se</text>
+    <text x="62" y="247" fill="#8a8a8a">já existe um igual: um grupo pode servir vários produtos ao mesmo tempo.</text>
+
+    <circle cx="40" cy="284" r="12" fill="#c6c1bb"/>
+    <text x="40" y="289" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">3</text>
+    <text x="62" y="282" font-size="13" font-weight="700" fill="#111">Composição — só para combo</text>
+    <text x="62" y="301" fill="#8a8a8a">Produto feito de outros produtos. Pule se não for combo — a aba existe para</text>
+    <text x="62" y="319" fill="#8a8a8a">todos, e o estado vazio explica o que é.</text>
+
+    <circle cx="40" cy="356" r="12" fill="#111"/>
+    <text x="40" y="361" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">4</text>
+    <text x="62" y="354" font-size="13" font-weight="700" fill="#111">Configurações — como o item se comporta</text>
+    <text x="62" y="373" fill="#8a8a8a">Onde vende (cardápio e PDV são separados), estoque, destaque, e o</text>
+    <text x="62" y="391" fill="#8a8a8a">"vender avulso" que esconde componente de combo.</text>
+
+    <circle cx="40" cy="424" r="12" fill="#c6c1bb"/>
+    <text x="40" y="429" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">5</text>
+    <text x="62" y="422" font-size="13" font-weight="700" fill="#111">Fiscal — só quem emite nota</text>
+    <text x="62" y="441" fill="#8a8a8a">NCM, CFOP, CSOSN. É assunto do seu contador. A maioria nunca abre.</text>
+  </g>
+
+  <rect x="600" y="270" width="136" height="66" rx="10" fill="#f1f7f2" stroke="#d3e5d7"/>
+  <text x="668" y="294" text-anchor="middle" font-size="12.5" font-weight="700" fill="#2f6b41">Já vende</text>
+  <text x="668" y="312" text-anchor="middle" font-size="11.5" fill="#5c8a6b">com 1 e 2 feitos</text>
+  <text x="668" y="328" text-anchor="middle" font-size="11.5" fill="#5c8a6b">o produto está no ar</text>
+  <path d="M568 300 h24" stroke="#c9c4be" stroke-width="1.5"/>
+  <path d="M586 295 l6 5 l-6 5" fill="none" stroke="#c9c4be" stroke-width="1.5"/>
+</svg>

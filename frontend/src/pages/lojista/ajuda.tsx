@@ -34,7 +34,7 @@ const SECOES: Array<{ titulo: string; onde: string; chaves: string[] }> = [
   {
     titulo: '2. Montar o cardápio',
     onde: 'Produtos, e Mais → Categorias',
-    chaves: ['produtos-lista', 'produto-item', 'categorias', 'produtos-ordem'],
+    chaves: ['produto-cadastrar', 'produtos-lista', 'produto-item', 'categorias', 'produtos-ordem'],
   },
   {
     titulo: '3. Complementos e combos',

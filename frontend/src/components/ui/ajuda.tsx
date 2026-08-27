@@ -99,6 +99,24 @@ export const AJUDA: Record<string, ConteudoAjuda> = {
     imagem: '/ajuda/alcas-ordenacao.svg',
   },
 
+  'produto-cadastrar': {
+    titulo: 'Cadastrar um produto, do zero',
+    paraQue: 'O caminho completo: das cinco abas, só duas são obrigatórias.',
+    resumo: 'Em Produtos, clique em "+ Novo produto". A aba ITEM tem tudo que o cliente vê — '
+      + 'nome, foto, descrição, preço e categoria — e é onde vivem todos os campos obrigatórios: '
+      + 'se o salvar reclamar, é lá que falta algo. Em COMPLEMENTOS você define o que o cliente '
+      + 'escolhe (tamanho, sabores, borda); antes de criar um grupo novo, veja se já existe um '
+      + 'igual, porque um grupo pode servir vários produtos ao mesmo tempo. COMPOSIÇÃO só '
+      + 'interessa a combo, e FISCAL só a quem emite nota. Em CONFIGURAÇÕES ficam os '
+      + 'interruptores: onde vende, estoque e destaque. Com Item e Complementos prontos, o '
+      + 'produto já está no ar.',
+    cuidado: 'A ordem importa mais do que parece: salve o produto ANTES de montar composição de '
+      + 'combo, porque a aba precisa de um produto que já exista para referenciar. E se for '
+      + 'cadastrar vários parecidos — trinta pizzas —, cadastre UM completo e depois DUPLIQUE: '
+      + 'duplicar liga ao mesmo grupo de complementos, e você edita preço de borda uma vez só.',
+    imagem: '/ajuda/cadastro-produto.svg',
+  },
+
   'produto-item': {
     titulo: 'Aba Item: o que o cliente vê',
     paraQue: 'Nome, foto, descrição, preço e onde o produto fica no cardápio.',
