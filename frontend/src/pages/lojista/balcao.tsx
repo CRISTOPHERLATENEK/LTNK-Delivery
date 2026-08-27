@@ -4,6 +4,7 @@
  * (entra no faturamento). Imprime cupom ao concluir.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Ajuda } from '@/components/ui/ajuda';
 import { precoVigente, promocaoVigente } from '@/lib/preco-produto';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -595,6 +596,12 @@ export function BalcaoLoja() {
           onConfirmar={(pesoG) => { adicionarPeso(pesando, pesoG); setPesando(null); }}
         />
       )}
+
+      {/* A folha do balcão fica ao lado do carrinho, onde o atendente já
+          olha — e não num menu de ajuda que ele não vai procurar. */}
+      <div className="mt-3 flex justify-end">
+        <Ajuda chave="balcao-atalhos" />
+      </div>
 
       {/* Lista compacta de opções — produtos com grupo (pizza, combo) */}
       {escolhendo && (

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Ajuda } from '@/components/ui/ajuda';
 import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck, Search, AlertCircle, ChevronDown, X } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
 import { statusAgente, esquecerStatusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
@@ -193,6 +194,9 @@ export function LojaConfiguracao() {
           {/* `() => alternarAberta()` e não `alternarAberta`: passado direto, o
               React entrega o evento do clique como primeiro argumento, e ele
               cairia no parâmetro `ate`. */}
+          {/* O `?` fica JUNTO dos botões, não no título da seção: a dúvida
+              ("fechei, e agora?") nasce no instante do clique. */}
+          <Ajuda chave="horario-fechar" />
           <Button
             variant={loja.aberta ? 'destructive' : 'success'}
             onClick={() => alternarAberta()}

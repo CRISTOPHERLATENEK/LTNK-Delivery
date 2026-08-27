@@ -3,6 +3,7 @@
  * Fluxo: criar mesa → abrir → adicionar itens → fechar (com pagamento).
  */
 import { useState } from 'react';
+import { Ajuda } from '@/components/ui/ajuda';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   UtensilsCrossed, Plus, Minus, X, Trash2, ChevronDown, ChevronUp,
@@ -605,6 +606,7 @@ function PainelComanda({
           <h3 className="font-bold flex items-center gap-2">
             <UtensilsCrossed className="size-4 text-primary" />
             Mesa {mesaNumero} — Comanda #{comandaId}
+            <Ajuda chave="mesa-fluxo" />
           </h3>
           <div className="flex items-center gap-2">
             {itens.length > 0 && (

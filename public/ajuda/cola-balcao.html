@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cola do balcão — imprimir e colar ao lado do monitor</title>
+<style>
+  /*
+   * FOLHA PARA IMPRIMIR, não página para ler na tela.
+   *
+   * Preto no branco e sem imagem de fundo: sai igual em laser, jato de tinta e
+   * fotocópia, que é o destino real de uma folha colada no balcão. Cor aqui
+   * gastaria toner e sumiria na terceira cópia.
+   */
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 12mm;
+    font: 11pt/1.42 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color: #111; background: #fff;
+    max-width: 210mm; margin-inline: auto;
+  }
+  h1 { font-size: 17pt; margin: 0 0 2px; letter-spacing: -.2px; }
+  .sub { color: #666; font-size: 9.5pt; margin: 0 0 14px; }
+  h2 {
+    font-size: 11pt; margin: 16px 0 6px; padding-bottom: 3px;
+    border-bottom: 1.5px solid #111; text-transform: uppercase; letter-spacing: .5px;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 3.5px 0; vertical-align: top; }
+  td.k { width: 34%; padding-right: 10px; }
+  kbd {
+    display: inline-block; min-width: 20px; padding: 1px 6px;
+    border: 1px solid #999; border-bottom-width: 2px; border-radius: 4px;
+    font: 600 10pt/1.3 ui-monospace, "SF Mono", Consolas, monospace;
+    background: #fafafa; text-align: center;
+  }
+  .g { color: #555; }
+  .alerta { border-left: 3px solid #111; padding: 6px 0 6px 10px; margin: 8px 0; }
+  .alerta b { display: block; }
+  .colunas { display: flex; gap: 22px; }
+  .colunas > div { flex: 1; min-width: 0; }
+  footer { margin-top: 18px; padding-top: 8px; border-top: 1px solid #ccc; color: #666; font-size: 9pt; }
+  .naoimprime { margin-bottom: 14px; }
+  @media print { .naoimprime { display: none; } body { padding: 0; } }
+</style>
+</head>
+<body>
+
+<div class="naoimprime">
+  <button onclick="window.print()" style="font:600 11pt sans-serif;padding:8px 16px;border-radius:8px;border:1px solid #999;background:#fff;cursor:pointer">
+    Imprimir esta folha
+  </button>
+</div>
+
+<h1>Balcão — o essencial</h1>
+<p class="sub">Imprima e cole ao lado do monitor.</p>
+
+<div class="colunas">
+<div>
+
+  <h2>Escolher complementos</h2>
+  <table>
+    <tr><td class="k"><kbd>3</kbd></td><td>Marca a opção número 3.</td></tr>
+    <tr><td class="k"><kbd>1</kbd> <span class="g">e espera</span></td>
+        <td>Com mais de 9 opções, o <b>1</b> pode ser 1, 12 ou 19.<br>
+            <span class="g">Digite o segundo número.</span></td></tr>
+    <tr><td class="k"><kbd>Enter</kbd></td><td>Adiciona à venda.</td></tr>
+    <tr><td class="k"><kbd>Esc</kbd></td><td>Cancela o item.</td></tr>
+    <tr><td class="k"><kbd>←</kbd> Backspace</td><td>Limpa o número digitado.</td></tr>
+  </table>
+
+  <div class="alerta">
+    <b>Apareceu “99 · não existe”?</b>
+    <span class="g">O número não está na lista. Confira na tela — não é a tecla
+    que falhou.</span>
+  </div>
+
+  <h2>Conferir antes de fechar</h2>
+  <table>
+    <tr><td class="k">Painel da direita</td>
+        <td>Mostra tudo que foi escolhido. O <b>×</b> remove.</td></tr>
+    <tr><td class="k">Total</td>
+        <td>Aparece composto: <span class="g">preço base + adicionais</span>.</td></tr>
+    <tr><td class="k">Item apagado</td>
+        <td>Já bateu o limite do grupo. <span class="g">Remova um pelo × antes.</span></td></tr>
+  </table>
+
+  <div class="alerta">
+    <b>Botão claro não é botão travado.</b>
+    <span class="g">Falta alguma escolha. Clique nele: ele leva até o grupo que
+    falta.</span>
+  </div>
+
+</div>
+<div>
+
+  <h2>Caixa</h2>
+  <table>
+    <tr><td class="k">Sangria</td>
+        <td>Todo dinheiro que sai passa aqui, <b>com o motivo</b>.</td></tr>
+    <tr><td class="k">Recusou a sangria?</td>
+        <td>É maior que o dinheiro em caixa.<br>
+            <span class="g">Confira o valor — quase sempre é um zero a mais.</span></td></tr>
+    <tr><td class="k">Suprimento</td><td>Dinheiro que ENTRA fora de venda (troco).</td></tr>
+    <tr><td class="k">Lançou errado</td>
+        <td>Cancele o movimento. <span class="g">Não lance o contrário para
+            “consertar” — o turno fica com duas movimentações que não
+            aconteceram.</span></td></tr>
+    <tr><td class="k">Fechar</td>
+        <td>Conte o dinheiro e digite o contado.<br>
+            <span class="g">O sistema mostra a diferença.</span></td></tr>
+  </table>
+
+  <h2>Mesa</h2>
+  <table>
+    <tr><td class="k">Enviar para produção</td>
+        <td>Manda pra cozinha e imprime a comanda.</td></tr>
+    <tr><td class="k">Adicionou depois?</td>
+        <td>Clique de novo. <span class="g">Só vai o que ainda não foi
+            enviado.</span></td></tr>
+    <tr><td class="k">Conta do cliente</td>
+        <td>Ícone de impressora, no topo da comanda.</td></tr>
+  </table>
+
+  <h2>Impressora parou</h2>
+  <table>
+    <tr><td class="k">1º</td><td>O agente de impressão está aberto no computador?</td></tr>
+    <tr><td class="k">2º</td><td>Computador e impressora na <b>mesma rede</b>?<br>
+        <span class="g">É a causa mais comum, e não aparece como erro no
+        painel.</span></td></tr>
+    <tr><td class="k">3º</td><td>Papel e tampa.</td></tr>
+    <tr><td class="k">Enquanto isso</td>
+        <td>A venda <b>não</b> depende da impressora. Feche normal e reimprima
+            depois.</td></tr>
+  </table>
+
+</div>
+</div>
+
+<footer>
+  A venda sempre pode ser fechada — impressora, cozinha e nota são etapas
+  separadas. Na dúvida, feche a venda e resolva o resto depois.
+</footer>
+
+</body>
+</html>

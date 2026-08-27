@@ -2,6 +2,7 @@
  * Gestão de produtos do lojista — CRUD com upload de imagem, subcategoria e grupos de opções.
  */
 import { useState, useEffect, useRef } from 'react';
+import { Ajuda } from '@/components/ui/ajuda';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Image as ImageIcon, Layers, Minus, Pencil, Plus, Rows3, Rows4, Search, Square, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
 import { reordenar } from '@/lib/ordem-cardapio';
@@ -1240,6 +1241,16 @@ export function ProdutosLoja() {
               {aba === 'complementos' && (
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-7 sm:px-8">
                   {/*
+                    O `?` NO TOPO DA ABA, não escondido num canto.
+                    É aqui que se decide compartilhar ou não o grupo — e a
+                    decisão errada custa 30 edições toda vez que um preço muda.
+                    Depois de cadastrado, a explicação chega tarde.
+                  */}
+                  <div className="-mt-2 mb-3 flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
+                    <span>Um grupo pode servir vários produtos</span>
+                    <Ajuda chave="complementos-grupo" />
+                  </div>
+                  {/*
                     O EDITOR INTEIRO AQUI DENTRO, não um resumo com um botão.
 
                     Eram três telas empilhadas: salvar o produto, voltar pra
@@ -1273,7 +1284,10 @@ export function ProdutosLoja() {
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-7 sm:px-8">
                   {grupoIdEmEdicao === null || !produtoEmEdicao ? (
                     <section>
-                      <RotuloSecao>Composição</RotuloSecao>
+                      <div className="mb-3 flex items-center gap-1.5">
+                        <RotuloSecao>Composição</RotuloSecao>
+                        <Ajuda chave="composicao-combo" className="-translate-y-1.5" />
+                      </div>
                       <p className="rounded-xl border border-dashed border-border px-3.5 py-3 text-[12.5px] text-muted-foreground">
                         Salve o produto primeiro para montar um combo com ele.
                       </p>
