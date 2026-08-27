@@ -14,6 +14,7 @@ import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, proximaAberturaISO, emailValido, normalizarBairro, dataBrasilia} from '../util';
 import { precoVigente } from '../preco-produto';
 import { SQL_GRUPOS_DO_PRODUTO, SQL_GRUPOS_DO_PRODUTO_COM_USOS } from '../grupos-sql';
+import { validarOpcoesDoItem } from '../opcoes-item';
 import { reordenar } from '../ordem-cardapio';
 import { slugReservado } from '../slug-reservado';
 import { validarHorarioJson } from '../agenda-validacao';
@@ -4951,11 +4952,36 @@ router.post('/comandas/:id/itens', async (req, res, next) => {
     const observacao = textoLimpo(req.body.observacao || '', 200);
     let nomeProduto: string;
     let precoUnit: number;
+    let opcoesTexto = '';
+    let opcoesIds: string | null = null;
 
     if (req.body.produto_id) {
       const produto = await meuProduto(loja, req.body.produto_id);
       nomeProduto = produto.nome;
-      precoUnit = precoVigente(produto, dataBrasilia());
+      /*
+       * O MESMO VALIDADOR DO DELIVERY.
+       *
+       * Antes daqui o balcão usava `precoVigente(produto)` — o preço BASE —, e
+       * ignorava as escolhas. A pizza que no delivery sai a R$ 77 (sabor +
+       * borda) era registrada a R$ 45, e a cozinha recebia "Pizza Artesanal"
+       * sem tamanho nem sabor.
+       *
+       * `exigirObrigatorios: false` por ora: o PDV ainda não tem a tela de
+       * escolha (fase 3), e exigir agora deixaria o balcão INCAPAZ de vender os
+       * 9 produtos com grupo obrigatório. Vender errado é ruim; não vender é
+       * pior pra quem está no balcão com o cliente na frente. A fase 3 traz a
+       * tela e liga a exigência.
+       *
+       * Quem NÃO manda opções cai no mesmo preço de sempre — o comportamento
+       * atual segue idêntico até o PDV começar a mandar.
+       */
+      const r = await validarOpcoesDoItem(produto, req.body.opcoes, { exigirObrigatorios: false });
+      precoUnit = r.precoUnit;
+      opcoesTexto = r.opcoesTexto;
+      /* `null` quando não há escolha: coluna vazia diz "sem opções", string
+         "[]" diria "opções conferidas e nenhuma escolhida" — e é a primeira que
+         descreve todo item lançado antes desta fase. */
+      opcoesIds = r.opcoesIds.length > 0 ? JSON.stringify(r.opcoesIds) : null;
     } else {
       nomeProduto = textoLimpo(req.body.nome_produto || '', 120);
       precoUnit = inteiroPositivo(req.body.preco_unit_centavos) || 0;
@@ -4963,8 +4989,11 @@ router.post('/comandas/:id/itens', async (req, res, next) => {
     }
 
     const info = await db.prepare(
-      'INSERT INTO comanda_itens (comanda_id, produto_id, nome_produto, preco_unit_centavos, quantidade, observacao) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(comanda.id, req.body.produto_id || null, nomeProduto, precoUnit, quantidade, observacao);
+      `INSERT INTO comanda_itens
+         (comanda_id, produto_id, nome_produto, preco_unit_centavos, quantidade, observacao, opcoes_texto, opcoes_ids)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(comanda.id, req.body.produto_id || null, nomeProduto, precoUnit, quantidade, observacao,
+          opcoesTexto || null, opcoesIds);
     res.status(201).json({ item_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });

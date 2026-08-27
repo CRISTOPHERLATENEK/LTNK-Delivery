@@ -588,7 +588,10 @@ describe('fase 1 do combo', () => {
  * volte a colapsar antes de chamar.
  */
 describe('a validação do pedido não colapsa repetição', () => {
-  const cliente = fs.readFileSync(path.resolve(__dirname, 'rotas', 'cliente.ts'), 'utf8');
+  /* O arquivo mudou: a validação saiu de `rotas/cliente.ts` para
+     `opcoes-item.ts` quando passou a ser compartilhada com o balcão. O teste
+     acompanha o código — foi ele que denunciou a mudança de lugar. */
+  const cliente = fs.readFileSync(path.resolve(__dirname, 'opcoes-item.ts'), 'utf8');
 
   it('lê pelo `lerEscolhas`, que preserva fração', () => {
     expect(cliente).toMatch(/const escolhas = lerEscolhas\(opcoesEscolhidas\)/);

@@ -237,7 +237,10 @@ describe('o separador do slot é o mesmo dos dois lados', () => {
   const arquivo = (...p: string[]) => fs.readFileSync(path.resolve(__dirname, ...p), 'utf8');
 
   it('o servidor escreve com " | "', () => {
-    const cliente = arquivo('rotas', 'cliente.ts');
+  /* O arquivo mudou: a validação saiu de `rotas/cliente.ts` para
+     `opcoes-item.ts` quando passou a ser compartilhada com o balcão. O teste
+     acompanha o código — foi ele que denunciou a mudança de lugar. */
+    const cliente = arquivo('opcoes-item.ts');
     expect(cliente).toMatch(/alvo\.rotulo \? `\$\{alvo\.rotulo\} \| ` : ''/);
   });
 
@@ -258,7 +261,7 @@ describe('o separador do slot é o mesmo dos dois lados', () => {
    */
   it('nenhum produtor usa " · " no rótulo do slot', () => {
     for (const f of [
-      arquivo('rotas', 'cliente.ts'),
+      arquivo('opcoes-item.ts'),
       arquivo('..', '..', 'frontend', 'src', 'pages', 'cliente', 'modal-produto.tsx'),
     ]) {
       expect(f).not.toMatch(/rotulo\} · ` : ''/);
