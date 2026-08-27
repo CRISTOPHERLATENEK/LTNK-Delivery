@@ -29,6 +29,15 @@ export interface ConteudoAjuda {
    * respostas num parágrafo faz a primeira se perder.
    */
   paraQue?: string;
+  /**
+   * O PASSO A PASSO, quando o assunto é uma TAREFA e não uma tela.
+   *
+   * Explicação e tutorial resolvem coisas diferentes: quem já sabe o que a tela
+   * faz precisa de referência, quem nunca usou precisa de ordem. Misturar os
+   * dois num parágrafo atende mal os dois — daí o campo separado, numerado, com
+   * o caminho da tela em cada passo.
+   */
+  passos?: string[];
   /** O engano que mais custa nesta tela. Some quando não há um. */
   cuidado?: string;
   /** Caminho do diagrama em `public/ajuda`. */
@@ -48,6 +57,183 @@ export interface ConteudoAjuda {
  * o lojista a não procurar.
  */
 export const AJUDA: Record<string, ConteudoAjuda> = {
+
+  /* ═══════════ PASSO A PASSO — tarefas, não telas ═══════════ */
+
+  'tut-produto': {
+    titulo: 'Como criar um produto',
+    paraQue: 'Do zero até ele aparecer no cardápio do cliente.',
+    resumo: 'Das cinco abas do cadastro, só DUAS são obrigatórias: Item e, quando o produto tem '
+      + 'escolhas, Complementos. Composição é só para combo, Fiscal só para quem emite nota. Com '
+      + 'as duas primeiras prontas, o produto já está vendendo.',
+    passos: [
+      'Produtos → clique em "+ Novo produto".',
+      'Na aba ITEM: nome, preço e categoria. Todos os campos obrigatórios estão aqui — se o salvar reclamar, é nesta aba que falta algo.',
+      'Ainda em ITEM: solte a foto na área de imagem. O sistema reduz sozinho se ela for pesada.',
+      'Aba COMPLEMENTOS: se o produto tem escolhas (tamanho, sabores, borda), monte aqui. Antes de criar um grupo novo, veja se já existe um igual — o mesmo grupo pode servir vários produtos.',
+      'Aba CONFIGURAÇÕES: confira se está "À venda" e se aparece no cardápio e no PDV. É aqui também que se liga o controle de estoque.',
+      'Salve e abra a sua loja em outra aba para conferir como o cliente vê.',
+    ],
+    cuidado: 'Vai cadastrar trinta pizzas? Faça UMA completa e use DUPLICAR. Duplicar liga ao '
+      + 'mesmo grupo de complementos, então mudar o preço da borda depois é uma edição em vez de '
+      + 'trinta.',
+    imagem: '/ajuda/cadastro-produto.svg',
+  },
+
+  'tut-combo': {
+    titulo: 'Como criar um combo',
+    paraQue: 'Um produto feito de outros, cada um com as escolhas dele.',
+    resumo: 'O combo é um produto normal que TEM outros produtos dentro. Cada item vira um bloco '
+      + 'separado na tela do cliente — numa promoção de duas pizzas ele escolhe os sabores de '
+      + 'cada uma, e a cozinha recebe dividido.',
+    passos: [
+      'Primeiro cadastre os COMPONENTES como produtos normais (ex.: "Pizza Gigante 45cm"), com os complementos deles.',
+      'Em cada componente, aba CONFIGURAÇÕES: DESLIGUE "vender avulso". Assim ele existe para o combo e não aparece no cardápio nem no PDV.',
+      'Agora crie o combo: "+ Novo produto", com o nome e o preço fechado da promoção.',
+      'SALVE o combo antes de continuar — a próxima aba precisa de um produto que já exista.',
+      'Reabra o combo na aba COMPOSIÇÃO e adicione os componentes, um por vez, com o rótulo que o cliente vai ler ("Pizza Gigante", "Broto").',
+      'Se o combo inclui algo fixo (um refrigerante), coloque na aba COMPLEMENTOS do próprio combo.',
+      'Abra a loja e confira: cada pizza deve aparecer como um bloco próprio, com os sabores dela.',
+    ],
+    cuidado: 'Não use "pausado" para esconder um componente — pausado quer dizer temporariamente '
+      + 'fora, e o painel vai mostrar assim. E excluir um produto que é componente é RECUSADO: '
+      + 'remova da composição do combo antes.',
+    imagem: '/ajuda/anatomia-combo.svg',
+  },
+
+  'tut-pdv': {
+    titulo: 'Como usar o PDV (balcão)',
+    paraQue: 'Venda no caixa, com o cliente na sua frente.',
+    resumo: 'O balcão é venda imediata: sem endereço, sem entregador, e o pedido já nasce '
+      + 'concluído. O atendimento inteiro cabe no teclado — cada opção de complemento tem um '
+      + 'número.',
+    passos: [
+      'Vendas → Balcão. Se você controla caixa, abra o caixa antes.',
+      'Toque no produto, ou bipe o código de barras no campo do topo.',
+      'Se o produto tiver complementos, a lista abre: DIGITE O NÚMERO da opção. Enter adiciona à venda, Esc cancela.',
+      'Confira no painel da direita o que foi escolhido — o × remove um item. O total aparece composto: preço base + adicionais.',
+      'Repita para os outros produtos. Item vendido por peso abre o teclado de peso sozinho.',
+      'Precisa mandar para a cozinha antes de fechar? Use "Enviar para produção".',
+      'Escolha a forma de pagamento, aplique desconto ou cupom se houver, e finalize. O cupom imprime.',
+    ],
+    cuidado: 'Botão claro NÃO é botão travado: falta alguma escolha obrigatória, e clicar nele '
+      + 'rola até o grupo que falta. Se aparecer "99 · não existe", o número digitado não está na '
+      + 'lista — não é a tecla que falhou.',
+    imagem: '/ajuda/atalhos-balcao.svg',
+    imprimivel: '/ajuda/cola-balcao.html',
+  },
+
+  'tut-mesa': {
+    titulo: 'Como usar mesa',
+    paraQue: 'Atender no salão, acumulando pedidos até o cliente pedir a conta.',
+    resumo: 'A mesa acumula itens numa comanda. Você manda para a cozinha em RODADAS — só vai o '
+      + 'que ainda não foi enviado — e fecha a conta no fim.',
+    passos: [
+      'Vendas → Mesas. Toque em "Abrir" na mesa que o cliente ocupou.',
+      'Clique em "Adicionar itens" e escolha os produtos. Complementos funcionam igual ao balcão: digite o número.',
+      'Clique em "Enviar para produção". Isso manda para a cozinha E imprime a comanda do setor.',
+      'O cliente pediu mais no meio do jantar? Adicione e clique em enviar de novo — só o que é novo vai para a cozinha.',
+      'Na hora da conta: clique no ícone de impressora no topo da comanda. Sai a conta com a composição de cada item.',
+      'Escolha a forma de pagamento e feche. A mesa volta a ficar livre automaticamente.',
+    ],
+    cuidado: 'A comanda fica aberta até você fechar. Mesa ocupada no fim do expediente costuma '
+      + 'ser comanda esquecida, não cliente — e ela continua somando no relatório do dia seguinte.',
+    imagem: '/ajuda/fluxo-mesa.svg',
+  },
+
+  'tut-entregador': {
+    titulo: 'Como usar entregador',
+    paraQue: 'Cadastrar quem entrega e despachar o pedido para ele.',
+    resumo: 'Cada entregador tem login próprio e, no aplicativo dele, vê só os pedidos que você '
+      + 'atribuiu, com endereço e rota. Você acompanha tudo pelo painel.',
+    passos: [
+      'Configurações → Entregadores → cadastre nome, telefone, e-mail e uma senha inicial.',
+      'Passe o login para ele e peça que entre pelo endereço da sua loja terminando em /entregador.',
+      'Quando um pedido ficar pronto, abra-o em Pedidos e atribua o entregador.',
+      'O pedido muda para "Saiu para entrega" e o cliente é avisado automaticamente.',
+      'O entregador confirma a entrega pelo aplicativo, e o pedido é concluído.',
+      'Em Avaliações você vê a nota que o cliente deu à entrega.',
+    ],
+    cuidado: 'Telefone e e-mail são ÚNICOS entre todas as contas do sistema, inclusive as de '
+      + 'cliente. Se o cadastro reclamar de telefone repetido, aquele número já existe em outra '
+      + 'conta — use outro ou ajuste a conta existente.',
+    imagem: '/ajuda/fluxo-pedido.svg',
+  },
+
+  'tut-rotas': {
+    titulo: 'Como criar rotas e taxas de entrega',
+    paraQue: 'Define até onde você entrega e quanto cobra em cada lugar.',
+    resumo: 'São três camadas, e o sistema tenta na ordem: primeiro uma ÁREA desenhada no mapa, '
+      + 'depois a taxa do BAIRRO, e por último a taxa PADRÃO da loja. Ele para na primeira que '
+      + 'casar com o endereço do cliente.',
+    passos: [
+      'Configurações → Entrega. Comece pela TAXA PADRÃO — é ela que vale para todo endereço que não casar com o resto.',
+      'Adicione os bairros que você atende: digite o nome e o sistema sugere a distância.',
+      'Informe a taxa de cada bairro e, se quiser, o tempo estimado. Clique em adicionar — o bairro digitado e não adicionado se perde ao sair da tela.',
+      'Bairro grande demais, ou cortado por um rio? Desenhe uma ÁREA no mapa e dê a taxa dela: área tem prioridade sobre bairro.',
+      'Confira fazendo um pedido de teste na sua loja, com um endereço de cada região.',
+    ],
+    cuidado: 'A taxa padrão é a rede de segurança E o buraco: baixa demais, todo endereço fora '
+      + 'das suas zonas — inclusive muito longe — vai ser entregue por ela.',
+    imagem: '/ajuda/entrega-taxa.svg',
+  },
+
+  'tut-caixa': {
+    titulo: 'Como abrir e fechar o caixa',
+    paraQue: 'Controlar o dinheiro da gaveta e conferir no fim do turno.',
+    resumo: 'Você abre com o fundo de troco, opera o dia registrando o que entra e sai fora de '
+      + 'venda, e fecha contando a gaveta. O sistema calcula o esperado e mostra a diferença.',
+    passos: [
+      'Vendas → Caixa → "Abrir caixa". Informe o fundo de troco que está na gaveta.',
+      'Tirou dinheiro durante o turno? Lance uma SANGRIA, sempre com o motivo (pagamento de fornecedor, depósito).',
+      'Colocou dinheiro que não é venda? Lance um SUPRIMENTO — mais troco, por exemplo.',
+      'Lançou errado? CANCELE o movimento. Não lance o contrário para compensar.',
+      'No fim: "Fechar caixa". Conte o dinheiro físico e digite o valor contado.',
+      'Confira a diferença. Quebra de centavos é normal; diferença grande merece olhar os movimentos do turno.',
+    ],
+    cuidado: 'A sangria não pode passar do dinheiro em caixa. Se for recusada, confira o valor — '
+      + 'quase sempre é um zero a mais.',
+    imagem: '/ajuda/caixa-turno.svg',
+  },
+
+  'tut-pedido': {
+    titulo: 'Como atender um pedido do delivery',
+    paraQue: 'Do aviso na tela até o cliente receber.',
+    resumo: 'O pedido do aplicativo chega em Pedidos e caminha por etapas. Cada mudança avisa o '
+      + 'cliente automaticamente, então manter o status em dia é o que evita o "cadê meu pedido?".',
+    passos: [
+      'Pedidos → o pedido novo aparece como pendente, com aviso sonoro.',
+      'Confira os itens e o endereço, e clique em ACEITAR. O cliente é avisado na hora.',
+      'O pedido vai para a cozinha (KDS) e para a impressora, se você usa comanda.',
+      'Quando ficar pronto, atribua um entregador — o status vira "Saiu para entrega".',
+      'O entregador confirma no aplicativo dele, e o pedido é concluído.',
+      'Não vai conseguir produzir? RECUSE. Se já estava pago, o dinheiro é estornado automaticamente e o estoque volta.',
+    ],
+    cuidado: 'Não deixe pedido pago parado na fila. O cliente pagou e está esperando: aceite ou '
+      + 'recuse — recusar devolve o dinheiro sozinho.',
+    imagem: '/ajuda/fluxo-pedido.svg',
+  },
+
+  'tut-pagamento': {
+    titulo: 'Como ligar o Pix e o cartão',
+    paraQue: 'Receber pagamento online, direto na sua conta.',
+    resumo: 'Cada loja usa a própria conta do gateway. Existem dois modos, teste e produção, com '
+      + 'um token cada — e o teste exercita o fluxo inteiro sem mover dinheiro.',
+    passos: [
+      'No portal do seu gateway (Mercado Pago, por exemplo), gere as credenciais de TESTE.',
+      'Configurações → Pagamentos → cole as credenciais de teste e mude o modo para TESTE.',
+      'Cadastre, no painel do gateway, a URL de notificação que a tela mostra.',
+      'Faça um pedido de teste na sua loja e pague: o QR deve aparecer e o pedido deve confirmar sozinho.',
+      'Funcionou? Gere as credenciais de PRODUÇÃO, cole, e mude o modo para produção.',
+      'Faça UM pedido real de valor pequeno e confira se o dinheiro caiu na sua conta.',
+      'Recuse esse pedido pelo painel: o dinheiro volta automaticamente. Assim você conhece o estorno antes de precisar dele.',
+    ],
+    cuidado: 'As credenciais são gravadas mascaradas e o painel nunca mostra o token completo de '
+      + 'volta. Guarde o original onde você o gerou.',
+    imagem: '/ajuda/pagamento-modos.svg',
+  },
+
+  /* ═══════════ REFERÊNCIA — as telas, uma a uma ═══════════ */
 
   /* ─────────────── Começar ─────────────── */
 
@@ -516,6 +702,24 @@ export function CorpoAjuda({ item }: { item: ConteudoAjuda }) {
         <p className="text-[13.5px] font-semibold leading-relaxed text-primary">{item.paraQue}</p>
       )}
       <p className="text-[14.5px] leading-relaxed">{item.resumo}</p>
+
+      {/*
+        OS PASSOS VÊM ANTES DO "ONDE SE ERRA" e antes do diagrama.
+        Quem abriu um tutorial quer executar agora; o cuidado só faz sentido
+        depois de saber a sequência, e o diagrama é reforço do que já foi lido.
+      */}
+      {item.passos && item.passos.length > 0 && (
+        <ol className="space-y-2.5">
+          {item.passos.map((p, i) => (
+            <li key={i} className="flex gap-3">
+              <span className="mt-0.5 flex size-[22px] shrink-0 items-center justify-center rounded-full bg-primary text-[12px] font-bold text-primary-foreground">
+                {i + 1}
+              </span>
+              <span className="min-w-0 flex-1 pt-0.5 text-[14px] leading-relaxed">{p}</span>
+            </li>
+          ))}
+        </ol>
+      )}
 
       {item.cuidado && (
         /* Faixa discreta, sem cor de alarme: é o erro que mais custa, não uma

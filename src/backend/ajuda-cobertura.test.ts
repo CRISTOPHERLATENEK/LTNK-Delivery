@@ -85,3 +85,46 @@ describe('cobertura do treinamento', () => {
     expect(tela).not.toMatch(/item\.video|item\.gif/);
   });
 });
+
+/*
+ * OS TUTORIAIS SÃO OUTRA COISA QUE A REFERÊNCIA, e o teste separa os dois.
+ *
+ * Referência responde "o que é esta tela"; tutorial responde "como eu faço".
+ * Quem chega ao Treinamento quase sempre quer o segundo — e um tutorial sem
+ * passos é uma referência com nome trocado, que decepciona justamente quem mais
+ * precisava de ajuda.
+ */
+describe('tutoriais passo a passo', () => {
+  const chavesTut = chaves.filter(c => c.startsWith('tut-'));
+
+  it('cobre as tarefas do dia a dia', () => {
+    for (const t of [
+      'tut-produto', 'tut-combo', 'tut-pdv', 'tut-mesa',
+      'tut-pedido', 'tut-entregador', 'tut-rotas', 'tut-caixa', 'tut-pagamento',
+    ]) {
+      expect(chavesTut).toContain(t);
+    }
+  });
+
+  /* Todo `tut-` tem passos numerados, e passo nenhum é vago: "configure a tela"
+     não ensina ninguém a fazer nada. */
+  it('todo tutorial tem passos de verdade', () => {
+    const corpo = corpoCatalogo;
+    const semPassos: string[] = [];
+    for (const t of chavesTut) {
+      const i = corpo.indexOf(`'${t}': {`);
+      const j = corpo.indexOf("\n  '", i + 5);
+      const bloco = corpo.slice(i, j > 0 ? j : undefined);
+      const passos = (bloco.match(/^ {6}'/gm) || []).length;
+      if (!bloco.includes('passos: [') || passos < 5) semPassos.push(t);
+    }
+    expect(semPassos).toEqual([]);
+  });
+
+  /* E os tutoriais vêm ANTES da referência na tela: a ordem é a resposta pra
+     "por onde começo". */
+  it('a seção de passo a passo é a primeira da tela', () => {
+    const secoes = tela.slice(tela.indexOf('const SECOES'), tela.indexOf('function Cartao'));
+    expect(secoes.indexOf("'Passo a passo'")).toBeLessThan(secoes.indexOf("'1. Começar'"));
+  });
+});

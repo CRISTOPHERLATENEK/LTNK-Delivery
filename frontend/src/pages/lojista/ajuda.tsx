@@ -26,6 +26,21 @@ import { AJUDA, CorpoAjuda, type ConteudoAjuda } from '@/components/ui/ajuda';
  * obriga a pessoa a procurar duas vezes.
  */
 const SECOES: Array<{ titulo: string; onde: string; chaves: string[] }> = [
+  /*
+   * OS TUTORIAIS VÊM PRIMEIRO, e separados da referência.
+   *
+   * São coisas diferentes: tutorial responde "como faço", referência responde
+   * "o que é isto". Quem chega ao Treinamento quase sempre quer a primeira —
+   * misturar as duas listas obrigaria a garimpar.
+   */
+  {
+    titulo: 'Passo a passo',
+    onde: 'as tarefas do dia a dia, na ordem de executar',
+    chaves: [
+      'tut-produto', 'tut-combo', 'tut-pdv', 'tut-mesa',
+      'tut-pedido', 'tut-entregador', 'tut-rotas', 'tut-caixa', 'tut-pagamento',
+    ],
+  },
   {
     titulo: '1. Começar',
     onde: 'Configurações → Dados e Horário',
@@ -132,10 +147,10 @@ export function AjudaLoja() {
           <HelpCircle className="size-5 text-primary" /> Treinamento
         </h2>
         <p className="mt-1 max-w-[640px] text-sm leading-relaxed text-muted-foreground">
-          Todas as telas do painel, explicadas: para que servem, como usar e onde
-          se erra. O mesmo conteúdo aparece no <b>?</b> ao lado de cada tela, na
-          hora que a dúvida surge — aqui está tudo junto, para aprender antes ou
-          treinar alguém.
+          Comece pelo <b>passo a passo</b>: são as tarefas do dia a dia, com a
+          ordem exata de executar. Abaixo dele, cada tela do painel explicada —
+          para que serve, como usar e onde se erra. O mesmo conteúdo aparece no
+          <b> ?</b> ao lado de cada tela, na hora que a dúvida surge.
         </p>
       </div>
 
@@ -180,7 +195,10 @@ export function AjudaLoja() {
       {secoesFiltradas.map(s => (
         <section key={s.titulo}>
           <div className="mb-2">
-            <h3 className="text-[13px] font-bold uppercase tracking-wider text-muted-foreground">
+            <h3 className={cn('text-[13px] font-bold uppercase tracking-wider',
+              /* O bloco de tutoriais ganha a cor da marca: ele é a resposta pra
+                 maioria de quem chega, e precisa se distinguir da referência. */
+              s.titulo === 'Passo a passo' ? 'text-primary' : 'text-muted-foreground')}>
               {s.titulo}
             </h3>
             <p className="text-[12px] text-muted-foreground/60">{s.onde}</p>
