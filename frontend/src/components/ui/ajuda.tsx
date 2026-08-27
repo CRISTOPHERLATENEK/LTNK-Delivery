@@ -25,6 +25,17 @@ export interface ConteudoAjuda {
   resumo: string;
   /** Caminho da imagem em `public/ajuda`. Sem ela, só o resumo aparece. */
   imagem?: string;
+  /**
+   * Gravação do fluxo na tela, em GIF.
+   *
+   * Fica entre a imagem e o vídeo porque é o que resolve o "onde clico" sem
+   * exigir que a pessoa saia da tarefa — o gesto se vê, e é MUDO, então não
+   * atrapalha quem está no balcão com o cliente na frente.
+   *
+   * Carregado só quando o painel abre (`loading="lazy"`): são ~1,5 MB cada, e
+   * baixá-los junto do painel puniria quem nunca abre a ajuda.
+   */
+  gif?: string;
   /** Link do vídeo. Sem ele, o bloco de vídeo não aparece. */
   video?: string;
   /** Duração legível, ex.: "3 min" — some a dúvida de "vou perder quanto tempo?". */
@@ -76,11 +87,13 @@ export const AJUDA: Record<string, ConteudoAjuda> = {
     resumo: 'Arraste pela alça, ou use as setas no celular. Vale para categoria, faixa e produto. '
       + 'Com busca ou filtro ativo as alças somem — clique em "Todas".',
     imagem: '/ajuda/alcas-ordenacao.svg',
+    gif: '/ajuda/ordenar-cardapio.gif',
   },
   'balcao-atalhos': {
     titulo: 'Atalhos do balcão',
     resumo: 'Cada opção tem um número — digite o número completo. Enquanto ele ainda puder crescer (numa lista longa, "3" pode virar 31), o sistema espera: o que você digitou aparece no topo da janela e some quando aplica.',
     imagem: '/ajuda/atalhos-balcao.svg',
+    gif: '/ajuda/pdv-complementos.gif',
     imprimivel: '/ajuda/cola-balcao.html',
   },
   'mesa-fluxo': {
@@ -149,6 +162,20 @@ export function Ajuda({ chave, className }: { chave: keyof typeof AJUDA | string
                   alt={conteudo.titulo}
                   className="w-full rounded-xl border border-border bg-white"
                 />
+              )}
+
+              {conteudo.gif && (
+                <figure className="space-y-1.5">
+                  <img
+                    src={conteudo.gif}
+                    alt={`${conteudo.titulo} — gravação da tela`}
+                    loading="lazy"
+                    className="w-full rounded-xl border border-border bg-white"
+                  />
+                  <figcaption className="text-[11.5px] text-muted-foreground">
+                    Gravação da tela, sem som.
+                  </figcaption>
+                </figure>
               )}
 
               {conteudo.imprimivel && (

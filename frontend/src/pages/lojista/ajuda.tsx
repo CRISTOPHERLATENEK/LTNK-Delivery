@@ -56,17 +56,24 @@ function Cartao({ item }: { item: ConteudoAjuda }) {
           <p className="text-[15px] font-bold leading-tight">{item.titulo}</p>
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{item.resumo}</p>
         </div>
-        {(item.imagem || item.video) && (
+        {(item.imagem || item.gif || item.video) && (
           <ChevronDown className={cn('mt-0.5 size-4 shrink-0 text-muted-foreground transition-transform',
             aberto && 'rotate-180')} />
         )}
       </button>
 
-      {aberto && (item.imagem || item.video || item.imprimivel) && (
+      {aberto && (item.imagem || item.gif || item.video || item.imprimivel) && (
         <div className="space-y-3 border-t border-border p-4">
           {item.imagem && (
             <img src={item.imagem} alt={item.titulo}
               className="w-full rounded-xl border border-border bg-white" />
+          )}
+          {item.gif && (
+            <figure className="space-y-1.5">
+              <img src={item.gif} alt={`${item.titulo} — gravação da tela`} loading="lazy"
+                className="w-full rounded-xl border border-border bg-white" />
+              <figcaption className="text-[11.5px] text-muted-foreground">Gravação da tela, sem som.</figcaption>
+            </figure>
           )}
           {item.imprimivel && (
             <a href={item.imprimivel} target="_blank" rel="noreferrer"
