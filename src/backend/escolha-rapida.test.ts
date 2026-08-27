@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { numerarOpcoes, resolverDigitado } from '../../frontend/src/lib/escolha-rapida';
+import { agruparPorSecao } from '../../frontend/src/lib/opcoes-preco';
 
 describe('numerarOpcoes', () => {
   it('numera contínuo entre grupos e slots', () => {
@@ -64,5 +67,54 @@ describe('resolverDigitado', () => {
     expect(resolverDigitado('10', 100)).toEqual({ aplicar: null, buffer: '10' });
     expect(resolverDigitado('100', 100)).toEqual({ aplicar: 100, buffer: '' });
     expect(resolverDigitado('11', 100)).toEqual({ aplicar: 11, buffer: '' });
+  });
+});
+
+/*
+ * A NUMERAÇÃO SEGUE A ORDEM EXIBIDA, NÃO A ORDEM CRUA.
+ *
+ * `agruparPorSecao` REORDENA: o bloco sem seção vai pra frente, pra uma opção
+ * sem seção não cair sob o título "Doces" e ser lida como doce. Se a lista
+ * compacta numerar por `g.opcoes` e exibir por seção, o número mostrado ao lado
+ * de um sabor aciona OUTRO — e no balcão isso é a pizza errada saindo do forno,
+ * sem ninguém perceber onde foi o erro.
+ */
+describe('numeração x seções', () => {
+  const opcoes = [
+    { id: 10, secao: 'Doces' },
+    { id: 11, secao: '' },        // sem seção, mas depois de uma nomeada
+    { id: 12, secao: 'Doces' },
+  ];
+
+  it('a ordem crua e a exibida DIFEREM neste caso', () => {
+    const exibida = agruparPorSecao(opcoes).flatMap(s => s.opcoes).map(o => o.id);
+    expect(exibida).toEqual([11, 10, 12]);
+    expect(exibida).not.toEqual(opcoes.map(o => o.id));
+  });
+
+  it('numerar pela lista exibida faz o número casar com a tela', () => {
+    const exibida = agruparPorSecao(opcoes).flatMap(s => s.opcoes);
+    const n = numerarOpcoes([{ slot: 0, grupos: [{ id: 1, opcoes: exibida }] }]);
+    /* 1 é o primeiro DA TELA (o sem seção), como o cabeçalho mostra. */
+    expect(n.map(x => x.opcaoId)).toEqual([11, 10, 12]);
+  });
+
+  it('numerar pela lista crua apontaria pro sabor errado', () => {
+    const crua = numerarOpcoes([{ slot: 0, grupos: [{ id: 1, opcoes }] }]);
+    /* O "1" acionaria o id 10, que na tela aparece em segundo. É o defeito. */
+    expect(crua[0].opcaoId).toBe(10);
+  });
+});
+
+describe('a tela compacta numera pela lista exibida', () => {
+  const comp = fs.readFileSync(path.resolve(
+    __dirname, '..', '..', 'frontend', 'src', 'pages', 'lojista', 'escolha-rapida.tsx'), 'utf8');
+  const codigo = comp.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('achata as seções ANTES de numerar', () => {
+    expect(codigo).toMatch(/secoes\.flatMap\(x => x\.opcoes\)/);
+    /* E renderiza por seção, senão o achatamento não teria motivo. */
+    expect(codigo).toMatch(/g\.secoes\.map\(sec =>/);
+    expect(codigo).toMatch(/sec\.opcoes\.map\(o =>/);
   });
 });

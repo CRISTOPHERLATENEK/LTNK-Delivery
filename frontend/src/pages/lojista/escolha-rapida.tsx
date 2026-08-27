@@ -15,7 +15,7 @@ import { cn } from '@/lib/utils';
 import { brl } from '@/lib/format';
 import { precoVigente } from '@/lib/preco-produto';
 import { montarSlots, chaveEscolha, escolhasParaEnvio, faltandoPorSlot } from '@/lib/slots-produto';
-import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo } from '@/lib/opcoes-preco';
+import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo, agruparPorSecao } from '@/lib/opcoes-preco';
 import { numerarOpcoes, resolverDigitado } from '@/lib/escolha-rapida';
 import type { Produto } from '@/types';
 
@@ -30,7 +30,29 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
   onCancelar: () => void;
   onConfirmar: (r: EscolhaFeita) => void;
 }) {
-  const slots = useMemo(() => montarSlots(produto), [produto]);
+  const slotsCrus = useMemo(() => montarSlots(produto), [produto]);
+
+  /*
+   * AS SEÇÕES ENTRAM AQUI — e a numeração TEM que seguir a ordem exibida.
+   *
+   * O cardápio de sabores vem em seções (Tradicional, Especial, Doce) e a lista
+   * compacta as ignorava: 33 sabores em fila, sem dizer onde acaba o que está
+   * incluso e começa o que custa mais.
+   *
+   * `agruparPorSecao` pode REORDENAR — o bloco sem seção vai pra frente, pra
+   * uma opção sem seção não aparecer sob o título "Doces" e ser lida como
+   * doce. Numerar por `g.opcoes` e exibir por seção faria o número apontar pro
+   * sabor errado num grupo com bloco sem seção no meio. Então a lista exibida
+   * é a fonte da numeração.
+   */
+  const slots = useMemo(() => slotsCrus.map(s => ({
+    ...s,
+    grupos: s.grupos.map(g => {
+      const secoes = agruparPorSecao(g.opcoes);
+      return { ...g, secoes, opcoes: secoes.flatMap(x => x.opcoes) };
+    }),
+  })), [slotsCrus]);
+
   const numeradas = useMemo(() => numerarOpcoes(slots), [slots]);
   const [escolhidas, setEscolhidas] = useState<Record<string, number[]>>({});
   const [buffer, setBuffer] = useState('');
@@ -171,10 +193,19 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
                         {ids.length > 0 ? ` · ${ids.length} escolhido(s)` : ''}
                       </span>
                     </div>
-                    {/* Duas colunas: a lista de sabores tem 27 itens, e numa coluna
+                    {g.secoes.map(sec => (
+                    <div key={sec.secao}>
+                      {/* Cabeçalho só quando a seção TEM nome: loja que não usa
+                          seção não deve ganhar título nenhum. */}
+                      {sec.secao && (
+                        <p className="px-2 pb-0.5 pt-1.5 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground/80">
+                          {sec.secao}
+                        </p>
+                      )}
+                    {/* Duas colunas: a lista de sabores tem 33 itens, e numa coluna
                         não caberia sem rolagem — o gesto que esta tela evita. */}
                     <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
-                      {g.opcoes.map(o => {
+                      {sec.opcoes.map(o => {
                         const achado = numeradas.find(
                           x => x.slot === s.slot && x.grupoId === g.id && x.opcaoId === o.id);
                         if (!achado) return null;
@@ -206,6 +237,8 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
                         );
                       })}
                     </div>
+                    </div>
+                    ))}
                   </div>
                 );
               })}
