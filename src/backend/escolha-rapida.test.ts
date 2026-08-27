@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { numerarOpcoes, resolverDigitado } from '../../frontend/src/lib/escolha-rapida';
+import { numerarOpcoes, resolverDigitado, grupoConcluido } from '../../frontend/src/lib/escolha-rapida';
 import { agruparPorSecao } from '../../frontend/src/lib/opcoes-preco';
 
 describe('numerarOpcoes', () => {
@@ -116,5 +116,74 @@ describe('a tela compacta numera pela lista exibida', () => {
     /* E renderiza por seção, senão o achatamento não teria motivo. */
     expect(codigo).toMatch(/g\.secoes\.map\(sec =>/);
     expect(codigo).toMatch(/sec\.opcoes\.map\(o =>/);
+  });
+});
+
+/*
+ * O COLAPSO EXISTE PRA LISTA CABER — com seis tamanhos, 33 sabores e a borda
+ * abertos, a borda fica fora da tela e o rodapé anuncia que ela falta sem que
+ * dê pra vê-la.
+ */
+describe('grupoConcluido', () => {
+  it('escolha única fecha com uma', () => {
+    expect(grupoConcluido('unico', 0, 1)).toBe(false);
+    expect(grupoConcluido('unico', 1, 1)).toBe(true);
+  });
+
+  /*
+   * O CASO QUE TRAVA O ATENDENTE SE ERRADO. "Até 4 sabores" com 1 escolhido não
+   * está decidido — ele ainda pode querer o segundo. Fechar ali esconderia o
+   * resto, e a única saída seria reabrir na mão: pior que não ter colapso.
+   */
+  it('múltipla NÃO fecha antes do teto', () => {
+    expect(grupoConcluido('multiplo', 1, 4)).toBe(false);
+    expect(grupoConcluido('multiplo', 3, 4)).toBe(false);
+    expect(grupoConcluido('multiplo', 4, 4)).toBe(true);
+  });
+
+  /* Sem teto a lista nunca fecha sozinha: não há momento em que se possa
+     afirmar que o atendente terminou. */
+  it('sem teto, nunca fecha sozinha', () => {
+    expect(grupoConcluido('multiplo', 9, 0)).toBe(false);
+  });
+
+  /* O teto pode CAIR quando o tamanho muda (de 4 sabores pra 1). Um grupo com 4
+     escolhidos e teto novo de 1 continua "concluído" — a poda de excesso é
+     outra responsabilidade, e travar aqui esconderia a lista no meio da
+     correção. */
+  it('escolhas acima do teto contam como concluído', () => {
+    expect(grupoConcluido('multiplo', 4, 1)).toBe(true);
+  });
+});
+
+/*
+ * A NUMERAÇÃO NÃO PODE DEPENDER DO QUE ESTÁ VISÍVEL.
+ *
+ * O colapso esconde grupos decididos. Se a numeração passasse a contar só o
+ * visível, "28 é Camarão" deixaria de valer no instante em que o Tamanho
+ * fechasse — e decorar o número é a única vantagem da lista compacta sobre o
+ * modal do cliente. O atendente digitaria 28 e sairia outro sabor.
+ */
+describe('o colapso não mexe na numeração', () => {
+  const comp = fs.readFileSync(path.resolve(
+    __dirname, '..', '..', 'frontend', 'src', 'pages', 'lojista', 'escolha-rapida.tsx'), 'utf8');
+  const codigo = comp.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('numera sobre TODOS os grupos, sem consultar o estado de colapso', () => {
+    const chamadas = codigo.match(/numerarOpcoes\([^)]*\)/g) || [];
+    expect(chamadas).toEqual(['numerarOpcoes(slots)']);
+    for (const c of chamadas) {
+      expect(c).not.toMatch(/fechado|reaberto|visiv/);
+    }
+  });
+
+  /* O grupo fechado ainda precisa poder ser reaberto: sem isso, corrigir o
+     tamanho depois de escolhido seria impossível sem cancelar o item. */
+  it('grupo fechado é reabrível', () => {
+    expect(codigo).toMatch(/setReaberto\(r => \(\{ \.\.\.r, \[chave\]: true \}\)\)/);
+  });
+
+  it('o fechamento usa a regra testada, não uma condição solta', () => {
+    expect(codigo).toMatch(/grupoConcluido\(g\.tipo, ids\.length, max\)/);
   });
 });

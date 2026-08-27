@@ -10,13 +10,13 @@
  * seção — a tela cabe de uma vez, e o número é o que se decora.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { X } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { brl } from '@/lib/format';
 import { precoVigente } from '@/lib/preco-produto';
 import { montarSlots, chaveEscolha, escolhasParaEnvio, faltandoPorSlot } from '@/lib/slots-produto';
 import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo, agruparPorSecao } from '@/lib/opcoes-preco';
-import { numerarOpcoes, resolverDigitado } from '@/lib/escolha-rapida';
+import { numerarOpcoes, resolverDigitado, grupoConcluido } from '@/lib/escolha-rapida';
 import type { Produto } from '@/types';
 
 export interface EscolhaFeita {
@@ -56,6 +56,12 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
   const numeradas = useMemo(() => numerarOpcoes(slots), [slots]);
   const [escolhidas, setEscolhidas] = useState<Record<string, number[]>>({});
   const [buffer, setBuffer] = useState('');
+  /*
+   * Grupos que o atendente REABRIU na mão, pra trocar uma escolha já feita.
+   * Guardar a reabertura (em vez de o fechamento) mantém o padrão sendo
+   * "decidido = fechado": grupo novo aparece aberto sem precisar de registro.
+   */
+  const [reaberto, setReaberto] = useState<Record<string, boolean>>({});
 
   const faltando = faltandoPorSlot(slots, escolhidas);
 
@@ -183,6 +189,36 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
                 const ids = escolhidas[chave] ?? [];
                 const max = maxEscolhasEfetivo(g, saboresPorSlot.get(s.slot) ?? 0);
                 const pendente = g.obrigatorio && ids.length === 0;
+                /*
+                 * GRUPO DECIDIDO ENCOLHE PRA UMA LINHA.
+                 *
+                 * Com seis tamanhos, 33 sabores e a borda abertos ao mesmo
+                 * tempo, a borda ficava FORA DA TELA — e o rodapé anunciava que
+                 * ela faltava sem que desse pra vê-la. Cada decisão tomada
+                 * deixa de precisar de espaço.
+                 *
+                 * Os NÚMEROS NÃO MUDAM: `numeradas` é calculado sobre todos os
+                 * grupos, sem saber o que está fechado. Renumerar o visível
+                 * destruiria a única vantagem da lista, que é decorar o número
+                 * — "28 é Camarão" tem que valer com o Tamanho fechado.
+                 */
+                const fechado = grupoConcluido(g.tipo, ids.length, max) && !reaberto[chave];
+                if (fechado) {
+                  const nomes = g.opcoes.filter(o => ids.includes(o.id)).map(o => o.nome).join(', ');
+                  return (
+                    <button
+                      key={chave}
+                      type="button"
+                      onClick={() => setReaberto(r => ({ ...r, [chave]: true }))}
+                      className="flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent"
+                    >
+                      <Check className="size-3.5 shrink-0 translate-y-0.5 text-emerald-600" strokeWidth={3} />
+                      <span className="shrink-0 text-[12px] font-bold uppercase tracking-wide">{g.nome}</span>
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{nomes}</span>
+                      <span className="shrink-0 text-[11px] font-semibold text-primary">trocar</span>
+                    </button>
+                  );
+                }
                 return (
                   <div key={chave} className="mb-1">
                     <div className="flex items-baseline gap-2 px-2 py-1.5">

@@ -75,3 +75,28 @@ export function resolverDigitado(buffer: string, total: number): Digitado {
   const podeCrescer = Number(buffer + '0') <= total;
   return podeCrescer ? { aplicar: null, buffer } : { aplicar: n, buffer: '' };
 }
+
+/**
+ * O grupo já está DECIDIDO, e por isso pode encolher pra uma linha?
+ *
+ * Existe pra lista compacta caber: com seis tamanhos, 33 sabores e a borda
+ * abertos ao mesmo tempo, a borda fica fora da tela — e o rodapé anuncia que
+ * ela falta sem que dê pra vê-la. Cada decisão tomada deixa de precisar de
+ * espaço.
+ *
+ * A REGRA DELICADA É O TETO, e errá-la trava o atendente no meio da escolha.
+ * Um grupo de "até 4 sabores" com 1 escolhido NÃO está decidido: ele ainda pode
+ * querer o segundo. Fechar ali esconderia as opções restantes e a única saída
+ * seria reabrir na mão — pior que não ter colapso nenhum.
+ *
+ * Então: escolha única fecha com 1; múltipla só fecha no TETO. Sem teto
+ * (ilimitado), nunca fecha sozinha.
+ */
+export function grupoConcluido(
+  tipo: string,
+  quantasEscolhidas: number,
+  maxEfetivo: number,
+): boolean {
+  if (tipo === 'unico') return quantasEscolhidas === 1;
+  return maxEfetivo > 0 && quantasEscolhidas >= maxEfetivo;
+}
