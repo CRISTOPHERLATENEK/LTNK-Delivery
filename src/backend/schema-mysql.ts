@@ -484,6 +484,14 @@ const TABELAS: string[] = [
   preco_unit_centavos INT NOT NULL CHECK (preco_unit_centavos >= 0),
   quantidade          INT NOT NULL DEFAULT 1 CHECK (quantidade > 0),
   observacao          TEXT,
+  -- As escolhas do item, com os mesmos nomes e tipos de itens_pedido: na fase 2
+  -- a validacao passa a ser compartilhada entre delivery e balcao, e nome
+  -- divergente aqui obrigaria a uma traducao no meio -- que e onde os dois
+  -- canais voltariam a discordar sobre preco.
+  -- (Comentario em -- e sem crases: este bloco vive DENTRO de uma template
+  -- string, e uma crase aqui fecha a string.)
+  opcoes_texto        TEXT,
+  opcoes_ids          TEXT,
   enviado_cozinha     TINYINT NOT NULL DEFAULT 0,
   KEY idx_comanda_itens (comanda_id),
   FOREIGN KEY (comanda_id) REFERENCES comandas(id),
@@ -1433,6 +1441,32 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
           `ALTER TABLE subcategorias CONVERT TO CHARACTER SET utf8mb4 COLLATE ${alvo}`,
         );
       }
+    }
+  }
+
+  /*
+   * FASE 1 DO BALCÃO COM OPÇÕES — só as colunas, ninguém lê ainda.
+   *
+   * Hoje mesa e balcão lançam o item pelo PREÇO BASE e sem escolha nenhuma:
+   * uma pizza que no delivery sai a R$ 77 (sabor + borda) é registrada a R$ 45,
+   * e a cozinha recebe "Pizza Artesanal" sem tamanho nem sabor. Grupo
+   * obrigatório, que no delivery impede fechar o pedido, aqui passa direto.
+   *
+   * Esta fase não muda comportamento nenhum: as colunas nascem NULL, nada
+   * escreve e nada lê. É o ponto de volta seguro — dá pra aplicar hoje e
+   * decidir a fase 2 depois.
+   */
+  for (const [coluna, ddl] of [
+    ['opcoes_texto', 'opcoes_texto TEXT'],
+    ['opcoes_ids', 'opcoes_ids TEXT'],
+  ] as const) {
+    const [existe] = await pool.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'comanda_itens' AND COLUMN_NAME = ?
+        LIMIT 1`, [coluna],
+    ) as any;
+    if (existe.length === 0) {
+      await adicionarColuna(pool, `ALTER TABLE comanda_itens ADD COLUMN ${ddl}`);
     }
   }
 
