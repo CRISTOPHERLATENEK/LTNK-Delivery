@@ -16,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
+import { EscolhaRapida, type EscolhaFeita } from './escolha-rapida';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { imprimirCupom, imprimirDanfe, montarHtmlDanfe, abrirEImprimir, configImpressao, type LinhaCupom, type DadosDanfe } from '@/lib/impressao';
@@ -38,6 +39,10 @@ interface ItemCarrinho {
   pesoG?: number;
   /** Texto descritivo da linha (ex.: "0,350 kg × R$ 39,90/kg"). */
   detalhe?: string;
+  /** Escolhas do item, no formato que o servidor lê. */
+  opcoes?: Array<number | { s: number; o: number }>;
+  /** As escolhas por extenso — o que aparece na linha do carrinho. */
+  opcoesTexto?: string;
 }
 
 function precoDe(p: Produto): number {
@@ -84,6 +89,8 @@ export function BalcaoLoja() {
   const [busca, setBusca] = useState('');
   const [categoria, setCategoria] = useState<string | null>(null);
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
+  /** Produto aguardando escolha de opções na lista compacta. */
+  const [escolhendo, setEscolhendo] = useState<Produto | null>(null);
   const [pagamento, setPagamento] = useState<Pagamento>('dinheiro');
   const [descontoStr, setDescontoStr] = useState('');
   const [recebidoStr, setRecebidoStr] = useState('');
@@ -133,7 +140,8 @@ export function BalcaoLoja() {
       qtd: i.pesoG ? (i.pesoG / 1000).toFixed(3).replace('.', ',') + ' kg' : String(i.quantidade),
       nome: i.produto.nome,
       valor: brl(i.precoUnit * i.quantidade),
-      detalhe: i.detalhe,
+      /* O cupom recebe peso E escolhas: são coisas diferentes na mesma linha. */
+      detalhe: [i.detalhe, i.opcoesTexto].filter(Boolean).join(' · ') || undefined,
       categoria: i.produto.categoria,
     }));
     const totais = [
@@ -179,8 +187,14 @@ export function BalcaoLoja() {
   function adicionar(p: Produto) {
     // Produto por peso abre o teclado de peso em vez de somar unidade.
     if (ehPeso(p)) { setPesando(p); return; }
+    /*
+     * PRODUTO COM GRUPO ABRE A ESCOLHA — antes ia direto pro carrinho pelo
+     * preço base. A pizza que no delivery sai a R$ 77 (sabor + borda) entrava a
+     * R$ 45, e a cozinha recebia "Pizza Artesanal" sem tamanho nem sabor.
+     */
+    if ((p.grupos?.length ?? 0) > 0) { setEscolhendo(p); return; }
     setCarrinho(c => {
-      const i = c.findIndex(x => x.produto.id === p.id && !x.pesoG);
+      const i = c.findIndex(x => x.produto.id === p.id && !x.pesoG && !x.opcoes?.length);
       if (i >= 0) {
         const novo = [...c];
         novo[i] = { ...novo[i], quantidade: novo[i].quantidade + 1 };
@@ -188,6 +202,22 @@ export function BalcaoLoja() {
       }
       return [...c, { uid: novaLinhaUid(), produto: p, quantidade: 1, precoUnit: precoDe(p) }];
     });
+  }
+
+  /**
+   * Entra no carrinho como LINHA PRÓPRIA, sem juntar com outra igual.
+   *
+   * Juntar por `produto.id` fundiria duas pizzas de sabores diferentes numa
+   * linha de quantidade 2 — e uma das configurações desapareceria, com o cliente
+   * pagando por duas e a cozinha produzindo duas iguais. É o mesmo defeito que a
+   * chave do carrinho do cliente já teve.
+   */
+  function adicionarComEscolha(p: Produto, r: EscolhaFeita) {
+    setCarrinho(c => [...c, {
+      uid: novaLinhaUid(), produto: p, quantidade: 1,
+      precoUnit: r.precoUnit, opcoes: r.opcoes, opcoesTexto: r.opcoesTexto,
+    }]);
+    setEscolhendo(null);
   }
 
   /** Adiciona um item por peso (gramas) — calcula o preço pela tabela por kg. */
@@ -229,7 +259,7 @@ export function BalcaoLoja() {
     setEnviando(true);
     try {
       const r = await api<{ itens_enviados: number }>('POST', '/api/lojista/balcao/enviar-cozinha', {
-        itens: carrinho.map(i => ({ produto_id: i.produto.id, quantidade: i.quantidade })),
+        itens: carrinho.map(i => ({ produto_id: i.produto.id, quantidade: i.quantidade, opcoes: i.opcoes })),
       });
       mostrar({ tipo: 'sucesso', titulo: `${r.itens_enviados} item(ns) enviados à cozinha 🍳` });
     } catch (e) {
@@ -253,8 +283,8 @@ export function BalcaoLoja() {
       if (!idempotencia.current) idempotencia.current = criarChaveVenda();
       const r = await api<{ pedido_id: number; repetida?: boolean }>('POST', '/api/lojista/balcao', {
         itens: carrinho.map(i => i.pesoG
-          ? { produto_id: i.produto.id, peso_g: i.pesoG }
-          : { produto_id: i.produto.id, quantidade: i.quantidade }),
+          ? { produto_id: i.produto.id, peso_g: i.pesoG, opcoes: i.opcoes }
+          : { produto_id: i.produto.id, quantidade: i.quantidade, opcoes: i.opcoes }),
         forma_pagamento: pagamento,
         desconto_centavos: descontoCent,
         idempotencia: idempotencia.current,
@@ -483,6 +513,12 @@ export function BalcaoLoja() {
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium leading-tight line-clamp-1">{item.produto.nome}</div>
                         {item.detalhe && <div className="text-[11px] text-muted-foreground leading-tight">{item.detalhe}</div>}
+                        {/* As escolhas na linha: sem isso, duas pizzas viram
+                            duas linhas idênticas na tela e o atendente não tem
+                            como saber qual é qual pra corrigir. */}
+                        {item.opcoesTexto && (
+                          <div className="text-[11px] leading-tight text-muted-foreground">{item.opcoesTexto}</div>
+                        )}
                       </div>
                       <span className="text-sm font-bold tabular-nums shrink-0">{brl(item.precoUnit * item.quantidade)}</span>
                     </div>
@@ -557,6 +593,15 @@ export function BalcaoLoja() {
           produto={pesando}
           onCancelar={() => setPesando(null)}
           onConfirmar={(pesoG) => { adicionarPeso(pesando, pesoG); setPesando(null); }}
+        />
+      )}
+
+      {/* Lista compacta de opções — produtos com grupo (pizza, combo) */}
+      {escolhendo && (
+        <EscolhaRapida
+          produto={escolhendo}
+          onCancelar={() => setEscolhendo(null)}
+          onConfirmar={r => adicionarComEscolha(escolhendo, r)}
         />
       )}
 

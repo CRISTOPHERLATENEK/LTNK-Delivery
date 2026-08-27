@@ -17,6 +17,7 @@ import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
+import { EscolhaRapida } from './escolha-rapida';
 import { useConfirm } from '@/components/ui/confirm';
 import { brl } from '@/lib/format';
 import { imprimirCupom, imprimirDanfe, imprimirComandasProducao, configImpressao, type ConfigImpressao, type DadosDanfe } from '@/lib/impressao';
@@ -441,6 +442,8 @@ function PainelComanda({
   const confirmar = useConfirm();
   const qc = useQueryClient();
   const [adicionando, setAdicionando] = useState(false);
+  /** Produto aguardando escolha na lista compacta (mesma do balcão). */
+  const [escolhendo, setEscolhendo] = useState<Produto | null>(null);
   const [fechando, setFechando] = useState(false);
   const [formaPagamento, setFormaPagamento] = useState<'dinheiro' | 'pix' | 'cartao'>('dinheiro');
   const [salvando, setSalvando] = useState(false);
@@ -516,11 +519,18 @@ function PainelComanda({
     }
   }
 
-  async function adicionarProduto(p: Produto) {
+  /*
+   * Produto com grupo abre a MESMA lista compacta do balcão. Reusar em vez de
+   * fazer uma segunda tela é o ponto: duas telas de escolha divergem, e a
+   * divergência aparece como preço diferente entre atender na mesa e no caixa.
+   */
+  async function adicionarProduto(p: Produto, opcoes?: Array<number | { s: number; o: number }>) {
+    if ((p.grupos?.length ?? 0) > 0 && !opcoes) { setEscolhendo(p); return; }
     try {
-      await api('POST', `/api/lojista/comandas/${comandaId}/itens`, { produto_id: p.id, quantidade: 1 });
+      await api('POST', `/api/lojista/comandas/${comandaId}/itens`, { produto_id: p.id, quantidade: 1, opcoes });
       qc.invalidateQueries({ queryKey: ['comanda', comandaId] });
       qc.invalidateQueries({ queryKey: ['lojista-mesas'] });
+      setEscolhendo(null);
       mostrar({ tipo: 'sucesso', titulo: `${p.nome} adicionado!` });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
@@ -757,6 +767,14 @@ function PainelComanda({
           </div>
         )}
       </CardContent>
+      {/* Lista compacta de opções — a mesma do balcão, de propósito. */}
+      {escolhendo && (
+        <EscolhaRapida
+          produto={escolhendo}
+          onCancelar={() => setEscolhendo(null)}
+          onConfirmar={r => adicionarProduto(escolhendo, r.opcoes)}
+        />
+      )}
     </Card>
   );
 }

@@ -74,8 +74,16 @@ describe('fase 2: o balcão usa o mesmo validador do delivery', () => {
    * vender os 9 produtos com grupo obrigatório: hoje ele vende errado, ligado
    * não venderia nada. A fase 3 traz a tela e troca este teste pelo oposto.
    */
-  it('ainda não exige os obrigatórios (a tela do PDV é a fase 3)', () => {
-    expect(rota).toMatch(/exigirObrigatorios: false/);
+  /*
+   * FASE 3: A EXIGÊNCIA ESTÁ LIGADA — o oposto do que este teste pedia antes.
+   *
+   * A tela compacta abre pra todo produto com grupo e não deixa confirmar com
+   * obrigatório vazio, então não existe mais caminho legítimo pra lançar pizza
+   * sem sabor. A tela pode ser burlada (requisição direta ao endpoint); o
+   * servidor é o que garante.
+   */
+  it('exige os obrigatórios, como o delivery', () => {
+    expect(rota).not.toMatch(/exigirObrigatorios/);
   });
 });
 
@@ -119,5 +127,35 @@ describe('sem escolhas, o preço não muda', () => {
     for (const modo of ['somar', 'maior', 'proporcional'] as const) {
       expect(precoDoGrupo({ modo_preco: modo } as never, [])).toBe(0);
     }
+  });
+});
+
+describe('fase 3: a venda de balcão também usa o validador', () => {
+  const lojista = semComentarios(fs.readFileSync(raiz('rotas', 'lojista.ts'), 'utf8'));
+  const rota = lojista.slice(
+    lojista.indexOf("router.post('/balcao', async"),
+    lojista.indexOf("router.post('/balcao/hoje'") > 0
+      ? lojista.indexOf("router.post('/balcao/hoje'")
+      : lojista.indexOf("router.post('/balcao/enviar-cozinha'"));
+
+  /*
+   * A FASE 2 CORRIGIU SÓ A COMANDA. A venda de balcão passa por outra rota e
+   * seguia cobrando `precoBase` — eu havia dito que a fase 2 cobria os dois.
+   */
+  it('preço unitário vem da validação, não do preço base', () => {
+    expect(rota).toMatch(/validarOpcoesDoItem\(produto, it\.opcoes\)/);
+    expect(rota).toMatch(/precoUnit: opc\.precoUnit/);
+  });
+
+  it('grava as escolhas no item do pedido', () => {
+    expect(rota).toMatch(/opcoesIds: JSON\.stringify\(opc\.opcoesIds\)/);
+  });
+
+  /*
+   * Produto por peso continua no preço BASE por kg: ali o que multiplica é o
+   * peso, e acréscimo de opção por quilo não é conceito que exista no balcão.
+   */
+  it('produto por peso segue pelo preço por kg', () => {
+    expect(rota).toMatch(/precoBase \* pesoG \/ 1000/);
   });
 });

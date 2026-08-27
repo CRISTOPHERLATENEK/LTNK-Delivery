@@ -2315,15 +2315,40 @@ router.post('/balcao', async (req, res, next) => {
 
     // Recalcula tudo no servidor.
     let subtotal = 0;
-    const itensValidados: { produto: Produto; quantidade: number; precoUnit: number; detalhe: string }[] = [];
+    /*
+     * `opcoesTexto`/`opcoesIds` ao lado de `detalhe` e não no lugar dele:
+     * `detalhe` é a linha de peso ("0,350 kg × R$ 39,90/kg"), que descreve COMO
+     * o preço foi formado. Juntar os dois no mesmo campo misturaria a conta com
+     * as escolhas do cliente, e o cupom perderia um dos dois.
+     */
+    const itensValidados: {
+      produto: Produto; quantidade: number; precoUnit: number; detalhe: string;
+      opcoesTexto: string; opcoesIds: string;
+    }[] = [];
     for (const it of itensReq) {
       const produto = await meuProduto(loja, it.produto_id);
       const precoBase = precoVigente(produto, dataBrasilia());
+      /*
+       * O MESMO VALIDADOR DO DELIVERY — a venda de balcão ignorava as escolhas.
+       *
+       * A fase 2 arrumou a COMANDA (mesa), que é outra rota; a venda de balcão
+       * passa por aqui e continuava cobrando o preço base. Eu havia dito que a
+       * fase 2 cobria os dois — cobria um.
+       *
+       * Exigência LIGADA junto com a tela (fase 3): o PDV abre a lista compacta
+       * pra todo produto com grupo, e a lista não deixa confirmar com grupo
+       * obrigatório vazio. A regra vale nos dois lados — a tela evita o erro, o
+       * servidor garante.
+       */
+      const opc = await validarOpcoesDoItem(produto, it.opcoes);
 
       if ((produto as any).vendido_por === 'kg') {
         // Produto por peso: o cliente informa o peso em gramas; o preço é por kg.
         const pesoG = inteiroPositivo(it.peso_g);
         if (!pesoG) throw erroHttp(400, `Informe o peso de "${produto.nome}".`);
+        /* Produto por peso usa o preço BASE por kg, não o da validação: aqui o
+           que multiplica é o peso, e acréscimo de opção por quilo não é um
+           conceito que exista no balcão. */
         const precoLinha = Math.round(precoBase * pesoG / 1000);
         if (precoLinha <= 0) throw erroHttp(400, `Peso inválido para "${produto.nome}".`);
         subtotal += precoLinha;
@@ -2331,12 +2356,16 @@ router.post('/balcao', async (req, res, next) => {
         itensValidados.push({
           produto, quantidade: 1, precoUnit: precoLinha,
           detalhe: `${kg} kg × ${(precoBase / 100).toFixed(2).replace('.', ',')}/kg`,
+          opcoesTexto: opc.opcoesTexto, opcoesIds: JSON.stringify(opc.opcoesIds),
         });
       } else {
         const quantidade = inteiroPositivo(it.quantidade);
         if (!quantidade) throw erroHttp(400, 'Quantidade inválida.');
-        subtotal += precoBase * quantidade;
-        itensValidados.push({ produto, quantidade, precoUnit: precoBase, detalhe: '' });
+        subtotal += opc.precoUnit * quantidade;
+        itensValidados.push({
+          produto, quantidade, precoUnit: opc.precoUnit, detalhe: '',
+          opcoesTexto: opc.opcoesTexto, opcoesIds: JSON.stringify(opc.opcoesIds),
+        });
       }
     }
 
@@ -2363,11 +2392,17 @@ router.post('/balcao', async (req, res, next) => {
       ).run(consumidor, loja.id, formaPagamento, textoLimpo(req.body.observacoes || '', 200),
             subtotal, desconto, total, comissaoPct, comissao, idem, agora, agora);
       const novoPedidoId = Number(info.lastInsertRowid);
-      for (const { produto, quantidade, precoUnit, detalhe } of itensValidados) {
+      for (const { produto, quantidade, precoUnit, detalhe, opcoesTexto, opcoesIds } of itensValidados) {
+        /*
+         * O peso e as escolhas convivem na mesma linha do cupom, separados por
+         * ` · ` — o mesmo separador que `linhasDoItem` já usa pra partir as
+         * escolhas. Assim a comanda da cozinha continua sabendo dividir.
+         */
+        const texto = [detalhe, opcoesTexto].filter(Boolean).join(' · ');
         await tx.prepare(
           `INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos, quantidade, opcoes_texto, opcoes_ids)
-           VALUES (?, ?, ?, ?, ?, ?, '[]')`
-        ).run(novoPedidoId, produto.id, produto.nome, precoUnit, quantidade, detalhe);
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
+        ).run(novoPedidoId, produto.id, produto.nome, precoUnit, quantidade, texto, opcoesIds);
         /**
          * BAIXA DE ESTOQUE — não existia no balcão. Só o checkout do cliente
          * dava baixa, então loja com controle de estoque vendia 20 no caixa, o
@@ -4966,16 +5001,12 @@ router.post('/comandas/:id/itens', async (req, res, next) => {
        * borda) era registrada a R$ 45, e a cozinha recebia "Pizza Artesanal"
        * sem tamanho nem sabor.
        *
-       * `exigirObrigatorios: false` por ora: o PDV ainda não tem a tela de
-       * escolha (fase 3), e exigir agora deixaria o balcão INCAPAZ de vender os
-       * 9 produtos com grupo obrigatório. Vender errado é ruim; não vender é
-       * pior pra quem está no balcão com o cliente na frente. A fase 3 traz a
-       * tela e liga a exigência.
-       *
-       * Quem NÃO manda opções cai no mesmo preço de sempre — o comportamento
-       * atual segue idêntico até o PDV começar a mandar.
+       * A EXIGÊNCIA ESTÁ LIGADA (fase 3): a tela de Mesas abre a lista compacta
+       * pra todo produto com grupo, então não há mais caminho legítimo pra
+       * lançar pizza sem sabor. Recusar aqui é o que fecha o buraco — a tela
+       * pode ser burlada (requisição direta), o servidor não.
        */
-      const r = await validarOpcoesDoItem(produto, req.body.opcoes, { exigirObrigatorios: false });
+      const r = await validarOpcoesDoItem(produto, req.body.opcoes);
       precoUnit = r.precoUnit;
       opcoesTexto = r.opcoesTexto;
       /* `null` quando não há escolha: coluna vazia diz "sem opções", string
