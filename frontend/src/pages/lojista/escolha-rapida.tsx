@@ -9,7 +9,7 @@
  * teclado: dígito escolhe, Enter fecha, Esc desiste. Sem foto e sem rolagem por
  * seção — a tela cabe de uma vez, e o número é o que se decora.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { brl } from '@/lib/format';
@@ -64,6 +64,53 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
   const [reaberto, setReaberto] = useState<Record<string, boolean>>({});
 
   const faltando = faltandoPorSlot(slots, escolhidas);
+
+  const areaRolagem = useRef<HTMLDivElement | null>(null);
+  /* Indexada por `slot:grupo`: num combo, dois slots têm o MESMO grupo, e o id
+     sozinho guardaria uma ref só — o pulo levaria sempre à primeira pizza. */
+  const refsGrupo = useRef<Record<string, HTMLDivElement | null>>({});
+
+  function irPara(chave: string) {
+    const area = areaRolagem.current;
+    const alvo = refsGrupo.current[chave];
+    if (!area || !alvo) return;
+    /*
+     * NÃO ROLA SE JÁ ESTÁ VISÍVEL.
+     *
+     * Depois do colapso a lista é curta, e o próximo pendente costuma estar na
+     * tela. Rolar de qualquer jeito arrancaria a vista do lugar a cada escolha
+     * — a correção viraria o incômodo.
+     */
+    const r = alvo.getBoundingClientRect();
+    const c = area.getBoundingClientRect();
+    if (r.top >= c.top && r.bottom <= c.bottom) return;
+    /* Instantâneo, não suave: no balcão as teclas vêm rápido, e a animação
+       ficaria sempre atrasada em relação ao que já foi digitado. */
+    area.scrollTop += r.top - c.top - 8;
+  }
+
+  /*
+   * PULA PRO PRÓXIMO PENDENTE quando um grupo acaba de ser decidido.
+   *
+   * Dispara na TRANSIÇÃO, não em toda mudança: sem comparar com o estado
+   * anterior, cada tecla dentro de um grupo já completo puxaria a tela de novo.
+   */
+  const completosAntes = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const completos = new Set<string>();
+    for (const s of slots) {
+      for (const g of s.grupos) {
+        const chave = chaveEscolha(s.slot, g.id);
+        const ids = escolhidas[chave] ?? [];
+        const max = maxEscolhasEfetivo(g, saboresPorSlot.get(s.slot) ?? 0);
+        if (grupoConcluido(g.tipo, ids.length, max)) completos.add(chave);
+      }
+    }
+    let novo = false;
+    for (const c of completos) if (!completosAntes.current.has(c)) novo = true;
+    completosAntes.current = completos;
+    if (novo && faltando[0]) irPara(faltando[0].chave);
+  }, [escolhidas]);
 
   /* Sabores liberados depende do TAMANHO escolhido, e tamanho é uma escolha como
      qualquer outra — então isto recalcula a cada tecla, por slot. */
@@ -178,7 +225,7 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+        <div ref={areaRolagem} className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
           {slots.map(s => (
             <div key={s.slot}>
               {s.rotulo && (
@@ -220,7 +267,7 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
                   );
                 }
                 return (
-                  <div key={chave} className="mb-1">
+                  <div key={chave} className="mb-1" ref={el => { refsGrupo.current[chave] = el; }}>
                     <div className="flex items-baseline gap-2 px-2 py-1.5">
                       <span className="text-[12px] font-bold uppercase tracking-wide">{g.nome}</span>
                       <span className={cn('text-[11px]', pendente ? 'font-bold text-destructive' : 'text-muted-foreground')}>
@@ -287,9 +334,22 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
             <p className="text-[17px] font-extrabold leading-none tabular-nums">{brl(preco)}</p>
             {/* O que falta, NOMEADO. "Faltam escolhas" manda o atendente procurar
                 numa tela que ele já está olhando. */}
+            {/* CADA NOME LEVA ATÉ LÁ. Antes o rodapé nomeava o que faltava e não
+                levava: "Falta: Borda" com a borda fora da tela deixava o
+                atendente procurando o que ele já sabia que existia. */}
             {faltando.length > 0 && (
-              <p className="mt-1 truncate text-[11.5px] font-semibold text-destructive">
-                Falta: {faltando.map(f => f.rotulo).join(', ')}
+              <p className="mt-1 flex flex-wrap items-baseline gap-x-1 text-[11.5px] font-semibold text-destructive">
+                <span>Falta:</span>
+                {faltando.map((f, i) => (
+                  <button
+                    key={f.chave}
+                    type="button"
+                    onClick={() => irPara(f.chave)}
+                    className="underline underline-offset-2 hover:no-underline"
+                  >
+                    {f.rotulo}{i < faltando.length - 1 ? ',' : ''}
+                  </button>
+                ))}
               </p>
             )}
           </div>

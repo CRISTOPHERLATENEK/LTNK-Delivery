@@ -187,3 +187,49 @@ describe('o colapso não mexe na numeração', () => {
     expect(codigo).toMatch(/grupoConcluido\(g\.tipo, ids\.length, max\)/);
   });
 });
+
+/*
+ * O "FALTA" QUE LEVA, E O PULO PRO PRÓXIMO PENDENTE.
+ *
+ * São comportamentos de DOM, então o que dá pra prender aqui é a forma — mas as
+ * três coisas abaixo são exatamente onde a implementação ingênua incomoda mais
+ * que ajuda, e cada uma tem um sintoma próprio.
+ */
+describe('navegação da lista compacta', () => {
+  const comp = fs.readFileSync(path.resolve(
+    __dirname, '..', '..', 'frontend', 'src', 'pages', 'lojista', 'escolha-rapida.tsx'), 'utf8');
+  const codigo = comp.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  /* Nomear sem levar é o defeito original: "Falta: Borda" com a borda fora da
+     tela deixa o atendente procurando o que ele já sabe que existe. */
+  it('cada nome em falta é um botão que rola até o grupo', () => {
+    expect(codigo).toMatch(/faltando\.map\(\(f, i\) =>/);
+    expect(codigo).toMatch(/onClick=\{\(\) => irPara\(f\.chave\)\}/);
+  });
+
+  /*
+   * O PULO DISPARA NA TRANSIÇÃO. Sem comparar com o estado anterior, cada tecla
+   * dentro de um grupo JÁ completo puxaria a tela de novo — a cada sabor
+   * trocado, um solavanco.
+   */
+  it('o pulo compara com o conjunto anterior de grupos completos', () => {
+    expect(codigo).toMatch(/completosAntes = useRef<Set<string>>/);
+    expect(codigo).toMatch(/if \(!completosAntes\.current\.has\(c\)\) novo = true/);
+    expect(codigo).toMatch(/if \(novo && faltando\[0\]\) irPara\(faltando\[0\]\.chave\)/);
+  });
+
+  /*
+   * NÃO ROLA SE JÁ ESTÁ VISÍVEL. Depois do colapso a lista é curta e o próximo
+   * pendente costuma estar na tela; rolar de qualquer jeito arrancaria a vista
+   * do lugar a cada escolha.
+   */
+  it('irPara desiste quando o grupo já está visível', () => {
+    expect(codigo).toMatch(/if \(r\.top >= c\.top && r\.bottom <= c\.bottom\) return;/);
+  });
+
+  /* A ref é por `slot:grupo`: num combo dois slots têm o MESMO grupo, e o id
+     sozinho guardaria uma ref só — o pulo levaria sempre à primeira pizza. */
+  it('a ref do grupo é indexada por slot:grupo', () => {
+    expect(codigo).toMatch(/refsGrupo\.current\[chave\] = el/);
+  });
+});
