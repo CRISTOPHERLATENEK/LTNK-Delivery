@@ -17,6 +17,7 @@ import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
+import { linhasDoItem } from '@/lib/item-pedido';
 import { EscolhaRapida } from './escolha-rapida';
 import { useConfirm } from '@/components/ui/confirm';
 import { brl } from '@/lib/format';
@@ -38,6 +39,8 @@ interface ItemComanda {
   comanda_id: number;
   produto_id: number | null;
   nome_produto: string;
+  /** As escolhas do item — a API já devolve (`SELECT ci.*`). */
+  opcoes_texto?: string | null;
   preco_unit_centavos: number;
   quantidade: number;
   observacao: string;
@@ -422,6 +425,10 @@ function imprimirComanda(mesaNumero: string, comandaId: number, itens: ItemComan
       nome: i.nome_produto,
       valor: brl(i.preco_unit_centavos * i.quantidade),
       detalhe: i.observacao ? `obs: ${i.observacao}` : undefined,
+      /* A COMPOSIÇÃO NO CUPOM DA MESA. Sem ela o cliente lia "1x Pizza
+         Artesanal R$ 77,00" e não tinha como conferir de onde veio o valor —
+         que não fecha com o preço do cardápio. */
+      detalhes: linhasDoItem({ opcoes_texto: i.opcoes_texto }),
       observacao: i.observacao || undefined,
       categoria: i.categoria || undefined,
     })),
@@ -484,6 +491,10 @@ function PainelComanda({
             qtd: String(i.quantidade),
             nome: i.nome_produto,
             valor: '',
+            /* A comanda de PRODUÇÃO é a que mais precisa: sem os sabores, a
+               cozinha recebe "Pizza Artesanal" e não tem como fazer. O KDS já
+               recebia (fase 4); este papel é outro caminho e continuava cego. */
+            detalhes: linhasDoItem({ opcoes_texto: i.opcoes_texto }),
             observacao: i.observacao || undefined,
             categoria: i.categoria || undefined,
           })),

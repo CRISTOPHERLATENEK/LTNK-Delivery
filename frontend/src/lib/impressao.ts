@@ -213,6 +213,7 @@ export function montarHtmlCupom(dados: DadosCupom, config: ConfigImpressao): str
       <span class="val">${esc(l.valor)}</span>
     </div>
     ${l.detalhe ? `<div class="obs">${esc(l.detalhe)}</div>` : ''}
+    ${(l.detalhes ?? []).map(d => `<div class="obs">${esc(d)}</div>`).join('')}
   `).join('');
 
   const totaisHtml = dados.totais.map(t => `
@@ -269,6 +270,15 @@ export function montarBlocosCupom(dados: DadosCupom, config: ConfigImpressao): B
   for (const l of dados.linhas) {
     b.push({ t: 'lr', l: `${l.qtd} ${l.nome}`, r: l.valor });
     if (l.detalhe) b.push({ t: 'texto', txt: '  ' + l.detalhe });
+    /*
+     * `detalhes` TAMBÉM no cupom, não só na comanda de produção.
+     *
+     * O cupom da mesa saía "1x Pizza Artesanal R$ 77,00" e nada mais: o cliente
+     * lia um valor que não fecha com o preço do cardápio e não tinha como
+     * conferir de onde veio. Uma linha por escolha é o que torna a conta
+     * verificável por quem paga.
+     */
+    for (const d of l.detalhes ?? []) b.push({ t: 'texto', txt: '  ' + d });
   }
   b.push({ t: 'linha' });
   for (const t of dados.totais) b.push({ t: 'lr', b: t.forte, l: t.rotulo, r: t.valor });
