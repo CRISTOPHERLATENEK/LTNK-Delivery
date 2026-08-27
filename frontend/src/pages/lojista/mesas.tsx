@@ -535,10 +535,14 @@ function PainelComanda({
    * fazer uma segunda tela é o ponto: duas telas de escolha divergem, e a
    * divergência aparece como preço diferente entre atender na mesa e no caixa.
    */
-  async function adicionarProduto(p: Produto, opcoes?: Array<number | { s: number; o: number }>) {
+  async function adicionarProduto(
+    p: Produto,
+    opcoes?: Array<number | { s: number; o: number }>,
+    quantidade = 1,
+  ) {
     if ((p.grupos?.length ?? 0) > 0 && !opcoes) { setEscolhendo(p); return; }
     try {
-      await api('POST', `/api/lojista/comandas/${comandaId}/itens`, { produto_id: p.id, quantidade: 1, opcoes });
+      await api('POST', `/api/lojista/comandas/${comandaId}/itens`, { produto_id: p.id, quantidade, opcoes });
       qc.invalidateQueries({ queryKey: ['comanda', comandaId] });
       qc.invalidateQueries({ queryKey: ['lojista-mesas'] });
       setEscolhendo(null);
@@ -783,7 +787,7 @@ function PainelComanda({
         <EscolhaRapida
           produto={escolhendo}
           onCancelar={() => setEscolhendo(null)}
-          onConfirmar={r => adicionarProduto(escolhendo, r.opcoes)}
+          onConfirmar={r => adicionarProduto(escolhendo, r.opcoes, r.quantidade)}
         />
       )}
     </Card>

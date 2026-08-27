@@ -177,14 +177,38 @@ describe('o colapso não mexe na numeração', () => {
     }
   });
 
-  /* O grupo fechado ainda precisa poder ser reaberto: sem isso, corrigir o
-     tamanho depois de escolhido seria impossível sem cancelar o item. */
-  it('grupo fechado é reabrível', () => {
-    expect(codigo).toMatch(/setReaberto\(r => \(\{ \.\.\.r, \[chave\]: true \}\)\)/);
+  /*
+   * O COLAPSO SAIU no redesenho de duas colunas: o painel da direita passou a
+   * ser a fonte da verdade do que foi escolhido, e ele resolve melhor o que o
+   * colapso resolvia — conferir sem rolar de volta —, além de permitir remover
+   * um item específico, que o colapso não permitia.
+   *
+   * `grupoConcluido` continua valendo: agora é ela que decide o texto de estado
+   * no cabeçalho do grupo ("2 de 4 escolhidos", com tom quando satisfeito).
+   */
+  it('a regra testada decide o estado do cabeçalho', () => {
+    expect(codigo).toMatch(/grupoConcluido\(g\.tipo, ids\.length, max\)/);
   });
 
-  it('o fechamento usa a regra testada, não uma condição solta', () => {
-    expect(codigo).toMatch(/grupoConcluido\(g\.tipo, ids\.length, max\)/);
+  /*
+   * NO TETO, O CLIQUE É IGNORADO — antes o mais antigo era descartado.
+   *
+   * A troca silenciosa fazia sentido quando não havia onde ver o que estava
+   * escolhido. Com o painel da direita mostrando tudo e o `x` pra remover,
+   * ignorar é honesto; descartar às escondidas passaria a ser perda de escolha.
+   */
+  it('item no teto é bloqueado, não troca o mais antigo', () => {
+    expect(codigo).toMatch(/if \(noTeto\([^)]*\)\) return atual;/);
+    expect(codigo).toMatch(/cursor-not-allowed/);
+    /* A eviction anterior não pode voltar por engano. */
+    expect(codigo).not.toMatch(/atuais\.slice\(1\)/);
+  });
+
+  /* Número fora da lista precisa DIZER que não existe: antes sumia calado e o
+     operador concluía que a tecla falhou. */
+  it('número inexistente vira eco em vermelho', () => {
+    expect(codigo).toMatch(/não existe/);
+    expect(codigo).toMatch(/erro: true/);
   });
 });
 

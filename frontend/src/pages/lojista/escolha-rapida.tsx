@@ -1,16 +1,16 @@
 /**
- * ESCOLHA RÁPIDA — a lista compacta de opções do PDV.
+ * COMPLEMENTOS NO PDV — duas colunas, sem badge, sem faixa de aviso.
  *
- * O modal do cliente é bom pra quem escolhe com calma. No balcão a operação é
- * outra: o atendente repete isso cem vezes por noite, com o cliente na frente,
- * e cada clique num alvo pequeno custa tempo que aparece na fila.
+ * A versão anterior era uma coluna só: o operador não via o que já tinha
+ * escolhido, o total não se compunha e a Borda ficava fora da tela. A clareza
+ * vem da ESTRUTURA — a esquerda oferece, a direita confirma — e não de cor.
  *
- * Aqui cada opção tem UM número, contínuo entre grupos, e a mão não sai do
- * teclado: dígito escolhe, Enter fecha, Esc desiste. Sem foto e sem rolagem por
- * seção — a tela cabe de uma vez, e o número é o que se decora.
+ * O painel da direita é a FONTE DA VERDADE do que foi escolhido. É ele que
+ * permite duas coisas que a lista sozinha não permitia: conferir sem rolar de
+ * volta, e remover um item específico.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, X } from 'lucide-react';
+import { Check, Minus, Plus, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { brl } from '@/lib/format';
 import { precoVigente } from '@/lib/preco-produto';
@@ -23,7 +23,13 @@ export interface EscolhaFeita {
   opcoes: Array<number | { s: number; o: number }>;
   opcoesTexto: string;
   precoUnit: number;
+  quantidade: number;
 }
+
+/** Quanto tempo o eco da digitação fica na tela depois de aplicar. */
+const ECO_MS = 1400;
+/** Abaixo disto o painel da direita vira faixa no rodapé. */
+const LARGURA_DUAS_COLUNAS = 1100;
 
 export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
   produto: Produto;
@@ -35,15 +41,10 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
   /*
    * AS SEÇÕES ENTRAM AQUI — e a numeração TEM que seguir a ordem exibida.
    *
-   * O cardápio de sabores vem em seções (Tradicional, Especial, Doce) e a lista
-   * compacta as ignorava: 33 sabores em fila, sem dizer onde acaba o que está
-   * incluso e começa o que custa mais.
-   *
-   * `agruparPorSecao` pode REORDENAR — o bloco sem seção vai pra frente, pra
-   * uma opção sem seção não aparecer sob o título "Doces" e ser lida como
-   * doce. Numerar por `g.opcoes` e exibir por seção faria o número apontar pro
-   * sabor errado num grupo com bloco sem seção no meio. Então a lista exibida
-   * é a fonte da numeração.
+   * `agruparPorSecao` pode REORDENAR: o bloco sem seção vai pra frente, pra uma
+   * opção sem seção não aparecer sob o título "Doces" e ser lida como doce.
+   * Numerar por `g.opcoes` e exibir por seção faria o número apontar pro sabor
+   * errado. Então a lista exibida é a fonte da numeração.
    */
   const slots = useMemo(() => slotsCrus.map(s => ({
     ...s,
@@ -56,12 +57,22 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
   const numeradas = useMemo(() => numerarOpcoes(slots), [slots]);
   const [escolhidas, setEscolhidas] = useState<Record<string, number[]>>({});
   const [buffer, setBuffer] = useState('');
-  /*
-   * Grupos que o atendente REABRIU na mão, pra trocar uma escolha já feita.
-   * Guardar a reabertura (em vez de o fechamento) mantém o padrão sendo
-   * "decidido = fechado": grupo novo aparece aberto sem precisar de registro.
-   */
-  const [reaberto, setReaberto] = useState<Record<string, boolean>>({});
+  const [quantidade, setQuantidade] = useState(1);
+  /** O eco da digitação: número aplicado com o nome, ou número inexistente. */
+  const [eco, setEco] = useState<{ txt: string; erro: boolean } | null>(null);
+
+  /* Duas colunas só cabem em tela larga. `matchMedia` em vez de variante do
+     Tailwind porque 1100px não é breakpoint padrão, e inventar um em classe
+     arbitrária esconderia a regra de quem for mexer depois. */
+  const [largo, setLargo] = useState(() =>
+    typeof window === 'undefined' ? true : window.innerWidth > LARGURA_DUAS_COLUNAS);
+  useEffect(() => {
+    const mq = window.matchMedia(`(min-width: ${LARGURA_DUAS_COLUNAS + 1}px)`);
+    const ao = () => setLargo(mq.matches);
+    ao();
+    mq.addEventListener('change', ao);
+    return () => mq.removeEventListener('change', ao);
+  }, []);
 
   const faltando = faltandoPorSlot(slots, escolhidas);
 
@@ -74,27 +85,161 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
     const area = areaRolagem.current;
     const alvo = refsGrupo.current[chave];
     if (!area || !alvo) return;
-    /*
-     * NÃO ROLA SE JÁ ESTÁ VISÍVEL.
-     *
-     * Depois do colapso a lista é curta, e o próximo pendente costuma estar na
-     * tela. Rolar de qualquer jeito arrancaria a vista do lugar a cada escolha
-     * — a correção viraria o incômodo.
-     */
+    /* Não rola se já está visível: rolar de qualquer jeito arrancaria a vista do
+       lugar a cada escolha, e a correção viraria o incômodo. */
     const r = alvo.getBoundingClientRect();
     const c = area.getBoundingClientRect();
     if (r.top >= c.top && r.bottom <= c.bottom) return;
-    /* Instantâneo, não suave: no balcão as teclas vêm rápido, e a animação
-       ficaria sempre atrasada em relação ao que já foi digitado. */
+    /* `scrollTop` no container, NUNCA `scrollIntoView`: este último rola a
+       página atrás do modal e a tela do PDV volta pro topo sozinha. */
     area.scrollTop += r.top - c.top - 8;
   }
 
-  /*
-   * PULA PRO PRÓXIMO PENDENTE quando um grupo acaba de ser decidido.
-   *
-   * Dispara na TRANSIÇÃO, não em toda mudança: sem comparar com o estado
-   * anterior, cada tecla dentro de um grupo já completo puxaria a tela de novo.
-   */
+  const saboresPorSlot = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const s of slots) {
+      m.set(s.slot, saboresLiberados(
+        s.grupos.map(g => {
+          const ids = escolhidas[chaveEscolha(s.slot, g.id)] ?? [];
+          return { grupo: g, escolhidas: g.opcoes.filter(o => ids.includes(o.id)) };
+        }),
+      ));
+    }
+    return m;
+  }, [slots, escolhidas]);
+
+  const base = precoVigente(produto);
+  const acrescimos = useMemo(() => {
+    let total = 0;
+    for (const s of slots) {
+      for (const g of s.grupos) {
+        const ids = escolhidas[chaveEscolha(s.slot, g.id)] ?? [];
+        total += precoDoGrupo(g, g.opcoes.filter(o => ids.includes(o.id)));
+      }
+    }
+    return total;
+  }, [slots, escolhidas]);
+  const preco = base + acrescimos;
+
+  /* Texto no formato que o servidor grava. O valor que VALE é sempre o
+     recalculado lá; isto é prévia. */
+  const texto = useMemo(() => {
+    const partes: string[] = [];
+    for (const s of slots) {
+      for (const g of s.grupos) {
+        const ids = escolhidas[chaveEscolha(s.slot, g.id)] ?? [];
+        if (ids.length === 0) continue;
+        const nomes = g.opcoes.filter(o => ids.includes(o.id)).map(o => o.nome).join(', ');
+        partes.push(`${s.rotulo ? `${s.rotulo} | ` : ''}${g.nome}: ${nomes}`);
+      }
+    }
+    return partes.join(' · ');
+  }, [slots, escolhidas]);
+
+  /** Quantos grupos obrigatórios já têm escolha — o subtítulo do cabeçalho. */
+  const progresso = useMemo(() => {
+    let total = 0; let feitos = 0;
+    for (const s of slots) {
+      for (const g of s.grupos) {
+        if (!g.obrigatorio) continue;
+        total += 1;
+        if ((escolhidas[chaveEscolha(s.slot, g.id)] ?? []).length > 0) feitos += 1;
+      }
+    }
+    return { total, feitos };
+  }, [slots, escolhidas]);
+
+  const algoEscolhido = useMemo(
+    () => Object.values(escolhidas).some(v => v.length > 0), [escolhidas]);
+
+  function noTeto(slot: number, g: { tipo: string }, ids: number[], max: number) {
+    return g.tipo !== 'unico' && max > 0 && ids.length >= max;
+  }
+
+  function alternar(numero: number) {
+    const alvo = numeradas.find(o => o.numero === numero);
+    if (!alvo) return;
+    const chave = chaveEscolha(alvo.slot, alvo.grupoId);
+    const slot = slots.find(s => s.slot === alvo.slot);
+    const grupo = slot?.grupos.find(g => g.id === alvo.grupoId);
+    if (!slot || !grupo) return;
+    const max = maxEscolhasEfetivo(grupo, saboresPorSlot.get(alvo.slot) ?? 0);
+    setEscolhidas(atual => {
+      const atuais = atual[chave] ?? [];
+      if (atuais.includes(alvo.opcaoId)) {
+        return { ...atual, [chave]: atuais.filter(i => i !== alvo.opcaoId) };
+      }
+      /* Escolha única TROCA: corrigir o tamanho é digitar o outro número, não
+         desmarcar e marcar de novo. */
+      if (grupo.tipo === 'unico') return { ...atual, [chave]: [alvo.opcaoId] };
+      /*
+       * NO TETO, O CLIQUE É IGNORADO — antes o mais antigo era descartado.
+       *
+       * A troca silenciosa fazia sentido quando não havia onde ver o que estava
+       * escolhido: recusar sem dizer nada faria a tecla parecer quebrada. Agora
+       * o painel da direita mostra tudo e tem o `x` pra remover, e o item no
+       * teto fica esmaecido — o operador vê o limite e escolhe o que sai.
+       */
+      if (noTeto(alvo.slot, grupo, atuais, max)) return atual;
+      return { ...atual, [chave]: [...atuais, alvo.opcaoId] };
+    });
+  }
+
+  function remover(chave: string, opcaoId: number) {
+    setEscolhidas(a => ({ ...a, [chave]: (a[chave] ?? []).filter(i => i !== opcaoId) }));
+  }
+
+  function confirmar() {
+    /* Incompleto NÃO é botão morto: ele leva ao que falta. Desabilitado de
+       verdade parece clicável e não diz o que fazer. */
+    if (faltando.length > 0) { irPara(faltando[0].chave); return; }
+    onConfirmar({
+      opcoes: escolhasParaEnvio(slots, escolhidas),
+      opcoesTexto: texto,
+      precoUnit: preco,
+      quantidade,
+    });
+  }
+
+  /* O eco some sozinho. Sem o tempo ele viraria resíduo permanente da última
+     tecla, e o operador leria como se ainda estivesse digitando. */
+  useEffect(() => {
+    if (!eco) return;
+    const t = setTimeout(() => setEco(null), ECO_MS);
+    return () => clearTimeout(t);
+  }, [eco]);
+
+  useEffect(() => {
+    function aoTeclar(e: KeyboardEvent) {
+      if (e.key === 'Escape') { e.preventDefault(); onCancelar(); return; }
+      if (e.key === 'Enter') { e.preventDefault(); confirmar(); return; }
+      if (e.key === 'Backspace') { e.preventDefault(); setBuffer(''); setEco(null); return; }
+      if (!/^[0-9]$/.test(e.key)) return;
+      e.preventDefault();
+      const tentativa = buffer + e.key;
+      const r = resolverDigitado(tentativa, numeradas.length);
+      setBuffer(r.buffer);
+      if (r.aplicar !== null) {
+        const alvo = numeradas.find(o => o.numero === r.aplicar);
+        const slot = slots.find(s => s.slot === alvo?.slot);
+        const g = slot?.grupos.find(x => x.id === alvo?.grupoId);
+        const nome = g?.opcoes.find(o => o.id === alvo?.opcaoId)?.nome ?? '';
+        setEco({ txt: `${r.aplicar} · ${nome}`, erro: false });
+        alternar(r.aplicar);
+      } else if (r.buffer === '') {
+        /*
+         * Buffer limpo sem aplicar = número FORA da lista, e dizer isso é o
+         * ponto: antes sumia calado e o operador concluía que a tecla falhou.
+         */
+        setEco({ txt: `${tentativa} · não existe`, erro: true });
+      }
+    }
+    window.addEventListener('keydown', aoTeclar, true);
+    return () => window.removeEventListener('keydown', aoTeclar, true);
+  });
+
+  /* Pula pro próximo pendente na TRANSIÇÃO: sem comparar com o anterior, cada
+     tecla dentro de um grupo já completo puxaria a tela de novo. */
   const completosAntes = useRef<Set<string>>(new Set());
   useEffect(() => {
     const completos = new Set<string>();
@@ -112,255 +257,248 @@ export function EscolhaRapida({ produto, onCancelar, onConfirmar }: {
     if (novo && faltando[0]) irPara(faltando[0].chave);
   }, [escolhidas]);
 
-  /* Sabores liberados depende do TAMANHO escolhido, e tamanho é uma escolha como
-     qualquer outra — então isto recalcula a cada tecla, por slot. */
-  const saboresPorSlot = useMemo(() => {
-    const m = new Map<number, number>();
-    for (const s of slots) {
-      m.set(s.slot, saboresLiberados(
-        /* `{ grupo, escolhidas }` e não o grupo espalhado: a lib precisa das
-           OPÇÕES escolhidas (que carregam `sabores`), não dos ids — é no item de
-           tamanho que mora quantos sabores ele libera. */
-        s.grupos.map(g => {
-          const ids = escolhidas[chaveEscolha(s.slot, g.id)] ?? [];
-          return { grupo: g, escolhidas: g.opcoes.filter(o => ids.includes(o.id)) };
-        }),
-      ));
-    }
-    return m;
-  }, [slots, escolhidas]);
+  const completo = faltando.length === 0;
 
-  const preco = useMemo(() => {
-    let total = precoVigente(produto);
-    for (const s of slots) {
-      for (const g of s.grupos) {
-        const ids = escolhidas[chaveEscolha(s.slot, g.id)] ?? [];
-        total += precoDoGrupo(g, g.opcoes.filter(o => ids.includes(o.id)));
-      }
-    }
-    return total;
-  }, [produto, slots, escolhidas]);
+  /* ── total, quantidade e ação: o que decide a venda ── */
+  const rodape = (
+    <div className="space-y-3 border-t border-border p-4">
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[12.5px] text-muted-foreground">Total</p>
+          {/* A COMPOSIÇÃO do total, não só o número: "R$ 45,00 + R$ 22,00" deixa
+              conferir de onde veio o valor sem somar de cabeça. Some quando não
+              há acréscimo — "+ R$ 0,00" é ruído. */}
+          {acrescimos > 0 && (
+            <p className="truncate text-[11.5px] text-muted-foreground/70">
+              {brl(base)} + {brl(acrescimos)}
+            </p>
+          )}
+        </div>
+        <p className="shrink-0 text-[26px] font-extrabold leading-none tabular-nums">
+          {brl(preco * quantidade)}
+        </p>
+      </div>
 
-  /* Texto no mesmo formato do servidor — serve pra linha do carrinho. O valor
-     que VALE é sempre o recalculado no servidor; isto é prévia. */
-  const texto = useMemo(() => {
-    const partes: string[] = [];
-    for (const s of slots) {
-      for (const g of s.grupos) {
-        const ids = escolhidas[chaveEscolha(s.slot, g.id)] ?? [];
-        if (ids.length === 0) continue;
-        const nomes = g.opcoes.filter(o => ids.includes(o.id)).map(o => o.nome).join(', ');
-        partes.push(`${s.rotulo ? `${s.rotulo} | ` : ''}${g.nome}: ${nomes}`);
-      }
-    }
-    return partes.join(' · ');
-  }, [slots, escolhidas]);
+      <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1 rounded-xl border border-border p-0.5">
+          <button
+            type="button" aria-label="Diminuir"
+            onClick={() => setQuantidade(q => Math.max(1, q - 1))}
+            disabled={quantidade === 1}
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent disabled:opacity-25"
+          ><Minus className="size-3.5" /></button>
+          <span className="w-6 text-center text-[14px] font-bold tabular-nums">{quantidade}</span>
+          <button
+            type="button" aria-label="Aumentar"
+            onClick={() => setQuantidade(q => Math.min(30, q + 1))}
+            disabled={quantidade === 30}
+            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent disabled:opacity-25"
+          ><Plus className="size-3.5" /></button>
+        </div>
+        <button
+          type="button"
+          onClick={confirmar}
+          className={cn(
+            'h-11 min-w-0 flex-1 whitespace-nowrap rounded-xl px-4 text-[14px] font-bold transition-colors',
+            completo
+              ? 'bg-primary text-primary-foreground'
+              : 'border border-border bg-muted/40 text-muted-foreground hover:bg-muted',
+          )}
+        >
+          {completo ? 'Adicionar à venda' : `Escolha ${faltando[0].rotulo.toLowerCase()}`}
+        </button>
+      </div>
 
-  function alternar(numero: number) {
-    const alvo = numeradas.find(o => o.numero === numero);
-    if (!alvo) return;
-    const chave = chaveEscolha(alvo.slot, alvo.grupoId);
-    const slot = slots.find(s => s.slot === alvo.slot);
-    const grupo = slot?.grupos.find(g => g.id === alvo.grupoId);
-    if (!slot || !grupo) return;
-    setEscolhidas(atual => {
-      const atuais = atual[chave] ?? [];
-      if (atuais.includes(alvo.opcaoId)) {
-        return { ...atual, [chave]: atuais.filter(i => i !== alvo.opcaoId) };
-      }
-      /* Escolha única TROCA em vez de recusar: no balcão, corrigir o tamanho é
-         digitar o outro número, não desmarcar e marcar de novo. */
-      if (grupo.tipo === 'unico') return { ...atual, [chave]: [alvo.opcaoId] };
-      const max = maxEscolhasEfetivo(grupo, saboresPorSlot.get(alvo.slot) ?? 0);
-      /* No teto, o mais ANTIGO sai e o novo entra. Recusar em silêncio faria a
-         tecla parecer quebrada; abrir um aviso exigiria ler no meio da fila. */
-      const base = max > 0 && atuais.length >= max ? atuais.slice(1) : atuais;
-      return { ...atual, [chave]: [...base, alvo.opcaoId] };
-    });
-  }
+      {/* A pendência em UMA FRASE, sem faixa. Cada nome leva ao grupo. */}
+      {!completo && (
+        <p className="flex flex-wrap items-baseline gap-x-1 text-[12px] text-muted-foreground">
+          <span>Falta escolher</span>
+          {faltando.map((f, i) => (
+            <button
+              key={f.chave} type="button" onClick={() => irPara(f.chave)}
+              className="font-semibold text-primary underline underline-offset-2 hover:no-underline"
+            >
+              {f.rotulo.toLowerCase()}{i < faltando.length - 1 ? ',' : ''}
+            </button>
+          ))}
+        </p>
+      )}
+    </div>
+  );
 
-  function confirmar() {
-    if (faltando.length > 0) return;
-    onConfirmar({ opcoes: escolhasParaEnvio(slots, escolhidas), opcoesTexto: texto, precoUnit: preco });
-  }
-
-  useEffect(() => {
-    function aoTeclar(e: KeyboardEvent) {
-      if (e.key === 'Escape') { e.preventDefault(); onCancelar(); return; }
-      if (e.key === 'Enter') { e.preventDefault(); confirmar(); return; }
-      if (e.key === 'Backspace') { e.preventDefault(); setBuffer(''); return; }
-      if (!/^[0-9]$/.test(e.key)) return;
-      e.preventDefault();
-      const r = resolverDigitado(buffer + e.key, numeradas.length);
-      setBuffer(r.buffer);
-      if (r.aplicar !== null) alternar(r.aplicar);
-    }
-    /* `capture` pra chegar antes do campo de busca do PDV, que costuma estar com
-       o foco: com o painel aberto, o teclado é dele. */
-    window.addEventListener('keydown', aoTeclar, true);
-    return () => window.removeEventListener('keydown', aoTeclar, true);
-  });
+  const listaEscolhidas = (
+    <div className="min-h-0 flex-1 overflow-y-auto p-4">
+      {!algoEscolhido ? (
+        <p className="text-[13px] leading-relaxed text-muted-foreground/60">
+          Nada escolhido ainda.<br />Clique nos itens ou digite o número.
+        </p>
+      ) : (
+        slots.map(s => s.grupos.map(g => {
+          const chave = chaveEscolha(s.slot, g.id);
+          const ids = escolhidas[chave] ?? [];
+          if (ids.length === 0) return null;
+          return (
+            <div key={chave} className="mb-3">
+              <p className="mb-1 text-[12.5px] text-muted-foreground">
+                {s.rotulo ? `${s.rotulo} · ` : ''}{g.nome}
+              </p>
+              {g.opcoes.filter(o => ids.includes(o.id)).map(o => (
+                <div key={o.id} className="flex items-baseline gap-2 py-0.5">
+                  <span className="min-w-0 flex-1 truncate text-[14.5px] font-semibold">{o.nome}</span>
+                  {o.preco_adicional_centavos > 0 && (
+                    <span className="shrink-0 text-[12.5px] tabular-nums text-muted-foreground">
+                      {brl(o.preco_adicional_centavos)}
+                    </span>
+                  )}
+                  <button
+                    type="button" aria-label={`Remover ${o.nome}`}
+                    onClick={() => remover(chave, o.id)}
+                    className="shrink-0 text-muted-foreground/40 transition-colors hover:text-destructive"
+                  ><X className="size-3.5" /></button>
+                </div>
+              ))}
+            </div>
+          );
+        }))
+      )}
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-t-2xl bg-card shadow-2xl sm:rounded-2xl">
-        <div className="flex items-center gap-3 border-b border-border px-4 py-3">
+      <div className={cn(
+        'flex w-full max-h-[92vh] max-w-[1040px] flex-col overflow-hidden rounded-t-2xl bg-card shadow-2xl sm:rounded-2xl',
+        largo && 'h-[700px]',
+      )}>
+        {/* ── cabeçalho ── */}
+        <div className="flex items-start gap-3 border-b border-border px-5 py-3.5">
           <div className="min-w-0 flex-1">
-            <p className="truncate text-[15px] font-bold leading-tight">{produto.nome}</p>
-            <p className="text-[12px] text-muted-foreground">
-              Digite o número · Enter adiciona · Esc cancela
+            <p className="truncate text-[18px] font-extrabold leading-tight">{produto.nome}</p>
+            <p className="text-[12.5px] text-muted-foreground">
+              {progresso.total === 0
+                ? 'Complementos opcionais'
+                : completo
+                  ? 'Tudo escolhido'
+                  : `${progresso.feitos} de ${progresso.total} escolhas feitas`}
             </p>
           </div>
-          {/* O buffer aparece porque ele EXPLICA a espera: com 27 opções, o "1"
-              não aplica sozinho, e sem ver o dígito na tela o atendente conclui
-              que a tecla falhou. */}
-          {buffer && (
-            <span className="rounded-lg bg-primary px-2.5 py-1 font-mono text-[15px] font-bold text-primary-foreground">
-              {buffer}
-            </span>
+          {/* O ECO da digitação, sem moldura e sem legenda de teclas: quem usa o
+              atalho já sabe, e quem não usa não precisa aprender agora. */}
+          {(eco || buffer) && (
+            <p className={cn(
+              'shrink-0 truncate pt-1 font-mono text-[12.5px]',
+              eco?.erro ? 'text-destructive' : 'text-muted-foreground',
+            )}>
+              {eco ? eco.txt : buffer}
+            </p>
           )}
-          <button type="button" onClick={onCancelar} aria-label="Cancelar"
-            className="rounded-lg p-1.5 text-muted-foreground hover:bg-accent">
+          <button type="button" onClick={onCancelar} aria-label="Fechar"
+            className="flex size-[34px] shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent">
             <X className="size-4" />
           </button>
         </div>
 
-        <div ref={areaRolagem} className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-          {slots.map(s => (
-            <div key={s.slot}>
-              {s.rotulo && (
-                <p className="px-2 pt-2 text-[11px] font-bold uppercase tracking-wider text-primary">{s.rotulo}</p>
-              )}
-              {s.grupos.map(g => {
-                const chave = chaveEscolha(s.slot, g.id);
-                const ids = escolhidas[chave] ?? [];
-                const max = maxEscolhasEfetivo(g, saboresPorSlot.get(s.slot) ?? 0);
-                const pendente = g.obrigatorio && ids.length === 0;
-                /*
-                 * GRUPO DECIDIDO ENCOLHE PRA UMA LINHA.
-                 *
-                 * Com seis tamanhos, 33 sabores e a borda abertos ao mesmo
-                 * tempo, a borda ficava FORA DA TELA — e o rodapé anunciava que
-                 * ela faltava sem que desse pra vê-la. Cada decisão tomada
-                 * deixa de precisar de espaço.
-                 *
-                 * Os NÚMEROS NÃO MUDAM: `numeradas` é calculado sobre todos os
-                 * grupos, sem saber o que está fechado. Renumerar o visível
-                 * destruiria a única vantagem da lista, que é decorar o número
-                 * — "28 é Camarão" tem que valer com o Tamanho fechado.
-                 */
-                const fechado = grupoConcluido(g.tipo, ids.length, max) && !reaberto[chave];
-                if (fechado) {
-                  const nomes = g.opcoes.filter(o => ids.includes(o.id)).map(o => o.nome).join(', ');
+        <div className={cn('flex min-h-0 flex-1', largo ? 'flex-row' : 'flex-col')}>
+          {/* ── esquerda: os grupos ── */}
+          <div ref={areaRolagem} className="min-h-0 flex-1 overflow-y-auto">
+            {slots.map(s => (
+              <div key={s.slot}>
+                {s.rotulo && (
+                  <p className="px-5 pt-3 text-[11px] font-bold uppercase tracking-wider text-primary">{s.rotulo}</p>
+                )}
+                {s.grupos.map(g => {
+                  const chave = chaveEscolha(s.slot, g.id);
+                  const ids = escolhidas[chave] ?? [];
+                  const max = maxEscolhasEfetivo(g, saboresPorSlot.get(s.slot) ?? 0);
+                  const satisfeito = grupoConcluido(g.tipo, ids.length, max);
+                  const teto = noTeto(s.slot, g, ids, max);
+                  /* A REGRA DO GRUPO EM TEXTO, na mesma linha do nome. Badge
+                     colorido gritaria mais que o nome do produto; o estado cabe
+                     em cinza, e só o satisfeito ganha um tom. */
+                  const regra = g.tipo === 'unico'
+                    ? (ids.length > 0 ? 'escolhido' : 'escolha 1')
+                    : max > 0
+                      ? (ids.length > 0 ? `${ids.length} de ${max} escolhidos` : `escolha até ${max}`)
+                      : (ids.length > 0 ? `${ids.length} escolhidos` : 'escolha à vontade');
                   return (
-                    <button
-                      key={chave}
-                      type="button"
-                      onClick={() => setReaberto(r => ({ ...r, [chave]: true }))}
-                      className="flex w-full items-baseline gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-accent"
-                    >
-                      <Check className="size-3.5 shrink-0 translate-y-0.5 text-emerald-600" strokeWidth={3} />
-                      <span className="shrink-0 text-[12px] font-bold uppercase tracking-wide">{g.nome}</span>
-                      <span className="min-w-0 flex-1 truncate text-[13px] font-semibold">{nomes}</span>
-                      <span className="shrink-0 text-[11px] font-semibold text-primary">trocar</span>
-                    </button>
+                    <div key={chave} ref={el => { refsGrupo.current[chave] = el; }}>
+                      <div className="sticky top-0 z-10 flex items-baseline gap-2 bg-card px-5 pb-1.5 pt-3">
+                        <span className="shrink-0 text-[15px] font-extrabold">{g.nome}</span>
+                        <span className={cn('shrink-0 text-[12.5px]',
+                          satisfeito ? 'text-emerald-700/80 dark:text-emerald-400/80' : 'text-muted-foreground')}>
+                          {regra}
+                        </span>
+                        <span className="h-px flex-1 translate-y-[-2px] bg-border" />
+                      </div>
+                      {g.secoes.map(sec => (
+                        <div key={sec.secao}>
+                          {sec.secao && (
+                            <p className="px-5 pb-0.5 pt-2 text-[12px] text-muted-foreground/60">{sec.secao}</p>
+                          )}
+                          <div className="grid grid-cols-1 gap-x-6 px-5 sm:grid-cols-2">
+                            {sec.opcoes.map(o => {
+                              const achado = numeradas.find(
+                                x => x.slot === s.slot && x.grupoId === g.id && x.opcaoId === o.id);
+                              if (!achado) return null;
+                              const ativo = ids.includes(o.id);
+                              const bloqueado = teto && !ativo;
+                              /* Alvo da digitação: enquanto o buffer não resolve
+                                 sozinho, mostra QUEM ele ainda pode virar. */
+                              const alvoDigitado = buffer !== '' && String(achado.numero).startsWith(buffer);
+                              return (
+                                <button
+                                  key={o.id}
+                                  type="button"
+                                  onClick={() => { if (!bloqueado) alternar(achado.numero); }}
+                                  className={cn(
+                                    'flex h-10 items-center gap-2.5 border-b border-border/40 text-left text-[14.5px]',
+                                    ativo && 'bg-primary/[0.06] font-bold',
+                                    alvoDigitado && !ativo && 'bg-muted',
+                                    bloqueado ? 'cursor-not-allowed opacity-35' : 'hover:bg-accent/60',
+                                  )}
+                                >
+                                  <span className="flex w-[18px] shrink-0 justify-center">
+                                    {ativo
+                                      ? <Check className="size-[17px] text-primary" strokeWidth={3} />
+                                      : (
+                                        <span className={cn('font-mono text-[12.5px]',
+                                          alvoDigitado ? 'font-bold text-foreground' : 'text-muted-foreground')}>
+                                          {achado.numero}
+                                        </span>
+                                      )}
+                                  </span>
+                                  <span className="min-w-0 flex-1 truncate">{o.nome}</span>
+                                  {/* Preço só quando existe. Escrever "incluso"
+                                      quinze vezes é ruído, não informação. */}
+                                  {o.preco_adicional_centavos > 0 && (
+                                    <span className="shrink-0 pr-1 text-[13px] tabular-nums text-muted-foreground">
+                                      + {brl(o.preco_adicional_centavos)}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   );
-                }
-                return (
-                  <div key={chave} className="mb-1" ref={el => { refsGrupo.current[chave] = el; }}>
-                    <div className="flex items-baseline gap-2 px-2 py-1.5">
-                      <span className="text-[12px] font-bold uppercase tracking-wide">{g.nome}</span>
-                      <span className={cn('text-[11px]', pendente ? 'font-bold text-destructive' : 'text-muted-foreground')}>
-                        {g.obrigatorio ? 'obrigatório' : 'opcional'}
-                        {max > 0 ? ` · até ${max}` : ''}
-                        {ids.length > 0 ? ` · ${ids.length} escolhido(s)` : ''}
-                      </span>
-                    </div>
-                    {g.secoes.map(sec => (
-                    <div key={sec.secao}>
-                      {/* Cabeçalho só quando a seção TEM nome: loja que não usa
-                          seção não deve ganhar título nenhum. */}
-                      {sec.secao && (
-                        <p className="px-2 pb-0.5 pt-1.5 text-[10.5px] font-bold uppercase tracking-wider text-muted-foreground/80">
-                          {sec.secao}
-                        </p>
-                      )}
-                    {/* Duas colunas: a lista de sabores tem 33 itens, e numa coluna
-                        não caberia sem rolagem — o gesto que esta tela evita. */}
-                    <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2">
-                      {sec.opcoes.map(o => {
-                        const achado = numeradas.find(
-                          x => x.slot === s.slot && x.grupoId === g.id && x.opcaoId === o.id);
-                        if (!achado) return null;
-                        const ativo = ids.includes(o.id);
-                        return (
-                          <button
-                            key={o.id}
-                            type="button"
-                            onClick={() => alternar(achado.numero)}
-                            className={cn(
-                              'flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-[13.5px] transition-colors',
-                              ativo ? 'bg-primary/[0.12] font-semibold' : 'hover:bg-accent',
-                              /* `esgotado` e não `disponivel`: é como o tipo do
-                                 frontend marca opção indisponível. */
-                              (o as { esgotado?: boolean }).esgotado && 'opacity-40',
-                            )}
-                          >
-                            <span className={cn(
-                              'flex size-6 shrink-0 items-center justify-center rounded-md font-mono text-[12px] font-bold',
-                              ativo ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground',
-                            )}>{achado.numero}</span>
-                            <span className="min-w-0 flex-1 truncate">{o.nome}</span>
-                            {o.preco_adicional_centavos > 0 && (
-                              <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
-                                +{brl(o.preco_adicional_centavos)}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-3 border-t border-border px-4 py-3">
-          <div className="min-w-0 flex-1">
-            <p className="text-[17px] font-extrabold leading-none tabular-nums">{brl(preco)}</p>
-            {/* O que falta, NOMEADO. "Faltam escolhas" manda o atendente procurar
-                numa tela que ele já está olhando. */}
-            {/* CADA NOME LEVA ATÉ LÁ. Antes o rodapé nomeava o que faltava e não
-                levava: "Falta: Borda" com a borda fora da tela deixava o
-                atendente procurando o que ele já sabia que existia. */}
-            {faltando.length > 0 && (
-              <p className="mt-1 flex flex-wrap items-baseline gap-x-1 text-[11.5px] font-semibold text-destructive">
-                <span>Falta:</span>
-                {faltando.map((f, i) => (
-                  <button
-                    key={f.chave}
-                    type="button"
-                    onClick={() => irPara(f.chave)}
-                    className="underline underline-offset-2 hover:no-underline"
-                  >
-                    {f.rotulo}{i < faltando.length - 1 ? ',' : ''}
-                  </button>
-                ))}
-              </p>
-            )}
+                })}
+              </div>
+            ))}
           </div>
-          <button
-            type="button"
-            onClick={confirmar}
-            disabled={faltando.length > 0}
-            className="rounded-xl bg-primary px-5 py-2.5 text-[14px] font-bold text-primary-foreground disabled:opacity-40"
-          >
-            Adicionar
-          </button>
+
+          {/* ── direita: o que foi escolhido ── */}
+          {largo ? (
+            <aside className="box-border flex w-[284px] shrink-0 flex-col border-l border-border">
+              {listaEscolhidas}
+              {rodape}
+            </aside>
+          ) : (
+            /* Em tela estreita a lista de escolhidos empurraria os grupos pra
+               fora; sobra o que decide a ação — total, pendência e botão. */
+            <div className="shrink-0">{rodape}</div>
+          )}
         </div>
       </div>
     </div>

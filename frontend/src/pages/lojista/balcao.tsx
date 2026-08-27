@@ -214,7 +214,7 @@ export function BalcaoLoja() {
    */
   function adicionarComEscolha(p: Produto, r: EscolhaFeita) {
     setCarrinho(c => [...c, {
-      uid: novaLinhaUid(), produto: p, quantidade: 1,
+      uid: novaLinhaUid(), produto: p, quantidade: r.quantidade,
       precoUnit: r.precoUnit, opcoes: r.opcoes, opcoesTexto: r.opcoesTexto,
     }]);
     setEscolhendo(null);
