@@ -128,10 +128,14 @@ tef_adquirente_cnpj VARCHAR(20) NOT NULL DEFAULT ''
 tef_tipo          VARCHAR(10) NOT NULL DEFAULT ''  -- CREDIT | DEBIT | PIX | VOUCHER
 ```
 
-Via `garantirColuna`, como as outras. **Todas com `${SUFIXO_TABELA}` e collation
-`utf8mb4_unicode_ci`** — a queda de produção de três semanas atrás foi
-exatamente uma tabela criada sem `COLLATE`, e o JOIN estourou
-`ER_CANT_AGGREGATE_2COLLATIONS`.
+Via `garantirColuna`, como as outras.
+
+*Correção do que eu havia escrito aqui antes:* eu disse que estas colunas
+precisavam de `${SUFIXO_TABELA}` e `COLLATE` explícito. Não precisam — aquilo
+vale para `CREATE TABLE`, e `ALTER TABLE ... ADD COLUMN` herda a colação da
+tabela. O tombo do `subcategorias` foi em CREATE TABLE, onde declarar `CHARSET`
+sem `COLLATE` **resseta** para o padrão do charset; aqui não se declara nenhum
+dos dois, então não há o que ressetar.
 
 ### 4.3 Credenciais por loja
 

@@ -1004,6 +1004,55 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     ['lojas', 'contador_ultimo_envio_em',     "contador_ultimo_envio_em VARCHAR(32) NOT NULL DEFAULT ''"],
     /** Erro do último envio, pra tela poder dizer POR QUE não chegou. */
     ['lojas', 'contador_ultimo_erro',         "contador_ultimo_erro VARCHAR(300) NOT NULL DEFAULT ''"],
+
+    /*
+     * ─── TEF (Smart TEF / POS Controle) ───
+     *
+     * A maquininha vira um terminal do nosso PDV: mandamos o valor por HTTP, ela
+     * mostra um card pro operador, e devolve o resultado. O que ela devolve é o
+     * ponto — hoje `tipo-pagamento-nfce.ts` declara TODO cartão de PDV como
+     * crédito por palpite, sem bandeira e sem NSU, e a SEFAZ autoriza igual
+     * porque 03 é código válido. O erro só aparece em fiscalização.
+     *
+     * As duas credenciais são POR LOJA e vêm cifradas, como o token do Mercado
+     * Pago e as da ONZ: quem tem o token cobra na maquininha de alguém.
+     *
+     * `smarttef_base_url` é campo e não constante porque o host não está na
+     * documentação pública — vem no credenciamento, e parceiro White Label pode
+     * receber outro. Fixar no código obrigaria deploy pra trocar.
+     */
+    ['lojas', 'smarttef_ativo',          'smarttef_ativo TINYINT NOT NULL DEFAULT 0'],
+    ['lojas', 'smarttef_base_url',       "smarttef_base_url VARCHAR(200) NOT NULL DEFAULT ''"],
+    ['lojas', 'smarttef_token',          'smarttef_token TEXT'],
+    ['lojas', 'smarttef_gateway_token',  'smarttef_gateway_token TEXT'],
+    /*
+     * Terminal padrão. Vazio = a ordem cai na lista geral (`order_type: NRM`) e
+     * qualquer POS da loja pode pegar; preenchido, vai direto pra este aparelho
+     * (`CRD_UNICO`). Loja com uma maquininha só quer o segundo; loja com três
+     * caixas quer o primeiro, senão a cobrança aparece no balcão errado.
+     */
+    ['lojas', 'smarttef_serial_pos',     "smarttef_serial_pos VARCHAR(40) NOT NULL DEFAULT ''"],
+
+    /*
+     * ─── O que a maquininha devolve, gravado no pedido ───
+     *
+     * Vazio quando a venda não passou por TEF — que continua sendo a maioria, e
+     * é o que mantém `tipoPagamentoNfce` compatível: sem estes campos ele segue
+     * palpitando como sempre, com `ehPalpite: true`. Lojista sem TEF não regride.
+     *
+     * Sem COLLATE explícito de propósito: `ALTER TABLE ... ADD COLUMN` herda a
+     * colação da tabela. O tombo do `subcategorias` foi em CREATE TABLE, onde
+     * declarar `CHARSET` sem `COLLATE` RESSETA pro padrão do charset — aqui não
+     * se declara nenhum dos dois, então não há o que ressetar.
+     */
+    ['pedidos', 'tef_nsu',             "tef_nsu VARCHAR(40) NOT NULL DEFAULT ''"],
+    ['pedidos', 'tef_autorizacao',     "tef_autorizacao VARCHAR(40) NOT NULL DEFAULT ''"],
+    ['pedidos', 'tef_bandeira',        "tef_bandeira VARCHAR(30) NOT NULL DEFAULT ''"],
+    ['pedidos', 'tef_adquirente',      "tef_adquirente VARCHAR(60) NOT NULL DEFAULT ''"],
+    ['pedidos', 'tef_adquirente_cnpj', "tef_adquirente_cnpj VARCHAR(20) NOT NULL DEFAULT ''"],
+    /* CREDIT | DEBIT | PIX | VOUCHER — o que a adquirente confirmou, não o que
+       o operador escolheu na tela. É este campo que mata o palpite da NFC-e. */
+    ['pedidos', 'tef_tipo',            "tef_tipo VARCHAR(10) NOT NULL DEFAULT ''"],
     /*
      * PRAZO DA PROMOÇÃO. Vazio = sem prazo, que é o estado de toda promoção
      * cadastrada antes desta coluna — nenhum produto muda de preço na migração.

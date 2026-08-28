@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Ajuda } from '@/components/ui/ajuda';
-import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck, Search, AlertCircle, ChevronDown, X } from 'lucide-react';
+import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck, Search, AlertCircle, ChevronDown, X, Smartphone } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
 import { statusAgente, esquecerStatusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
 import { Card, CardContent } from '@/components/ui/card';
@@ -1190,6 +1190,20 @@ export function EntregadoresLoja() {
 
 /* ───────────────────────── Pagamentos (Mercado Pago) ───────────────────── */
 
+/**
+ * O que a rota /tef devolve. Os tokens vêm SEMPRE mascarados (`****abcd1234`) —
+ * o valor em claro nunca sai do servidor, igual ao token do Mercado Pago.
+ */
+interface EstadoTef {
+  ativo: boolean;
+  base_url: string;
+  serial_pos: string;
+  token: string | null;
+  gateway_token: string | null;
+  configurado: boolean;
+  pendencias: string[];
+}
+
 interface EstadoPagamentos {
   /** Gateway do Pix online: Mercado Pago ou Pix via ONZ/Planner. */
   gateway: 'mercadopago' | 'onz';
@@ -1317,7 +1331,8 @@ export function PagamentosLoja() {
    * ABA PADRÃO: Pix. É o meio que praticamente toda loja usa, e cartão é opcional
    * — abrir no que a maioria veio ver poupa um clique de quase todo mundo.
    */
-  const [aba, setAba] = useState<'pix' | 'cartao'>('pix');
+  const [aba, setAba] = useState<'pix' | 'cartao' | 'maquininha'>('pix');
+  const [tef, setTef] = useState<EstadoTef | null>(null);
   const [webhookAberto, setWebhookAberto] = useState(false);
 
   // A URL vem PRONTA do servidor, com ?t=<banco>&loja=<id>: só ele sabe o nome
@@ -1325,6 +1340,10 @@ export function PagamentosLoja() {
   const urlWebhook = estado?.webhook_url ?? '';
 
   function carregar() {
+    /* Falha aqui não pode derrubar a tela: Pix e cartão online não dependem do
+       TEF, e uma loja sem maquininha é a maioria. Sem resposta, a aba mostra o
+       estado vazio e o lojista configura do zero. */
+    api<EstadoTef>('GET', '/api/lojista/tef').then(setTef).catch(() => {});
     api<EstadoPagamentos>('GET', '/api/lojista/pagamentos')
       .then(setEstado)
       .catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar configurações de pagamento.' }));
@@ -1503,6 +1522,22 @@ export function PagamentosLoja() {
             status: !estado.cartao_online_ativo
               ? 'Não configurado'
               : `${modo === 'teste' ? 'Modo teste' : 'Produção'} · Mercado Pago`,
+          },
+          /*
+            MAQUININHA é outro assunto dos dois primeiros, e por isso aba
+            própria: Pix e cartão online são dinheiro que cai pela internet, sem
+            ninguém presente. Esta é a máquina em cima do balcão, com o cliente
+            na frente — quem configura, quando configura e o que dá errado são
+            outros.
+          */
+          {
+            id: 'maquininha' as const,
+            titulo: 'Maquininha (TEF)',
+            Icone: Smartphone,
+            ok: !!tef?.configurado,
+            status: !tef?.ativo
+              ? 'Desligado'
+              : tef.configurado ? 'Ligado · Smart TEF' : 'Falta configurar',
           },
         ]).map(a => {
           const atual = aba === a.id;
@@ -2001,9 +2036,224 @@ export function PagamentosLoja() {
           </CardContent>
         </Card>
       </>)}
+
+      {/* ───────────────────── ABA MAQUININHA (TEF) ───────────────────── */}
+      {aba === 'maquininha' && <PainelTef estado={tef} aoMudar={setTef} />}
     </div>
   );
 }
+
+/**
+ * CONFIGURAÇÃO DO TEF.
+ *
+ * O que esta tela liga: em vez de o operador digitar o valor na maquininha, o
+ * sistema manda a cobrança e recebe de volta se aprovou, se foi crédito ou
+ * débito, a bandeira e o NSU.
+ *
+ * A última parte é a que vale: hoje TODO cartão do PDV sai na nota declarado
+ * como crédito por palpite. É código válido, a SEFAZ autoriza, e o erro só
+ * aparece em fiscalização.
+ *
+ * As três credenciais NÃO são inventáveis nem descobríveis — vêm do
+ * credenciamento na POS Controle. Por isso a tela explica de onde saem em vez de
+ * só mostrar três campos vazios: campo sem procedência é campo que fica vazio
+ * para sempre.
+ */
+function PainelTef({ estado, aoMudar }: {
+  estado: EstadoTef | null;
+  aoMudar: (e: EstadoTef) => void;
+}) {
+  const { mostrar } = useToast();
+  const [enviando, setEnviando] = useState(false);
+  const [baseUrl, setBaseUrl] = useState('');
+  const [token, setToken] = useState('');
+  const [gatewayToken, setGatewayToken] = useState('');
+  const [serialPos, setSerialPos] = useState('');
+  const [carregado, setCarregado] = useState(false);
+
+  /*
+   * Os campos de segredo nascem com a MÁSCARA que veio do servidor, não vazios.
+   *
+   * Vazio pareceria "nunca configurado" numa loja que está configurada, e o
+   * primeiro reflexo seria colar tudo de novo. O backend ignora qualquer valor
+   * que comece com `****`, então deixar a máscara no campo é seguro: só grava o
+   * que a pessoa realmente reescrever.
+   */
+  useEffect(() => {
+    if (!estado || carregado) return;
+    setBaseUrl(estado.base_url);
+    setToken(estado.token || '');
+    setGatewayToken(estado.gateway_token || '');
+    setSerialPos(estado.serial_pos);
+    setCarregado(true);
+  }, [estado, carregado]);
+
+  async function salvar(campos: Record<string, unknown>) {
+    setEnviando(true);
+    try {
+      const r = await api<EstadoTef>('PUT', '/api/lojista/tef', campos);
+      aoMudar(r);
+      /* Recarrega os campos do que o servidor gravou: a base URL volta
+         normalizada (sem barra sobrando, sem o caminho colado junto), e mostrar
+         o texto original faria a tela discordar do banco. */
+      setBaseUrl(r.base_url);
+      setToken(r.token || '');
+      setGatewayToken(r.gateway_token || '');
+      setSerialPos(r.serial_pos);
+      return r;
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+      return null;
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  if (!estado) {
+    return (
+      <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">
+        Carregando…
+      </CardContent></Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent className="space-y-6 py-6">
+        <div>
+          <h3 className="text-[15px] font-bold">Maquininha integrada</h3>
+          <p className="mt-1 max-w-[620px] text-[13px] leading-relaxed text-muted-foreground">
+            Com isto ligado, o valor da venda vai direto para a maquininha — o
+            operador só confirma e o cliente passa o cartão. O sistema passa a
+            saber se aprovou, se foi <b>crédito ou débito</b>, a bandeira e o NSU.
+          </p>
+          <p className="mt-2 max-w-[620px] rounded-xl border border-dashed border-border px-3.5 py-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
+            <b className="text-foreground">Por que isso importa na nota:</b> sem a
+            maquininha integrada, todo cartão sai na NFC-e declarado como crédito
+            — inclusive quando foi débito. A SEFAZ aceita, porque é um código
+            válido; o problema só aparece numa fiscalização.
+          </p>
+        </div>
+
+        {/* Interruptor desenhado à mão, como o resto desta tela — não existe
+            componente Switch no projeto, e criar um só aqui deixaria dois
+            interruptores diferentes na mesma página. */}
+        <button
+          type="button"
+          disabled={enviando}
+          onClick={() => void salvar({ ativo: !estado.ativo })}
+          aria-pressed={estado.ativo}
+          className="flex w-full items-center justify-between gap-4 rounded-xl border border-border p-4 text-left disabled:opacity-60"
+        >
+          <span className="min-w-0">
+            <span className="block text-sm font-bold">Usar a maquininha integrada</span>
+            <span className="mt-0.5 block text-[12.5px] text-muted-foreground">
+              Desligado, o PDV segue como hoje: o operador digita o valor na máquina.
+            </span>
+          </span>
+          <span className={cn('relative h-6 w-11 shrink-0 rounded-full transition-colors',
+            estado.ativo ? 'bg-primary' : 'bg-muted-foreground/30')}>
+            <span className={cn('absolute top-0.5 size-5 rounded-full bg-white shadow transition-all',
+              estado.ativo ? 'left-[22px]' : 'left-0.5')} />
+          </span>
+        </button>
+
+        {/*
+          As pendências aparecem só com o TEF LIGADO. Com ele desligado a loja
+          decidiu não usar, e cobrar credencial de quem não pediu é alarme sobre
+          uma decisão dela.
+        */}
+        {estado.ativo && estado.pendencias.length > 0 && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-4">
+            <p className="text-[13px] font-bold text-amber-700 dark:text-amber-500">
+              Ainda não vai funcionar
+            </p>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+              Falta {estado.pendencias.join(', ')}. Enquanto isso, o cartão no PDV
+              continua funcionando do jeito antigo.
+            </p>
+          </div>
+        )}
+
+        <form
+          className="space-y-4"
+          onSubmit={async e => {
+            e.preventDefault();
+            const r = await salvar({
+              base_url: baseUrl,
+              token,
+              gateway_token: gatewayToken,
+              serial_pos: serialPos,
+            });
+            if (r) {
+              mostrar(r.ativo && !r.configurado
+                ? { tipo: 'erro', titulo: 'Salvo, mas ainda falta algo', descricao: 'Falta ' + r.pendencias.join(', ') + '.' }
+                : { tipo: 'sucesso', titulo: 'Dados da maquininha salvos' });
+            }
+          }}
+        >
+          <div>
+            <Label htmlFor="tef-url">Endereço da API</Label>
+            <Input
+              id="tef-url" value={baseUrl} onChange={e => setBaseUrl(e.target.value)}
+              placeholder="https://..." className="mt-1 font-mono text-sm" disabled={enviando}
+            />
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              Vem no seu credenciamento. Precisa começar com <b>https://</b> — pode
+              colar o endereço completo que a gente corta o resto.
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="tef-token">Token da loja</Label>
+              <Input
+                id="tef-token" value={token} onChange={e => setToken(e.target.value)}
+                placeholder="Bearer token" className="mt-1 font-mono text-sm" disabled={enviando}
+              />
+            </div>
+            <div>
+              <Label htmlFor="tef-gw">Gateway token</Label>
+              <Input
+                id="tef-gw" value={gatewayToken} onChange={e => setGatewayToken(e.target.value)}
+                placeholder="Subscription key" className="mt-1 font-mono text-sm" disabled={enviando}
+              />
+            </div>
+          </div>
+          <p className="-mt-1 text-[12px] text-muted-foreground">
+            Guardados cifrados. Depois de salvos aparecem só os últimos dígitos —
+            deixe como está para não mexer neles.
+          </p>
+
+          <div>
+            <Label htmlFor="tef-serial">
+              Serial da maquininha <span className="text-xs font-normal text-muted-foreground">(opcional)</span>
+            </Label>
+            <Input
+              id="tef-serial" value={serialPos} onChange={e => setSerialPos(e.target.value)}
+              placeholder="Deixe vazio se tiver só uma" className="mt-1 font-mono text-sm" disabled={enviando}
+            />
+            <p className="mt-1 text-[12px] text-muted-foreground">
+              Em branco, a cobrança aparece em qualquer maquininha da loja. Com
+              várias, preencha — senão a cobrança pode aparecer no balcão errado.
+            </p>
+          </div>
+
+          <Button type="submit" disabled={enviando}>
+            <Save className="size-4" /> Salvar dados da maquininha
+          </Button>
+        </form>
+
+        <p className="border-t border-border pt-4 text-[12px] leading-relaxed text-muted-foreground">
+          Nem toda maquininha aceita: depende da adquirente (Rede, Cielo, Getnet,
+          Stone, PagBank e outras) <b>e do modelo</b>. Confirme a sua com a POS
+          Controle antes de contar com isso.
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
 
 /* ───────────────────────── Impressão térmica ───────────────────────── */
 

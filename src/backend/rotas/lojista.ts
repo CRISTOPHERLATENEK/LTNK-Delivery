@@ -36,6 +36,7 @@ import {
   montarInutilizacao, transmitirInutilizacao,
 } from '../sefaz';
 import { criptografar, descriptografar } from '../cripto';
+import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
 import { cashInDisponivel, registrarWebhookCashIn, consultarWebhookCashIn } from '../onz';
 // Sem ciclo: pagamentos.ts não importa lojista.ts.
 import { credenciaisOnzDaLoja } from './pagamentos';
@@ -3446,6 +3447,142 @@ router.put('/pagamentos', async (req, res, next) => {
        * campo separado de `ativo`, que aceita o gateway de Pix da loja.
        */
       cartao_online_ativo: !!(modo === 'teste' ? tokenTeste : tokenProducao),
+    });
+  } catch (e) { next(e); }
+});
+
+// ----- TEF (Smart TEF / POS Controle) -------------------------------------
+//
+// A maquininha vira um terminal do PDV: mandamos o valor por HTTP, ela mostra um
+// card pro operador, e devolve o resultado — inclusive crédito/débito, bandeira
+// e NSU, que é o que hoje falta pra NFC-e parar de palpitar.
+//
+// As credenciais são POR LOJA e cifradas, igual ao token do Mercado Pago: quem
+// tem o token cobra na maquininha de alguém.
+
+/** Lê a linha da loja e devolve as credenciais em claro (uso interno). */
+async function credenciaisTefDaLoja(lojaId: number) {
+  const row = await db.prepare(
+    `SELECT smarttef_ativo, smarttef_base_url, smarttef_token, smarttef_gateway_token, smarttef_serial_pos
+       FROM lojas WHERE id = ?`
+  ).get(lojaId) as {
+    smarttef_ativo: number; smarttef_base_url: string;
+    smarttef_token: string | null; smarttef_gateway_token: string | null;
+    smarttef_serial_pos: string;
+  } | undefined;
+
+  /*
+   * Credencial que não decifra vale NULO, não erro.
+   *
+   * Acontece de verdade quando a chave de criptografia é trocada: a linha
+   * continua lá, ilegível. Lançar aqui derrubaria a tela de configuração —
+   * justamente a tela onde a pessoa iria colar a credencial de novo.
+   */
+  const abrir = (c: string | null) => {
+    if (!c) return null;
+    try { return descriptografar(c); } catch { return null; }
+  };
+
+  return {
+    ativo: !!row?.smarttef_ativo,
+    baseUrl: row?.smarttef_base_url || '',
+    token: abrir(row?.smarttef_token ?? null),
+    gatewayToken: abrir(row?.smarttef_gateway_token ?? null),
+    serialPos: row?.smarttef_serial_pos || '',
+  };
+}
+
+/** Estado do TEF da loja. Os tokens saem MASCARADOS — o valor em claro nunca sai daqui. */
+router.get('/tef', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const c = await credenciaisTefDaLoja(loja.id);
+    res.json({
+      ativo: c.ativo,
+      base_url: c.baseUrl,
+      serial_pos: c.serialPos,
+      token: mascarar(c.token),
+      gateway_token: mascarar(c.gatewayToken),
+      configurado: tefConfigurado(c),
+      /* Com `ativo: false` não há pendência a cobrar: a loja desligou de
+         propósito, e listar faltas aí viraria alarme sobre uma decisão dela. */
+      pendencias: c.ativo ? pendenciasTef(c) : [],
+    });
+  } catch (e) { next(e); }
+});
+
+router.put('/tef', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+
+    /*
+     * CAMPO AUSENTE ≠ CAMPO VAZIO.
+     *
+     * A tela manda de volta a MÁSCARA (`****abcd1234`) no campo que o lojista não
+     * tocou. Gravar isso sobrescreveria o token bom por oito asteriscos e um
+     * pedaço — e o sintoma só apareceria na primeira venda, com o cliente na
+     * frente. Por isso: só grava o que veio como string, e só quando não é a
+     * máscara que nós mesmos emitimos.
+     *
+     * String vazia CONTINUA gravando: é como o lojista apaga uma credencial.
+     */
+    const gravarSegredo = (campo: string, valor: unknown) => {
+      if (typeof valor !== 'string') return;
+      const v = valor.trim();
+      if (v.startsWith('****')) return;
+      sets.push(`${campo} = ?`);
+      vals.push(v ? criptografar(v) : null);
+    };
+
+    gravarSegredo('smarttef_token', req.body.token);
+    gravarSegredo('smarttef_gateway_token', req.body.gateway_token);
+
+    if (typeof req.body.base_url === 'string') {
+      /*
+       * Guardamos NORMALIZADO, não como veio.
+       *
+       * O host não está na documentação pública — vem no credenciamento, então é
+       * texto colado por gente, com barra sobrando e às vezes com o caminho do
+       * endpoint junto. Normalizar na gravação evita que cada leitor tenha que
+       * lembrar de fazer isso.
+       *
+       * Texto que não vira URL válida é gravado VAZIO em vez de recusado com
+       * erro: assim o `pendencias` da tela diz o que está errado, em vez de a
+       * requisição inteira falhar e o resto do formulário se perder.
+       */
+      sets.push('smarttef_base_url = ?');
+      vals.push(normalizarBaseUrl(req.body.base_url));
+    }
+
+    if (typeof req.body.serial_pos === 'string') {
+      sets.push('smarttef_serial_pos = ?');
+      vals.push(textoLimpo(req.body.serial_pos, 40).toUpperCase());
+    }
+
+    if (typeof req.body.ativo === 'boolean') {
+      sets.push('smarttef_ativo = ?');
+      vals.push(req.body.ativo ? 1 : 0);
+    }
+
+    if (sets.length) {
+      vals.push(loja.id);
+      await db.prepare(`UPDATE lojas SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    }
+
+    /* Devolve o estado recém-gravado em vez de `{ok:true}`: a tela precisa das
+       pendências recalculadas, e uma segunda ida ao servidor pra saber o
+       resultado do que ela mesma acabou de mandar é ida à toa. */
+    const c = await credenciaisTefDaLoja(loja.id);
+    res.json({
+      ativo: c.ativo,
+      base_url: c.baseUrl,
+      serial_pos: c.serialPos,
+      token: mascarar(c.token),
+      gateway_token: mascarar(c.gatewayToken),
+      configurado: tefConfigurado(c),
+      pendencias: c.ativo ? pendenciasTef(c) : [],
     });
   } catch (e) { next(e); }
 });
