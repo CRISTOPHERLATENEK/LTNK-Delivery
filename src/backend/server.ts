@@ -410,6 +410,26 @@ app.use(express.static(path.join(__dirname, '..', '..', 'public'), {
   setHeaders(res, filePath) {
     if (filePath.endsWith('index.html') || filePath.endsWith('sw.js')) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return;
+    }
+
+    /*
+     * MATERIAL DE TREINAMENTO REVALIDA SEMPRE.
+     *
+     * Estes arquivos não têm hash no nome — /ajuda/alcas-ordenacao.svg é sempre
+     * o mesmo caminho, com conteúdo novo. Sem `Cache-Control` explícito a
+     * Cloudflare aplica o padrão dela (max-age=14400, 4 horas), e foi o que
+     * acontecia: corrigi a imagem que mostra ONDE FICA A ALÇA e o lojista
+     * continuava vendo a posição errada. Ajuda desatualizada é pior que ajuda
+     * nenhuma — ela ensina a procurar no lugar errado com confiança.
+     *
+     * `no-cache` não é "não guarde": é "guarde, mas pergunte antes de usar".
+     * O navegador manda o ETag, leva 304 e não baixa nada. Para SVGs de 8 KB o
+     * custo é uma ida ao servidor; o custo do contrário é o lojista seguindo um
+     * desenho que não corresponde mais à tela dele.
+     */
+    if (/[\\/](ajuda)[\\/]/.test(filePath)) {
+      res.setHeader('Cache-Control', 'no-cache');
     }
   },
 }));

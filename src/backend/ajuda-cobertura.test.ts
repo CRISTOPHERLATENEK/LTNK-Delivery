@@ -128,3 +128,41 @@ describe('tutoriais passo a passo', () => {
     expect(secoes.indexOf("'Passo a passo'")).toBeLessThan(secoes.indexOf("'1. Começar'"));
   });
 });
+
+/**
+ * A QUARTA FORMA DE APODRECER: a imagem certa presa no cache do navegador.
+ *
+ * Observado em produção. Corrigi alcas-ordenacao.svg três vezes e continuei
+ * vendo a versão antiga — os arquivos de /ajuda não têm hash no nome, então
+ * sem `Cache-Control` explícito a Cloudflare aplicava o padrão dela de 4 horas.
+ * Nesse intervalo o lojista lê uma imagem que ensina a procurar o botão onde
+ * ele não está mais, e com toda a confiança de quem consultou a ajuda oficial.
+ *
+ * O teste guarda a REGRA, não o texto: alguém reorganizando o setHeaders não
+ * tem como saber que aquela linha existe por causa de um comportamento da CDN.
+ */
+describe('cache do material de treinamento', () => {
+  /* Comentários fora antes de varrer: o bloco acima do código cita as mesmas
+     palavras, e um teste que passa por causa do próprio comentário não testa
+     nada. Mesmo cuidado dos outros source-scans do projeto. */
+  const semComentarios = fs
+    .readFileSync(path.resolve(__dirname, 'server.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^[ \t]*\/\/.*$/gm, '');
+
+  it('os arquivos de /ajuda revalidam em vez de ficarem presos na CDN', () => {
+    const trecho = semComentarios.slice(
+      semComentarios.indexOf('setHeaders'),
+      semComentarios.indexOf('SPA fallback'),
+    );
+    expect(trecho).toMatch(/ajuda/);
+    expect(trecho).toMatch(/Cache-Control['"],\s*['"]no-cache/);
+  });
+
+  it('index.html e sw.js continuam sem cache nenhum', () => {
+    /* Estes são o ponteiro para o bundle com hash. `no-cache` sozinho não
+       basta aqui: precisa de no-store, senão um PWA instalado pode prender o
+       usuário numa versão antiga do app. */
+    expect(semComentarios).toMatch(/no-cache,\s*no-store,\s*must-revalidate/);
+  });
+});
