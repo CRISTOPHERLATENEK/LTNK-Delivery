@@ -191,8 +191,8 @@ Fica registrado que passa a ser possível.
 
 | # | Etapa | Depende de |
 | --- | --- | --- |
-| 1 | Colunas + credenciais por loja + tela de configuração | nada |
-| 2 | Cliente HTTP do Smart TEF, isolado e testável sem rede | base URL |
+| 1 | Colunas + credenciais por loja + tela de configuração | nada — **feita** |
+| 2 | Cliente HTTP do Smart TEF, isolado e testável sem rede | ~~base URL~~ nada — **feita** |
 | 3 | `POST /balcao` cria ordem e grava `aguardando` | 1, 2 |
 | 4 | Webhook + reconsulta + resolução de status | 3 |
 | 5 | Tela de espera no Balcão (recusa, cancelamento, timeout) | 3 |
@@ -201,6 +201,11 @@ Fica registrado que passa a ser possível.
 | 8 | Estorno via `order/status/estornar` | 4 |
 
 A etapa 7 é o objetivo. As seis primeiras existem para viabilizá-la.
+
+*Correção:* eu havia posto a etapa 2 como dependente da base URL. Não é — o
+cliente é **parametrizado** pela base URL, que vem da linha da loja em tempo de
+chamada. Ele foi escrito e testado inteiro sem ela. O que depende do valor real
+é testar contra a API de verdade, que é outra coisa.
 
 ---
 
