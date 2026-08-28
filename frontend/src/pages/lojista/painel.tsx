@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Routes, Route, Link } from 'react-router-dom';
 import {
   CheckCircle2, ChefHat, XCircle, Package, Bell, Save, Eye, EyeOff, History,
-  Printer, Store, Banknote } from 'lucide-react';
+  Printer, Store, Banknote, Plug } from 'lucide-react';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { ContaDeOutroPerfil } from '@/components/conta-outro-perfil';
@@ -43,6 +43,7 @@ import { LojaConfiguracao, HorarioLoja, ZonasEntrega, PagamentosLoja, ImpressaoL
 import { AjudaLoja } from './ajuda';
 import { VisualLoja } from './visual';
 import { FiscalLoja } from './fiscal';
+import { IntegracoesLoja } from './integracoes';
 import { CategoriasLoja } from './categorias';
 import { RelatoriosLoja } from './relatorios';
 import { WhatsAppLoja } from './whatsapp';
@@ -272,7 +273,8 @@ export function PainelLojista() {
    Cupons, Clientes e Avaliações agora vivem na aba "Mais" (operação). ── */
 type AbaConfig =
   | 'loja' | 'horario' | 'entrega' | 'entregadores' | 'visual'
-  | 'banners' | 'pagamentos' | 'impressao' | 'fiscal' | 'whatsapp' | 'seguranca' | 'usuarios';
+  | 'banners' | 'pagamentos' | 'impressao' | 'fiscal' | 'whatsapp' | 'seguranca' | 'usuarios'
+  | 'integracoes';
 
 /**
  * Agrupadas por TAREFA, não pela ordem em que foram construídas: eram 11 abas
@@ -306,6 +308,19 @@ const GRUPOS_CONFIG: { titulo: string; itens: { id: AbaConfig; label: string; ic
     ],
   },
   {
+    /*
+      GRUPO PRÓPRIO, e não dentro de "Dinheiro".
+      Pix e cartão online são configurados uma vez e esquecidos. iFood e
+      maquininha dependem de aparelho ligado e de aprovação de terceiro, e
+      param por conta própria — quando o lojista pensa "o iFood parou", ele não
+      pensa em ir a Pagamentos.
+    */
+    titulo: 'Integrações',
+    itens: [
+      { id: 'integracoes', label: 'Integrações', icone: Plug },
+    ],
+  },
+  {
     titulo: 'Aparência e acesso',
     itens: [
       { id: 'visual', label: 'Visual', icone: Palette },
@@ -332,6 +347,7 @@ function ConfiguracoesLoja() {
       {aba === 'pagamentos' && <PagamentosLoja />}
       {aba === 'whatsapp' && <WhatsAppLoja />}
       {aba === 'fiscal' && <FiscalLoja />}
+      {aba === 'integracoes' && <IntegracoesLoja />}
       {aba === 'impressao' && <ImpressaoLoja />}
       {aba === 'visual' && <VisualLoja />}
       {aba === 'banners' && <BannersLoja />}

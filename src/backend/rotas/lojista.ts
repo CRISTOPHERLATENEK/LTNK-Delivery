@@ -37,6 +37,7 @@ import {
 } from '../sefaz';
 import { criptografar, descriptografar } from '../cripto';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
+import { credenciaisDoAmbiente as credenciaisIfood } from '../ifood-cliente';
 import { cashInDisponivel, registrarWebhookCashIn, consultarWebhookCashIn } from '../onz';
 // Sem ciclo: pagamentos.ts não importa lojista.ts.
 import { credenciaisOnzDaLoja } from './pagamentos';
@@ -3583,6 +3584,80 @@ router.put('/tef', async (req, res, next) => {
       gateway_token: mascarar(c.gatewayToken),
       configurado: tefConfigurado(c),
       pendencias: c.ativo ? pendenciasTef(c) : [],
+    });
+  } catch (e) { next(e); }
+});
+
+// ----- iFood --------------------------------------------------------------
+//
+// A credencial do iFood NÃO é da loja: `clientId`/`clientSecret` são do nosso
+// aplicativo, um só para toda a plataforma, e moram no ambiente. O lojista não
+// tem — nem deveria ter — conta de desenvolvedor iFood.
+//
+// O que é dele: o `merchantId` (o UUID da loja lá dentro) e o consentimento. E
+// o consentimento é individual mesmo — o iFood aprova loja a loja.
+
+router.get('/ifood', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const row = await db.prepare(
+      'SELECT ifood_merchant_id, ifood_ativo FROM lojas WHERE id = ?'
+    ).get(loja.id) as { ifood_merchant_id: string; ifood_ativo: number } | undefined;
+
+    const merchantId = row?.ifood_merchant_id || '';
+    const ativo = !!row?.ifood_ativo;
+    res.json({
+      merchant_id: merchantId,
+      ativo,
+      /*
+       * A tela precisa distinguir "o LOJISTA não preencheu" de "a PLATAFORMA
+       * não está integrada". Sem isso, um lojista com tudo certo veria o
+       * próprio cadastro como culpado por algo que não depende dele — e
+       * abriria chamado sobre um campo que já estava correto.
+       */
+      plataforma_integrada: credenciaisIfood() !== null,
+      configurado: ativo && merchantId !== '' && credenciaisIfood() !== null,
+    });
+  } catch (e) { next(e); }
+});
+
+router.put('/ifood', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const sets: string[] = [];
+    const vals: unknown[] = [];
+
+    if (typeof req.body.merchant_id === 'string') {
+      /*
+       * O merchantId do iFood é um UUID. Guardar em minúsculas e sem espaço
+       * porque ele vai para dentro de um header (`x-polling-merchants`) — um
+       * espaço colado sem querer quebraria o LOTE INTEIRO de lojas, não só
+       * esta, e o 403 não diria qual delas causou.
+       */
+      sets.push('ifood_merchant_id = ?');
+      vals.push(textoLimpo(req.body.merchant_id, 60).toLowerCase().replace(/\s+/g, ''));
+    }
+
+    if (typeof req.body.ativo === 'boolean') {
+      sets.push('ifood_ativo = ?');
+      vals.push(req.body.ativo ? 1 : 0);
+    }
+
+    if (sets.length) {
+      vals.push(loja.id);
+      await db.prepare(`UPDATE lojas SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+    }
+
+    const row = await db.prepare(
+      'SELECT ifood_merchant_id, ifood_ativo FROM lojas WHERE id = ?'
+    ).get(loja.id) as { ifood_merchant_id: string; ifood_ativo: number } | undefined;
+    const merchantId = row?.ifood_merchant_id || '';
+    const ativo = !!row?.ifood_ativo;
+    res.json({
+      merchant_id: merchantId,
+      ativo,
+      plataforma_integrada: credenciaisIfood() !== null,
+      configurado: ativo && merchantId !== '' && credenciaisIfood() !== null,
     });
   } catch (e) { next(e); }
 });

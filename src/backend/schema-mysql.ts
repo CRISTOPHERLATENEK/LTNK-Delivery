@@ -652,6 +652,32 @@ const TABELAS: string[] = [
  * A linha nasce sozinha quando o lojista usa uma subcategoria nova; o UNIQUE
  * deixa o INSERT ser cego (`INSERT IGNORE`) em vez de exigir consulta antes.
  */
+`CREATE TABLE IF NOT EXISTS ifood_eventos_vistos (
+  /*
+   * O QUE JÁ FOI PROCESSADO — a defesa contra pedido duplicado.
+   *
+   * A documentação do iFood avisa: "A API pode retornar o mesmo evento mais de
+   * uma vez, incluindo eventos antigos de PLACED", e manda explicitamente não
+   * criar pedido de novo. Sem esta tabela, um PLACED repetido vira um segundo
+   * pedido no painel, a cozinha produz duas vezes e ninguém liga uma coisa à
+   * outra.
+   *
+   * O id do evento É a chave primária: não existe "linha nova para o mesmo
+   * evento", e deixar o banco recusar a duplicata é mais forte que confiar num
+   * SELECT antes do INSERT — dois ciclos concorrentes passariam pelo SELECT
+   * juntos.
+   *
+   * Sem FOREIGN KEY para pedidos de propósito: o evento é marcado como visto
+   * ANTES de o pedido existir (é ele que manda criar), e amarrar as duas coisas
+   * inverteria a ordem que a integração exige.
+   */
+  id         VARCHAR(60) PRIMARY KEY,
+  criado_em  VARCHAR(32) NOT NULL,
+  /* Para a limpeza periódica: do lado deles a retenção é de 8 horas, então
+     guardar isto por muito tempo é só lixo acumulando. */
+  KEY idx_ifood_eventos_criado (criado_em)
+) ${SUFIXO_TABELA}`,
+
 `CREATE TABLE IF NOT EXISTS subcategorias (
   id        INT PRIMARY KEY AUTO_INCREMENT,
   loja_id   INT NOT NULL,
@@ -1032,6 +1058,27 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * caixas quer o primeiro, senão a cobrança aparece no balcão errado.
      */
     ['lojas', 'smarttef_serial_pos',     "smarttef_serial_pos VARCHAR(40) NOT NULL DEFAULT ''"],
+
+    /*
+     * ─── iFood ───
+     *
+     * DIFERENTE DO MERCADO PAGO E DO SMART TEF: aqui a credencial NÃO é da
+     * loja. O `clientId`/`clientSecret` são do NOSSO aplicativo, um só para toda
+     * a plataforma, e por isso moram no ambiente (`IFOOD_CLIENT_ID`) e não em
+     * coluna — cada lojista não tem, nem deveria ter, uma conta de
+     * desenvolvedor iFood.
+     *
+     * O que é por loja é o `merchantId` (o UUID dela lá dentro) e o
+     * consentimento. E o consentimento é individual mesmo: o iFood exige
+     * aprovação loja a loja, então ligar uma não liga as outras.
+     */
+    ['lojas', 'ifood_merchant_id',  "ifood_merchant_id VARCHAR(60) NOT NULL DEFAULT ''"],
+    /*
+     * Ligado ≠ configurado. O lojista pode desligar temporariamente sem perder
+     * o merchant_id — e o laço de polling só inclui quem tem os DOIS, porque
+     * mandar um merchant sem permissão derruba o lote inteiro com 403.
+     */
+    ['lojas', 'ifood_ativo',        'ifood_ativo TINYINT NOT NULL DEFAULT 0'],
 
     /*
      * ─── O que a maquininha devolve, gravado no pedido ───
