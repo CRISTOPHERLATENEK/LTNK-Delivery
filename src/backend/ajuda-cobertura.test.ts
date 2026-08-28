@@ -156,7 +156,10 @@ describe('cache do material de treinamento', () => {
       semComentarios.indexOf('SPA fallback'),
     );
     expect(trecho).toMatch(/ajuda/);
-    expect(trecho).toMatch(/Cache-Control['"],\s*['"]no-cache/);
+    /* `private` faz parte da regra, não é enfeite: sem ele a Cloudflare
+       sobrescreve o header por max-age=14400. Medido em produção — ver o
+       comentário no server.ts. */
+    expect(trecho).toMatch(/Cache-Control['"],\s*['"]private,\s*no-cache/);
   });
 
   it('index.html e sw.js continuam sem cache nenhum', () => {

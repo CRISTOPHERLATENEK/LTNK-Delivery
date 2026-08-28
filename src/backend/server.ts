@@ -427,6 +427,22 @@ app.use(express.static(path.join(__dirname, '..', '..', 'public'), {
      * O navegador manda o ETag, leva 304 e não baixa nada. Para SVGs de 8 KB o
      * custo é uma ida ao servidor; o custo do contrário é o lojista seguindo um
      * desenho que não corresponde mais à tela dele.
+     *
+     * O `private` NÃO é engano nem sobra — é ele que faz isto funcionar, e não
+     * dá para deduzir só lendo o código. Medido em produção:
+     *
+     *   Cache-Control: no-cache           → chegava ao navegador como max-age=14400
+     *   Cache-Control: private, no-cache  → chega intacto, cf-cache-status: BYPASS
+     *
+     * O Browser Cache TTL da Cloudflare está num valor fixo (4h) e sobrescreve o
+     * header da origem em tudo que ela considere cacheável; `private` tira o
+     * arquivo dessa categoria e ela passa a respeitar o que mandamos. O preço é
+     * a borda não guardar cópia — para SVG de 8 KB, irrelevante.
+     *
+     * Se um dia o Browser Cache TTL virar "Respect Existing Headers" no painel
+     * da Cloudflare, o `private` pode sair. Enquanto não virar, tirar isto
+     * reintroduz o bug em silêncio: nada quebra, a ajuda só volta a mentir por
+     * até quatro horas.
      */
     if (/[\\/](ajuda)[\\/]/.test(filePath)) {
       res.setHeader('Cache-Control', 'private, no-cache');
