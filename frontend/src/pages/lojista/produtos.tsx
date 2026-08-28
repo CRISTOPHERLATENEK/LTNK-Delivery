@@ -25,7 +25,7 @@ import { gtinValido } from '@/lib/gtin';
 import { agruparPorSecao } from '@/lib/opcoes-preco';
 import { familiasDuplicadas, saoIdenticos, melhorSobrevivente, diferencasEntre, type GrupoComparavel } from '@/lib/grupos-biblioteca';
 import { ingredientesDeTexto, textoDeIngredientes, comIngredientes, fraseDaRegra, rotuloTeto, limiteDeSabores, linhasColadas } from '@/lib/complementos-editor';
-import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes, indiceDeSugestoes, type SugestaoSalva } from '@/lib/avisos-produto';
+import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes, indiceDeSugestoes, type SugestaoSalva, campoQueFalta } from '@/lib/avisos-produto';
 import type { Produto } from '@/types';
 
 /* ─────────────────────── tipos ──────────────────────── */
@@ -371,23 +371,15 @@ export function ProdutosLoja() {
       setForm(f => ({ ...f, [k]: e.target.value }));
   }
 
-  async function salvar(e: React.FormEvent) {
-    e.preventDefault();
-    /*
-     * LEVA DE VOLTA PRA ABA DO PROBLEMA.
-     *
-     * Com abas, o `required` do HTML deixa de bastar: um campo obrigatório numa
-     * aba desmontada não existe no DOM, então o navegador não bloqueia nem
-     * aponta nada — o pedido iria ao servidor e voltaria um toast sem dizer ONDE
-     * corrigir. Aqui o erro reabre a aba certa e foca o campo.
-     */
-    if (!form.nome.trim() || !form.preco || erroPromo) {
-      setAba('item');
-      setTimeout(() => document.getElementById(!form.nome.trim() ? 'campo-nome' : 'p-preco')?.focus(), 60);
-      return;
-    }
-    setEnviando(true);
-    const corpo = {
+  /**
+   * O corpo do PUT/POST do produto, montado do formulário.
+   *
+   * Extraído porque agora tem dois chamadores: o botão de salvar e a criação
+   * automática ao entrar em Complementos/Composição. Montar o corpo em dois
+   * lugares é como um campo novo entra por um caminho e não pelo outro.
+   */
+  function corpoDoForm() {
+    return {
       nome: form.nome,
       descricao: form.descricao,
       categoria: form.categoria || 'Geral',
@@ -408,6 +400,81 @@ export function ProdutosLoja() {
       controla_estoque: form.controla_estoque,
       estoque: form.controla_estoque ? (form.estoque === '' ? 0 : Number(form.estoque)) : 0,
     };
+  }
+
+  /**
+   * Leva a pessoa até o que falta e diz se dá para prosseguir.
+   *
+   * Com abas, o `required` do HTML não basta: campo obrigatório numa aba
+   * desmontada não existe no DOM, então o navegador não bloqueia nem aponta
+   * nada. Aqui o bloqueio reabre a aba certa e foca o campo — dizer "falta
+   * algo" sem dizer onde é o pior erro de formulário com abas.
+   */
+  function irAteOQueFalta(): boolean {
+    const campo = campoQueFalta(form);
+    if (!campo) return true;
+    setAba('item');
+    setTimeout(() => document.getElementById(campo)?.focus(), 60);
+    return false;
+  }
+
+  /**
+   * COMPLEMENTOS E COMPOSIÇÃO PRECISAM DO PRODUTO EXISTINDO — então crie-o.
+   *
+   * Os dois editores gravam na hora, cada grupo e cada item apontando para um
+   * `produto_id`. Num produto novo esse id não existe, e o que havia antes era
+   * uma parede: "Salve o produto primeiro". Quem abria o cadastro pela aba
+   * Complementos — que é por onde muita gente começa, porque é a parte
+   * trabalhosa — batia nela sem nada na tela dizendo isso antes.
+   *
+   * A saída é criar o produto na hora, em vez de documentar a parede. Fica
+   * honesto porque:
+   *
+   * - só acontece com os campos obrigatórios preenchidos, os MESMOS que o botão
+   *   de salvar exige (`campoQueFalta`, um lugar só) — nada entra pela porta dos
+   *   fundos sem o que a porta da frente pede;
+   * - avisa que criou. O produto passa a existir de verdade, e o rodapé troca
+   *   para "Salvar alterações": deixar isso implícito faria alguém clicar em
+   *   Cancelar achando que desfez, e o produto ficaria lá.
+   */
+  async function garantirProdutoSalvo(): Promise<boolean> {
+    if (editando !== 'novo') return true;
+    if (!irAteOQueFalta()) return false;
+    setEnviando(true);
+    try {
+      const r = await api<{ produto_id: number }>('POST', '/api/lojista/produtos', corpoDoForm());
+      /* O snapshot acompanha: o que está na tela acabou de virar o que está no
+         banco, e fechar agora não tem nada a descartar. */
+      formOriginalRef.current = { ...form };
+      setEditando(r.produto_id);
+      await qc.invalidateQueries({ queryKey: ['lojista-produtos'] });
+      mostrar({
+        tipo: 'sucesso',
+        titulo: 'Produto criado',
+        descricao: 'Precisava existir para receber os complementos. Continue montando — daqui em diante use "Salvar alterações".',
+      });
+      return true;
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+      return false;
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  async function salvar(e: React.FormEvent) {
+    e.preventDefault();
+    /*
+     * LEVA DE VOLTA PRA ABA DO PROBLEMA.
+     *
+     * Com abas, o `required` do HTML deixa de bastar: um campo obrigatório numa
+     * aba desmontada não existe no DOM, então o navegador não bloqueia nem
+     * aponta nada — o pedido iria ao servidor e voltaria um toast sem dizer ONDE
+     * corrigir. Aqui o erro reabre a aba certa e foca o campo.
+     */
+    if (!irAteOQueFalta()) return;
+    setEnviando(true);
+    const corpo = corpoDoForm();
     const corpoFiscal = {
       ncm: form.ncm, cfop: form.cfop, csosn: form.csosn,
       origem: form.origem, unidade_comercial: form.unidade_comercial, cest: form.cest,
@@ -932,7 +999,14 @@ export function ProdutosLoja() {
                     <button
                       key={id}
                       type="button"
-                      onClick={() => {
+                      onClick={async () => {
+                        /* Complementos e Composição gravam contra um produto_id.
+                           Em produto novo, cria antes de entrar — e só entra se
+                           a criação der certo, senão a aba abriria vazia sem o
+                           lojista entender por quê. */
+                        if ((id === 'complementos' || id === 'composicao') && editando === 'novo') {
+                          if (!(await garantirProdutoSalvo())) return;
+                        }
                         setAba(id);
                         /*
                          * A aba Fiscal abre já expandida: o bloco nasceu
@@ -1335,11 +1409,13 @@ export function ProdutosLoja() {
                   {grupoIdEmEdicao === null || !produtoEmEdicao ? (
                     <section>
                       <RotuloSecao>Complementos</RotuloSecao>
-                      {/* Produto novo: o grupo e vinculado a um produto que ainda
-                          nao existe. Dizer isso e melhor que mostrar um editor
-                          cujo primeiro clique daria erro. */}
+                      {/* Chegar aqui virou exceção: entrar nesta aba com produto
+                          novo já cria o produto antes (`garantirProdutoSalvo`).
+                          Sobra a janela entre criar e a lista recarregar — e um
+                          editor cujo primeiro clique daria erro é pior que uma
+                          linha dizendo o que está acontecendo. */}
                       <p className="rounded-xl border border-dashed border-border px-3.5 py-3 text-[12.5px] text-muted-foreground">
-                        Salve o produto primeiro para adicionar tamanhos, bordas e adicionais.
+                        Carregando o produto para montar os complementos…
                       </p>
                     </section>
                   ) : (
@@ -1357,7 +1433,7 @@ export function ProdutosLoja() {
                         <Ajuda chave="composicao-combo" className="-translate-y-1.5" />
                       </div>
                       <p className="rounded-xl border border-dashed border-border px-3.5 py-3 text-[12.5px] text-muted-foreground">
-                        Salve o produto primeiro para montar um combo com ele.
+                        Carregando o produto para montar a composição…
                       </p>
                     </section>
                   ) : (

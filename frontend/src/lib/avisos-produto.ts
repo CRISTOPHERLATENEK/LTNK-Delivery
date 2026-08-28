@@ -154,3 +154,27 @@ export function mesclarSugestoes(
   }
   return saida;
 }
+
+/**
+ * O QUE FALTA PARA O PRODUTO PODER SER GRAVADO.
+ *
+ * Existia só dentro do `salvar`, colado na tela. Passou a ser usado por dois
+ * caminhos — o botão de salvar e a criação automática ao entrar em
+ * Complementos/Composição — e regra de validação duplicada é regra que
+ * diverge: um dos dois lados ganha um campo obrigatório e o outro não, e aí o
+ * produto entra pela porta dos fundos sem o que o outro caminho exigia.
+ *
+ * Devolve o id do campo a focar, ou null quando está tudo certo. O id e não um
+ * booleano porque quem chama precisa LEVAR a pessoa até o problema — com abas,
+ * dizer "falta algo" sem dizer onde é o pior tipo de erro de formulário.
+ */
+export function campoQueFalta(
+  form: { nome: string; preco: string; preco_promocional: string },
+): string | null {
+  if (!form.nome.trim()) return 'campo-nome';
+  if (!form.preco) return 'p-preco';
+  /* Promoção maior que o preço não é campo vazio, é valor inconsistente — mas
+     bloqueia igual, e o lugar de olhar é o campo da promoção. */
+  if (erroPrecoPromocional(form.preco, form.preco_promocional)) return 'p-promo';
+  return null;
+}
