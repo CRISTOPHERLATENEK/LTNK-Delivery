@@ -17,6 +17,7 @@ import { ImageUpload } from '@/components/ui/image-upload';
 import { promocaoVigente, hojeBrasilia } from '@/lib/preco-produto';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
+import { formSujo } from '@/lib/form-sujo';
 import { api, ApiError } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -199,6 +200,13 @@ const regraDoModelo = (t: Modelo) => rotuloRegra(t.obrigatorio, t.tipo, t.max_es
 export function ProdutosLoja() {
   const [editando, setEditando] = useState<number | 'novo' | null>(null);
   const [form, setForm] = useState<FormProduto>(FORM_VAZIO);
+
+  /*
+   * Cópia do formulário COMO FOI CARREGADO, para saber se há o que perder ao
+   * fechar. `ref` e não estado: ninguém renderiza a partir disto, e um estado
+   * a mais faria o modal inteiro re-renderizar a cada abertura sem motivo.
+   */
+  const formOriginalRef = useRef<FormProduto>(FORM_VAZIO);
   const [enviando, setEnviando] = useState(false);
   const [busca, setBusca] = useState('');
   /** Chip de categoria da toolbar. '' = todas. */
@@ -290,13 +298,14 @@ export function ProdutosLoja() {
   function abrirNovo() {
     setAba('item');
     setForm(FORM_VAZIO);
+    formOriginalRef.current = FORM_VAZIO;
     setEditando('novo');
     setTimeout(() => document.getElementById('campo-nome')?.focus(), 50);
   }
 
   function abrirEdicao(p: Produto) {
     setAba('item');
-    setForm({
+    const formCarregado: FormProduto = {
       nome: p.nome,
       descricao: p.descricao || '',
       categoria: p.categoria || '',
@@ -321,9 +330,40 @@ export function ProdutosLoja() {
       origem: p.origem || '0',
       unidade_comercial: p.unidade_comercial || 'UN',
       cest: p.cest || '',
-    });
+    };
+    setForm(formCarregado);
+    /* Mesmo objeto que acabou de entrar no formulário: comparar depois com o
+       produto CRU acusaria mudança onde só houve normalização (`|| ''`, `!!`,
+       String()) ao carregar. */
+    formOriginalRef.current = { ...formCarregado };
     setEditando(p.id);
     setTimeout(() => document.getElementById('campo-nome')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  }
+
+  /**
+   * FECHAR O CADASTRO SEM LEVAR O TRABALHO JUNTO.
+   *
+   * Antes disto, clicar fora do modal fechava e descartava tudo em silêncio.
+   * São cinco abas e ~15 campos, e quem monta cardápio trabalha em lote com o
+   * mouse andando rápido — o clique torto é rotina, não hipótese.
+   *
+   * Só pergunta quando há o que perder: um aviso que aparece mesmo sem
+   * alteração vira um aviso que a pessoa aprende a fechar sem ler, e aí deixa
+   * de proteger no dia em que estiver certo.
+   */
+  async function fecharCadastro() {
+    if (enviando) return;
+    if (formSujo(form, formOriginalRef.current)) {
+      const ok = await confirmar({
+        titulo: 'Descartar as alterações?',
+        descricao: 'O que você preencheu ainda não foi salvo e será perdido.',
+        confirmar: 'Descartar',
+        cancelar: 'Continuar editando',
+        destrutivo: true,
+      });
+      if (!ok) return;
+    }
+    setEditando(null);
   }
 
   function set<K extends keyof FormProduto>(k: K) {
@@ -374,19 +414,46 @@ export function ProdutosLoja() {
     };
     try {
       let produtoId: number;
+      let criou = false;
       if (editando === 'novo') {
         const r = await api<{ produto_id: number }>('POST', '/api/lojista/produtos', corpo);
         produtoId = r.produto_id;
-        mostrar({ tipo: 'sucesso', titulo: 'Produto criado!' });
+        criou = true;
       } else {
         produtoId = editando!;
         await api('PUT', `/api/lojista/produtos/${editando}`, corpo);
-        mostrar({ tipo: 'sucesso', titulo: 'Produto atualizado!' });
       }
-      // Dados fiscais salvos junto — endpoint próprio (compartilhado com a
-      // tela Fiscal), mas agora o lojista não precisa sair do cadastro do
-      // produto pra preencher isso.
-      await api('PUT', `/api/lojista/fiscal/produtos/${produtoId}`, corpoFiscal).catch(() => {});
+
+      /*
+       * OS DADOS FISCAIS SÃO OUTRA GRAVAÇÃO, E ELA PODE FALHAR SOZINHA.
+       *
+       * Endpoint próprio, compartilhado com a tela Fiscal — o produto já está
+       * salvo quando esta chamada acontece. Antes ela terminava em
+       * `.catch(() => {})` e o "Produto atualizado!" era dado ANTES dela: se o
+       * PUT fiscal falhasse, o lojista lia sucesso e o NCM não tinha sido
+       * gravado. Erro de nota não aparece na hora — aparece semanas depois, na
+       * NFC-e rejeitada, quando ninguém mais liga a causa ao cadastro.
+       *
+       * Agora o aviso é dado DEPOIS e diz a verdade dos dois lados: o produto
+       * foi salvo (foi mesmo, e insistir no contrário faria o lojista salvar de
+       * novo e duplicar), mas a parte fiscal não foi.
+       */
+      let fiscalOk = true;
+      try {
+        await api('PUT', `/api/lojista/fiscal/produtos/${produtoId}`, corpoFiscal);
+      } catch {
+        fiscalOk = false;
+      }
+
+      if (fiscalOk) {
+        mostrar({ tipo: 'sucesso', titulo: criou ? 'Produto criado!' : 'Produto atualizado!' });
+      } else {
+        mostrar({
+          tipo: 'erro',
+          titulo: criou ? 'Produto criado, mas sem os dados fiscais' : 'Produto salvo, mas sem os dados fiscais',
+          descricao: 'NCM, CFOP e CSOSN não foram gravados. Abra a aba Fiscal e salve de novo antes de emitir nota.',
+        });
+      }
       qc.invalidateQueries({ queryKey: ['lojista-produtos'] });
       /*
        * "Salvar e criar outro" reabre o formulário LIMPO em vez de fechar.
@@ -785,7 +852,7 @@ export function ProdutosLoja() {
           Coluna esquerda = foto + interruptores de estado (as decisões de "aparece ou
           não"); direita = os dados que descrevem e precificam.
         */}
-        <Modal open={editando !== null} onOpenChange={aberto => { if (!aberto) setEditando(null); }}>
+        <Modal open={editando !== null} onOpenChange={aberto => { if (!aberto) void fecharCadastro(); }}>
           <ModalConteudo>
             {/* ─── Header fixo ─── */}
             <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border px-6 py-[22px] sm:px-8">
@@ -1441,7 +1508,7 @@ export function ProdutosLoja() {
                 num cadastro longo, saía da tela justo na hora de usar.
               */}
               <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-[18px] sm:px-8">
-                <Button type="button" variant="ghost" onClick={() => setEditando(null)} disabled={enviando}>
+                <Button type="button" variant="ghost" onClick={() => void fecharCadastro()} disabled={enviando}>
                   Cancelar
                 </Button>
                 <div className="flex items-center gap-2">
