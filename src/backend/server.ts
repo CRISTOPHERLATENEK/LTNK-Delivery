@@ -429,7 +429,7 @@ app.use(express.static(path.join(__dirname, '..', '..', 'public'), {
      * desenho que não corresponde mais à tela dele.
      */
     if (/[\\/](ajuda)[\\/]/.test(filePath)) {
-      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Cache-Control', 'private, no-cache');
     }
   },
 }));
