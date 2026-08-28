@@ -1,56 +1,112 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 360" width="700" height="360" font-family="-apple-system, Segoe UI, Roboto, Arial, sans-serif">
-  <rect width="700" height="360" fill="#fff"/>
-  <text x="24" y="30" font-size="15" font-weight="700" fill="#111">Onde ficam as alças de ordenação</text>
-  <text x="24" y="50" font-size="12.5" fill="#8a8a8a">na lista de Produtos — vale para os três níveis</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 556" width="900" height="556" font-family="-apple-system, Segoe UI, Roboto, Arial, sans-serif">
+<!--
+  ESTA TELA FOI LIDA DO PAINEL DE VERDADE, não desenhada de memória.
 
-  <rect x="24" y="68" width="440" height="250" rx="12" fill="#fafaf9" stroke="#e3e0dc"/>
+  Os retângulos e textos abaixo saíram do DOM da tela Produtos rodando em
+  produção (getBoundingClientRect + getComputedStyle): posição, tamanho, raio de
+  canto, peso da fonte e cor. É por isso que o desenho bate com o que o lojista
+  tem na frente — e é por isso que ele pode ser REGERADO quando a interface
+  mudar, em vez de redesenhado de memória e envelhecer errado.
 
-  <g font-size="12.5">
-    <text x="44" y="96" font-size="14" fill="#a8a29e">⠿</text>
-    <text x="66" y="97" font-weight="800" fill="#111" letter-spacing="1">PIZZAS</text>
-    <text x="130" y="97" fill="#8a8a8a">7 itens</text>
-    <path d="M182 92 h206" stroke="#e3e0dc"/>
-    <text x="400" y="97" fill="#a8a29e">↑ ↓</text>
+  Acrescentado à mão: as alças/setas (são ícones SVG, não texto, então não vêm
+  na leitura) e as marcações.
 
-    <text x="64" y="126" font-size="13" fill="#a8a29e">⠿</text>
-    <text x="84" y="127" fill="#8a8a8a" letter-spacing=".5">Monte a sua</text>
-    <text x="400" y="127" fill="#a8a29e">↑ ↓</text>
+  As marcações ficam AO LADO do alvo, nunca em cima: um número cobrindo a alça
+  esconderia justamente a coisa que a imagem existe para mostrar. A explicação
+  vai embaixo, onde há largura para uma frase inteira.
+-->
+<rect width="900" height="556" fill="#fff"/>
+<defs>
+  <!-- Os cartões cortam o texto que não cabe (overflow hidden na tela real).
+       Sem isto o nome do produto escapa para fora do cartão, que é justamente
+       o erro que a tela NÃO comete. -->
+  <clipPath id="cardEsq"><rect x="109" y="99" width="528" height="189" rx="18"/></clipPath>
+  <clipPath id="cardDir"><rect x="653" y="99" width="320" height="189" rx="18"/></clipPath>
+  <clipPath id="linhaEsq"><rect x="109" y="304" width="528" height="56" rx="18"/></clipPath>
+  <clipPath id="linhaDir"><rect x="653" y="304" width="320" height="56" rx="18"/></clipPath>
+</defs>
 
-    <rect x="84" y="140" width="150" height="46" rx="8" fill="#fff" stroke="#d8d4cf"/>
-    <text x="98" y="160" font-size="12.5" font-weight="700" fill="#111">Pizza Artesanal</text>
-    <text x="98" y="177" font-size="12" fill="#8a8a8a">R$ 45,00</text>
-    <text x="200" y="177" font-size="12" fill="#a8a29e">⠿ ↑ ↓</text>
 
-    <text x="64" y="212" font-size="13" fill="#a8a29e">⠿</text>
-    <text x="84" y="213" fill="#8a8a8a" letter-spacing=".5">Prontas</text>
-    <text x="400" y="213" fill="#a8a29e">↑ ↓</text>
+<text x="20" y="22" font-size="14.5" font-weight="700" fill="#111">Tela Produtos — onde ficam as alças de ordenação</text>
 
-    <rect x="84" y="226" width="150" height="46" rx="8" fill="#fff" stroke="#d8d4cf"/>
-    <text x="98" y="246" font-size="12.5" font-weight="700" fill="#111">Quatro Queijos</text>
-    <text x="98" y="263" font-size="12" fill="#8a8a8a">R$ 52,00</text>
-    <text x="200" y="263" font-size="12" fill="#a8a29e">⠿ ↑ ↓</text>
+<g transform="translate(0,44)">
+  <!-- ── reprodução fiel ── -->
+  <rect x="109" y="0" width="72" height="36" rx="18" fill="rgb(18, 18, 22)"/>
+  <rect x="188" y="0" width="88" height="36" rx="18" fill="rgb(255,255,255)" stroke="rgb(228,228,231)"/>
+  <rect x="285" y="0" width="77" height="36" rx="18" fill="rgb(255,255,255)" stroke="rgb(228,228,231)"/>
+  <rect x="369" y="0" width="89" height="36" rx="18" fill="rgb(255,255,255)" stroke="rgb(228,228,231)"/>
+  <rect x="466" y="0" width="86" height="36" rx="18" fill="rgb(255,255,255)" stroke="rgb(228,228,231)"/>
+  <rect x="109" y="99" width="528" height="189" rx="18" fill="rgb(255,255,255)" stroke="rgb(228,228,231)"/>
+  <rect x="128" y="118" width="96" height="96" rx="15" fill="rgb(244,244,245)"/>
+  <rect x="110" y="232" width="526" height="55" fill="none" stroke="rgb(228,228,231)"/>
+  <rect x="653" y="99" width="320" height="189" rx="18" fill="rgb(255,255,255)" stroke="rgb(228,228,231)"/>
+  <rect x="672" y="118" width="96" height="96" rx="15" fill="rgb(244,244,245)"/>
+  <rect x="654" y="232" width="319" height="55" fill="none" stroke="rgb(228,228,231)"/>
+  <rect x="109" y="304" width="528" height="56" rx="18" fill="rgb(255,255,255)" stroke="rgb(228,228,231)"/>
+  <rect x="128" y="323" width="96" height="37" rx="15" fill="rgb(244,244,245)"/>
+  <rect x="653" y="304" width="320" height="56" rx="18" fill="rgb(255,255,255)" stroke="rgb(228,228,231)"/>
+  <rect x="672" y="323" width="96" height="37" rx="15" fill="rgb(244,244,245)"/>
 
-    <text x="44" y="300" font-size="14" fill="#a8a29e">⠿</text>
-    <text x="66" y="301" font-weight="800" fill="#111" letter-spacing="1">LANCHES</text>
-    <text x="400" y="301" fill="#a8a29e">↑ ↓</text>
+  <text x="109" y="22" font-size="13.5" font-weight="600" fill="rgb(255,255,255)">Todas</text>
+  <text x="188" y="22" font-size="13.5" font-weight="600" fill="rgb(113,113,122)">Combos</text>
+  <text x="285" y="22" font-size="13.5" font-weight="600" fill="rgb(113,113,122)">Pizzas</text>
+  <text x="369" y="22" font-size="13.5" font-weight="600" fill="rgb(113,113,122)">Lanches</text>
+  <text x="466" y="22" font-size="13.5" font-weight="600" fill="rgb(113,113,122)">Bebidas</text>
+  <text x="161" y="76" font-size="12.5" font-weight="800" fill="rgb(113,113,122)">Combos</text>
+  <text x="234" y="76" font-size="12" fill="rgba(113,113,122,0.7)">4 itens</text>
+  <g clip-path="url(#cardEsq)"><text x="242" y="136" font-size="16" font-weight="700" fill="rgb(18,18,22)">Combo Casal</text></g>
+  <g clip-path="url(#cardEsq)"><text x="546" y="136" font-size="16" font-weight="800" fill="rgb(18,18,22)">R$ 69,90</text></g>
+  <g clip-path="url(#cardEsq)"><text x="242" y="169" font-size="13.5" fill="rgb(113,113,122)">Pizza grande de até 2 sabores + refrigeran</text></g>
+  <g clip-path="url(#cardEsq)"><text x="335" y="207" font-size="11.5" font-weight="600" fill="rgb(113,113,122)">3 complementos</text></g>
+  <text x="176" y="265" font-size="12.5" font-weight="600" fill="rgb(18,18,22)">À venda</text>
+  <g clip-path="url(#cardDir)"><text x="786" y="136" font-size="16" font-weight="700" fill="rgb(18,18,22)">Combo Duas Pizzas</text></g>
+  <g clip-path="url(#cardDir)"><text x="786" y="169" font-size="13.5" fill="rgb(113,113,122)">Uma pizza gigante de 45cm…</text></g>
+  <text x="720" y="265" font-size="12.5" font-weight="600" fill="rgb(18,18,22)">À venda</text>
+  <g clip-path="url(#linhaEsq)"><text x="242" y="341" font-size="16" font-weight="700" fill="rgb(18,18,22)">Combo Solo</text></g>
+  <g clip-path="url(#linhaEsq)"><text x="546" y="341" font-size="16" font-weight="800" fill="rgb(18,18,22)">R$ 44,90</text></g>
+  <g clip-path="url(#linhaDir)"><text x="786" y="341" font-size="16" font-weight="700" fill="rgb(18,18,22)">Combo Família</text></g>
+
+  <rect x="128" y="255" width="38" height="21" rx="10.5" fill="#f59e0b"/>
+  <circle cx="155" cy="265.5" r="8" fill="#fff"/>
+  <rect x="672" y="255" width="38" height="21" rx="10.5" fill="#f59e0b"/>
+  <circle cx="699" cy="265.5" r="8" fill="#fff"/>
+
+  <!-- alças, setas e ações: ícones na tela, redesenhados aqui -->
+  <g fill="#a1a1aa" font-size="13" font-family="ui-monospace, Consolas, monospace">
+    <text x="105" y="80">⠿</text>
+    <text x="558" y="80">^</text><text x="574" y="80">v</text>
+    <text x="431" y="266">⠿</text>
+    <text x="459" y="266">^</text><text x="494" y="266">v</text>
+    <text x="531" y="266">✎</text><text x="568" y="266">⧉</text><text x="600" y="266">🗑</text>
+    <text x="847" y="266">⠿</text>
+    <text x="875" y="266">^</text>
   </g>
+</g>
 
-  <path d="M470 96 h-58" stroke="#111" stroke-width="1.4"/>
-  <text x="478" y="92" font-size="12.5" font-weight="700" fill="#111">categoria</text>
-  <path d="M470 213 h-58" stroke="#111" stroke-width="1.4"/>
-  <text x="478" y="209" font-size="12.5" font-weight="700" fill="#111">faixa</text>
-  <path d="M470 263 h-244" stroke="#111" stroke-width="1.4"/>
-  <text x="478" y="259" font-size="12.5" font-weight="700" fill="#111">produto</text>
+<!-- ── marcações: ao lado do alvo, nunca por cima ── -->
+<g font-size="11" font-weight="700" fill="#fff">
+  <circle cx="92" cy="118" r="10" fill="#111"/><text x="92" y="122" text-anchor="middle">1</text>
+  <circle cx="596" cy="118" r="10" fill="#111"/><text x="596" y="122" text-anchor="middle">2</text>
+  <circle cx="409" cy="306" r="10" fill="#111"/><text x="409" y="310" text-anchor="middle">3</text>
+  <circle cx="98" cy="309" r="10" fill="#111"/><text x="98" y="313" text-anchor="middle">4</text>
+</g>
 
-  <text x="478" y="126" font-size="12" fill="#8a8a8a">a 1ª é a primeira que</text>
-  <text x="478" y="142" font-size="12" fill="#8a8a8a">o cliente vê</text>
-  <text x="478" y="286" font-size="12" fill="#8a8a8a">no celular use as setas:</text>
-  <text x="478" y="302" font-size="12" fill="#8a8a8a">arrastar não funciona</text>
-  <text x="478" y="318" font-size="12" fill="#8a8a8a">em tela de toque</text>
+<!-- ── legenda ── -->
+<path d="M20 430 h860" stroke="#e4e4e7"/>
+<g font-size="12.5">
+  <circle cx="30" cy="448" r="9" fill="#111"/><text x="30" y="452" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">1</text>
+  <text x="48" y="452"><tspan font-weight="700" fill="#111">Alça da categoria</tspan><tspan fill="#71717a"> — arrasta o bloco inteiro: a categoria e todos os produtos dela.</tspan></text>
 
-  <rect x="24" y="330" width="652" height="0.5" fill="#e8e5e1"/>
-  <text x="24" y="352" font-size="12.5" fill="#444">
-    <tspan font-weight="700">As alças somem com busca ou filtro ativo.</tspan>
-    <tspan fill="#8a8a8a"> Com meia lista na tela, a posição enviada não seria a real — clique em “Todas”.</tspan>
-  </text>
+  <circle cx="30" cy="476" r="9" fill="#111"/><text x="30" y="480" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">2</text>
+  <text x="48" y="480"><tspan font-weight="700" fill="#111">Setas ↑ ↓</tspan><tspan fill="#71717a"> — mesma coisa, um passo por clique. No celular use estas: arrastar não funciona.</tspan></text>
+
+  <circle cx="30" cy="504" r="9" fill="#111"/><text x="30" y="508" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">3</text>
+  <text x="48" y="508"><tspan font-weight="700" fill="#111">Alça do produto</tspan><tspan fill="#71717a"> — move só dentro da categoria dele; não pula para outra.</tspan></text>
+
+  <circle cx="30" cy="532" r="9" fill="#111"/><text x="30" y="536" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">4</text>
+  <text x="48" y="536"><tspan font-weight="700" fill="#111">Chave “À venda”</tspan><tspan fill="#71717a"> — desligada, o produto some do cardápio do cliente e continua aqui para você.</tspan></text>
+</g>
+
+<text x="20" y="404" font-size="11.5" font-weight="700" fill="#111">As alças somem quando há busca ou filtro de categoria ativo.</text>
+<text x="20" y="418" font-size="11.5" fill="#71717a">Com meia lista na tela a posição solta não seria a real — clique em “Todas” para voltar a ordenar.</text>
 </svg>
