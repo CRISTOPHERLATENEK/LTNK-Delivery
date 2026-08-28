@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 580" width="900" height="580" font-family="-apple-system, Segoe UI, Roboto, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 624" width="900" height="624" font-family="-apple-system, Segoe UI, Roboto, Arial, sans-serif">
 <!--
   ESTA TELA FOI LIDA DO PAINEL DE VERDADE, não desenhada de memória.
 
@@ -15,7 +15,7 @@
   esconderia justamente a coisa que a imagem existe para mostrar. A explicação
   vai embaixo, onde há largura para uma frase inteira.
 -->
-<rect width="900" height="580" fill="#fff"/>
+<rect width="900" height="624" fill="#fff"/>
 <defs>
   <!-- Os cartões cortam o texto que não cabe (overflow hidden na tela real).
        Sem isto o nome do produto escapa para fora do cartão, que é justamente
@@ -92,21 +92,22 @@
 </g>
 
 <!-- ── legenda ── -->
-<path d="M20 456 h860" stroke="#e4e4e7"/>
+<rect x="0" y="424" width="900" height="200" fill="#fafafa"/>
+<path d="M0 424 h900" stroke="#e4e4e7"/>
 <g font-size="12.5">
-  <circle cx="30" cy="474" r="9" fill="#111"/><text x="30" y="478" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">1</text>
-  <text x="48" y="478"><tspan font-weight="700" fill="#111">Alça da categoria</tspan><tspan fill="#71717a"> — arrasta o bloco inteiro: a categoria e todos os produtos dela.</tspan></text>
+  <circle cx="30" cy="504" r="9" fill="#111"/><text x="30" y="508" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">1</text>
+  <text x="48" y="508"><tspan font-weight="700" fill="#111">Alça da categoria</tspan><tspan fill="#71717a"> — arrasta o bloco inteiro: a categoria e todos os produtos dela.</tspan></text>
 
-  <circle cx="30" cy="502" r="9" fill="#111"/><text x="30" y="506" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">2</text>
-  <text x="48" y="506"><tspan font-weight="700" fill="#111">Setas ↑ ↓</tspan><tspan fill="#71717a"> — mesma coisa, um passo por clique. No celular use estas: arrastar não funciona.</tspan></text>
+  <circle cx="30" cy="536" r="9" fill="#111"/><text x="30" y="540" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">2</text>
+  <text x="48" y="540"><tspan font-weight="700" fill="#111">Setas ↑ ↓</tspan><tspan fill="#71717a"> — mesma coisa, um passo por clique. No celular use estas: arrastar não funciona.</tspan></text>
 
-  <circle cx="30" cy="530" r="9" fill="#111"/><text x="30" y="534" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">3</text>
-  <text x="48" y="534"><tspan font-weight="700" fill="#111">Alça do produto</tspan><tspan fill="#71717a"> — move só dentro da categoria dele; não pula para outra.</tspan></text>
+  <circle cx="30" cy="568" r="9" fill="#111"/><text x="30" y="572" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">3</text>
+  <text x="48" y="572"><tspan font-weight="700" fill="#111">Alça do produto</tspan><tspan fill="#71717a"> — move só dentro da categoria dele; não pula para outra.</tspan></text>
 
-  <circle cx="30" cy="558" r="9" fill="#111"/><text x="30" y="562" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">4</text>
-  <text x="48" y="562"><tspan font-weight="700" fill="#111">Chave “À venda”</tspan><tspan fill="#71717a"> — desligada, o produto some do cardápio do cliente e continua aqui para você.</tspan></text>
+  <circle cx="30" cy="600" r="9" fill="#111"/><text x="30" y="604" text-anchor="middle" font-size="10.5" font-weight="700" fill="#fff">4</text>
+  <text x="48" y="604"><tspan font-weight="700" fill="#111">Chave “À venda”</tspan><tspan fill="#71717a"> — desligada, o produto some do cardápio do cliente e continua aqui para você.</tspan></text>
 </g>
 
-<text x="20" y="428" font-size="11.5" font-weight="700" fill="#111">As alças somem quando há busca ou filtro de categoria ativo.</text>
-<text x="20" y="443" font-size="11.5" fill="#71717a">Com meia lista na tela a posição solta não seria a real — clique em “Todas” para voltar a ordenar.</text>
+<text x="20" y="454" font-size="11.5" font-weight="700" fill="#111">As alças somem quando há busca ou filtro de categoria ativo.</text>
+<text x="20" y="470" font-size="11.5" fill="#71717a">Com meia lista na tela a posição solta não seria a real — clique em “Todas” para voltar a ordenar.</text>
 </svg>
