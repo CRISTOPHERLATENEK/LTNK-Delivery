@@ -131,3 +131,90 @@ export function segundosParaConfirmar(criadoEmISO: string, agora = new Date()): 
   if (Number.isNaN(criado)) return 0;
   return Math.round((criado + MINUTOS_PARA_CONFIRMAR * 60_000 - agora.getTime()) / 1000);
 }
+
+/* ────────────────────── cancelamento ────────────────────── */
+
+export interface MotivoIfood { code: string; description: string }
+
+/**
+ * Escolhe o código de cancelamento a partir da lista QUE O IFOOD DEVOLVEU.
+ *
+ * Nunca de uma lista fixa nossa. A documentação é explícita — "trate o campo
+ * reason como string; use a lista retornada por /cancellationReasons, sem
+ * validar contra uma lista fixa" — e o motivo é que a lista varia por pedido:
+ * depende do momento (antes ou depois da confirmação) e da política da loja.
+ * Mandar um código que não está na lista daquele pedido é recusado.
+ *
+ * O texto que o lojista escreveu ao recusar serve de dica: se ele disse "acabou
+ * o produto", "ITEM INDISPONÍVEL" é melhor que o primeiro da lista. Mas é só
+ * dica — sem correspondência, vale o primeiro que o iFood ofereceu, porque
+ * cancelar com um motivo genérico é melhor que não cancelar.
+ */
+export function escolherMotivoCancelamento(
+  disponiveis: readonly MotivoIfood[],
+  textoDoLojista = '',
+): string | null {
+  if (disponiveis.length === 0) return null;
+
+  const normalizar = (t: string) => t.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const dica = normalizar(textoDoLojista);
+
+  if (dica) {
+    /* Palavras que ligam o que o lojista escreve ao vocabulário do iFood. As
+       descrições vêm em CAIXA ALTA e sem acento previsível — daí a
+       normalização dos dois lados. */
+    const pistas: Array<[RegExp, RegExp]> = [
+      [/acabou|indisponivel|sem estoque|esgotad|falta/, /item indisponivel/],
+      [/fech|fora do horario|nao estamos aberto/, /fora do horario/],
+      [/duplicad|repetid|dois pedidos/, /duplicidade/],
+      [/motoboy|entregador|sem entrega/, /motoboy/],
+      [/longe|fora da area|nao entregamos/, /area de entrega/],
+      [/sistema|caiu|travou/, /sistema/],
+      [/trote|golpe|falso/, /golpista|trote/],
+      [/preco|cardapio|valor errado/, /cardapio/],
+    ];
+    for (const [doLojista, doIfood] of pistas) {
+      if (!doLojista.test(dica)) continue;
+      const achado = disponiveis.find(m => doIfood.test(normalizar(m.description)));
+      if (achado) return achado.code;
+    }
+  }
+
+  return disponiveis[0].code;
+}
+
+/**
+ * O evento diz que o cancelamento FALHOU?
+ *
+ * Existe porque o 202 do `requestCancellation` não é cancelamento: o pedido só
+ * cai quando chega `CANCELLED`. Se vier `CANCELLATION_REQUEST_FAILED`, o pedido
+ * continua VIVO no iFood — e se a gente já tiver marcado cancelado aqui, o
+ * cliente está esperando uma comida que ninguém vai fazer.
+ */
+export function ehFalhaDeCancelamento(code: string, fullCode?: string): boolean {
+  const c = String(code ?? '').trim().toUpperCase();
+  const f = String(fullCode ?? '').trim().toUpperCase();
+  return c === 'CARF' || f === 'CANCELLATION_REQUEST_FAILED';
+}
+
+/**
+ * O erro do iFood explicado para o lojista, que está com o cliente esperando.
+ *
+ * Os códigos vêm da documentação e cada um pede uma AÇÃO diferente — por isso
+ * não vira uma frase genérica só.
+ */
+export function motivoDaRecusaDeCancelamento(codigo: string, mensagem: string): string {
+  switch (String(codigo ?? '').trim()) {
+    case 'OrderExceededCancellationDeadline':
+      return 'O prazo para cancelar este pedido no iFood já passou. Fale com o suporte deles.';
+    case 'OrderHasACancellationInProgress':
+      return 'Já existe um cancelamento em andamento para este pedido no iFood.';
+    case 'OrderNotFound':
+      return 'O iFood não encontrou este pedido.';
+    case 'InvalidParameter':
+      return 'O motivo de cancelamento não é aceito para este pedido.';
+    default:
+      return mensagem || 'O iFood recusou o cancelamento.';
+  }
+}

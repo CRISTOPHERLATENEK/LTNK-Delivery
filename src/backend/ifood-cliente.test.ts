@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   tokenDeAcesso, limparTokensIfood, pollingEventos, pollingTodasAsLojas,
   confirmarEventos, buscarPedido, credenciaisDoAmbiente, avisarStatusIfood, ErroIfood,
+  motivosDeCancelamento, solicitarCancelamento,
   type CredenciaisIfood,
 } from './ifood-cliente';
 
@@ -257,5 +258,53 @@ describe('credenciaisDoAmbiente', () => {
       if (antes.id === undefined) delete process.env.IFOOD_CLIENT_ID; else process.env.IFOOD_CLIENT_ID = antes.id;
       if (antes.secret === undefined) delete process.env.IFOOD_CLIENT_SECRET; else process.env.IFOOD_CLIENT_SECRET = antes.secret;
     }
+  });
+});
+
+describe('cancelamento', () => {
+  it('lista os motivos daquele pedido', async () => {
+    const f = fetchFalso([TOKEN_OK, {
+      contem: 'cancellationReasons',
+      corpo: { reasons: [{ code: '501', description: 'PROBLEMAS DE SISTEMA' }] },
+    }]);
+    const r = await motivosDeCancelamento(CRED, 'ord_1', { buscar: f.buscar, baseUrl: BASE });
+    expect(r).toEqual([{ code: '501', description: 'PROBLEMAS DE SISTEMA' }]);
+    expect(f.chamadas.find(c => c.url.includes('cancellationReasons'))!.metodo).toBe('GET');
+  });
+
+  it('204 é lista vazia — "nenhuma política", não erro', async () => {
+    /* Significa que este pedido não pode ser cancelado agora. Tratar como erro
+       faria o log gritar por algo que é resposta legítima. */
+    const f = fetchFalso([TOKEN_OK, { contem: 'cancellationReasons', status: 204, corpo: null }]);
+    expect(await motivosDeCancelamento(CRED, 'ord_1', { buscar: f.buscar, baseUrl: BASE })).toEqual([]);
+  });
+
+  it('motivo sem código é descartado', async () => {
+    const f = fetchFalso([TOKEN_OK, {
+      contem: 'cancellationReasons', corpo: { reasons: [{ description: 'sem code' }, { code: '503', description: 'ok' }] },
+    }]);
+    const r = await motivosDeCancelamento(CRED, 'ord_1', { buscar: f.buscar, baseUrl: BASE });
+    expect(r.map(x => x.code)).toEqual(['503']);
+  });
+
+  it('manda o motivo no corpo', async () => {
+    const f = fetchFalso([TOKEN_OK, { contem: 'requestCancellation', status: 202, corpo: {} }]);
+    await solicitarCancelamento(CRED, 'ord_1', '503', { buscar: f.buscar, baseUrl: BASE });
+    const c = f.chamadas.find(x => x.url.includes('requestCancellation'))!;
+    expect(c.metodo).toBe('POST');
+    expect(JSON.parse(c.corpo)).toEqual({ reason: '503' });
+  });
+
+  it('o CÓDIGO do erro vem separado da mensagem', async () => {
+    /* Cada código pede uma ação diferente do lojista, que está com o cliente
+       esperando: prazo vencido manda falar com o suporte, cancelamento em
+       andamento manda esperar. Uma frase genérica não distingue os dois. */
+    const f = fetchFalso([TOKEN_OK, {
+      contem: 'requestCancellation', status: 400,
+      corpo: { code: 'OrderExceededCancellationDeadline', message: 'Order has exceeded the time to be cancelled.' },
+    }]);
+    const e = await solicitarCancelamento(CRED, 'ord_1', '503', { buscar: f.buscar, baseUrl: BASE }).catch(x => x);
+    expect(e.corpoCodigo).toBe('OrderExceededCancellationDeadline');
+    expect(e.httpStatus).toBe(400);
   });
 });

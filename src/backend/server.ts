@@ -27,7 +27,7 @@ import { aquecerTokens } from './onz';
 import { cicloIfood, type LojaIfood } from './ifood-ciclo';
 import { gravarPedidoIfood } from './ifood-gravar';
 import { acaoDoEvento } from './ifood-protocolo';
-import { statusParaEvento } from './ifood-status';
+import { statusParaEvento, ehFalhaDeCancelamento } from './ifood-status';
 import { transicionarStatus } from './fluxoPedido';
 import { credenciaisDoAmbiente as credenciaisIfood, pollingEventos, confirmarEventos, buscarPedido as buscarPedidoIfood } from './ifood-cliente';
 import { agoraUTC as agoraUTCIfood } from './util';
@@ -712,6 +712,32 @@ async function processarEventoIfood(loja: LojaIfood, evento: { code?: string; fu
    * mais. CONCLUDED também entra — em entrega própria o iFood conclui sozinho
    * depois de 4h, e é a única forma de o pedido sair da tela sem alguém marcar.
    */
+  /*
+   * CANCELAMENTO RECUSADO PELO IFOOD.
+   *
+   * Aqui está a única divergência que o sistema não evita sozinho: nós já
+   * marcamos o pedido como cancelado (o lojista clicou), o iFood recusou, e
+   * agora o pedido está ATIVO lá e cancelado aqui — com o cliente esperando uma
+   * comida que ninguém vai fazer.
+   *
+   * Não dá para "descancelar" automaticamente: o lojista pode já ter jogado
+   * fora os ingredientes. O que dá é gritar com o número do pedido, para
+   * alguém agir em minutos e não em horas.
+   */
+  if (ehFalhaDeCancelamento(String(evento.code ?? ''), String(evento.fullCode ?? ''))) {
+    await comTenant(loja.tenantDb, async () => {
+      const linha = await db.prepare(
+        "SELECT id FROM pedidos WHERE origem = 'ifood' AND pagamento_gateway_id = ? AND loja_id = ?"
+      ).get(orderId, loja.lojaId) as { id: number } | undefined;
+      console.error(
+        `[ifood] ATENÇÃO: o iFood RECUSOU o cancelamento do pedido ${linha ? `#${linha.id}` : orderId}. ` +
+        `Ele está cancelado AQUI e ATIVO no iFood — o cliente segue esperando. ` +
+        `Resolva pelo Gestor de Pedidos do iFood.`,
+      );
+    });
+    return;
+  }
+
   const novoStatus = statusParaEvento(String(evento.code ?? ''), String(evento.fullCode ?? ''));
   if (novoStatus) {
     await comTenant(loja.tenantDb, async () => {

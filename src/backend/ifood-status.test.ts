@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   acaoParaStatus, caminhoDaAcao, statusParaEvento, vaiAdiantarTentarDeNovo,
   segundosParaConfirmar, MINUTOS_PARA_CONFIRMAR,
+  escolherMotivoCancelamento, ehFalhaDeCancelamento, motivoDaRecusaDeCancelamento,
 } from './ifood-status';
 
 describe('acaoParaStatus — o que avisar ao iFood', () => {
@@ -128,5 +129,83 @@ describe('prazo de confirmação', () => {
 
   it('data ilegível vira zero, não NaN', () => {
     expect(segundosParaConfirmar('ontem', new Date())).toBe(0);
+  });
+});
+
+describe('escolherMotivoCancelamento', () => {
+  const LISTA = [
+    { code: '501', description: 'PROBLEMAS DE SISTEMA' },
+    { code: '503', description: 'ITEM INDISPONÍVEL' },
+    { code: '508', description: 'FORA DO HORÁRIO DO DELIVERY' },
+  ];
+
+  it('usa o texto do lojista como dica', () => {
+    expect(escolherMotivoCancelamento(LISTA, 'acabou o queijo')).toBe('503');
+    expect(escolherMotivoCancelamento(LISTA, 'já fechamos')).toBe('508');
+    expect(escolherMotivoCancelamento(LISTA, 'o sistema travou')).toBe('501');
+  });
+
+  it('funciona com e sem acento', () => {
+    /* As descrições vêm em caixa alta e com acento; o lojista escreve de
+       qualquer jeito. Normalizar os dois lados é o que faz a dica servir. */
+    expect(escolherMotivoCancelamento(LISTA, 'ITEM INDISPONIVEL')).toBe('503');
+    expect(escolherMotivoCancelamento(LISTA, 'produto esgotado')).toBe('503');
+  });
+
+  it('sem correspondência, usa o PRIMEIRO da lista', () => {
+    /* Cancelar com motivo genérico é melhor que não cancelar — o cliente
+       precisa saber que não vem comida. */
+    expect(escolherMotivoCancelamento(LISTA, 'sei lá')).toBe('501');
+    expect(escolherMotivoCancelamento(LISTA, '')).toBe('501');
+  });
+
+  it('NUNCA inventa código fora da lista do pedido', () => {
+    /*
+     * A regra central: a lista varia POR PEDIDO — depende do momento e da
+     * política da loja. Um código válido em geral, mas ausente da lista
+     * daquele pedido, é recusado. A doc manda usar só o que ela devolveu.
+     */
+    const so503 = [{ code: '503', description: 'ITEM INDISPONÍVEL' }];
+    expect(escolherMotivoCancelamento(so503, 'o sistema caiu')).toBe('503');
+    expect(escolherMotivoCancelamento(so503, 'já fechamos')).toBe('503');
+  });
+
+  it('lista vazia é null — o pedido não pode ser cancelado agora', () => {
+    /* 204 do /cancellationReasons = "nenhuma política encontrada". Não é erro,
+       é "não dá". */
+    expect(escolherMotivoCancelamento([], 'qualquer coisa')).toBeNull();
+  });
+});
+
+describe('ehFalhaDeCancelamento', () => {
+  it('reconhece a recusa', () => {
+    expect(ehFalhaDeCancelamento('CARF')).toBe(true);
+    expect(ehFalhaDeCancelamento('', 'CANCELLATION_REQUEST_FAILED')).toBe(true);
+  });
+
+  it('CANCELLED não é falha — é o sucesso', () => {
+    /* Confundir os dois é o pior erro possível aqui: trataria o cancelamento
+       bem-sucedido como problema, ou pior, o contrário. */
+    expect(ehFalhaDeCancelamento('CAN')).toBe(false);
+    expect(ehFalhaDeCancelamento('', 'CANCELLED')).toBe(false);
+  });
+});
+
+describe('motivoDaRecusaDeCancelamento', () => {
+  it('cada código vira uma AÇÃO diferente', () => {
+    /* O lojista está com o cliente esperando. "Deu erro" não ajuda: prazo
+       vencido manda falar com o suporte, cancelamento em andamento manda
+       esperar. */
+    expect(motivoDaRecusaDeCancelamento('OrderExceededCancellationDeadline', '')).toContain('prazo');
+    expect(motivoDaRecusaDeCancelamento('OrderHasACancellationInProgress', '')).toContain('andamento');
+    expect(motivoDaRecusaDeCancelamento('OrderNotFound', '')).toContain('não encontrou');
+  });
+
+  it('código desconhecido cai na mensagem da API', () => {
+    expect(motivoDaRecusaDeCancelamento('XPTO', 'Algo específico')).toBe('Algo específico');
+  });
+
+  it('nunca devolve vazio', () => {
+    expect(motivoDaRecusaDeCancelamento('', '').length).toBeGreaterThan(10);
   });
 });

@@ -31,6 +31,16 @@ export class ErroIfood extends Error {
     readonly httpStatus: number,
     /** Merchants que o token não pode ver (403). Ver `pollingEventos`. */
     readonly merchantsSemPermissao: string[] = [],
+    /*
+     * O `code` do corpo do erro, quando existe — `OrderExceededCancellationDeadline`,
+     * `OrderHasACancellationInProgress`, `OrderNotFound`…
+     *
+     * Vem separado da mensagem porque cada código pede uma AÇÃO diferente do
+     * lojista, e ele está com o cliente esperando: prazo vencido manda falar
+     * com o suporte, cancelamento em andamento manda esperar. Uma frase
+     * genérica não distingue os dois.
+     */
+    readonly corpoCodigo = '',
   ) {
     super(mensagem);
     this.name = 'ErroIfood';
@@ -178,7 +188,8 @@ async function chamar(
   if (!resp.ok) {
     const d = (corpo && typeof corpo === 'object' ? corpo : {}) as Record<string, unknown>;
     const msg = String(d.message ?? (d.error as Record<string, unknown>)?.message ?? '').trim();
-    throw new ErroIfood(msg || `O iFood respondeu ${resp.status}.`, resp.status);
+    const codigo = String(d.code ?? (d.error as Record<string, unknown>)?.code ?? '').trim();
+    throw new ErroIfood(msg || `O iFood respondeu ${resp.status}.`, resp.status, [], codigo);
   }
 
   return { status: resp.status, corpo };
@@ -277,6 +288,58 @@ export async function avisarStatusIfood(
   await chamar(cred, `/order/v1.0/orders/${encodeURIComponent(orderId)}/${acao}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+  }, opcoes);
+}
+
+export interface MotivoCancelamento { code: string; description: string }
+
+/**
+ * Os motivos de cancelamento QUE ESTE PEDIDO ACEITA.
+ *
+ * A lista é por pedido, não global: ela depende do momento (antes ou depois da
+ * confirmação) e da política da loja. A documentação é explícita — "use a lista
+ * retornada por /cancellationReasons, sem validar contra uma lista fixa".
+ *
+ * `204` significa "nenhuma política encontrada" e é resposta legítima, não erro:
+ * quer dizer que este pedido não pode ser cancelado agora. Devolve lista vazia,
+ * e quem chama trata isso como "não dá", não como "deu ruim".
+ */
+export async function motivosDeCancelamento(
+  cred: CredenciaisIfood,
+  orderId: string,
+  opcoes?: OpcoesIfood,
+): Promise<MotivoCancelamento[]> {
+  const { status, corpo } = await chamar(
+    cred, `/order/v1.0/orders/${encodeURIComponent(orderId)}/cancellationReasons`,
+    { method: 'GET' }, opcoes,
+  );
+  if (status === 204) return [];
+  const d = (corpo && typeof corpo === 'object' ? corpo : {}) as Record<string, unknown>;
+  const lista = Array.isArray(d.reasons) ? d.reasons : Array.isArray(corpo) ? corpo : [];
+  return (lista as Array<Record<string, unknown>>)
+    .map(r => ({ code: String(r.code ?? '').trim(), description: String(r.description ?? '').trim() }))
+    .filter(r => r.code);
+}
+
+/**
+ * Pede o cancelamento.
+ *
+ * ATENÇÃO AO QUE O 202 SIGNIFICA: "a requisição foi aceita", e só. A
+ * documentação avisa que o pedido **só é cancelado quando o evento CANCELLED é
+ * gerado** — pode vir `CANCELLATION_REQUEST_FAILED` no lugar. Tratar o 202 como
+ * cancelamento consumado é como o lojista vê "cancelado" no painel enquanto o
+ * cliente continua esperando a comida.
+ */
+export async function solicitarCancelamento(
+  cred: CredenciaisIfood,
+  orderId: string,
+  motivo: string,
+  opcoes?: OpcoesIfood,
+): Promise<void> {
+  await chamar(cred, `/order/v1.0/orders/${encodeURIComponent(orderId)}/requestCancellation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason: motivo }),
   }, opcoes);
 }
 

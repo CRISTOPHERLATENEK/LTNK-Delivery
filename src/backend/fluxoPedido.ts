@@ -3,8 +3,8 @@
  *   pendente -> aceito -> preparando -> pronto -> em_entrega -> entregue
  * Terminais alternativos: cancelado (pelo cliente, só em pendente) e recusado (pelo lojista).
  */
-import { acaoParaStatus, type StatusNosso } from './ifood-status';
-import { avisarStatusIfood, credenciaisDoAmbiente as credenciaisIfoodDoAmbiente } from './ifood-cliente';
+import { acaoParaStatus, escolherMotivoCancelamento, motivoDaRecusaDeCancelamento, type StatusNosso } from './ifood-status';
+import { avisarStatusIfood, motivosDeCancelamento, solicitarCancelamento, ErroIfood, credenciaisDoAmbiente as credenciaisIfoodDoAmbiente } from './ifood-cliente';
 import db from './db-mysql';
 import { agoraUTC, erroHttp } from './util';
 import { registrarEvento, notificarEntregadoresCorridaDisponivel } from './notificacoes';
@@ -213,13 +213,6 @@ async function avisarIfoodDoStatus(
    * metade é o pior caminho: o lojista veria "cancelado" no painel e o cliente
    * continuaria esperando a comida. Fica registrado para ser feito inteiro.
    */
-  if (acao === 'requestCancellation') {
-    console.error(
-      `[ifood] pedido ${pedido.id} (${orderId}) foi ${novoStatus} AQUI, mas o cancelamento ` +
-      `no iFood ainda não é automático — cancele também pelo Gestor de Pedidos do iFood.`,
-    );
-    return;
-  }
 
   const cred = credenciaisIfoodDoAmbiente();
   if (!cred) return;
@@ -237,6 +230,82 @@ async function avisarIfoodDoStatus(
    * sistema com relógio correndo contra, silêncio é a pior resposta possível.
    */
   const comecou = Date.now();
-  await avisarStatusIfood(cred, orderId, acao);
+  if (acao === 'requestCancellation') {
+    await pedirCancelamentoIfood(cred, pedido, orderId);
+  } else {
+    await avisarStatusIfood(cred, orderId, acao);
+  }
   console.log(`[ifood] pedido ${pedido.id} → ${acao} avisado ao iFood em ${Date.now() - comecou}ms`);
+}
+
+/**
+ * Pede o cancelamento no iFood.
+ *
+ * Duas regras da documentação moldam isto, e nenhuma é opcional:
+ *
+ * 1. O CÓDIGO DE MOTIVO VEM DA LISTA DAQUELE PEDIDO. A lista muda conforme o
+ *    momento (antes ou depois da confirmação) e a política da loja; um código
+ *    válido em geral pode não estar na lista deste pedido, e aí é recusado. Por
+ *    isso consultamos antes, sempre.
+ *
+ * 2. O 202 NÃO É CANCELAMENTO. "A solicitação de cancelamento não garante que o
+ *    pedido foi cancelado (...) o pedido só é cancelado quando o evento
+ *    CANCELLED é gerado." Pode vir `CANCELLATION_REQUEST_FAILED` no lugar.
+ *
+ * A segunda regra cria a única divergência que este código não consegue evitar
+ * sozinho: aqui o pedido já foi marcado cancelado (o UPDATE aconteceu antes),
+ * e se o iFood recusar, o cliente continua esperando a comida. O que dá para
+ * fazer é gritar — e é o que o log faz, com o texto que o lojista precisa ler.
+ *
+ * Bloquear a transição local até o CANCELLED chegar seria pior: o iFood pode
+ * demorar, pode estar fora do ar, e o lojista ficaria sem conseguir cancelar
+ * nada no próprio sistema por causa disso.
+ */
+async function pedirCancelamentoIfood(
+  cred: { clientId: string; clientSecret: string },
+  pedido: Pedido & Record<string, unknown>,
+  orderId: string,
+): Promise<void> {
+  const disponiveis = await motivosDeCancelamento(cred, orderId);
+
+  /*
+   * Lista vazia = 204, "nenhuma política encontrada": este pedido NÃO pode ser
+   * cancelado pela API agora. Não é erro nosso, e insistir não muda — o que
+   * resolve é o lojista falar com o suporte do iFood.
+   */
+  if (disponiveis.length === 0) {
+    console.error(
+      `[ifood] pedido ${pedido.id} (${orderId}) foi cancelado AQUI, mas o iFood não ofereceu ` +
+      `nenhum motivo de cancelamento — o pedido segue ATIVO lá. Cancele pelo Gestor de Pedidos.`,
+    );
+    return;
+  }
+
+  const motivo = escolherMotivoCancelamento(
+    disponiveis,
+    String(pedido.motivo_recusa ?? ''),
+  );
+  if (!motivo) return;
+
+  try {
+    await solicitarCancelamento(cred, orderId, motivo);
+  } catch (e) {
+    const erro = e as ErroIfood & { corpoCodigo?: string };
+    const explicacao = motivoDaRecusaDeCancelamento(String(erro.corpoCodigo ?? ''), erro.message);
+    console.error(
+      `[ifood] pedido ${pedido.id} (${orderId}) foi cancelado AQUI e o iFood RECUSOU: ${explicacao} ` +
+      `O pedido segue ATIVO no iFood — cancele pelo Gestor de Pedidos.`,
+    );
+    return;
+  }
+
+  /*
+   * Chegou aqui = 202. Repetindo, porque é o erro fácil: 202 é "recebi o
+   * pedido de cancelamento", não "cancelei". A confirmação vem como evento
+   * CANCELLED no polling; se vier CANCELLATION_REQUEST_FAILED, o ciclo avisa.
+   */
+  console.log(
+    `[ifood] pedido ${pedido.id}: cancelamento SOLICITADO (motivo ${motivo}) — ` +
+    `aguardando o evento CANCELLED para confirmar`,
+  );
 }
