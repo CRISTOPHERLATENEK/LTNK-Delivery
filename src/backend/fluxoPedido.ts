@@ -223,5 +223,20 @@ async function avisarIfoodDoStatus(
 
   const cred = credenciaisIfoodDoAmbiente();
   if (!cred) return;
+
+  /*
+   * O SUCESSO TAMBÉM VAI PARA O LOG — e isso não é ruído.
+   *
+   * A primeira versão só registrava falha. Testando com um pedido real,
+   * confirmei no painel e o log ficou mudo: não dava para saber se a
+   * confirmação tinha saído, se tinha chegado, nem quanto tempo levou. E é
+   * justamente esta chamada que tem PRAZO — oito minutos, contados da criação
+   * do pedido no iFood.
+   *
+   * "Nenhum erro apareceu" não é prova de que aconteceu. Para a única ação do
+   * sistema com relógio correndo contra, silêncio é a pior resposta possível.
+   */
+  const comecou = Date.now();
   await avisarStatusIfood(cred, orderId, acao);
+  console.log(`[ifood] pedido ${pedido.id} → ${acao} avisado ao iFood em ${Date.now() - comecou}ms`);
 }
