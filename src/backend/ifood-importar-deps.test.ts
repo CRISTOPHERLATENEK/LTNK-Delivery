@@ -48,7 +48,12 @@ describe('a sincronização não encosta em preço', () => {
      * sozinho ele voltaria a cada hora.
      */
     const fonte = semComentarios('ifood-importar-deps.ts');
-    const trecho = fonte.slice(fonte.indexOf('atualizarProduto'));
+    /* Só o corpo de `atualizarProduto`, não o resto do arquivo: a publicação
+       vive aqui do lado e PRECISA ler preço — varrer até o fim acusaria ela. */
+    const inicio = fonte.indexOf('atualizarProduto:');
+    const trecho = fonte.slice(inicio, fonte.indexOf('},', fonte.indexOf('UPDATE produtos', inicio)));
+    expect(inicio).toBeGreaterThan(0);
+    expect(trecho).toContain('UPDATE produtos');
     expect(trecho).not.toMatch(/preco/i);
   });
 

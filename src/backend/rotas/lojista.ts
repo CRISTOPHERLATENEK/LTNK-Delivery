@@ -3649,18 +3649,17 @@ router.put('/ifood', async (req, res, next) => {
     }
 
     /*
-     * Só 'nenhuma' e 'do_ifood' são aceitos. A direção oposta — publicar daqui
-     * para o iFood — ainda não existe, e aceitar o valor agora deixaria a loja
-     * marcada como sincronizando por um caminho que ninguém percorre: o lojista
-     * veria "ligado" e nada aconteceria.
+     * Uma direção de cada vez, e só as que existem de verdade. Um valor
+     * desconhecido deixaria a loja marcada como sincronizando por um caminho
+     * que ninguém percorre: o lojista veria "ligado" e nada aconteceria.
      */
     if (typeof req.body.sincronizacao === 'string') {
-      const dir = req.body.sincronizacao === 'do_ifood' ? 'do_ifood' : 'nenhuma';
-      if (req.body.sincronizacao !== dir) {
+      const DIRECOES = ['nenhuma', 'do_ifood', 'para_ifood'];
+      if (!DIRECOES.includes(req.body.sincronizacao)) {
         throw erroHttp(400, 'Direção de sincronização não disponível.');
       }
       sets.push('ifood_sincronizacao = ?');
-      vals.push(dir);
+      vals.push(req.body.sincronizacao);
     }
 
     if (sets.length) {

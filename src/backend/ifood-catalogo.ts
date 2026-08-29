@@ -250,3 +250,29 @@ export async function lerCardapioIfood(
   }
   return produtos;
 }
+
+/**
+ * `externalCode` → id do item, para saber o que já existe lá.
+ *
+ * É esse mapa que decide entre criar e substituir na publicação. Item de lá sem
+ * `externalCode` fica de fora: sem chave não há como afirmar que é o mesmo
+ * produto, e publicar por cima do item errado acontece do lado onde o cliente
+ * compra.
+ */
+export async function mapaDeItensPorCodigo(
+  cred: CredenciaisIfood,
+  merchantId: string,
+  catalogId: string,
+  opcoes?: OpcoesIfood,
+): Promise<Map<string, string>> {
+  const mapa = new Map<string, string>();
+  for (const c of await listarCategorias(cred, merchantId, catalogId, opcoes)) {
+    const itens = c.items.length ? c.items : await listarItensDaCategoria(cred, merchantId, c.id, opcoes);
+    for (const it of itens) {
+      const codigo = String(it.externalCode ?? '').trim();
+      const id = String(it.id ?? '').trim();
+      if (codigo && id) mapa.set(codigo, id);
+    }
+  }
+  return mapa;
+}

@@ -1,0 +1,180 @@
+import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+import {
+  montarPayloadItem, planejarPublicacao, centavosParaPreco,
+  type ProdutoDaqui,
+} from './ifood-publicar';
+
+/** Item REAL do sandbox, lido pelo /flat. Nunca um exemplo da documentação. */
+const FLAT = JSON.parse(
+  fs.readFileSync(path.join(__dirname, 'fixtures', 'ifood-item-flat.json'), 'utf8'),
+) as Record<string, unknown>;
+
+const CAT = '01e62082-c53f-42ec-83b8-0729ce27aa5f';
+
+const nosso = (over: Partial<ProdutoDaqui> = {}): ProdutoDaqui => ({
+  id: 45,
+  nome: 'X-Bacon Artesanal',
+  descricao: 'Pao brioche, hamburguer 180g, bacon e queijo',
+  codigoBarras: 'XB-001',
+  precoCentavos: 2990,
+  disponivel: true,
+  grupos: [{
+    nome: 'Adicionais', codigoExterno: 'GRP-ADIC', obrigatorio: false, maxEscolhas: 2,
+    opcoes: [
+      { nome: 'Bacon extra', codigoExterno: 'OPT-BACON', precoAdicionalCentavos: 500, disponivel: true },
+    ],
+  }],
+  ...over,
+});
+
+describe('o PUT não pode apagar o que não conhecemos', () => {
+  it('preserva contextModifiers do item', () => {
+    /*
+     * A regra mais cara desta API: `PUT /items` SUBSTITUI o item completo, e
+     * campo omitido é campo removido. `contextModifiers` carrega o preço do
+     * Cardápio Digital — um payload "limpo" montado do nosso banco funciona no
+     * teste e apaga o preço de outro canal em produção.
+     */
+    const p = montarPayloadItem(nosso(), CAT, FLAT);
+    const item = p.item as Record<string, unknown>;
+    expect(item.contextModifiers).toEqual((FLAT.item as Record<string, unknown>).contextModifiers);
+  });
+
+  it('preserva o productId do item', () => {
+    /*
+     * Obrigatório e NÃO documentado — descoberto depois de o POST responder
+     * "PostProductDto is not valid" sem dizer o que faltava. Perdê-lo criaria
+     * um produto novo a cada publicação, deixando órfãos no catálogo da loja.
+     */
+    const p = montarPayloadItem(nosso(), CAT, FLAT);
+    expect((p.item as Record<string, unknown>).productId)
+      .toBe((FLAT.item as Record<string, unknown>).productId);
+  });
+
+  it('preserva campo que este arquivo nem sabe que existe', () => {
+    /*
+     * O teste que importa de verdade: a proteção não é uma lista de campos
+     * conhecidos, é copiar o que veio. Assim o que a API adicionar amanhã
+     * sobrevive sem ninguém lembrar de vir aqui.
+     */
+    const comNovidade = {
+      ...FLAT,
+      item: { ...(FLAT.item as object), campoQueInventaramDepois: 'não perca isto' },
+    };
+    const p = montarPayloadItem(nosso(), CAT, comNovidade);
+    expect((p.item as Record<string, unknown>).campoQueInventaramDepois).toBe('não perca isto');
+  });
+
+  it('preserva o id do grupo e das opções que já existem', () => {
+    /* Id novo a cada publicação faria o iFood tratar como grupo diferente e o
+       cliente veria o complemento duplicado. */
+    const p = montarPayloadItem(nosso(), CAT, FLAT);
+    const grupos = p.optionGroups as Array<Record<string, unknown>>;
+    const originais = FLAT.optionGroups as Array<Record<string, unknown>>;
+    expect(grupos[0].id).toBe(originais[0].id);
+  });
+});
+
+describe('os nossos campos entram', () => {
+  it('nome, descrição e código vão para o produto principal', () => {
+    const p = montarPayloadItem(nosso({ nome: 'Novo Nome' }), CAT, FLAT);
+    const produtos = p.products as Array<Record<string, unknown>>;
+    expect(produtos[0]).toMatchObject({ name: 'Novo Nome', externalCode: 'XB-001' });
+  });
+
+  it('preço vai em decimal, não em centavos', () => {
+    const p = montarPayloadItem(nosso({ precoCentavos: 1999 }), CAT, FLAT);
+    expect((p.item as { price: { value: number } }).price.value).toBe(19.99);
+  });
+
+  it('pausado aqui vira UNAVAILABLE lá', () => {
+    const p = montarPayloadItem(nosso({ disponivel: false }), CAT, FLAT);
+    expect((p.item as Record<string, unknown>).status).toBe('UNAVAILABLE');
+  });
+
+  it('grupo obrigatório vira min 1', () => {
+    /* Lá o obrigatório não é interruptor: é o mínimo ser maior que zero. */
+    const g = nosso().grupos[0];
+    const p = montarPayloadItem(nosso({ grupos: [{ ...g, obrigatorio: true }] }), CAT, FLAT);
+    expect((p.optionGroups as Array<Record<string, unknown>>)[0].min).toBe(1);
+  });
+
+  it('o grupo carrega optionGroupType, que nenhum exemplo mostra', () => {
+    /* Sem ele o grupo é recusado — descoberto criando o item de teste. */
+    const p = montarPayloadItem(nosso(), CAT, FLAT);
+    expect((p.optionGroups as Array<Record<string, unknown>>)[0].optionGroupType).toBe('DEFAULT');
+  });
+
+  it('os grupos ficam na RAIZ, e o produto os referencia por id', () => {
+    /*
+     * Não dentro do item, como a documentação e o assistente do iFood sugerem.
+     * Foi o que fez o item de teste finalmente ser aceito.
+     */
+    const p = montarPayloadItem(nosso(), CAT, FLAT);
+    expect(Array.isArray(p.optionGroups)).toBe(true);
+    expect((p.item as Record<string, unknown>).optionGroups).toBeUndefined();
+    const produtos = p.products as Array<Record<string, unknown>>;
+    const grupos = p.optionGroups as Array<Record<string, unknown>>;
+    expect(produtos[0].optionGroups).toEqual([grupos[0].id]);
+  });
+});
+
+describe('item que ainda não existe lá', () => {
+  it('monta sem explodir quando não há nada para preservar', () => {
+    const p = montarPayloadItem(nosso(), CAT, null);
+    expect((p.item as Record<string, unknown>).categoryId).toBe(CAT);
+    expect((p.products as unknown[]).length).toBeGreaterThan(0);
+  });
+
+  it('produto sem complemento gera lista de grupos vazia, não ausente', () => {
+    /* Ausente seria "não mexi nos grupos"; vazia é "não tem grupo". Num PUT que
+       substitui, a diferença é o cardápio certo ou complementos fantasmas. */
+    const p = montarPayloadItem(nosso({ grupos: [] }), CAT, null);
+    expect(p.optionGroups).toEqual([]);
+    expect(p.options).toEqual([]);
+  });
+});
+
+describe('centavosParaPreco', () => {
+  it('não devolve dízima', () => {
+    /* 1999/100 dá 19.990000000000002 em ponto flutuante, e o iFood receberia um
+       preço com doze casas. */
+    expect(centavosParaPreco(1999)).toBe(19.99);
+    expect(centavosParaPreco(2990)).toBe(29.9);
+    expect(centavosParaPreco(0)).toBe(0);
+  });
+});
+
+describe('planejarPublicacao', () => {
+  const daqui = (nome: string, codigo: string) => nosso({ nome, codigoBarras: codigo });
+
+  it('separa o que existe lá do que não existe', () => {
+    const plano = planejarPublicacao(
+      [daqui('A', 'A-1'), daqui('B', 'B-1')],
+      new Map([['A-1', 'item-a']]),
+    );
+    expect(plano.atualizar).toHaveLength(1);
+    expect(plano.atualizar[0].itemId).toBe('item-a');
+    expect(plano.criar.map(p => p.nome)).toEqual(['B']);
+  });
+
+  it('produto sem código fica de fora e é reportado', () => {
+    /*
+     * Sem chave, a única alternativa seria casar por nome — e um nome parecido
+     * publicaria por cima do item errado, do lado onde o cliente compra.
+     */
+    const plano = planejarPublicacao([daqui('Sem código', '  ')], new Map());
+    expect([plano.criar.length, plano.atualizar.length]).toEqual([0, 0]);
+    expect(plano.semCodigo).toEqual(['Sem código']);
+  });
+
+  it('o que só existe lá vira relatório, nunca exclusão', () => {
+    /* Mesma decisão da sincronização e pelo mesmo motivo: isto roda sozinho, e
+       cardápio apagado no domingo à noite não tem desfazer. */
+    const plano = planejarPublicacao([], new Map([['ORFAO-1', 'item-x']]));
+    expect(plano.soExistemNoIfood).toEqual(['ORFAO-1']);
+    expect(JSON.stringify(plano)).not.toMatch(/excluir|apagar|remover/i);
+  });
+});

@@ -12,6 +12,7 @@ import { agoraUTC } from './util';
 import { grupoParaNosso, type DepsImportar } from './ifood-importar-gravar';
 import type { DepsSincronizar } from './ifood-sincronizar-gravar';
 import type { ProdutoNosso } from './ifood-sincronizar';
+import type { ProdutoDaqui } from './ifood-publicar';
 
 export function depsImportacaoIfood(
   registrar?: (nivel: 'info' | 'erro', msg: string) => void,
@@ -136,4 +137,85 @@ export function depsSincronizacaoIfood(
       await db.prepare(`UPDATE produtos SET ${pedacos.join(', ')} WHERE id = ?`).run(...valores, produtoId);
     },
   };
+}
+
+/**
+ * Os produtos daqui com TUDO que a publicação precisa: preço do produto,
+ * preço de cada complemento e a configuração dos grupos.
+ *
+ * É uma leitura diferente de `lerProdutosDaLoja` de propósito. Aquela serve à
+ * sincronização, que nunca toca em preço e por isso não o carrega; esta publica
+ * preço. Reaproveitar a de lá obrigaria a carregar preço para quem não pode
+ * usá-lo — e um dia alguém usaria.
+ *
+ * Só produtos com código de barras e não excluídos: sem código não há como
+ * ligar os dois lados, e publicar por nome parecido substitui o item errado.
+ */
+export async function lerProdutosParaPublicar(lojaId: number): Promise<ProdutoDaqui[]> {
+  const produtos = await db.prepare(
+    `SELECT id, nome, descricao, codigo_barras, preco_centavos, disponivel
+       FROM produtos
+      WHERE loja_id = ? AND excluido = 0 AND codigo_barras <> ''`
+  ).all(lojaId) as Array<{
+    id: number; nome: string; descricao: string | null;
+    codigo_barras: string; preco_centavos: number; disponivel: number;
+  }>;
+  if (produtos.length === 0) return [];
+
+  const marcas = produtos.map(() => '?').join(',');
+  const grupos = await db.prepare(
+    `SELECT id, produto_id, nome, obrigatorio, max_escolhas
+       FROM grupos_opcoes WHERE produto_id IN (${marcas}) ORDER BY ordem, id`
+  ).all(...produtos.map(p => p.id)) as Array<{
+    id: number; produto_id: number; nome: string; obrigatorio: number; max_escolhas: number;
+  }>;
+
+  const opcoesPorGrupo = new Map<number, ProdutoDaqui['grupos'][number]['opcoes']>();
+  if (grupos.length > 0) {
+    const marcasG = grupos.map(() => '?').join(',');
+    for (const o of await db.prepare(
+      `SELECT id, grupo_id, nome, preco_adicional_centavos, disponivel
+         FROM opcoes_itens WHERE grupo_id IN (${marcasG}) ORDER BY ordem, id`
+    ).all(...grupos.map(g => g.id)) as Array<{
+      id: number; grupo_id: number; nome: string; preco_adicional_centavos: number; disponivel: number;
+    }>) {
+      const lista = opcoesPorGrupo.get(o.grupo_id) ?? [];
+      /*
+       * O código do complemento é derivado do id daqui, e precisa ser ESTÁVEL:
+       * é por ele que a publicação reencontra a opção que já existe lá e
+       * preserva o id dela. Código instável criaria uma opção nova a cada
+       * publicação, e o cliente veria "Bacon" repetido na lista.
+       */
+      lista.push({
+        nome: o.nome,
+        codigoExterno: `OPT-${o.id}`,
+        precoAdicionalCentavos: o.preco_adicional_centavos,
+        disponivel: o.disponivel === 1,
+      });
+      opcoesPorGrupo.set(o.grupo_id, lista);
+    }
+  }
+
+  const gruposPorProduto = new Map<number, ProdutoDaqui['grupos']>();
+  for (const g of grupos) {
+    const lista = gruposPorProduto.get(g.produto_id) ?? [];
+    lista.push({
+      nome: g.nome,
+      codigoExterno: `GRP-${g.id}`,
+      obrigatorio: g.obrigatorio === 1,
+      maxEscolhas: g.max_escolhas,
+      opcoes: opcoesPorGrupo.get(g.id) ?? [],
+    });
+    gruposPorProduto.set(g.produto_id, lista);
+  }
+
+  return produtos.map(p => ({
+    id: p.id,
+    nome: p.nome,
+    descricao: p.descricao ?? '',
+    codigoBarras: p.codigo_barras,
+    precoCentavos: p.preco_centavos,
+    disponivel: p.disponivel === 1,
+    grupos: gruposPorProduto.get(p.id) ?? [],
+  }));
 }
