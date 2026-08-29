@@ -24,6 +24,9 @@ import adminRoutes from './rotas/admin';
 import revendedorRoutes from './rotas/revendedor';
 import pagamentosRoutes, { reconciliarPagamentosOnz, reconciliarCartoesMP, cancelarCartoesAbandonados } from './rotas/pagamentos';
 import { aquecerTokens } from './onz';
+import { cicloIfood, type LojaIfood } from './ifood-ciclo';
+import { credenciaisDoAmbiente as credenciaisIfood, pollingEventos, confirmarEventos } from './ifood-cliente';
+import { agoraUTC as agoraUTCIfood } from './util';
 import { gravarFaturasDeTodos } from './faturas';
 import { deveEnviar, destinatariosDe } from './envio-contador';
 import { enviarPacoteAoContador } from './xml-contador';
@@ -642,6 +645,132 @@ async function sincronizarHorarios(): Promise<void> {
   }
 }
 
+/*
+ * ─────────────────────── POLLING DO IFOOD ───────────────────────
+ *
+ * A cada 30 segundos, e não por acaso: é o intervalo que a documentação exige,
+ * e é ELE que mantém a loja online no iFood. Se o polling parar, o merchant
+ * perde o status online e para de receber pedido — quem segura a loja aberta lá
+ * passa a ser este laço.
+ *
+ * Por isso ele é diferente das reconciliações vizinhas. Aquelas são redes de
+ * segurança: se um ciclo falha, o próximo conserta. Aqui não existe segundo
+ * caminho — falhar em silêncio é pedido não recebido, com o cliente esperando.
+ * Daí o contador de falhas seguidas: `console.error` sozinho é uma linha que
+ * ninguém lê.
+ */
+let falhasSeguidasIfood = 0;
+let ultimoAlarmeIfood = 0;
+
+/** Lojas ligadas ao iFood, de todos os tenants. */
+async function lojasIfood(): Promise<LojaIfood[]> {
+  const lojas: LojaIfood[] = [];
+  for (const tenant of await listarTenants()) {
+    if (!tenant.ativo) continue;
+    try {
+      const linhas = await comTenant(tenant.db_nome, () => db.prepare(
+        `SELECT id, ifood_merchant_id FROM lojas
+          WHERE ifood_ativo = 1 AND ifood_merchant_id <> ''`
+      ).all()) as Array<{ id: number; ifood_merchant_id: string }>;
+      for (const l of linhas) {
+        lojas.push({ tenantDb: tenant.db_nome, lojaId: l.id, merchantId: l.ifood_merchant_id });
+      }
+    } catch (e) {
+      console.error(`[ifood] não consegui listar lojas do tenant ${tenant.slug}:`, e);
+    }
+  }
+  return lojas;
+}
+
+async function pollingIfood(): Promise<void> {
+  const cred = credenciaisIfood();
+  /* Sem credencial de plataforma não há o que fazer — e sair aqui evita varrer
+     os bancos de graça a cada 30 segundos num ambiente sem iFood. */
+  if (!cred) return;
+
+  const resumo = await cicloIfood({
+    buscarLojas: lojasIfood,
+    polling: ids => pollingEventos(cred, ids),
+    confirmar: ids => confirmarEventos(cred, ids),
+
+    jaVistos: async (tenantDb, ids) => {
+      if (!ids.length) return new Set<string>();
+      const marcas = ids.map(() => '?').join(',');
+      const linhas = await comTenant(tenantDb, () => db.prepare(
+        `SELECT id FROM ifood_eventos_vistos WHERE id IN (${marcas})`
+      ).all(...ids)) as Array<{ id: string }>;
+      return new Set(linhas.map(l => l.id));
+    },
+
+    marcarVistos: async (tenantDb, eventos) => {
+      /*
+       * INSERT IGNORE, não INSERT.
+       *
+       * A chave primária é o id do evento, e dois ciclos concorrentes (um
+       * atrasado, outro no horário) podem tentar gravar o mesmo. Deixar o banco
+       * recusar em silêncio é o comportamento certo — o evento JÁ está
+       * registrado, que é tudo o que precisamos garantir antes do ACK.
+       */
+      const agora = agoraUTCIfood();
+      await comTenant(tenantDb, async () => {
+        for (const e of eventos) {
+          await db.prepare('INSERT IGNORE INTO ifood_eventos_vistos (id, criado_em) VALUES (?, ?)')
+            .run(String(e.id), agora);
+        }
+      });
+    },
+
+    registrar: (nivel, msg) => {
+      if (nivel === 'erro') console.error(msg); else console.log(msg);
+    },
+  });
+
+  if (resumo.falhas.length) {
+    falhasSeguidasIfood++;
+    /*
+     * ALARME COM FREIO: repete no máximo a cada 10 minutos.
+     *
+     * Sem o freio, uma falha contínua escreve 2 linhas por minuto para sempre —
+     * e log que enche é log que ninguém lê, que é o mesmo que não ter alarme.
+     */
+    const agora = Date.now();
+    if (falhasSeguidasIfood >= 3 && agora - ultimoAlarmeIfood > 10 * 60_000) {
+      ultimoAlarmeIfood = agora;
+      console.error(
+        `[ifood] ALARME: ${falhasSeguidasIfood} ciclos seguidos com falha. ` +
+        `A loja pode estar OFFLINE no iFood. Última: ${resumo.falhas[0]}`,
+      );
+    }
+  } else {
+    falhasSeguidasIfood = 0;
+  }
+
+  if (resumo.eventosNovos > 0 || resumo.retidos > 0) {
+    console.log(
+      `[ifood] ${resumo.lojas} loja(s): ${resumo.eventosRecebidos} evento(s), ` +
+      `${resumo.eventosNovos} novo(s), ${resumo.confirmados} confirmado(s)` +
+      (resumo.retidos ? `, ${resumo.retidos} RETIDO(S) sem ACK` : ''),
+    );
+  }
+}
+
+/**
+ * Apaga marcas de evento antigas.
+ *
+ * A retenção do lado do iFood é de 8 horas: um evento com mais de 3 dias não
+ * volta nunca mais, então guardá-lo aqui é só linha acumulando para sempre.
+ */
+async function limparEventosIfood(): Promise<void> {
+  const corte = new Date(Date.now() - 3 * 24 * 60 * 60_000).toISOString();
+  for (const tenant of await listarTenants()) {
+    if (!tenant.ativo) continue;
+    try {
+      await comTenant(tenant.db_nome, () =>
+        db.prepare('DELETE FROM ifood_eventos_vistos WHERE criado_em < ?').run(corte));
+    } catch { /* melhor esforço: limpeza que falha não afeta pedido nenhum */ }
+  }
+}
+
 /**
  * Reconciliação do Pix da ONZ em TODOS os tenants: confirma pedido pago cujo
  * webhook não chegou. Ver `reconciliarPagamentosOnz` (rotas/pagamentos.ts) para
@@ -796,6 +925,15 @@ const PORT = Number(process.env.PORT) || 3000;
   // Mantém quente o token da ONZ (vale só 5 min): sem isso, quase todo pedido
   // pagava ~1s de autenticação antes de mostrar o QR, com o cliente esperando.
   setInterval(() => { aquecerTokens().catch(() => { /* melhor esforço */ }); }, 60_000);
+
+  /*
+   * 30 SEGUNDOS é exigência da documentação do iFood, não escolha nossa: é o
+   * intervalo que mantém a loja online lá. Aumentar "para poupar" tira a loja
+   * do ar.
+   */
+  pollingIfood().catch(e => console.error('[ifood] polling falhou:', e));
+  setInterval(() => { pollingIfood().catch(e => console.error('[ifood] polling falhou:', e)); }, 30_000);
+  setInterval(() => { limparEventosIfood().catch(() => {}); }, 6 * 60 * 60_000);
 
   /*
    * Retrato da fatura do mês de cada revendedor, de hora em hora.
