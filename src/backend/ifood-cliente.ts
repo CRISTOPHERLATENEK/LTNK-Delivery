@@ -145,7 +145,13 @@ export async function tokenDeAcesso(
 
 /* ─────────────────────────── chamadas ─────────────────────────── */
 
-async function chamar(
+/**
+ * Exportada para o módulo de catálogo reusar autenticação, timeout e tradução
+ * de erro. Sem isso, o catálogo teria uma segunda implementação de token — e
+ * duas caches de token é o caminho para pedir dois tokens por ciclo e bater no
+ * limite por credencial.
+ */
+export async function chamarIfood(
   cred: CredenciaisIfood,
   caminho: string,
   init: RequestInit & { headers?: Record<string, string> },
@@ -215,7 +221,7 @@ export async function pollingEventos(
     throw new Error('pollingEventos recebe no máximo 100 merchants — use lotesDeMerchants');
   }
 
-  const { status, corpo } = await chamar(cred, '/events/v1.0/events:polling', {
+  const { status, corpo } = await chamarIfood(cred, '/events/v1.0/events:polling', {
     method: 'GET',
     headers: { 'x-polling-merchants': merchantIds.join(',') },
   }, opcoes);
@@ -259,7 +265,7 @@ export async function confirmarEventos(
   if (ids.length > 2000) {
     throw new Error('confirmarEventos recebe no máximo 2000 ids — use lotesDeAck');
   }
-  await chamar(cred, '/events/v1.0/events/acknowledgment', {
+  await chamarIfood(cred, '/events/v1.0/events/acknowledgment', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(ids.map(id => ({ id }))),
@@ -285,7 +291,7 @@ export async function avisarStatusIfood(
   acao: 'confirm' | 'startPreparation' | 'readyToPickup' | 'dispatch',
   opcoes?: OpcoesIfood,
 ): Promise<void> {
-  await chamar(cred, `/order/v1.0/orders/${encodeURIComponent(orderId)}/${acao}`, {
+  await chamarIfood(cred, `/order/v1.0/orders/${encodeURIComponent(orderId)}/${acao}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   }, opcoes);
@@ -309,7 +315,7 @@ export async function motivosDeCancelamento(
   orderId: string,
   opcoes?: OpcoesIfood,
 ): Promise<MotivoCancelamento[]> {
-  const { status, corpo } = await chamar(
+  const { status, corpo } = await chamarIfood(
     cred, `/order/v1.0/orders/${encodeURIComponent(orderId)}/cancellationReasons`,
     { method: 'GET' }, opcoes,
   );
@@ -336,7 +342,7 @@ export async function solicitarCancelamento(
   motivo: string,
   opcoes?: OpcoesIfood,
 ): Promise<void> {
-  await chamar(cred, `/order/v1.0/orders/${encodeURIComponent(orderId)}/requestCancellation`, {
+  await chamarIfood(cred, `/order/v1.0/orders/${encodeURIComponent(orderId)}/requestCancellation`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reason: motivo }),
@@ -349,7 +355,7 @@ export async function buscarPedido(
   orderId: string,
   opcoes?: OpcoesIfood,
 ): Promise<Record<string, unknown>> {
-  const { corpo } = await chamar(
+  const { corpo } = await chamarIfood(
     cred, `/order/v1.0/orders/${encodeURIComponent(orderId)}`, { method: 'GET' }, opcoes,
   );
   return (corpo && typeof corpo === 'object' ? corpo : {}) as Record<string, unknown>;
