@@ -193,3 +193,18 @@ describe('plano vazio x aviso de preço', () => {
     expect(p.travadosSemPreco).toEqual(['X-Bacon']);
   });
 });
+
+describe('o aviso cita o nome NOVO', () => {
+  it('produto renomeado no mesmo ciclo aparece com o nome que vai ficar', () => {
+    /*
+     * Visto no log de um ciclo real: o produto tinha sido renomeado à mão aqui,
+     * a sincronização desfez, e o aviso saiu com o nome velho — que já não
+     * existia. Numa ligação de suporte isso manda procurar o produto errado.
+     */
+    const p = planejarSincronizacao(
+      [la({ nome: 'X-Bacon Artesanal', disponivel: true })],
+      [aqui({ nome: 'X-Bacon MEXIDO A MAO', disponivel: false, precoCentavos: PRECO_NAO_DEFINIDO_CENTAVOS })],
+    );
+    expect(p.travadosSemPreco).toEqual(['X-Bacon Artesanal']);
+  });
+});

@@ -125,7 +125,10 @@ export function planejarSincronizacao(
       campos.disponivel = false;
     } else if (item.disponivel && !nosso.disponivel) {
       if (nosso.precoCentavos > PRECO_NAO_DEFINIDO_CENTAVOS) campos.disponivel = true;
-      else plano.travadosSemPreco.push(nosso.nome);
+      /* O nome que o produto VAI ter depois deste ciclo, não o de antes: o
+         aviso vai para o log e para o suporte, e citar um nome que já não
+         existe manda procurar o produto errado. */
+      else plano.travadosSemPreco.push(campos.nome ?? nosso.nome);
     }
 
     if (Object.keys(campos).length > 0) {
