@@ -728,6 +728,16 @@ async function pollingIfood(): Promise<void> {
   if (resumo.falhas.length) {
     falhasSeguidasIfood++;
     /*
+     * TODA falha aparece, já na primeira.
+     *
+     * A versão anterior só escrevia a partir do 3º ciclo seguido, e isso foi
+     * pego testando: apontei uma loja para um merchant sem permissão, o iFood
+     * respondeu 403, e o log não disse absolutamente nada. Num laço onde o
+     * silêncio significa pedido não recebido, "falhou uma vez" precisa ser
+     * visível — o alarme abaixo continua existindo para o que é PERSISTENTE.
+     */
+    console.error(`[ifood] ciclo com falha (${falhasSeguidasIfood}ª seguida): ${resumo.falhas.join(' | ')}`);
+    /*
      * ALARME COM FREIO: repete no máximo a cada 10 minutos.
      *
      * Sem o freio, uma falha contínua escreve 2 linhas por minuto para sempre —
