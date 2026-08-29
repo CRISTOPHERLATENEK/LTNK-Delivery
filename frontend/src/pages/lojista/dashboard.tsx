@@ -524,6 +524,19 @@ function CardPedidoDash({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <span className="font-bold text-sm">#{p.id} · {p.cliente_nome}</span>
+              {/*
+                SELO DE ORIGEM, só quando NÃO é do nosso app.
+                Sem ele o pedido do iFood é indistinguível de um do cardápio
+                próprio — mesmo cartão, mesmo formato — e o atendente responde
+                ao cliente por um canal que não existe. O nome do cliente
+                também não ajuda: o iFood manda "PEDIDO DE TESTE - Fulano" ou o
+                primeiro nome, e o telefone é uma central.
+              */}
+              {p.origem === 'ifood' && (
+                <span className="shrink-0 rounded-full bg-[#EA1D2C]/10 px-2 py-0.5 text-[10.5px] font-bold text-[#EA1D2C]">
+                  iFood
+                </span>
+              )}
               {p.status === 'pendente' && (
                 <span className="animate-pulse rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] font-bold text-white">
                   NOVO

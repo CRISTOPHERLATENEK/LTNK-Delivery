@@ -11,7 +11,7 @@ import fs from 'fs';
 import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
 import { tenantPorDbNome } from '../tenants-mysql';
 import { autenticar, exigirPerfil } from '../auth';
-import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, proximaAberturaISO, emailValido, normalizarBairro, dataBrasilia} from '../util';
+import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, proximaAberturaISO, emailValido, normalizarBairro, dataBrasilia, filtroOrigemDelivery } from '../util';
 import { precoVigente } from '../preco-produto';
 import { SQL_GRUPOS_DO_PRODUTO, SQL_GRUPOS_DO_PRODUTO_COM_USOS } from '../grupos-sql';
 import { validarOpcoesDoItem } from '../opcoes-item';
@@ -2224,7 +2224,7 @@ router.get('/pedidos', async (req, res, next) => {
     const loja = await minhaLoja(req);
     let sql = `SELECT p.*, u.nome AS cliente_nome, u.telefone AS cliente_telefone
                  FROM pedidos p JOIN usuarios u ON u.id = p.cliente_id
-                WHERE p.loja_id = ? AND p.origem = 'app'
+                WHERE p.loja_id = ? AND ${filtroOrigemDelivery()}
                   AND p.pagamento_status != 'aguardando'`;
     const params: (string | number)[] = [loja.id];
     if (req.query.status) { sql += ' AND p.status = ?'; params.push(textoLimpo(req.query.status, 20)); }
@@ -2945,7 +2945,7 @@ router.post('/pedidos/:id/atribuir-entregador', async (req, res, next) => {
     if (!entregador) throw erroHttp(404, 'Entregador não encontrado ou indisponível.');
 
     const pedido = await db.prepare(
-      "SELECT id, status FROM pedidos WHERE id = ? AND loja_id = ? AND origem = 'app'"
+      `SELECT id, status FROM pedidos WHERE id = ? AND loja_id = ? AND ${filtroOrigemDelivery('pedidos')}`
     ).get(req.params.id, loja.id) as { id: number; status: string } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
     if (pedido.status !== 'pronto') {
@@ -4164,7 +4164,7 @@ router.get('/nfce/pedidos-delivery', async (req, res, next) => {
            SELECT id FROM notas_fiscais WHERE pedido_id = p.id
             ORDER BY (status = 'autorizada') DESC, id DESC LIMIT 1
          )
-        WHERE p.loja_id = ? AND p.origem = 'app' AND p.status = 'entregue'
+        WHERE p.loja_id = ? AND ${filtroOrigemDelivery()} AND p.status = 'entregue'
         ORDER BY p.id DESC LIMIT 100`
     ).all(loja.id);
     res.json({ pedidos });

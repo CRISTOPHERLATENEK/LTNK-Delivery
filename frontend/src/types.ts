@@ -514,6 +514,14 @@ export interface CategoriaContagem {
 export interface Pedido {
   id: number;
   status: StatusPedido;
+  /**
+   * De onde o pedido veio: 'app' (cardápio próprio), 'balcao' (PDV) ou 'ifood'.
+   *
+   * A tela usa isto para o selo de origem. Sem ele, um pedido do iFood é
+   * indistinguível de um do cardápio próprio — mesmo cartão, mesmo formato — e
+   * o atendente responde ao cliente por um canal que não existe.
+   */
+  origem?: string;
   loja_nome?: string;
   tempo_estimado_min?: number;
   cliente_nome?: string;

@@ -9,7 +9,7 @@ import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-
 import bcrypt from 'bcrypt';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
 import { dataValida, inicioUtcDaData, fimUtcDaData } from '../periodo';
-import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, inicioDoDiaBR, dataBrasilia, emailValido, cpfValido, cpfDigitos, telefoneDigitos, reaisParaCentavos } from '../util';
+import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, inicioDoDiaBR, dataBrasilia, emailValido, cpfValido, cpfDigitos, telefoneDigitos, reaisParaCentavos, filtroOrigemDelivery } from '../util';
 import { criptografar, descriptografar } from '../cripto';
 import { montarLandingAdmin, salvarLanding } from '../landing-campos';
 import { garantirSessaoPlataforma, obterQrPlataforma, solicitarCodigoPlataforma, statusSessaoPlataforma, desconectarPlataforma } from '../whatsapp-nao-oficial';
@@ -1344,7 +1344,7 @@ router.get('/monitor', async (req, res, next) => {
          JOIN usuarios c ON c.id = p.cliente_id
          LEFT JOIN usuarios e ON e.id = p.entregador_id
         WHERE p.status IN ('pendente','aceito','preparando','pronto','em_entrega')
-          AND p.origem = 'app'
+          AND ${filtroOrigemDelivery()}
         ORDER BY p.criado_em ASC`
     ).all();
     // Mais antigo primeiro — a coluna é uma fila de espera, e o que está

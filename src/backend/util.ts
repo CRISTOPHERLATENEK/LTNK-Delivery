@@ -323,3 +323,26 @@ export function mensagemDeDuplicidade(erro: unknown): string | null {
   // 500 — diz que é dado repetido, não falha do servidor.
   return 'Já existe um registro com esses dados.';
 }
+
+/**
+ * AS ORIGENS QUE PASSAM PELO FLUXO DE DELIVERY.
+ *
+ * Existia como `origem = 'app'` literal em seis consultas — lista do lojista,
+ * mudança de status, atribuição de entregador, cozinha (duas), fiscal e o
+ * painel do admin. A intenção nunca foi "veio do nosso app": era "é um pedido
+ * que a loja precisa aceitar, preparar e entregar", em oposição à venda de
+ * balcão, que já nasce entregue.
+ *
+ * A diferença só apareceu quando o primeiro pedido do iFood foi criado
+ * corretamente e ficou INVISÍVEL no painel: gravado, correto, e em lugar nenhum.
+ *
+ * Constante e não literal repetido porque a próxima origem (outro marketplace)
+ * vai passar pelo mesmo problema, e seis lugares para lembrar é seis lugares
+ * para esquecer um.
+ */
+export const ORIGENS_DELIVERY = ['app', 'ifood'] as const;
+
+/** Fragmento SQL pronto: `p.origem IN ('app','ifood')`. */
+export function filtroOrigemDelivery(prefixo = 'p'): string {
+  return `${prefixo}.origem IN (${ORIGENS_DELIVERY.map(o => `'${o}'`).join(',')})`;
+}

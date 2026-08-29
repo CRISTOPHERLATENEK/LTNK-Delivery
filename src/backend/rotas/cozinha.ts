@@ -11,7 +11,7 @@ import rateLimit from 'express-rate-limit';
 import { detalheItem } from '../detalhe-item';
 import db from '../db-mysql';
 import { gerarTokenCozinha, autenticarCozinha } from '../auth';
-import { textoLimpo, erroHttp, agoraUTC } from '../util';
+import { textoLimpo, erroHttp, agoraUTC, filtroOrigemDelivery } from '../util';
 import { transicionarStatus } from '../fluxoPedido';
 
 const router = Router();
@@ -88,7 +88,7 @@ router.get('/pedidos', async (req, res, next) => {
     const delivery = await db.prepare(
       `SELECT p.id, p.status, p.observacoes, p.criado_em
          FROM pedidos p
-        WHERE p.loja_id = ? AND p.origem = 'app' AND p.status IN ('aceito','preparando')`
+        WHERE p.loja_id = ? AND ${filtroOrigemDelivery()} AND p.status IN ('aceito','preparando')`
     ).all(c.loja_id) as Array<{ id: number; status: string; observacoes: string; criado_em: string }>;
 
     const tickets = await db.prepare(
@@ -170,7 +170,7 @@ router.post('/pedidos/:id/acao', async (req, res, next) => {
     if (!novoStatus) throw erroHttp(400, 'Ação inválida. Use: preparar ou pronto.');
 
     const pedido = await db.prepare(
-      "SELECT id FROM pedidos WHERE id = ? AND loja_id = ? AND origem = 'app'"
+      `SELECT id FROM pedidos WHERE id = ? AND loja_id = ? AND ${filtroOrigemDelivery('pedidos')}`
     ).get(req.params.id, c.loja_id) as { id: number } | undefined;
     if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
 
