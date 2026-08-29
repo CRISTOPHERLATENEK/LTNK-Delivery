@@ -25,7 +25,9 @@ import revendedorRoutes from './rotas/revendedor';
 import pagamentosRoutes, { reconciliarPagamentosOnz, reconciliarCartoesMP, cancelarCartoesAbandonados } from './rotas/pagamentos';
 import { aquecerTokens } from './onz';
 import { cicloIfood, type LojaIfood } from './ifood-ciclo';
-import { credenciaisDoAmbiente as credenciaisIfood, pollingEventos, confirmarEventos } from './ifood-cliente';
+import { gravarPedidoIfood } from './ifood-gravar';
+import { acaoDoEvento } from './ifood-protocolo';
+import { credenciaisDoAmbiente as credenciaisIfood, pollingEventos, confirmarEventos, buscarPedido as buscarPedidoIfood } from './ifood-cliente';
 import { agoraUTC as agoraUTCIfood } from './util';
 import { gravarFaturasDeTodos } from './faturas';
 import { deveEnviar, destinatariosDe } from './envio-contador';
@@ -35,7 +37,7 @@ import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
 import { ErroHttp, lojaAbertaPorAgenda, agoraUTC, dataBrasilia, mensagemDeDuplicidade } from './util';
-import db, { comTenant, abrirPool, bancoTenantAtual, BANCO_PADRAO } from './db-mysql';
+import db, { comTenant, comTransacao, abrirPool, bancoTenantAtual, BANCO_PADRAO } from './db-mysql';
 import { inicializarSchema } from './schema-mysql';
 import { inicializarCentral, resolverPorHost, tenantPadrao, tenantPorSlug, tenantPorDbNome, listarTenants, poolCentral, tenantDesativadoDoHost, ehMaster } from './tenants-mysql';
 import { inicializarAssinaturas, processarVencimentos } from './assinaturas';
@@ -682,6 +684,99 @@ async function lojasIfood(): Promise<LojaIfood[]> {
   return lojas;
 }
 
+/**
+ * Cria o pedido no banco do tenant a partir do evento.
+ *
+ * Chamado por evento NOVO — a deduplicação já aconteceu. Ainda assim a gravação
+ * tem a própria trava por id do iFood: dois eventos diferentes podem falar do
+ * mesmo pedido, e aí a cozinha produziria duas vezes.
+ */
+async function processarEventoIfood(loja: LojaIfood, evento: { code?: string; fullCode?: string; orderId?: string }): Promise<void> {
+  const acao = acaoDoEvento(evento);
+  /*
+   * Só PLACED cria pedido nesta etapa. Os outros eventos (confirmado,
+   * despachado, cancelado) mudam o estado de um pedido que já existe — e mudar
+   * estado é a próxima etapa. Tratá-los agora criaria pedido a partir de um
+   * "despachado", que é um pedido que já passou.
+   */
+  if (acao !== 'novo') return;
+  const orderId = String(evento.orderId ?? '').trim();
+  if (!orderId) return;
+
+  const cred = credenciaisIfood();
+  if (!cred) return;
+
+  /* O evento não traz o pedido — só o id. Os dados vêm daqui. */
+  const bruto = await buscarPedidoIfood(cred, orderId);
+
+  await comTenant(loja.tenantDb, async () => {
+    const r = await gravarPedidoIfood(loja.lojaId, bruto, {
+      pedidoExistente: async ifoodId => {
+        const linha = await db.prepare(
+          "SELECT id FROM pedidos WHERE origem = 'ifood' AND pagamento_gateway_id = ? AND loja_id = ?"
+        ).get(ifoodId, loja.lojaId) as { id: number } | undefined;
+        return linha ? linha.id : null;
+      },
+
+      /* Mesmo padrão do `consumidorBalcao`: um usuário sintético por loja, para
+         satisfazer o `cliente_id NOT NULL` sem inventar cadastro de pessoa. */
+      consumidorIfood: async lojaId => {
+        const email = `ifood.loja${lojaId}@local`;
+        const existente = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(email) as { id: number } | undefined;
+        if (existente) return existente.id;
+        const info = await db.prepare(
+          `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, criado_em)
+           VALUES ('Cliente (iFood)', ?, '!', 'cliente', '', ?)`
+        ).run(email, agoraUTC());
+        return Number(info.lastInsertRowid);
+      },
+
+      /*
+       * O `externalCode` do iFood é o código que o lojista pôs no cardápio de
+       * lá. Casamos com `codigo_barras`, que é o campo equivalente aqui — não
+       * com o `id`, que é interno e nunca coincidiria.
+       */
+      produtoPorCodigo: async (lojaId, codigo) => {
+        const linha = await db.prepare(
+          'SELECT id FROM produtos WHERE loja_id = ? AND codigo_barras = ? AND excluido = 0 LIMIT 1'
+        ).get(lojaId, codigo) as { id: number } | undefined;
+        return linha ? linha.id : null;
+      },
+
+      inserir: async d => comTransacao(async tx => {
+        const agora = agoraUTC();
+        const info = await tx.prepare(
+          `INSERT INTO pedidos (cliente_id, loja_id, status, endereco_entrega, tipo_entrega,
+                                forma_pagamento, troco_para_centavos, observacoes,
+                                subtotal_centavos, taxa_entrega_centavos, desconto_centavos,
+                                total_centavos, comissao_percentual, comissao_centavos,
+                                pagamento_status, pagamento_gateway, pagamento_gateway_id,
+                                origem, criado_em, atualizado_em)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, 'ifood', ?, ?, ?, ?)`
+        ).run(d.clienteId, d.lojaId, d.status, d.enderecoEntrega, d.tipoEntrega,
+              d.formaPagamento, d.trocoParaCentavos, d.observacoes,
+              d.subtotalCentavos, d.taxaEntregaCentavos, d.descontoCentavos,
+              d.totalCentavos, d.pagamentoStatus, d.gatewayId, d.origem, agora, agora);
+        const pedidoId = Number(info.lastInsertRowid);
+        for (const i of d.itens) {
+          await tx.prepare(
+            `INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos,
+                                       quantidade, opcoes_texto, observacao)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          ).run(pedidoId, i.produtoId, i.nome, i.precoUnitCentavos, i.quantidade, i.opcoesTexto, i.observacao);
+        }
+        return pedidoId;
+      }),
+
+      registrar: (nivel, msg) => { if (nivel === 'erro') console.error(msg); else console.log(msg); },
+    });
+
+    if (!r.criado && r.motivo && r.motivo !== 'pedido já existe') {
+      console.error(`[ifood] pedido ${orderId} não gravado: ${r.motivo}`);
+    }
+  });
+}
+
 async function pollingIfood(): Promise<void> {
   const cred = credenciaisIfood();
   /* Sem credencial de plataforma não há o que fazer — e sair aqui evita varrer
@@ -719,6 +814,8 @@ async function pollingIfood(): Promise<void> {
         }
       });
     },
+
+    aoProcessar: processarEventoIfood,
 
     registrar: (nivel, msg) => {
       if (nivel === 'erro') console.error(msg); else console.log(msg);
