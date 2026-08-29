@@ -1,0 +1,129 @@
+{
+ "item": {
+  "id": "c1c1c1c1-1111-4111-8111-c1c1c1c1c1c1",
+  "type": "DEFAULT",
+  "categoryId": "01e62082-c53f-42ec-83b8-0729ce27aa5f",
+  "status": "AVAILABLE",
+  "price": {
+   "value": 29.9
+  },
+  "externalCode": "XB-001",
+  "index": 0,
+  "productId": "d2d2d2d2-2222-4222-8222-d2d2d2d2d2d2",
+  "contextModifiers": [
+   {
+    "catalogContext": "DEFAULT",
+    "externalCode": "XB-001",
+    "price": {
+     "value": 29.9
+    },
+    "status": "AVAILABLE",
+    "itemContextId": "10bf5130-c471-4d5f-b7ed-00f257f10eec"
+   }
+  ]
+ },
+ "optionGroups": [
+  {
+   "id": "e3e3e3e3-3333-4333-8333-e3e3e3e3e3e3",
+   "name": "Adicionais",
+   "status": "AVAILABLE",
+   "externalCode": "GRP-ADIC",
+   "index": 0,
+   "min": 0,
+   "max": 2,
+   "optionGroupType": "DEFAULT",
+   "optionIds": [
+    "f4f4f4f4-4444-4444-8444-f4f4f4f4f4f4",
+    "a5a5a5a5-5555-4555-8555-a5a5a5a5a5a5"
+   ]
+  }
+ ],
+ "options": [
+  {
+   "id": "f4f4f4f4-4444-4444-8444-f4f4f4f4f4f4",
+   "status": "AVAILABLE",
+   "index": 0,
+   "productId": "b6b6b6b6-6666-4666-8666-b6b6b6b6b6b6",
+   "price": {
+    "value": 5
+   },
+   "externalCode": "OPT-BACON",
+   "contextModifiers": [
+    {
+     "catalogContext": "DEFAULT",
+     "externalCode": "OPT-BACON",
+     "price": {
+      "value": 5
+     },
+     "status": "AVAILABLE"
+    }
+   ]
+  },
+  {
+   "id": "a5a5a5a5-5555-4555-8555-a5a5a5a5a5a5",
+   "status": "AVAILABLE",
+   "index": 1,
+   "productId": "c7c7c7c7-7777-4777-8777-c7c7c7c7c7c7",
+   "price": {
+    "value": 4
+   },
+   "externalCode": "OPT-CHED",
+   "contextModifiers": [
+    {
+     "catalogContext": "DEFAULT",
+     "externalCode": "OPT-CHED",
+     "price": {
+      "value": 4
+     },
+     "status": "AVAILABLE"
+    }
+   ]
+  }
+ ],
+ "products": [
+  {
+   "id": "d2d2d2d2-2222-4222-8222-d2d2d2d2d2d2",
+   "name": "X-Bacon Artesanal",
+   "externalCode": "XB-001",
+   "description": "Pao brioche, hamburguer 180g, bacon e queijo",
+   "imagePath": "",
+   "tags": [],
+   "serving": "NOT_APPLICABLE",
+   "dietaryRestrictions": [],
+   "weight": {},
+   "optionGroups": [
+    {
+     "id": "e3e3e3e3-3333-4333-8333-e3e3e3e3e3e3",
+     "min": 0,
+     "max": 2,
+     "index": 0
+    }
+   ],
+   "industrialized": false
+  },
+  {
+   "id": "b6b6b6b6-6666-4666-8666-b6b6b6b6b6b6",
+   "name": "Bacon extra",
+   "externalCode": "AD-BACON",
+   "imagePath": "",
+   "tags": [],
+   "serving": "NOT_APPLICABLE",
+   "dietaryRestrictions": [],
+   "weight": {},
+   "optionGroups": [],
+   "industrialized": false
+  },
+  {
+   "id": "c7c7c7c7-7777-4777-8777-c7c7c7c7c7c7",
+   "name": "Cheddar",
+   "externalCode": "AD-CHEDDAR",
+   "imagePath": "",
+   "tags": [],
+   "serving": "NOT_APPLICABLE",
+   "dietaryRestrictions": [],
+   "weight": {},
+   "optionGroups": [],
+   "industrialized": false
+  }
+ ]
+}
