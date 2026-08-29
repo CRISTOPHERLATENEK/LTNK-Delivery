@@ -75,3 +75,20 @@ describe('a sincronização não encosta em preço', () => {
     expect(bloco).not.toContain('30_000');
   });
 });
+
+describe('um ciclo só de sincronização', () => {
+  it('o servidor e o comando chamam o MESMO ciclo', () => {
+    /* Com duas orquestrações, o "sincronizar agora" do suporte provaria uma
+       coisa e o automático faria outra — e a diferença só apareceria na loja
+       de alguém. */
+    for (const arquivo of ['server.ts', 'ifood-sincronizar-cli.ts']) {
+      expect(semComentarios(arquivo)).toContain('sincronizarLojaIfood(');
+    }
+  });
+
+  it('nenhum dos dois monta o plano por conta própria', () => {
+    for (const arquivo of ['server.ts', 'ifood-sincronizar-cli.ts']) {
+      expect(semComentarios(arquivo)).not.toContain('planejarSincronizacao(');
+    }
+  });
+});

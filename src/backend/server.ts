@@ -30,10 +30,7 @@ import { acaoDoEvento } from './ifood-protocolo';
 import { statusParaEvento, ehFalhaDeCancelamento } from './ifood-status';
 import { transicionarStatus } from './fluxoPedido';
 import { credenciaisDoAmbiente as credenciaisIfood, pollingEventos, confirmarEventos, buscarPedido as buscarPedidoIfood } from './ifood-cliente';
-import { lerCardapioIfood } from './ifood-catalogo';
-import { planejarSincronizacao, planoVazio } from './ifood-sincronizar';
-import { aplicarSincronizacao } from './ifood-sincronizar-gravar';
-import { depsSincronizacaoIfood, lerProdutosDaLoja } from './ifood-importar-deps';
+import { sincronizarLojaIfood, resumoDoCiclo, NADA_A_FAZER } from './ifood-sincronizar-ciclo';
 import { agoraUTC as agoraUTCIfood } from './util';
 import { gravarFaturasDeTodos } from './faturas';
 import { deveEnviar, destinatariosDe } from './envio-contador';
@@ -723,16 +720,11 @@ async function sincronizarCardapiosIfood(): Promise<void> {
 
     for (const loja of lojas) {
       try {
-        const doIfood = await lerCardapioIfood(cred, loja.ifood_merchant_id);
         await comTenant(tenant.db_nome, async () => {
-          const plano = planejarSincronizacao(doIfood, await lerProdutosDaLoja(loja.id));
-          if (planoVazio(plano)) return;
+          const r = await sincronizarLojaIfood(cred, loja.ifood_merchant_id, loja.id);
+          if (r === NADA_A_FAZER) return;
 
-          const r = await aplicarSincronizacao(loja.id, plano, 'iFood', depsSincronizacaoIfood());
-          console.log(
-            `[ifood-sync] loja ${loja.id}/${tenant.slug}: ${r.criados} novo(s), ` +
-            `${r.atualizados} atualizado(s), ${r.gruposNovos} grupo(s), ${r.opcoesNovas} opção(ões)`,
-          );
+          console.log(`[ifood-sync] loja ${loja.id}/${tenant.slug}: ${resumoDoCiclo(r)}`);
           if (r.travadosSemPreco.length) {
             console.log(`[ifood-sync] loja ${loja.id}: à venda no iFood mas sem preço aqui, seguem pausados: ${r.travadosSemPreco.join(', ')}`);
           }
