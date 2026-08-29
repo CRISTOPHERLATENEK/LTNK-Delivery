@@ -108,6 +108,31 @@ export async function listarCategorias(
 }
 
 /**
+ * Os itens de UMA categoria.
+ *
+ * Existe porque `GET /catalogs/{id}/categories` devolve as categorias com
+ * `items: []` — mesmo quando há itens. Descoberto na tela: a importação dizia
+ * "não encontrei produtos" com um item cadastrado no catálogo. É este endpoint
+ * que traz a lista de verdade.
+ */
+export async function listarItensDaCategoria(
+  cred: CredenciaisIfood,
+  merchantId: string,
+  categoryId: string,
+  opcoes?: OpcoesIfood,
+): Promise<Array<Record<string, unknown>>> {
+  const { corpo } = await chamarIfood(
+    cred,
+    `${base(merchantId)}/categories/${encodeURIComponent(categoryId)}/items`,
+    { method: 'GET' },
+    opcoes,
+  );
+  if (Array.isArray(corpo)) return corpo as Array<Record<string, unknown>>;
+  const d = (corpo && typeof corpo === 'object' ? corpo : {}) as Record<string, unknown>;
+  return Array.isArray(d.items) ? (d.items as Array<Record<string, unknown>>) : [];
+}
+
+/**
  * Um item com TUDO: produto, grupos de opção e opções.
  *
  * O `/flat` existe porque a listagem de categoria pode não trazer os

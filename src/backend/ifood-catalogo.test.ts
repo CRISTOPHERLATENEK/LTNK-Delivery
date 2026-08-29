@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   listarCatalogos, catalogoDeEntrega, listarCategorias,
-  buscarItemCompleto, listarVendaveis, resumirCardapio,
+  buscarItemCompleto, listarVendaveis, resumirCardapio, listarItensDaCategoria,
 } from './ifood-catalogo';
 import { limparTokensIfood, type CredenciaisIfood } from './ifood-cliente';
 
@@ -182,5 +182,33 @@ describe('resumirCardapio', () => {
     ]);
     const r = await resumirCardapio(CRED, M, { buscar: f.buscar, baseUrl: BASE });
     expect(r).toMatchObject({ categorias: 0, itens: 0 });
+  });
+});
+
+describe('listarItensDaCategoria', () => {
+  it('busca no endpoint que REALMENTE devolve os itens', async () => {
+    /*
+     * Pego na tela, não no teste: `GET /catalogs/{id}/categories` devolve as
+     * categorias com `items: []` mesmo havendo itens. A importação dizia "não
+     * encontrei produtos" com um item cadastrado no catálogo.
+     */
+    const f = fetchFalso([TOKEN, { contem: '/items', corpo: { categoryId: 'c1', items: [{ id: 'i1' }] } }]);
+    const r = await listarItensDaCategoria(CRED, M, 'c1', { buscar: f.buscar, baseUrl: BASE });
+    expect(r).toHaveLength(1);
+    expect(f.chamadas.find(u => u.includes('/items'))).toBe(
+      `${BASE}/catalog/v2.0/merchants/merch-1/categories/c1/items`,
+    );
+  });
+
+  it('aceita lista crua também', async () => {
+    /* A API responde envelopado numa rota e cru noutra; aceitar os dois evita
+       que a leitura dependa de qual formato veio. */
+    const f = fetchFalso([TOKEN, { contem: '/items', corpo: [{ id: 'i1' }, { id: 'i2' }] }]);
+    expect(await listarItensDaCategoria(CRED, M, 'c1', { buscar: f.buscar, baseUrl: BASE })).toHaveLength(2);
+  });
+
+  it('categoria vazia devolve lista vazia', async () => {
+    const f = fetchFalso([TOKEN, { contem: '/items', corpo: { categoryId: 'c1', items: [] } }]);
+    expect(await listarItensDaCategoria(CRED, M, 'c1', { buscar: f.buscar, baseUrl: BASE })).toEqual([]);
   });
 });

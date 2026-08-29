@@ -38,7 +38,7 @@ import {
 import { criptografar, descriptografar } from '../cripto';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
 import { credenciaisDoAmbiente as credenciaisIfood } from '../ifood-cliente';
-import { buscarItemCompleto, listarCatalogos, catalogoDeEntrega, listarCategorias } from '../ifood-catalogo';
+import { buscarItemCompleto, listarCatalogos, catalogoDeEntrega, listarCategorias, listarItensDaCategoria } from '../ifood-catalogo';
 import { traduzirItem, planejarImportacao, type ProdutoImportado } from '../ifood-importar';
 import { importarCardapio, grupoParaNosso } from '../ifood-importar-gravar';
 import { cashInDisponivel, registrarWebhookCashIn, consultarWebhookCashIn } from '../onz';
@@ -3677,7 +3677,13 @@ async function lerCardapioIfood(merchantId: string): Promise<ProdutoImportado[]>
   const categorias = await listarCategorias(cred, merchantId, catalogo.catalogId);
   const produtos: ProdutoImportado[] = [];
   for (const c of categorias) {
-    for (const it of c.items) {
+    /*
+     * Os itens NÃO vêm dentro da categoria: `GET /catalogs/{id}/categories`
+     * devolve `items: []` mesmo quando há itens. Pego testando na tela — a
+     * importação dizia "não encontrei produtos" com um item cadastrado.
+     */
+    const itens = c.items.length ? c.items : await listarItensDaCategoria(cred, merchantId, c.id);
+    for (const it of itens) {
       const id = String((it as Record<string, unknown>).id ?? '').trim();
       if (!id) continue;
       try {
