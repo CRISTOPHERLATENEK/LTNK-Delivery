@@ -29,6 +29,8 @@ export interface ResultadoPublicacao {
   atualizados: number;
   falhas: string[];
   semCodigo: string[];
+  /** Sem preço de verdade: ficaram de fora para não virar R$ 0,01 lá. */
+  semPreco: string[];
   soExistemNoIfood: string[];
   /** No ensaio, o que SERIA enviado — para conferir antes de mandar. */
   previa: Array<{ nome: string; codigo: string; acao: 'criar' | 'atualizar'; complementos: number }>;
@@ -43,7 +45,7 @@ export async function publicarCardapioIfood(
   const publicar = opcoes.publicar === true;
   const r: ResultadoPublicacao = {
     publicou: publicar, criados: 0, atualizados: 0,
-    falhas: [], semCodigo: [], soExistemNoIfood: [], previa: [],
+    falhas: [], semCodigo: [], semPreco: [], soExistemNoIfood: [], previa: [],
   };
 
   const catalogo = catalogoDeEntrega(await listarCatalogos(cred, merchantId));
@@ -54,6 +56,7 @@ export async function publicarCardapioIfood(
   const plano = planejarPublicacao(nossos, laPorCodigo);
 
   r.semCodigo = plano.semCodigo;
+  r.semPreco = plano.semPreco;
   r.soExistemNoIfood = plano.soExistemNoIfood;
 
   const categoryId = await primeiraCategoria(cred, merchantId, catalogo.catalogId);

@@ -41,6 +41,7 @@ async function principal(): Promise<void> {
       console.log(`  ${p.acao}: ${p.nome} (${p.codigo}) — ${p.complementos} grupo(s)`);
     }
     if (r.semCodigo.length) console.log('sem código de barras, ficaram de fora:', r.semCodigo.join(', '));
+    if (r.semPreco.length) console.log('SEM PREÇO aqui, ficaram de fora (publicar seria vender a R$ 0,01 lá):', r.semPreco.join(', '));
     if (r.soExistemNoIfood.length) console.log('existem só no iFood e NÃO foram tocados:', r.soExistemNoIfood.join(', '));
     for (const f of r.falhas) console.error('falha:', f);
   });

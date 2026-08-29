@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import {
-  montarPayloadItem, planejarPublicacao, centavosParaPreco,
+  montarPayloadItem, planejarPublicacao, centavosParaPreco, PRECO_NAO_DEFINIDO_CENTAVOS,
   type ProdutoDaqui,
 } from './ifood-publicar';
 
@@ -176,5 +176,41 @@ describe('planejarPublicacao', () => {
     const plano = planejarPublicacao([], new Map([['ORFAO-1', 'item-x']]));
     expect(plano.soExistemNoIfood).toEqual(['ORFAO-1']);
     expect(JSON.stringify(plano)).not.toMatch(/excluir|apagar|remover/i);
+  });
+});
+
+describe('não publicar produto sem preço', () => {
+  it('produto com o preço-marcador da importação NÃO vai', () => {
+    /*
+     * Pego no primeiro ensaio contra a API real: o X-Bacon, importado do iFood
+     * e ainda sem preço aqui, seria publicado de volta a R$ 0,01 — desta vez
+     * para o lado onde o cliente compra de verdade.
+     */
+    const plano = planejarPublicacao(
+      [nosso({ nome: 'X-Bacon', codigoBarras: 'XB-001', precoCentavos: PRECO_NAO_DEFINIDO_CENTAVOS })],
+      new Map([['XB-001', 'item-a']]),
+    );
+    expect(plano.atualizar).toEqual([]);
+    expect(plano.criar).toEqual([]);
+    expect(plano.semPreco).toEqual(['X-Bacon']);
+  });
+
+  it('e não é reportado como órfão do iFood', () => {
+    /* Ele existe lá e continua lá, intacto. Chamá-lo de órfão mandaria o
+       lojista procurar um problema que não existe. */
+    const plano = planejarPublicacao(
+      [nosso({ codigoBarras: 'XB-001', precoCentavos: PRECO_NAO_DEFINIDO_CENTAVOS })],
+      new Map([['XB-001', 'item-a']]),
+    );
+    expect(plano.soExistemNoIfood).toEqual([]);
+  });
+
+  it('preço de verdade passa normalmente', () => {
+    const plano = planejarPublicacao(
+      [nosso({ codigoBarras: 'XB-001', precoCentavos: 2 })],
+      new Map([['XB-001', 'item-a']]),
+    );
+    expect(plano.atualizar).toHaveLength(1);
+    expect(plano.semPreco).toEqual([]);
   });
 });

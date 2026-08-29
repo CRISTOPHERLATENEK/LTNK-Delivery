@@ -167,6 +167,17 @@ export function montarPayloadItem(
   return { item, products: produtos, optionGroups: grupos, options: opcoes };
 }
 
+/**
+ * Abaixo ou igual a isto, o produto NUNCA foi precificado aqui.
+ *
+ * Mesmo marcador da importação, que grava 1 centavo porque o CHECK da coluna
+ * exige > 0. Vale repetir por que ele importa tanto nesta direção: uma loja que
+ * importou o cardápio do iFood e ainda não precificou, ao ligar a publicação,
+ * mandaria os próprios produtos de volta a R$ 0,01 — e desta vez para o lado
+ * onde o cliente compra de verdade. Pego no primeiro ensaio contra a API real.
+ */
+export const PRECO_NAO_DEFINIDO_CENTAVOS = 1;
+
 export interface PlanoPublicacao {
   /** Não existem lá: entram como item novo. */
   criar: ProdutoDaqui[];
@@ -174,6 +185,8 @@ export interface PlanoPublicacao {
   atualizar: Array<{ produto: ProdutoDaqui; itemId: string }>;
   /** Sem código de barras: não há como ligar os dois lados. */
   semCodigo: string[];
+  /** Ainda com o preço-marcador da importação: publicar seria vender a R$ 0,01. */
+  semPreco: string[];
   /** Estão lá e não aqui. Só relatório — publicar não apaga. */
   soExistemNoIfood: string[];
 }
@@ -192,12 +205,23 @@ export function planejarPublicacao(
   nossos: readonly ProdutoDaqui[],
   itensDeLa: ReadonlyMap<string, string>,
 ): PlanoPublicacao {
-  const plano: PlanoPublicacao = { criar: [], atualizar: [], semCodigo: [], soExistemNoIfood: [] };
+  const plano: PlanoPublicacao = { criar: [], atualizar: [], semCodigo: [], semPreco: [], soExistemNoIfood: [] };
   const usados = new Set<string>();
 
   for (const p of nossos) {
     const codigo = p.codigoBarras.trim();
     if (!codigo) { plano.semCodigo.push(p.nome); continue; }
+
+    /*
+     * O produto que nunca foi precificado aqui NÃO vai. Antes de existir esta
+     * guarda, o ensaio contra a API real mostrou que o X-Bacon — importado do
+     * iFood e ainda sem preço — seria publicado de volta a R$ 0,01.
+     */
+    if (p.precoCentavos <= PRECO_NAO_DEFINIDO_CENTAVOS) {
+      plano.semPreco.push(p.nome);
+      usados.add(codigo);
+      continue;
+    }
 
     const itemId = itensDeLa.get(codigo);
     if (itemId) { plano.atualizar.push({ produto: p, itemId }); usados.add(codigo); }
