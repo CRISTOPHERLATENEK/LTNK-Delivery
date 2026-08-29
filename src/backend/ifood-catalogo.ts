@@ -16,6 +16,7 @@
  * aqui porque quem for mexer vai consultar a doc e encontrar o caminho errado.
  */
 import { chamarIfood, type CredenciaisIfood, type OpcoesIfood } from './ifood-cliente';
+import { traduzirItem, type ProdutoImportado } from './ifood-importar';
 
 /**
  * Um catálogo da loja.
@@ -206,4 +207,46 @@ export async function resumirCardapio(
     itens: categorias.reduce((n, c) => n + c.items.length, 0),
     nomes: categorias.map(c => c.name).filter(Boolean),
   };
+}
+
+/**
+ * O cardápio do iFood já traduzido para o nosso formato.
+ *
+ * Fica aqui, e não na rota, porque a importação também roda por comando no
+ * servidor — e um leitor duplicado seria um leitor não testado.
+ */
+export async function lerCardapioIfood(
+  cred: CredenciaisIfood,
+  merchantId: string,
+): Promise<ProdutoImportado[]> {
+  const catalogo = catalogoDeEntrega(await listarCatalogos(cred, merchantId));
+  if (!catalogo) return [];
+
+  const categorias = await listarCategorias(cred, merchantId, catalogo.catalogId);
+  const produtos: ProdutoImportado[] = [];
+  for (const c of categorias) {
+    /*
+     * Os itens NÃO vêm dentro da categoria: `GET /catalogs/{id}/categories`
+     * devolve `items: []` mesmo quando há itens. Pego testando na tela — a
+     * importação dizia "não encontrei produtos" com um item cadastrado.
+     */
+    const itens = c.items.length ? c.items : await listarItensDaCategoria(cred, merchantId, c.id);
+    for (const it of itens) {
+      const id = String((it as Record<string, unknown>).id ?? '').trim();
+      if (!id) continue;
+      try {
+        /*
+         * Um `/flat` POR ITEM. A listagem de categoria traz o item, mas não
+         * garante grupos e opções completos — e importar complemento pela
+         * metade é pior que não importar: o cliente escolheria de uma lista
+         * incompleta e a cozinha receberia um pedido que não fecha.
+         */
+        const t = traduzirItem(await buscarItemCompleto(cred, merchantId, id));
+        if (t) produtos.push(t);
+      } catch (e) {
+        console.error(`[ifood] falha ao ler item ${id}:`, (e as Error).message);
+      }
+    }
+  }
+  return produtos;
 }
