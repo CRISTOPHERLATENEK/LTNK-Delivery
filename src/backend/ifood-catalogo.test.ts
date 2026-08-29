@@ -17,7 +17,8 @@ function fetchFalso(rotas: Array<{ contem: string; status?: number; corpo?: unkn
     const r = rotas.find(x => u.includes(x.contem));
     if (!r) throw new Error('rota não simulada: ' + u);
     const status = r.status ?? 200;
-    return { ok: status < 400, status, json: async () => r.corpo ?? null } as Response;
+    const cru = r.corpo === undefined ? '' : JSON.stringify(r.corpo);
+    return { ok: status < 400, status, text: async () => cru, json: async () => r.corpo ?? null } as Response;
   }) as unknown as typeof fetch;
   return { buscar, chamadas };
 }

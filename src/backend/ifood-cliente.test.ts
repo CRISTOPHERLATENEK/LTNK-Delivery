@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   tokenDeAcesso, limparTokensIfood, pollingEventos, pollingTodasAsLojas,
   confirmarEventos, buscarPedido, credenciaisDoAmbiente, avisarStatusIfood, ErroIfood,
-  motivosDeCancelamento, solicitarCancelamento,
+  motivosDeCancelamento, solicitarCancelamento, ehBloqueioDeRede,
   type CredenciaisIfood,
 } from './ifood-cliente';
 
@@ -10,7 +10,7 @@ const CRED: CredenciaisIfood = { clientId: 'cid-teste', clientSecret: 'SEGREDO-D
 const BASE = 'https://api.teste';
 
 /** `fetch` de mentira: registra o que recebeu, responde por rota. */
-function fetchFalso(rotas: Array<{ contem: string; status?: number; corpo?: unknown; erro?: Error }>) {
+function fetchFalso(rotas: Array<{ contem: string; status?: number; corpo?: unknown; texto?: string; erro?: Error }>) {
   const chamadas: Array<{ url: string; metodo: string; headers: Record<string, string>; corpo: string }> = [];
   const buscar = (async (url: string, init: RequestInit = {}) => {
     const u = String(url);
@@ -27,6 +27,9 @@ function fetchFalso(rotas: Array<{ contem: string; status?: number; corpo?: unkn
     return {
       ok: status < 400,
       status,
+      /* `texto` cru quando declarado — é assim que um bloqueio da Cloudflare
+         chega: HTML, não JSON. */
+      text: async () => (r.texto !== undefined ? r.texto : r.corpo === undefined ? 'sem corpo' : JSON.stringify(r.corpo)),
       json: async () => { if (r.corpo === undefined) throw new Error('sem corpo'); return r.corpo; },
     } as Response;
   }) as unknown as typeof fetch;
@@ -306,5 +309,59 @@ describe('cancelamento', () => {
     const e = await solicitarCancelamento(CRED, 'ord_1', '503', { buscar: f.buscar, baseUrl: BASE }).catch(x => x);
     expect(e.corpoCodigo).toBe('OrderExceededCancellationDeadline');
     expect(e.httpStatus).toBe(400);
+  });
+});
+
+/* Página REAL devolvida pela Cloudflare para o IP do VPS, encurtada. */
+const MURO_CLOUDFLARE =
+  '<!DOCTYPE html><html lang="en-US"><head><title>Attention Required! | Cloudflare</title></head>' +
+  '<body><h1><span>Sorry, you have been blocked</span></h1></body></html>';
+
+describe('ehBloqueioDeRede', () => {
+  it('reconhece a página da Cloudflare', () => {
+    expect(ehBloqueioDeRede(403, MURO_CLOUDFLARE)).toBe(true);
+  });
+
+  it('403 de VERDADE do iFood não é bloqueio de rede', () => {
+    /*
+     * O 403 legítimo traz `unauthorizedMerchants` e é acionável: repetir sem
+     * essas lojas. Confundir os dois faria o polling parar de tratar loja sem
+     * permissão — que é o caso comum — para tratar o caso raro.
+     */
+    expect(ehBloqueioDeRede(403, '{"unauthorizedMerchants":["m1"]}')).toBe(false);
+  });
+
+  it('200 nunca é bloqueio, nem com HTML no corpo', () => {
+    expect(ehBloqueioDeRede(200, MURO_CLOUDFLARE)).toBe(false);
+  });
+});
+
+describe('bloqueio da Cloudflare — diagnóstico', () => {
+  it('na autenticação, NÃO diz que a credencial está errada', async () => {
+    /*
+     * Aconteceu em produção: o IP do servidor entrou na lista da Cloudflare e a
+     * tela dizia "Falha ao autenticar no iFood". Isso manda o lojista trocar
+     * uma credencial que está certa.
+     */
+    const f = fetchFalso([{ contem: '/oauth/token', status: 403, texto: MURO_CLOUDFLARE }]);
+    await expect(tokenDeAcesso(CRED, { buscar: f.buscar, baseUrl: BASE }))
+      .rejects.toThrow(/Cloudflare bloqueou o IP/);
+  });
+
+  it('nas chamadas, NÃO diz que uma loja perdeu permissão', async () => {
+    /*
+     * O log de produção disse exatamente "O iFood recusou o acesso a uma ou
+     * mais lojas" — com a lista de lojas VAZIA, porque não havia lista: a
+     * resposta era o muro da Cloudflare.
+     */
+    const f = fetchFalso([TOKEN_OK, { contem: '/events', status: 403, texto: MURO_CLOUDFLARE }]);
+    await expect(pollingEventos(CRED, ['m1'], { buscar: f.buscar, baseUrl: BASE }))
+      .rejects.toThrow(/Cloudflare bloqueou o IP/);
+  });
+
+  it('403 com lojas sem permissão continua sendo tratado como antes', async () => {
+    const f = fetchFalso([TOKEN_OK, { contem: '/events', status: 403, corpo: { unauthorizedMerchants: ['m9'] } }]);
+    await expect(pollingEventos(CRED, ['m1', 'm9'], { buscar: f.buscar, baseUrl: BASE }))
+      .rejects.toMatchObject({ merchantsSemPermissao: ['m9'] });
   });
 });

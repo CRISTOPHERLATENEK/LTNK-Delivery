@@ -115,8 +115,18 @@ export async function tokenDeAcesso(
     clearTimeout(timer);
   }
 
+  /*
+   * Texto cru primeiro, JSON depois: um bloqueio da Cloudflare responde HTML, e
+   * `resp.json()` engoliria isso num catch — apagando a única pista de que a
+   * requisição nem chegou ao iFood.
+   */
+  const textoCru = await resp.text().catch(() => '');
   let json: Record<string, unknown> = {};
-  try { json = (await resp.json()) as Record<string, unknown>; } catch { /* segue com o status */ }
+  try { json = JSON.parse(textoCru) as Record<string, unknown>; } catch { /* segue com o status */ }
+
+  if (!resp.ok && ehBloqueioDeRede(resp.status, textoCru)) {
+    throw new ErroIfood(AVISO_BLOQUEIO, resp.status);
+  }
 
   if (!resp.ok) {
     const erro = (json.error ?? {}) as Record<string, unknown>;
@@ -151,6 +161,29 @@ export async function tokenDeAcesso(
  * duas caches de token é o caminho para pedir dois tokens por ciclo e bater no
  * limite por credencial.
  */
+/**
+ * A resposta veio do MURO da Cloudflare, não do iFood.
+ *
+ * A API do iFood fica atrás da Cloudflare, e quando o IP do servidor entra na
+ * lista de bloqueio a resposta é 403 com uma PÁGINA HTML — nunca chega na
+ * aplicação deles. Sem distinguir isso, o 403 do muro era lido como 403 da API
+ * e virava "o iFood recusou o acesso a uma ou mais lojas", com lista de lojas
+ * vazia. Foi exatamente o que o log de produção disse, e mandava procurar
+ * permissão de loja quando o problema era o IP.
+ *
+ * A diferença de diagnóstico importa: credencial errada se resolve trocando a
+ * credencial; bloqueio de IP não se resolve mexendo em nada aqui dentro.
+ */
+export function ehBloqueioDeRede(status: number, textoCru: string): boolean {
+  if (status !== 403 && status !== 503 && status !== 429) return false;
+  const t = textoCru.slice(0, 2000).toLowerCase();
+  return t.includes('<html') && (t.includes('cloudflare') || t.includes('you have been blocked'));
+}
+
+const AVISO_BLOQUEIO =
+  'O iFood não foi alcançado: a Cloudflare bloqueou o IP deste servidor. ' +
+  'Não é problema de credencial nem de permissão da loja.';
+
 export async function chamarIfood(
   cred: CredenciaisIfood,
   caminho: string,
@@ -176,8 +209,14 @@ export async function chamarIfood(
     clearTimeout(timer);
   }
 
+  const textoCru = await resp.text().catch(() => '');
   let corpo: unknown = null;
-  try { corpo = await resp.json(); } catch { corpo = null; }
+  try { corpo = JSON.parse(textoCru); } catch { corpo = null; }
+
+  /* Antes do 403 de negócio: o muro também responde 403, e sem lojas nenhuma. */
+  if (ehBloqueioDeRede(resp.status, textoCru)) {
+    throw new ErroIfood(AVISO_BLOQUEIO, resp.status);
+  }
 
   if (resp.status === 403) {
     /*
