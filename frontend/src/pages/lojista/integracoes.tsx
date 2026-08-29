@@ -13,7 +13,7 @@
  * Esta tela é o lugar que ele procura.
  */
 import { useEffect, useState } from 'react';
-import { Plug, Smartphone, ShoppingBag, ExternalLink } from 'lucide-react';
+import { Plug, Smartphone, ShoppingBag, ExternalLink, Download, Loader2 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { Card, CardContent } from '@/components/ui/card';
@@ -21,6 +21,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+
+interface PreviaCardapio {
+  disponivel: boolean;
+  novos: Array<{ nome: string; complementos: number; precoIfoodCentavos: number }>;
+  jaExistem: number;
+  semCodigo: number;
+}
 
 interface EstadoIfood {
   merchant_id: string;
@@ -52,6 +59,9 @@ export function IntegracoesLoja() {
   const [merchantId, setMerchantId] = useState('');
   const [carregado, setCarregado] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  const [previa, setPrevia] = useState<PreviaCardapio | null>(null);
+  const [lendo, setLendo] = useState(false);
+  const [importando, setImportando] = useState(false);
 
   useEffect(() => {
     api<EstadoIfood>('GET', '/api/lojista/ifood')
@@ -73,6 +83,31 @@ export function IntegracoesLoja() {
     } finally {
       setEnviando(false);
     }
+  }
+
+  async function verCardapio() {
+    setLendo(true);
+    try {
+      setPrevia(await api<PreviaCardapio>('GET', '/api/lojista/ifood/cardapio'));
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setLendo(false); }
+  }
+
+  async function importar() {
+    setImportando(true);
+    try {
+      const r = await api<{ criados: number; pulados: number; falhas: string[]; semPreco: string[] }>(
+        'POST', '/api/lojista/ifood/cardapio/importar', {});
+      mostrar(r.falhas.length
+        ? { tipo: 'erro', titulo: r.criados + ' produto(s) importado(s), ' + r.falhas.length + ' com problema',
+            descricao: r.falhas[0] }
+        : { tipo: 'sucesso', titulo: r.criados + ' produto(s) importado(s)',
+            descricao: 'Todos entraram PAUSADOS e sem preco. Defina o preco em Produtos antes de colocar a venda.' });
+      setPrevia(null);
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setImportando(false); }
   }
 
   return (
@@ -173,6 +208,89 @@ export function IntegracoesLoja() {
                   ao seu contato no iFood se não souber onde encontrar.
                 </p>
               </form>
+
+              {/* ─────── importar cardápio ─────── */}
+              {ifood.merchant_id && (
+                <div className="rounded-xl border border-border p-4">
+                  <div className="flex items-start gap-3">
+                    <Download className="mt-0.5 size-4 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold">Trazer o cardápio do iFood</p>
+                      <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                        Cria aqui os produtos que existem lá, com os complementos.
+                        Serve também para os pedidos do iFood passarem a dar baixa
+                        no seu estoque.
+                      </p>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" className="shrink-0"
+                      disabled={lendo || importando} onClick={() => void verCardapio()}>
+                      {lendo ? <Loader2 className="size-4 animate-spin" /> : 'Ver o que tem lá'}
+                    </Button>
+                  </div>
+
+                  {/*
+                    A PRÉVIA MOSTRA OS NOMES, não só a contagem.
+                    "12 produtos" não deixa o lojista perceber que 3 são de um
+                    cardápio antigo que ele nem usa mais. Ver a lista é o que
+                    transforma o clique em decisão.
+                  */}
+                  {previa && (
+                    <div className="mt-4 space-y-3 border-t border-border pt-4">
+                      {previa.novos.length === 0 ? (
+                        <p className="text-[12.5px] text-muted-foreground">
+                          {previa.jaExistem > 0
+                            ? `Nada novo para trazer — os ${previa.jaExistem} produtos de lá já existem aqui.`
+                            : 'Não encontrei produtos no cardápio do iFood.'}
+                        </p>
+                      ) : (
+                        <>
+                          <p className="text-[13px] font-bold">
+                            {previa.novos.length} produto(s) para trazer
+                          </p>
+                          <ul className="max-h-52 space-y-1 overflow-y-auto text-[12.5px] text-muted-foreground">
+                            {previa.novos.map(p => (
+                              <li key={p.nome} className="flex items-baseline justify-between gap-3">
+                                <span className="truncate">{p.nome}</span>
+                                <span className="shrink-0 text-[11.5px] opacity-70">
+                                  {p.complementos > 0 && `${p.complementos} grupo(s) · `}
+                                  lá custa R$ {(p.precoIfoodCentavos / 100).toFixed(2).replace('.', ',')}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+
+                          {/*
+                            O AVISO DO PREÇO VEM ANTES DO BOTÃO, e é o ponto mais
+                            importante desta tela: o preço do iFood embute a
+                            comissão. Trazê-lo faria quem compra pelo seu link
+                            pagar uma comissão que ali não existe — e o número
+                            pareceria certo.
+                          */}
+                          <div className="rounded-lg border border-amber-500/40 bg-amber-500/[0.06] p-3 text-[12px] leading-relaxed text-muted-foreground">
+                            <b className="text-amber-700 dark:text-amber-500">O preço não vem junto.</b>{' '}
+                            No iFood ele costuma embutir a comissão; trazer esse valor
+                            faria quem compra pelo seu link pagar por algo que ali não
+                            existe. Os produtos entram <b>pausados e sem preço</b> — você
+                            define e coloca à venda.
+                          </div>
+
+                          {(previa.jaExistem > 0 || previa.semCodigo > 0) && (
+                            <p className="text-[12px] text-muted-foreground">
+                              {previa.jaExistem > 0 && `${previa.jaExistem} já existem aqui e serão pulados. `}
+                              {previa.semCodigo > 0 && `${previa.semCodigo} sem código no iFood — não dá para saber se já existem, então ficam de fora.`}
+                            </p>
+                          )}
+
+                          <Button type="button" disabled={importando} onClick={() => void importar()}>
+                            {importando ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                            Trazer {previa.novos.length} produto(s)
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <p className="border-t border-border pt-4 text-[12px] leading-relaxed text-muted-foreground">
                 <b className="text-foreground">Importante:</b> além de ligar aqui,

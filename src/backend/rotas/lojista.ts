@@ -38,6 +38,9 @@ import {
 import { criptografar, descriptografar } from '../cripto';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
 import { credenciaisDoAmbiente as credenciaisIfood } from '../ifood-cliente';
+import { buscarItemCompleto, listarCatalogos, catalogoDeEntrega, listarCategorias } from '../ifood-catalogo';
+import { traduzirItem, planejarImportacao, type ProdutoImportado } from '../ifood-importar';
+import { importarCardapio, grupoParaNosso } from '../ifood-importar-gravar';
 import { cashInDisponivel, registrarWebhookCashIn, consultarWebhookCashIn } from '../onz';
 // Sem ciclo: pagamentos.ts não importa lojista.ts.
 import { credenciaisOnzDaLoja } from './pagamentos';
@@ -3659,6 +3662,135 @@ router.put('/ifood', async (req, res, next) => {
       plataforma_integrada: credenciaisIfood() !== null,
       configurado: ativo && merchantId !== '' && credenciaisIfood() !== null,
     });
+  } catch (e) { next(e); }
+});
+
+// ----- iFood: importar cardápio -------------------------------------------
+
+/** Lê o cardápio do iFood e traduz, SEM gravar nada. */
+async function lerCardapioIfood(merchantId: string): Promise<ProdutoImportado[]> {
+  const cred = credenciaisIfood();
+  if (!cred) return [];
+  const catalogo = catalogoDeEntrega(await listarCatalogos(cred, merchantId));
+  if (!catalogo) return [];
+
+  const categorias = await listarCategorias(cred, merchantId, catalogo.catalogId);
+  const produtos: ProdutoImportado[] = [];
+  for (const c of categorias) {
+    for (const it of c.items) {
+      const id = String((it as Record<string, unknown>).id ?? '').trim();
+      if (!id) continue;
+      try {
+        /*
+         * Um `/flat` POR ITEM. A listagem de categoria traz o item, mas não
+         * garante grupos e opções completos — e importar complemento pela
+         * metade é pior que não importar: o cliente escolheria de uma lista
+         * incompleta e a cozinha receberia um pedido que não fecha.
+         */
+        const t = traduzirItem(await buscarItemCompleto(cred, merchantId, id));
+        if (t) produtos.push(t);
+      } catch (e) {
+        console.error(`[ifood] falha ao ler item ${id}:`, (e as Error).message);
+      }
+    }
+  }
+  return produtos;
+}
+
+/** Prévia: o que existe lá e o que aconteceria. NÃO grava. */
+router.get('/ifood/cardapio', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const linha = await db.prepare('SELECT ifood_merchant_id FROM lojas WHERE id = ?')
+      .get(loja.id) as { ifood_merchant_id: string } | undefined;
+    const merchantId = linha?.ifood_merchant_id || '';
+    if (!merchantId || !credenciaisIfood()) {
+      return res.json({ disponivel: false, novos: [], jaExistem: 0, semCodigo: 0 });
+    }
+
+    const produtos = await lerCardapioIfood(merchantId);
+    const existentes = new Map<string, number>();
+    for (const p of await db.prepare(
+      "SELECT id, codigo_barras FROM produtos WHERE loja_id = ? AND excluido = 0 AND codigo_barras <> ''"
+    ).all(loja.id) as Array<{ id: number; codigo_barras: string }>) {
+      existentes.set(p.codigo_barras, p.id);
+    }
+
+    const plano = planejarImportacao(produtos, existentes);
+    res.json({
+      disponivel: true,
+      /* A prévia manda os NOMES, não só a contagem: "12 produtos" não deixa o
+         lojista perceber que 3 deles são de um cardápio antigo que ele nem usa
+         mais. Ver a lista é o que torna a confirmação uma decisão. */
+      novos: plano.novos.map(p => ({
+        nome: p.nome,
+        complementos: p.grupos.length,
+        precoIfoodCentavos: p.precoIfoodCentavos,
+      })),
+      jaExistem: plano.jaExistem.length,
+      semCodigo: plano.semCodigo.length,
+    });
+  } catch (e) { next(e); }
+});
+
+/** Executa a importação. */
+router.post('/ifood/cardapio/importar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const linha = await db.prepare('SELECT ifood_merchant_id FROM lojas WHERE id = ?')
+      .get(loja.id) as { ifood_merchant_id: string } | undefined;
+    const merchantId = linha?.ifood_merchant_id || '';
+    if (!merchantId) throw erroHttp(400, 'Informe o código da loja no iFood antes de importar.');
+    if (!credenciaisIfood()) throw erroHttp(400, 'A integração com o iFood ainda não está habilitada.');
+
+    const produtos = await lerCardapioIfood(merchantId);
+    const categoria = textoLimpo(req.body.categoria, 120) || 'iFood';
+
+    const r = await importarCardapio(loja.id, produtos, categoria, {
+      produtosPorCodigo: async lojaId => {
+        const m = new Map<string, number>();
+        for (const p of await db.prepare(
+          "SELECT id, codigo_barras FROM produtos WHERE loja_id = ? AND excluido = 0 AND codigo_barras <> ''"
+        ).all(lojaId) as Array<{ id: number; codigo_barras: string }>) m.set(p.codigo_barras, p.id);
+        return m;
+      },
+
+      criarProduto: async (lojaId, p) => {
+        const info = await db.prepare(
+          `INSERT INTO produtos (loja_id, nome, descricao, categoria, preco_centavos,
+                                 codigo_barras, disponivel, disponivel_pdv, criado_em)
+           VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?)`
+        ).run(lojaId, p.nome, p.descricao, p.categoria,
+              /*
+               * O CHECK da coluna exige preco_centavos > 0, então não dá para
+               * gravar zero. Grava 1 centavo — visivelmente errado, que é o
+               * ponto: um produto a R$ 0,01 pausado grita "me preencha", e
+               * qualquer valor plausível passaria despercebido.
+               */
+              Math.max(1, p.precoCentavos), p.codigoBarras, agoraUTC());
+        return Number(info.lastInsertRowid);
+      },
+
+      criarGrupo: async (produtoId, g, ordem) => {
+        const n = grupoParaNosso(g);
+        const info = await db.prepare(
+          `INSERT INTO grupos_opcoes (produto_id, nome, tipo, obrigatorio, max_escolhas, ordem)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).run(produtoId, g.nome || 'Complementos', n.tipo, n.obrigatorio ? 1 : 0, n.maxEscolhas, ordem);
+        return Number(info.lastInsertRowid);
+      },
+
+      criarOpcao: async (grupoId, o, ordem) => {
+        await db.prepare(
+          `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem)
+           VALUES (?, ?, ?, ?, ?)`
+        ).run(grupoId, o.nome, o.precoCentavos, o.disponivel ? 1 : 0, ordem);
+      },
+
+      registrar: (nivel, msg) => { if (nivel === 'erro') console.error(msg); else console.log(msg); },
+    });
+
+    res.json(r);
   } catch (e) { next(e); }
 });
 
