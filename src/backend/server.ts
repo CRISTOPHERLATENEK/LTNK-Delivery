@@ -30,6 +30,10 @@ import { acaoDoEvento } from './ifood-protocolo';
 import { statusParaEvento, ehFalhaDeCancelamento } from './ifood-status';
 import { transicionarStatus } from './fluxoPedido';
 import { credenciaisDoAmbiente as credenciaisIfood, pollingEventos, confirmarEventos, buscarPedido as buscarPedidoIfood } from './ifood-cliente';
+import { lerCardapioIfood } from './ifood-catalogo';
+import { planejarSincronizacao, planoVazio } from './ifood-sincronizar';
+import { aplicarSincronizacao } from './ifood-sincronizar-gravar';
+import { depsSincronizacaoIfood, lerProdutosDaLoja } from './ifood-importar-deps';
 import { agoraUTC as agoraUTCIfood } from './util';
 import { gravarFaturasDeTodos } from './faturas';
 import { deveEnviar, destinatariosDe } from './envio-contador';
@@ -687,6 +691,64 @@ async function lojasIfood(): Promise<LojaIfood[]> {
 }
 
 /**
+ * SINCRONIZAÇÃO DE CARDÁPIO das lojas que escolheram a direção `do_ifood`.
+ *
+ * DE HORA EM HORA, e não a cada 30 segundos como o polling. São coisas
+ * opostas: o polling é o que mantém a loja online no iFood e não pode atrasar;
+ * isto é conveniência de catálogo. Cardápio muda algumas vezes por semana, e
+ * cada ciclo custa uma chamada por item — a cada 30 segundos seria o caminho
+ * mais rápido para o rate limit do iFood derrubar o polling junto, trocando
+ * "descrição desatualizada" por "loja fora do ar".
+ *
+ * Loja com falha não interrompe as outras: são tenants diferentes, e um erro no
+ * cardápio de uma não é motivo para o de todas parar.
+ */
+async function sincronizarCardapiosIfood(): Promise<void> {
+  const cred = credenciaisIfood();
+  if (!cred) return;
+
+  for (const tenant of await listarTenants()) {
+    if (!tenant.ativo) continue;
+    let lojas: Array<{ id: number; ifood_merchant_id: string }>;
+    try {
+      lojas = await comTenant(tenant.db_nome, () => db.prepare(
+        `SELECT id, ifood_merchant_id FROM lojas
+          WHERE ifood_ativo = 1 AND ifood_merchant_id <> ''
+            AND ifood_sincronizacao = 'do_ifood'`
+      ).all()) as Array<{ id: number; ifood_merchant_id: string }>;
+    } catch (e) {
+      console.error(`[ifood-sync] não consegui listar lojas do tenant ${tenant.slug}:`, e);
+      continue;
+    }
+
+    for (const loja of lojas) {
+      try {
+        const doIfood = await lerCardapioIfood(cred, loja.ifood_merchant_id);
+        await comTenant(tenant.db_nome, async () => {
+          const plano = planejarSincronizacao(doIfood, await lerProdutosDaLoja(loja.id));
+          if (planoVazio(plano)) return;
+
+          const r = await aplicarSincronizacao(loja.id, plano, 'iFood', depsSincronizacaoIfood());
+          console.log(
+            `[ifood-sync] loja ${loja.id}/${tenant.slug}: ${r.criados} novo(s), ` +
+            `${r.atualizados} atualizado(s), ${r.gruposNovos} grupo(s), ${r.opcoesNovas} opção(ões)`,
+          );
+          if (r.travadosSemPreco.length) {
+            console.log(`[ifood-sync] loja ${loja.id}: à venda no iFood mas sem preço aqui, seguem pausados: ${r.travadosSemPreco.join(', ')}`);
+          }
+          if (r.sumiramDoIfood.length) {
+            console.log(`[ifood-sync] loja ${loja.id}: sumiram do iFood e foram MANTIDOS aqui: ${r.sumiramDoIfood.join(', ')}`);
+          }
+          for (const f of r.falhas) console.error(`[ifood-sync] loja ${loja.id}: ${f}`);
+        });
+      } catch (e) {
+        console.error(`[ifood-sync] loja ${loja.id}/${tenant.slug} falhou:`, (e as Error).message);
+      }
+    }
+  }
+}
+
+/**
  * Cria o pedido no banco do tenant a partir do evento.
  *
  * Chamado por evento NOVO — a deduplicação já aconteceu. Ainda assim a gravação
@@ -1101,6 +1163,15 @@ const PORT = Number(process.env.PORT) || 3000;
   pollingIfood().catch(e => console.error('[ifood] polling falhou:', e));
   setInterval(() => { pollingIfood().catch(e => console.error('[ifood] polling falhou:', e)); }, 30_000);
   setInterval(() => { limparEventosIfood().catch(() => {}); }, 6 * 60 * 60_000);
+
+  /*
+   * Sincronização de CARDÁPIO de hora em hora — de propósito longe dos 30s do
+   * polling. Ver `sincronizarCardapiosIfood`: cada ciclo custa uma chamada por
+   * item, e estourar o limite do iFood derrubaria o polling junto.
+   */
+  setInterval(() => {
+    sincronizarCardapiosIfood().catch(e => console.error('[ifood-sync] falhou:', e));
+  }, 60 * 60_000);
 
   /*
    * Retrato da fatura do mês de cada revendedor, de hora em hora.

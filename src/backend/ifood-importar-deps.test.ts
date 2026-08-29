@@ -38,3 +38,40 @@ describe('um caminho só de importação', () => {
     expect(semComentarios('ifood-importar-cli.ts')).toContain('comTenant(banco');
   });
 });
+
+describe('a sincronização não encosta em preço', () => {
+  it('o UPDATE da sincronização não tem coluna de preço', () => {
+    /*
+     * A regra vale no plano (que não gera alteração de preço) E aqui, na
+     * gravação. Duas guardas para a mesma coisa porque o estrago é o mesmo dos
+     * dois lados: o preço do iFood embute a comissão, e num regime que roda
+     * sozinho ele voltaria a cada hora.
+     */
+    const fonte = semComentarios('ifood-importar-deps.ts');
+    const trecho = fonte.slice(fonte.indexOf('atualizarProduto'));
+    expect(trecho).not.toMatch(/preco/i);
+  });
+
+  it('o ciclo do servidor só pega quem ESCOLHEU a direção', () => {
+    /* Sem o filtro, ligar o iFood para receber pedido ligaria junto a
+       sincronização — e o cardápio da loja mudaria sem ela ter pedido. */
+    const servidor = semComentarios('server.ts');
+    const trecho = servidor.slice(servidor.indexOf('sincronizarCardapiosIfood'));
+    expect(trecho).toContain("ifood_sincronizacao = 'do_ifood'");
+  });
+
+  it('o ciclo de cardápio NÃO roda no intervalo do polling', () => {
+    /*
+     * O polling de 30s é o que mantém a loja online no iFood. Uma
+     * sincronização de catálogo no mesmo ritmo custaria uma chamada por item a
+     * cada meio minuto e levaria o rate limit a derrubar o polling junto —
+     * trocando "descrição desatualizada" por "loja fora do ar".
+     */
+    const servidor = semComentarios('server.ts');
+    const linha = servidor.split('\n').find(l => l.includes('sincronizarCardapiosIfood().catch'));
+    expect(linha).toBeDefined();
+    const bloco = servidor.slice(servidor.indexOf(linha!), servidor.indexOf(linha!) + 260);
+    expect(bloco).toContain('60 * 60_000');
+    expect(bloco).not.toContain('30_000');
+  });
+});

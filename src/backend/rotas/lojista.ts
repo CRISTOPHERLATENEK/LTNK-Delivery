@@ -3605,8 +3605,8 @@ router.get('/ifood', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const row = await db.prepare(
-      'SELECT ifood_merchant_id, ifood_ativo FROM lojas WHERE id = ?'
-    ).get(loja.id) as { ifood_merchant_id: string; ifood_ativo: number } | undefined;
+      'SELECT ifood_merchant_id, ifood_ativo, ifood_sincronizacao FROM lojas WHERE id = ?'
+    ).get(loja.id) as { ifood_merchant_id: string; ifood_ativo: number; ifood_sincronizacao: string } | undefined;
 
     const merchantId = row?.ifood_merchant_id || '';
     const ativo = !!row?.ifood_ativo;
@@ -3619,6 +3619,7 @@ router.get('/ifood', async (req, res, next) => {
        * próprio cadastro como culpado por algo que não depende dele — e
        * abriria chamado sobre um campo que já estava correto.
        */
+      sincronizacao: row?.ifood_sincronizacao || 'nenhuma',
       plataforma_integrada: credenciaisIfood() !== null,
       configurado: ativo && merchantId !== '' && credenciaisIfood() !== null,
     });
@@ -3647,19 +3648,35 @@ router.put('/ifood', async (req, res, next) => {
       vals.push(req.body.ativo ? 1 : 0);
     }
 
+    /*
+     * Só 'nenhuma' e 'do_ifood' são aceitos. A direção oposta — publicar daqui
+     * para o iFood — ainda não existe, e aceitar o valor agora deixaria a loja
+     * marcada como sincronizando por um caminho que ninguém percorre: o lojista
+     * veria "ligado" e nada aconteceria.
+     */
+    if (typeof req.body.sincronizacao === 'string') {
+      const dir = req.body.sincronizacao === 'do_ifood' ? 'do_ifood' : 'nenhuma';
+      if (req.body.sincronizacao !== dir) {
+        throw erroHttp(400, 'Direção de sincronização não disponível.');
+      }
+      sets.push('ifood_sincronizacao = ?');
+      vals.push(dir);
+    }
+
     if (sets.length) {
       vals.push(loja.id);
       await db.prepare(`UPDATE lojas SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
     }
 
     const row = await db.prepare(
-      'SELECT ifood_merchant_id, ifood_ativo FROM lojas WHERE id = ?'
-    ).get(loja.id) as { ifood_merchant_id: string; ifood_ativo: number } | undefined;
+      'SELECT ifood_merchant_id, ifood_ativo, ifood_sincronizacao FROM lojas WHERE id = ?'
+    ).get(loja.id) as { ifood_merchant_id: string; ifood_ativo: number; ifood_sincronizacao: string } | undefined;
     const merchantId = row?.ifood_merchant_id || '';
     const ativo = !!row?.ifood_ativo;
     res.json({
       merchant_id: merchantId,
       ativo,
+      sincronizacao: row?.ifood_sincronizacao || 'nenhuma',
       plataforma_integrada: credenciaisIfood() !== null,
       configurado: ativo && merchantId !== '' && credenciaisIfood() !== null,
     });

@@ -1081,6 +1081,21 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     ['lojas', 'ifood_ativo',        'ifood_ativo TINYINT NOT NULL DEFAULT 0'],
 
     /*
+     * DIREÇÃO da sincronização de cardápio, e uma só de cada vez.
+     *
+     * 'nenhuma'  — o cardápio daqui é independente (o padrão, e o caso comum).
+     * 'do_ifood' — o cardápio de verdade é o do iFood; o que o lojista mudar
+     *              aqui em nome, descrição e disponibilidade será desfeito.
+     *
+     * É coluna e não interruptor booleano porque a direção oposta (publicar
+     * daqui para o iFood) vai existir, e nunca junto: com os dois lados podendo
+     * alterar, um preço mudado aqui seria sobrescrito minutos depois, o lojista
+     * mudaria de novo, e ninguém entenderia quem está ganhando. Um booleano
+     * convidaria a ligar os dois.
+     */
+    ['lojas', 'ifood_sincronizacao', "ifood_sincronizacao VARCHAR(20) NOT NULL DEFAULT 'nenhuma'"],
+
+    /*
      * ─── O que a maquininha devolve, gravado no pedido ───
      *
      * Vazio quando a venda não passou por TEF — que continua sendo a maioria, e

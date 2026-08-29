@@ -10,6 +10,8 @@
 import db from './db-mysql';
 import { agoraUTC } from './util';
 import { grupoParaNosso, type DepsImportar } from './ifood-importar-gravar';
+import type { DepsSincronizar } from './ifood-sincronizar-gravar';
+import type { ProdutoNosso } from './ifood-sincronizar';
 
 export function depsImportacaoIfood(
   registrar?: (nivel: 'info' | 'erro', msg: string) => void,
@@ -56,5 +58,82 @@ export function depsImportacaoIfood(
     },
 
     registrar: registrar ?? ((nivel, msg) => { if (nivel === 'erro') console.error(msg); else console.log(msg); }),
+  };
+}
+
+/**
+ * O cardápio da loja no formato que o plano de sincronização compara.
+ *
+ * Traz grupos e opções junto porque o plano precisa saber o que JÁ existe para
+ * não duplicar complemento — e um complemento duplicado é o cliente vendo
+ * "Bacon" duas vezes na mesma lista.
+ */
+export async function lerProdutosDaLoja(lojaId: number): Promise<ProdutoNosso[]> {
+  const produtos = await db.prepare(
+    `SELECT id, nome, descricao, codigo_barras, preco_centavos, disponivel
+       FROM produtos WHERE loja_id = ? AND excluido = 0`
+  ).all(lojaId) as Array<{
+    id: number; nome: string; descricao: string | null;
+    codigo_barras: string | null; preco_centavos: number; disponivel: number;
+  }>;
+  if (produtos.length === 0) return [];
+
+  const ids = produtos.map(p => p.id);
+  const marcas = ids.map(() => '?').join(',');
+  const grupos = await db.prepare(
+    `SELECT id, produto_id, nome FROM grupos_opcoes WHERE produto_id IN (${marcas})`
+  ).all(...ids) as Array<{ id: number; produto_id: number; nome: string }>;
+
+  const opcoesPorGrupo = new Map<number, Array<{ id: number; nome: string }>>();
+  if (grupos.length > 0) {
+    const marcasG = grupos.map(() => '?').join(',');
+    for (const o of await db.prepare(
+      `SELECT id, grupo_id, nome FROM opcoes_itens WHERE grupo_id IN (${marcasG})`
+    ).all(...grupos.map(g => g.id)) as Array<{ id: number; grupo_id: number; nome: string }>) {
+      const lista = opcoesPorGrupo.get(o.grupo_id) ?? [];
+      lista.push({ id: o.id, nome: o.nome });
+      opcoesPorGrupo.set(o.grupo_id, lista);
+    }
+  }
+
+  const gruposPorProduto = new Map<number, ProdutoNosso['grupos']>();
+  for (const g of grupos) {
+    const lista = gruposPorProduto.get(g.produto_id) ?? [];
+    lista.push({ id: g.id, nome: g.nome, opcoes: opcoesPorGrupo.get(g.id) ?? [] });
+    gruposPorProduto.set(g.produto_id, lista);
+  }
+
+  return produtos.map(p => ({
+    id: p.id,
+    nome: p.nome,
+    descricao: p.descricao ?? '',
+    codigoBarras: p.codigo_barras ?? '',
+    precoCentavos: p.preco_centavos,
+    disponivel: p.disponivel === 1,
+    grupos: gruposPorProduto.get(p.id) ?? [],
+  }));
+}
+
+/**
+ * As dependências da sincronização: as da importação MAIS a atualização.
+ *
+ * `atualizarProduto` monta o UPDATE só com os campos recebidos, e recebe apenas
+ * nome, descrição e disponibilidade. Não há como passar preço por aqui — a
+ * assinatura é a guarda.
+ */
+export function depsSincronizacaoIfood(
+  registrar?: (nivel: 'info' | 'erro', msg: string) => void,
+): DepsSincronizar {
+  return {
+    ...depsImportacaoIfood(registrar),
+    atualizarProduto: async (produtoId, campos) => {
+      const pedacos: string[] = [];
+      const valores: unknown[] = [];
+      if (campos.nome !== undefined) { pedacos.push('nome = ?'); valores.push(campos.nome); }
+      if (campos.descricao !== undefined) { pedacos.push('descricao = ?'); valores.push(campos.descricao); }
+      if (campos.disponivel !== undefined) { pedacos.push('disponivel = ?'); valores.push(campos.disponivel ? 1 : 0); }
+      if (pedacos.length === 0) return;
+      await db.prepare(`UPDATE produtos SET ${pedacos.join(', ')} WHERE id = ?`).run(...valores, produtoId);
+    },
   };
 }

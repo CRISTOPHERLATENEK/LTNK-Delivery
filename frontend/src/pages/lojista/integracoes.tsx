@@ -13,7 +13,7 @@
  * Esta tela é o lugar que ele procura.
  */
 import { useEffect, useState } from 'react';
-import { Plug, Smartphone, ShoppingBag, ExternalLink, Download, Loader2 } from 'lucide-react';
+import { Plug, Smartphone, ShoppingBag, ExternalLink, Download, Loader2, RefreshCw } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { Card, CardContent } from '@/components/ui/card';
@@ -32,6 +32,8 @@ interface PreviaCardapio {
 interface EstadoIfood {
   merchant_id: string;
   ativo: boolean;
+  /** 'nenhuma' | 'do_ifood'. A direção da sincronização de cardápio. */
+  sincronizacao: string;
   /** A PLATAFORMA tem credenciais de app iFood? Não depende do lojista. */
   plataforma_integrada: boolean;
   configurado: boolean;
@@ -287,6 +289,54 @@ export function IntegracoesLoja() {
                           </Button>
                         </>
                       )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ─────── sincronização contínua ─────── */}
+              {ifood.merchant_id && (
+                <div className="rounded-xl border border-border p-4">
+                  <div className="flex items-start gap-3">
+                    <RefreshCw className="mt-0.5 size-4 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold">Manter igual ao iFood</p>
+                      <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                        De hora em hora, o cardápio daqui passa a seguir o de lá:
+                        nome, descrição, complementos e o que está pausado.
+                      </p>
+                    </div>
+                    <Chave
+                      ativo={ifood.sincronizacao === 'do_ifood'}
+                      onAlternar={() => void salvarIfood({
+                        sincronizacao: ifood.sincronizacao === 'do_ifood' ? 'nenhuma' : 'do_ifood',
+                      })}
+                    />
+                  </div>
+
+                  {/*
+                    O AVISO DE QUEM MANDA vem depois do interruptor e só quando
+                    está ligado. É a consequência que o lojista não imagina: ele
+                    vai editar um nome aqui, achar que salvou, e uma hora depois
+                    o nome volta. Dito antes de ligar seria um alerta no vazio;
+                    dito enquanto está ligado, explica o que ele vai ver.
+                  */}
+                  {ifood.sincronizacao === 'do_ifood' && (
+                    <div className="mt-4 space-y-2 border-t border-border pt-4 text-[12px] leading-relaxed text-muted-foreground">
+                      <p>
+                        <b className="text-foreground">Quem manda passa a ser o iFood.</b>{' '}
+                        Nome, descrição e complementos que você mudar por aqui
+                        voltam ao que está lá no próximo ciclo.
+                      </p>
+                      <p>
+                        <b className="text-foreground">O preço continua seu.</b>{' '}
+                        Nunca é sincronizado — o do iFood embute a comissão que
+                        no seu link não existe.
+                      </p>
+                      <p>
+                        <b className="text-foreground">Nada é apagado.</b>{' '}
+                        Produto removido de lá continua aqui, do jeito que está.
+                      </p>
                     </div>
                   )}
                 </div>
