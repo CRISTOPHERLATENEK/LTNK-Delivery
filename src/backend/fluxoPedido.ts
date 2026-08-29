@@ -3,6 +3,8 @@
  *   pendente -> aceito -> preparando -> pronto -> em_entrega -> entregue
  * Terminais alternativos: cancelado (pelo cliente, só em pendente) e recusado (pelo lojista).
  */
+import { acaoParaStatus, type StatusNosso } from './ifood-status';
+import { avisarStatusIfood, credenciaisDoAmbiente as credenciaisIfoodDoAmbiente } from './ifood-cliente';
 import db from './db-mysql';
 import { agoraUTC, erroHttp } from './util';
 import { registrarEvento, notificarEntregadoresCorridaDisponivel } from './notificacoes';
@@ -162,5 +164,64 @@ export async function transicionarStatus(
       console.error('[entregador] falha ao avisar corrida disponível:', e));
   }
 
+  /*
+   * AVISA O IFOOD, quando o pedido veio de lá.
+   *
+   * Aqui e não nas rotas porque `transicionarStatus` é o ponto único por onde
+   * TODO status passa — mesmo motivo pelo qual a notificação e a linha do tempo
+   * moram aqui. Espalhar pelas rotas seria garantir que a próxima rota nova
+   * esquecesse de avisar, e o sintoma disso é o pior possível: o iFood cancela
+   * o pedido sozinho por falta de confirmação (**8 minutos**) depois de a
+   * comida já ter sido feita.
+   *
+   * NÃO BLOQUEIA a transição. Se o iFood estiver fora do ar, o lojista precisa
+   * conseguir aceitar e produzir mesmo assim — recusar a mudança de status aqui
+   * transformaria uma indisponibilidade deles em paralisia da cozinha.
+   */
+  if (pedido.origem === 'ifood') {
+    avisarIfoodDoStatus(pedido as Pedido & Record<string, unknown>, novoStatus)
+      .catch(e => console.error(`[ifood] falha ao avisar status do pedido ${pedidoId}:`, e));
+  }
+
   return { ...pedido, status: novoStatus, atualizado_em: agora, ...extras };
+}
+
+/**
+ * Manda a ação correspondente para o iFood.
+ *
+ * Separada para ficar testável e para o `catch` de quem chama não engolir um
+ * erro de programação junto com uma falha de rede.
+ */
+async function avisarIfoodDoStatus(
+  pedido: Pedido & Record<string, unknown>,
+  novoStatus: StatusPedido,
+): Promise<void> {
+  const orderId = String(pedido.pagamento_gateway_id ?? '').trim();
+  if (!orderId) return;
+
+  const tipo = String(pedido.tipo_entrega ?? 'entrega') === 'retirada' ? 'retirada' : 'entrega';
+  const acao = acaoParaStatus(novoStatus as StatusNosso, tipo);
+  /* Status que não tem correspondente lá (pendente, entregue) não vira chamada:
+     seria pedir 404 e encher o log sem informar nada. */
+  if (!acao) return;
+
+  /*
+   * CANCELAMENTO NÃO PASSA POR AQUI, de propósito.
+   *
+   * `requestCancellation` exige um código de motivo obtido antes em
+   * `GET /cancellationReasons`, e um código inventado é recusado. Cancelar pela
+   * metade é o pior caminho: o lojista veria "cancelado" no painel e o cliente
+   * continuaria esperando a comida. Fica registrado para ser feito inteiro.
+   */
+  if (acao === 'requestCancellation') {
+    console.error(
+      `[ifood] pedido ${pedido.id} (${orderId}) foi ${novoStatus} AQUI, mas o cancelamento ` +
+      `no iFood ainda não é automático — cancele também pelo Gestor de Pedidos do iFood.`,
+    );
+    return;
+  }
+
+  const cred = credenciaisIfoodDoAmbiente();
+  if (!cred) return;
+  await avisarStatusIfood(cred, orderId, acao);
 }

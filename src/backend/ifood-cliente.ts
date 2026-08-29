@@ -255,6 +255,31 @@ export async function confirmarEventos(
   }, opcoes);
 }
 
+/**
+ * Avisa o iFood da mudança de estado do pedido.
+ *
+ * Todas devolvem 202 e são idempotentes do lado deles ("confirmação duplicada →
+ * ignorado"), o que importa aqui: se a rede oscilar e a gente repetir, não vira
+ * erro nem estado duplicado.
+ *
+ * `requestCancellation` é a exceção e NÃO está aqui: cancelar exige um código
+ * de motivo válido, obtido antes em `GET /cancellationReasons`. Mandar sem o
+ * código, ou com um inventado, é recusado — e cancelamento é justamente o
+ * caminho onde errar deixa o cliente sem resposta. Fica para quando for
+ * implementado inteiro, em vez de meio.
+ */
+export async function avisarStatusIfood(
+  cred: CredenciaisIfood,
+  orderId: string,
+  acao: 'confirm' | 'startPreparation' | 'readyToPickup' | 'dispatch',
+  opcoes?: OpcoesIfood,
+): Promise<void> {
+  await chamar(cred, `/order/v1.0/orders/${encodeURIComponent(orderId)}/${acao}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+  }, opcoes);
+}
+
 /** Detalhes do pedido: itens, valores, endereço, pagamento. */
 export async function buscarPedido(
   cred: CredenciaisIfood,

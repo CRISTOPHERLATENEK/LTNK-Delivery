@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   tokenDeAcesso, limparTokensIfood, pollingEventos, pollingTodasAsLojas,
-  confirmarEventos, buscarPedido, credenciaisDoAmbiente, ErroIfood,
+  confirmarEventos, buscarPedido, credenciaisDoAmbiente, avisarStatusIfood, ErroIfood,
   type CredenciaisIfood,
 } from './ifood-cliente';
 
@@ -196,6 +196,33 @@ describe('confirmarEventos', () => {
     const f = fetchFalso([TOKEN_OK]);
     const ids = Array.from({ length: 2001 }, (_, i) => `e${i}`);
     await expect(confirmarEventos(CRED, ids, { buscar: f.buscar, baseUrl: BASE })).rejects.toThrow(/2000/);
+  });
+});
+
+describe('avisarStatusIfood', () => {
+  it('bate no endpoint da ação, com POST', async () => {
+    const f = fetchFalso([TOKEN_OK, { contem: '/confirm', status: 202, corpo: {} }]);
+    await avisarStatusIfood(CRED, 'ord_1', 'confirm', { buscar: f.buscar, baseUrl: BASE });
+    const c = f.chamadas.find(x => x.url.includes('/confirm'))!;
+    expect(c.url).toBe(`${BASE}/order/v1.0/orders/ord_1/confirm`);
+    expect(c.metodo).toBe('POST');
+    expect(c.headers.Authorization).toBe('Bearer jwt-abc');
+  });
+
+  it('202 é sucesso, não erro', async () => {
+    /* A API responde 202 (aceito, processa depois) em todas essas ações.
+       Tratar como falha faria o sistema achar que nunca avisou. */
+    const f = fetchFalso([TOKEN_OK, { contem: '/dispatch', status: 202, corpo: {} }]);
+    await expect(avisarStatusIfood(CRED, 'ord_1', 'dispatch', { buscar: f.buscar, baseUrl: BASE }))
+      .resolves.toBeUndefined();
+  });
+
+  it('409 propaga o status para quem decide se repete', async () => {
+    /* 409 = o pedido já passou desse estado. Quem chama precisa do número para
+       não insistir. */
+    const f = fetchFalso([TOKEN_OK, { contem: '/confirm', status: 409, corpo: { message: 'Order already confirmed' } }]);
+    const e = await avisarStatusIfood(CRED, 'ord_1', 'confirm', { buscar: f.buscar, baseUrl: BASE }).catch(x => x);
+    expect(e.httpStatus).toBe(409);
   });
 });
 

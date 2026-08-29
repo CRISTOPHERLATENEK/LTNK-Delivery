@@ -27,6 +27,8 @@ import { aquecerTokens } from './onz';
 import { cicloIfood, type LojaIfood } from './ifood-ciclo';
 import { gravarPedidoIfood } from './ifood-gravar';
 import { acaoDoEvento } from './ifood-protocolo';
+import { statusParaEvento } from './ifood-status';
+import { transicionarStatus } from './fluxoPedido';
 import { credenciaisDoAmbiente as credenciaisIfood, pollingEventos, confirmarEventos, buscarPedido as buscarPedidoIfood } from './ifood-cliente';
 import { agoraUTC as agoraUTCIfood } from './util';
 import { gravarFaturasDeTodos } from './faturas';
@@ -699,9 +701,41 @@ async function processarEventoIfood(loja: LojaIfood, evento: { code?: string; fu
    * estado é a próxima etapa. Tratá-los agora criaria pedido a partir de um
    * "despachado", que é um pedido que já passou.
    */
-  if (acao !== 'novo') return;
   const orderId = String(evento.orderId ?? '').trim();
   if (!orderId) return;
+
+  /*
+   * EVENTOS QUE MUDAM UM PEDIDO QUE JÁ EXISTE.
+   *
+   * O cancelamento é o que importa: o cliente desiste no app e, sem isto, a
+   * cozinha continua montando e o entregador sai com um pedido que não existe
+   * mais. CONCLUDED também entra — em entrega própria o iFood conclui sozinho
+   * depois de 4h, e é a única forma de o pedido sair da tela sem alguém marcar.
+   */
+  const novoStatus = statusParaEvento(String(evento.code ?? ''), String(evento.fullCode ?? ''));
+  if (novoStatus) {
+    await comTenant(loja.tenantDb, async () => {
+      const linha = await db.prepare(
+        "SELECT id, status FROM pedidos WHERE origem = 'ifood' AND pagamento_gateway_id = ? AND loja_id = ?"
+      ).get(orderId, loja.lojaId) as { id: number; status: string } | undefined;
+      if (!linha) return;
+      /*
+       * `transicionarStatus` valida a máquina de estados e recusa transição
+       * inválida com 409. Um CANCELLED chegando depois de 'entregue' é
+       * exatamente isso — e o certo é registrar, não forçar: o pedido foi
+       * entregue de fato, e reescrever a história esconderia o problema.
+       */
+      try {
+        await transicionarStatus(linha.id, novoStatus as never);
+        console.log(`[ifood] pedido #${linha.id} → ${novoStatus} (evento do iFood)`);
+      } catch (e) {
+        console.error(`[ifood] pedido #${linha.id} está '${linha.status}' e o iFood mandou '${novoStatus}': ${(e as Error).message}`);
+      }
+    });
+    return;
+  }
+
+  if (acao !== 'novo') return;
 
   const cred = credenciaisIfood();
   if (!cred) return;

@@ -159,6 +159,14 @@ export interface Pedido {
   id: number;
   cliente_id: number;
   loja_id: number;
+  /**
+   * 'app' (cardápio próprio), 'balcao' (PDV) ou 'ifood'.
+   *
+   * `transicionarStatus` lê isto para avisar o iFood quando o pedido veio de
+   * lá — a confirmação tem 8 minutos e, sem o aviso, o iFood cancela sozinho
+   * depois de a comida ter sido feita.
+   */
+  origem?: string;
   entregador_id: number | null;
   status: StatusPedido;
   endereco_entrega: string;
