@@ -45,7 +45,7 @@ async function principal(): Promise<void> {
     const r = await sincronizarLojaIfood(cred, merchantId, lojaId);
     if (r === NADA_A_FAZER) { console.log('nada mudou.'); return; }
 
-    console.log(resumoDoCiclo(r));
+    if (r.criados || r.atualizados || r.gruposNovos || r.opcoesNovas) console.log(resumoDoCiclo(r));
     if (r.travadosSemPreco.length) console.log('à venda lá, pausados aqui por falta de preço:', r.travadosSemPreco.join(', '));
     if (r.sumiramDoIfood.length) console.log('sumiram de lá e foram MANTIDOS aqui:', r.sumiramDoIfood.join(', '));
     for (const f of r.falhas) console.error('falha:', f);

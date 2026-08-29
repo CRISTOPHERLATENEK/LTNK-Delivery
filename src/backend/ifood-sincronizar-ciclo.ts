@@ -11,7 +11,7 @@
  */
 import type { CredenciaisIfood } from './ifood-cliente';
 import { lerCardapioIfood } from './ifood-catalogo';
-import { planejarSincronizacao, planoVazio } from './ifood-sincronizar';
+import { planejarSincronizacao, planoVazio, type PlanoSincronizacao } from './ifood-sincronizar';
 import { aplicarSincronizacao, type ResultadoSincronizacao } from './ifood-sincronizar-gravar';
 import { depsSincronizacaoIfood, lerProdutosDaLoja } from './ifood-importar-deps';
 
@@ -19,6 +19,33 @@ export const NADA_A_FAZER: ResultadoSincronizacao = Object.freeze({
   criados: 0, atualizados: 0, gruposNovos: 0, opcoesNovas: 0,
   falhas: [], sumiramDoIfood: [], travadosSemPreco: [],
 });
+
+/**
+ * O que um ciclo devolve quando NÃO há nada a gravar — ou `null` se há.
+ *
+ * Ciclo sem gravação normalmente é silêncio: com um log por hora por loja, o
+ * que importa vira invisível.
+ *
+ * A EXCEÇÃO é `travadosSemPreco`, e ela custou um teste ao vivo para aparecer.
+ * Um produto à venda no iFood e pausado aqui por não ter preço não gera
+ * gravação nenhuma — o plano fica vazio — então o aviso MAIS acionável que a
+ * sincronização tem era justamente o único que nunca saía. O lojista ficaria
+ * esperando um produto entrar no ar sem nada dizer por quê.
+ *
+ * `sumiramDoIfood` fica fora desta exceção de propósito: aquilo nunca se
+ * resolve sozinho (o produto fica aqui para sempre, por decisão), então
+ * repetiria a mesma lista toda hora, para sempre. O aviso de preço some assim
+ * que o lojista põe o preço — que é justamente a ação que ele pede.
+ *
+ * Separada da função que faz o ciclo para poder ser provada sem rede nem banco.
+ */
+export function resultadoDeCicloSemGravacao(
+  plano: PlanoSincronizacao,
+): ResultadoSincronizacao | null {
+  if (!planoVazio(plano)) return null;
+  if (plano.travadosSemPreco.length === 0) return NADA_A_FAZER;
+  return { ...NADA_A_FAZER, falhas: [], sumiramDoIfood: [], travadosSemPreco: plano.travadosSemPreco };
+}
 
 export async function sincronizarLojaIfood(
   cred: CredenciaisIfood,
@@ -29,12 +56,8 @@ export async function sincronizarLojaIfood(
   const doIfood = await lerCardapioIfood(cred, merchantId);
   const plano = planejarSincronizacao(doIfood, await lerProdutosDaLoja(lojaId));
 
-  /*
-   * Plano vazio devolve o resultado zerado E as listas de relatório zeradas:
-   * quem chama usa isso para não escrever log de ciclo que não fez nada. Com um
-   * log por hora por loja, o que importa vira invisível.
-   */
-  if (planoVazio(plano)) return NADA_A_FAZER;
+  const semGravacao = resultadoDeCicloSemGravacao(plano);
+  if (semGravacao) return semGravacao;
 
   return aplicarSincronizacao(lojaId, plano, categoriaPadrao, depsSincronizacaoIfood());
 }

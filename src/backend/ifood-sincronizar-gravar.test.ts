@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { aplicarSincronizacao, type DepsSincronizar } from './ifood-sincronizar-gravar';
 import type { PlanoSincronizacao } from './ifood-sincronizar';
+import { resultadoDeCicloSemGravacao, NADA_A_FAZER } from './ifood-sincronizar-ciclo';
 import type { ProdutoImportado, GrupoImportado } from './ifood-importar';
 
 const grupo = (nome: string): GrupoImportado => ({
@@ -138,5 +139,37 @@ describe('o que a sincronização NÃO faz', () => {
     const r = await aplicarSincronizacao(1, planoVazio(), 'iFood', deps);
     expect([criados.length, atualizados.length]).toEqual([0, 0]);
     expect(r.falhas).toEqual([]);
+  });
+});
+
+describe('o aviso de preço não pode ser engolido', () => {
+  it('produto travado sem preço SAI do ciclo, mesmo sem nada a gravar', () => {
+    /*
+     * Pego rodando ao vivo, não no teste: o ciclo respondeu "nada mudou" com um
+     * produto à venda no iFood e pausado aqui por falta de preço. Esse caso não
+     * gera gravação nenhuma — o plano fica vazio — então o aviso MAIS acionável
+     * que a sincronização tem era justamente o único que nunca saía, e o
+     * lojista ficaria esperando o produto entrar no ar sem nada dizer por quê.
+     */
+    const r = resultadoDeCicloSemGravacao({ ...planoVazio(), travadosSemPreco: ['X-Bacon'] });
+    expect(r).not.toBe(NADA_A_FAZER);
+    expect(r!.travadosSemPreco).toEqual(['X-Bacon']);
+  });
+
+  it('ciclo realmente vazio continua sendo silêncio', () => {
+    /* Um log por hora por loja dizendo "zero, zero, zero" afogaria o que
+       importa. */
+    expect(resultadoDeCicloSemGravacao(planoVazio())).toBe(NADA_A_FAZER);
+  });
+
+  it('quem sumiu do iFood NÃO faz o ciclo falar', () => {
+    /* Aquilo nunca se resolve sozinho — o produto fica aqui por decisão — então
+       repetiria a mesma lista toda hora, para sempre. */
+    expect(resultadoDeCicloSemGravacao({ ...planoVazio(), sumiramDoIfood: ['Sumido'] })).toBe(NADA_A_FAZER);
+  });
+
+  it('plano COM trabalho não é tratado como ciclo vazio', () => {
+    const plano = { ...planoVazio(), criar: [produto('Novo', 'N-1')] };
+    expect(resultadoDeCicloSemGravacao(plano)).toBeNull();
   });
 });

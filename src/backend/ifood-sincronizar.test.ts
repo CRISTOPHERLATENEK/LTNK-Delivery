@@ -180,3 +180,16 @@ describe('casamento por código', () => {
     expect(p.sumiramDoIfood).toEqual([]);
   });
 });
+
+describe('plano vazio x aviso de preço', () => {
+  it('travado sem preço NÃO conta como plano com trabalho', () => {
+    /* `planoVazio` responde sobre GRAVAÇÃO. O aviso é outra coisa, e quem
+       decide o que fazer com ele é o ciclo — ver ifood-sincronizar-ciclo. */
+    const p = planejarSincronizacao(
+      [la({ disponivel: true })],
+      [aqui({ disponivel: false, precoCentavos: PRECO_NAO_DEFINIDO_CENTAVOS })],
+    );
+    expect(planoVazio(p)).toBe(true);
+    expect(p.travadosSemPreco).toEqual(['X-Bacon']);
+  });
+});

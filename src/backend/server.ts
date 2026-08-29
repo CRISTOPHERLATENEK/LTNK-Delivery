@@ -724,7 +724,11 @@ async function sincronizarCardapiosIfood(): Promise<void> {
           const r = await sincronizarLojaIfood(cred, loja.ifood_merchant_id, loja.id);
           if (r === NADA_A_FAZER) return;
 
-          console.log(`[ifood-sync] loja ${loja.id}/${tenant.slug}: ${resumoDoCiclo(r)}`);
+          /* Ciclo que só tem aviso de preço não merece a linha de contagem
+             zerada: o que interessa é o aviso, logo abaixo. */
+          if (r.criados || r.atualizados || r.gruposNovos || r.opcoesNovas) {
+            console.log(`[ifood-sync] loja ${loja.id}/${tenant.slug}: ${resumoDoCiclo(r)}`);
+          }
           if (r.travadosSemPreco.length) {
             console.log(`[ifood-sync] loja ${loja.id}: à venda no iFood mas sem preço aqui, seguem pausados: ${r.travadosSemPreco.join(', ')}`);
           }
