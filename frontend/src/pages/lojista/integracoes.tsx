@@ -13,7 +13,7 @@
  * Esta tela é o lugar que ele procura.
  */
 import { useEffect, useState } from 'react';
-import { Plug, Smartphone, ShoppingBag, ExternalLink, Download, Loader2, RefreshCw } from 'lucide-react';
+import { Plug, Smartphone, ShoppingBag, ExternalLink, Download, Loader2, RefreshCw, Upload } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { Card, CardContent } from '@/components/ui/card';
@@ -27,6 +27,17 @@ interface PreviaCardapio {
   novos: Array<{ nome: string; complementos: number; precoIfoodCentavos: number }>;
   jaExistem: number;
   semCodigo: number;
+}
+
+interface PreviaPublicacao {
+  publicou: boolean;
+  criados: number;
+  atualizados: number;
+  falhas: string[];
+  semCodigo: string[];
+  semPreco: string[];
+  soExistemNoIfood: string[];
+  previa: Array<{ nome: string; codigo: string; acao: 'criar' | 'atualizar'; complementos: number }>;
 }
 
 interface EstadoIfood {
@@ -64,6 +75,9 @@ export function IntegracoesLoja() {
   const [previa, setPrevia] = useState<PreviaCardapio | null>(null);
   const [lendo, setLendo] = useState(false);
   const [importando, setImportando] = useState(false);
+  const [publicacao, setPublicacao] = useState<PreviaPublicacao | null>(null);
+  const [conferindo, setConferindo] = useState(false);
+  const [publicando, setPublicando] = useState(false);
 
   useEffect(() => {
     api<EstadoIfood>('GET', '/api/lojista/ifood')
@@ -110,6 +124,28 @@ export function IntegracoesLoja() {
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally { setImportando(false); }
+  }
+
+  async function conferirPublicacao() {
+    setConferindo(true);
+    try {
+      setPublicacao(await api<PreviaPublicacao>('GET', '/api/lojista/ifood/publicar'));
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setConferindo(false); }
+  }
+
+  async function publicar() {
+    setPublicando(true);
+    try {
+      const r = await api<PreviaPublicacao>('POST', '/api/lojista/ifood/publicar', {});
+      mostrar(r.falhas.length
+        ? { tipo: 'erro', titulo: r.falhas.length + ' produto(s) com problema', descricao: r.falhas[0] }
+        : { tipo: 'sucesso', titulo: (r.criados + r.atualizados) + ' produto(s) enviado(s) ao iFood' });
+      setPublicacao(null);
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setPublicando(false); }
   }
 
   return (
@@ -337,6 +373,81 @@ export function IntegracoesLoja() {
                         <b className="text-foreground">Nada é apagado.</b>{' '}
                         Produto removido de lá continua aqui, do jeito que está.
                       </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ─────── publicar cardápio ─────── */}
+              {ifood.merchant_id && ifood.sincronizacao !== 'do_ifood' && (
+                <div className="rounded-xl border border-border p-4">
+                  <div className="flex items-start gap-3">
+                    <Upload className="mt-0.5 size-4 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold">Enviar meu cardápio para o iFood</p>
+                      <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                        Manda os produtos daqui para lá, com preço e complementos.
+                        Você aperta quando quiser — não fica enviando sozinho.
+                      </p>
+                    </div>
+                    <Button type="button" variant="outline" size="sm" className="shrink-0"
+                      disabled={conferindo || publicando} onClick={() => void conferirPublicacao()}>
+                      {conferindo ? <Loader2 className="size-4 animate-spin" /> : 'Ver o que vai'}
+                    </Button>
+                  </div>
+
+                  {/*
+                    A PRÉVIA NÃO É ENFEITE. No iFood, enviar um item substitui o
+                    item inteiro do lado de lá. Ver a lista antes é o que separa
+                    "atualizei meu cardápio" de "apaguei os complementos de um
+                    produto que estava vendendo".
+                  */}
+                  {publicacao && (
+                    <div className="mt-4 space-y-3 border-t border-border pt-4">
+                      {publicacao.previa.length === 0 ? (
+                        <p className="text-[12.5px] text-muted-foreground">
+                          Nenhum produto para enviar.
+                        </p>
+                      ) : (
+                        <>
+                          <p className="text-[13px] font-bold">
+                            {publicacao.previa.length} produto(s) para enviar
+                          </p>
+                          <ul className="max-h-52 space-y-1 overflow-y-auto text-[12.5px] text-muted-foreground">
+                            {publicacao.previa.map(p => (
+                              <li key={p.codigo} className="flex items-baseline justify-between gap-3">
+                                <span className="truncate">{p.nome}</span>
+                                <span className="shrink-0 text-[11.5px] opacity-70">
+                                  {p.acao === 'criar' ? 'novo lá' : 'atualiza o que já existe'}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                          <Button type="button" disabled={publicando} onClick={() => void publicar()}>
+                            {publicando ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+                            Enviar {publicacao.previa.length} produto(s)
+                          </Button>
+                        </>
+                      )}
+
+                      {/*
+                        Os que FICARAM DE FORA importam tanto quanto os que vão:
+                        um produto sem preço aqui iria a R$ 0,01 no lugar onde o
+                        cliente compra. Dizer só "3 enviados" esconderia isso.
+                      */}
+                      {publicacao.semPreco.length > 0 && (
+                        <div className="rounded-lg border border-amber-500/40 bg-amber-500/[0.06] p-3 text-[12px] leading-relaxed text-muted-foreground">
+                          <b className="text-amber-700 dark:text-amber-500">Ficaram de fora por não ter preço:</b>{' '}
+                          {publicacao.semPreco.join(', ')}. Enviar assim colocaria
+                          esses produtos a R$ 0,01 no iFood.
+                        </div>
+                      )}
+                      {publicacao.semCodigo.length > 0 && (
+                        <p className="text-[12px] text-muted-foreground">
+                          {publicacao.semCodigo.length} produto(s) sem código de barras ficaram de fora —
+                          sem ele não dá para saber se já existem lá.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

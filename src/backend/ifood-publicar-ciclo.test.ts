@@ -46,3 +46,29 @@ describe('publicar é opt-in, nunca padrão', () => {
     expect(fonte).not.toMatch(/method:\s*'DELETE'/);
   });
 });
+
+describe('publicar é AÇÃO, não regime', () => {
+  it('não está no laço de hora em hora do servidor', () => {
+    /*
+     * Cada item custa uma leitura e uma escrita. Esse volume de hora em hora
+     * competiria com o polling de 30s — que é o que mantém a loja online no
+     * iFood — e trocaria "cardápio desatualizado lá" por "loja fora do ar".
+     */
+    const servidor = semComentarios('server.ts');
+    expect(servidor).not.toContain('publicarCardapioIfood');
+  });
+
+  it('a direção para_ifood não é aceita como sincronização automática', () => {
+    /* Aceitar deixaria a loja marcada como publicando por um caminho que
+       ninguém percorre: o lojista veria "ligado" e nada aconteceria. */
+    const rota = semComentarios('rotas/lojista.ts');
+    expect(rota).toContain("const DIRECOES = ['nenhuma', 'do_ifood']");
+  });
+
+  it('a rota de prévia não publica', () => {
+    const rota = semComentarios('rotas/lojista.ts');
+    const i = rota.indexOf("router.get('/ifood/publicar'");
+    const trecho = rota.slice(i, rota.indexOf("router.post('/ifood/publicar'"));
+    expect(trecho).toContain('publicar: false');
+  });
+});

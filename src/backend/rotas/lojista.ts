@@ -42,6 +42,7 @@ import { lerCardapioIfood } from '../ifood-catalogo';
 import { planejarImportacao, type ProdutoImportado } from '../ifood-importar';
 import { importarCardapio } from '../ifood-importar-gravar';
 import { depsImportacaoIfood } from '../ifood-importar-deps';
+import { publicarCardapioIfood } from '../ifood-publicar-ciclo';
 import { cashInDisponivel, registrarWebhookCashIn, consultarWebhookCashIn } from '../onz';
 // Sem ciclo: pagamentos.ts não importa lojista.ts.
 import { credenciaisOnzDaLoja } from './pagamentos';
@@ -3654,7 +3655,15 @@ router.put('/ifood', async (req, res, next) => {
      * que ninguém percorre: o lojista veria "ligado" e nada aconteceria.
      */
     if (typeof req.body.sincronizacao === 'string') {
-      const DIRECOES = ['nenhuma', 'do_ifood', 'para_ifood'];
+      /*
+       * `para_ifood` NÃO entra aqui. Publicar existe e está provado, mas como
+       * AÇÃO que o lojista dispara — não como regime de hora em hora: cada
+       * item custa uma leitura e uma escrita, e o volume disso competiria com
+       * o polling de 30s, que é o que mantém a loja online no iFood. Aceitar o
+       * valor deixaria a loja marcada como publicando por um caminho que
+       * ninguém percorre.
+       */
+      const DIRECOES = ['nenhuma', 'do_ifood'];
       if (!DIRECOES.includes(req.body.sincronizacao)) {
         throw erroHttp(400, 'Direção de sincronização não disponível.');
       }
@@ -3738,6 +3747,44 @@ router.post('/ifood/cardapio/importar', async (req, res, next) => {
     const r = await importarCardapio(loja.id, produtos, categoria, depsImportacaoIfood());
 
     res.json(r);
+  } catch (e) { next(e); }
+});
+
+// ----- iFood: publicar cardápio (daqui → iFood) ---------------------------
+
+/**
+ * Prévia: o que SERIA enviado. Não escreve nada no iFood.
+ *
+ * Existe pelo mesmo motivo do ensaio no ciclo: o `PUT` substitui o item, e o
+ * lojista precisa ver a lista antes de mandar. Foi a prévia que pegou, antes de
+ * qualquer escrita, que produtos ainda sem preço seriam publicados a R$ 0,01.
+ */
+router.get('/ifood/publicar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const linha = await db.prepare('SELECT ifood_merchant_id FROM lojas WHERE id = ?')
+      .get(loja.id) as { ifood_merchant_id: string } | undefined;
+    const merchantId = linha?.ifood_merchant_id || '';
+    if (!merchantId) throw erroHttp(400, 'Informe o código da loja no iFood antes de publicar.');
+    const cred = credenciaisIfood();
+    if (!cred) throw erroHttp(400, 'A integração com o iFood ainda não está habilitada.');
+
+    res.json(await publicarCardapioIfood(cred, merchantId, loja.id, { publicar: false }));
+  } catch (e) { next(e); }
+});
+
+/** Envia de verdade. */
+router.post('/ifood/publicar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const linha = await db.prepare('SELECT ifood_merchant_id FROM lojas WHERE id = ?')
+      .get(loja.id) as { ifood_merchant_id: string } | undefined;
+    const merchantId = linha?.ifood_merchant_id || '';
+    if (!merchantId) throw erroHttp(400, 'Informe o código da loja no iFood antes de publicar.');
+    const cred = credenciaisIfood();
+    if (!cred) throw erroHttp(400, 'A integração com o iFood ainda não está habilitada.');
+
+    res.json(await publicarCardapioIfood(cred, merchantId, loja.id, { publicar: true }));
   } catch (e) { next(e); }
 });
 
