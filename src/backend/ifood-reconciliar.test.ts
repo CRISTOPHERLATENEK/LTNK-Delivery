@@ -88,8 +88,8 @@ describe('pedidosParaConferir', () => {
   });
 });
 
-describe('o laço do servidor', () => {
-  const fonte = () => fs.readFileSync(path.join(__dirname, 'server.ts'), 'utf8')
+describe('o ciclo da reconciliação', () => {
+  const fonte = () => fs.readFileSync(path.join(__dirname, 'ifood-reconciliar-ciclo.ts'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
   it('corrige marcando como vindo do iFood', () => {
@@ -98,28 +98,41 @@ describe('o laço do servidor', () => {
      * de 'pendente') e ainda pediria ao iFood o cancelamento de um pedido que
      * ELE já cancelou.
      */
-    const s = fonte();
-    const i = s.indexOf('reconciliarPedidosIfood');
-    const trecho = s.slice(i, s.indexOf('async function sincronizarCardapiosIfood'));
-    expect(trecho).toContain('{ vindoDoIfood: true }');
+    expect(fonte()).toContain('{ vindoDoIfood: true }');
   });
 
   it('só mexe no pedido quando a resposta é de cancelamento', () => {
     /* Qualquer outro erro — 500, timeout, validação — não pode cancelar um
        pedido que a cozinha está produzindo. */
-    const s = fonte();
-    const i = s.indexOf('reconciliarPedidosIfood');
-    const trecho = s.slice(i, s.indexOf('async function sincronizarCardapiosIfood'));
-    expect(trecho).toContain('if (!ehPedidoCanceladoLa(erro)) continue;');
+    expect(fonte()).toContain('if (!ehPedidoCanceladoLa(erro)) continue;');
   });
 
   it('não roda no ritmo do polling', () => {
     /* Uma chamada por pedido ativo a cada 30s competiria com o polling — que é
        o que mantém a loja online no iFood. */
-    const s = fonte();
+    const s = fs.readFileSync(path.join(__dirname, 'server.ts'), 'utf8');
     const linha = s.split('\n').find(l => l.includes('reconciliarPedidosIfood().catch'));
     expect(linha).toBeDefined();
     const bloco = s.slice(s.indexOf(linha!), s.indexOf(linha!) + 200);
     expect(bloco).toContain('10 * 60_000');
+  });
+});
+
+describe('um ciclo só', () => {
+  const semComentarios = (a: string) => fs.readFileSync(path.join(__dirname, a), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('o servidor e o comando chamam a MESMA função', () => {
+    /* Duas orquestrações fariam o "reconcilia agora" do suporte provar uma
+       coisa e o automático fazer outra. */
+    for (const a of ['server.ts', 'ifood-reconciliar-cli.ts']) {
+      expect(semComentarios(a)).toContain('reconciliarPedidosIfood');
+    }
+  });
+
+  it('nenhum dos dois consulta o iFood por conta própria', () => {
+    for (const a of ['ifood-reconciliar-cli.ts']) {
+      expect(semComentarios(a)).not.toContain('motivosDeCancelamento');
+    }
   });
 });
