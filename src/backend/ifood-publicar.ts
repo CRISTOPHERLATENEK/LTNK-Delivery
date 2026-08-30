@@ -23,6 +23,8 @@
  * cardápio, e pizza mal mapeada é pedido com sabor errado saindo da cozinha.
  */
 
+import { randomUUID } from 'crypto';
+
 /** O produto como ele existe aqui, com tudo que a publicação precisa. */
 export interface ProdutoDaqui {
   id: number;
@@ -70,6 +72,8 @@ export function montarPayloadItem(
   nosso: ProdutoDaqui,
   categoryId: string,
   atual: Record<string, unknown> | null,
+  /* Injetável só para o teste poder prever os ids. */
+  novoId: () => string = () => randomUUID(),
 ): Record<string, unknown> {
   const flat = (atual ?? {}) as {
     item?: Record<string, unknown>;
@@ -93,8 +97,21 @@ export function montarPayloadItem(
    * sem dizer o que faltava. Preservar o de lá também evita criar um produto
    * novo a cada publicação, deixando órfãos no catálogo da loja.
    */
+  /*
+   * OS IDS SÃO GERADOS POR QUEM CHAMA — a API não os cria.
+   *
+   * Descoberto publicando de verdade: item novo sem id responde `FullItemDto is
+   * not valid`, sem dizer o que falta. É o sétimo caso em que esta API exige
+   * algo que a documentação não mostra. O `id` do item, o `productId` e o id de
+   * cada produto de complemento precisam vir prontos, em UUID.
+   */
+  const idItem = String(itemAtual.id ?? '') || novoId();
+  const idProdutoPrincipal = String(itemAtual.productId ?? '') || String(produtoPrincipal.id ?? '') || novoId();
+
   const item: Record<string, unknown> = {
     ...itemAtual,
+    id: idItem,
+    productId: idProdutoPrincipal,
     categoryId: String(itemAtual.categoryId ?? categoryId),
     externalCode: nosso.codigoBarras,
     status: STATUS(nosso.disponivel),
@@ -118,18 +135,26 @@ export function montarPayloadItem(
 
     g.opcoes.forEach((o, j) => {
       const atualO = opcoesAtuais.find(x => String(x.externalCode ?? '') === o.codigoExterno) ?? {};
-      const idOpcao = String(atualO.id ?? '') || `opcao-${g.codigoExterno}-${j}`;
+      const idOpcao = String(atualO.id ?? '') || novoId();
       optionIds.push(idOpcao);
 
       /* A opção aponta para OUTRO produto — no iFood o complemento também é um
-         produto. Sem preservar esse `productId`, cada publicação criaria um
-         produto novo por complemento. */
+         produto. Preservar esse `productId` evita criar um produto novo por
+         complemento a cada publicação; quando não existe, é preciso criar um,
+         porque a opção não pode apontar para o vazio. */
       const produtoDaOpcao = produtosAtuais.find(p => String(p.id ?? '') === String(atualO.productId ?? ''));
-      if (produtoDaOpcao) produtos.push({ ...produtoDaOpcao, name: o.nome });
+      const idProdutoOpcao = String(produtoDaOpcao?.id ?? '') || novoId();
+      produtos.push({
+        ...(produtoDaOpcao ?? {}),
+        id: idProdutoOpcao,
+        name: o.nome,
+        externalCode: o.codigoExterno,
+      });
 
       opcoes.push({
         ...atualO,
         id: idOpcao,
+        productId: idProdutoOpcao,
         index: j,
         status: STATUS(o.disponivel),
         externalCode: o.codigoExterno,
@@ -137,7 +162,7 @@ export function montarPayloadItem(
       });
     });
 
-    const idGrupo = String(atualG.id ?? '') || `grupo-${g.codigoExterno}`;
+    const idGrupo = String(atualG.id ?? '') || novoId();
     idsDosGrupos.push(idGrupo);
     grupos.push({
       ...atualG,
@@ -158,6 +183,7 @@ export function montarPayloadItem(
 
   produtos.unshift({
     ...produtoPrincipal,
+    id: idProdutoPrincipal,
     name: nosso.nome,
     description: nosso.descricao,
     externalCode: nosso.codigoBarras,

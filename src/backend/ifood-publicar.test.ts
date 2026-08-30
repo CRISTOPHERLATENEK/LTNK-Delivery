@@ -214,3 +214,49 @@ describe('não publicar produto sem preço', () => {
     expect(plano.semPreco).toEqual([]);
   });
 });
+
+describe('os ids são gerados por quem chama', () => {
+  const idsFalsos = () => { let n = 0; return () => `id-${++n}`; };
+
+  it('item NOVO recebe id e productId', () => {
+    /*
+     * Descoberto publicando de verdade: item novo sem id responde
+     * `FullItemDto is not valid`, sem dizer o que falta. É o sétimo caso em que
+     * esta API exige algo que a documentação não mostra.
+     */
+    const p = montarPayloadItem(nosso({ grupos: [] }), CAT, null, idsFalsos());
+    const item = p.item as Record<string, unknown>;
+    expect(item.id).toBe('id-1');
+    expect(item.productId).toBe('id-2');
+    expect((p.products as Array<Record<string, unknown>>)[0].id).toBe('id-2');
+  });
+
+  it('item que JÁ existe mantém os ids de lá', () => {
+    /* Id novo a cada publicação criaria um item duplicado no cardápio da loja
+       e deixaria o antigo órfão. */
+    const p = montarPayloadItem(nosso(), CAT, FLAT, idsFalsos());
+    const item = p.item as Record<string, unknown>;
+    expect(item.id).toBe((FLAT.item as Record<string, unknown>).id);
+    expect(item.productId).toBe((FLAT.item as Record<string, unknown>).productId);
+  });
+
+  it('cada complemento novo ganha o produto dele', () => {
+    /* No iFood o complemento também é um produto, e a opção não pode apontar
+       para o vazio. */
+    const p = montarPayloadItem(nosso(), CAT, null, idsFalsos());
+    const opcoes = p.options as Array<Record<string, unknown>>;
+    const produtos = p.products as Array<Record<string, unknown>>;
+    expect(opcoes[0].productId).toBeDefined();
+    expect(produtos.some(x => x.id === opcoes[0].productId)).toBe(true);
+  });
+
+  it('nenhum id inventado fora do formato', () => {
+    /* Antes disto os grupos novos recebiam `grupo-GRP-ADIC`, que não é UUID e
+       a API recusa. */
+    const p = montarPayloadItem(nosso(), CAT, null);
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    expect(String((p.item as Record<string, unknown>).id)).toMatch(uuid);
+    expect(String((p.optionGroups as Array<Record<string, unknown>>)[0].id)).toMatch(uuid);
+    expect(String((p.options as Array<Record<string, unknown>>)[0].id)).toMatch(uuid);
+  });
+});
