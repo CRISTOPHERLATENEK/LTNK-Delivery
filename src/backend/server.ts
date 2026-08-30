@@ -1179,7 +1179,15 @@ const PORT = Number(process.env.PORT) || 3000;
    * iFood já tendo cancelado, e o evento nunca chegou.
    */
   setInterval(() => {
-    reconciliarPedidosIfood().catch(e => console.error('[ifood-reconcilia] falhou:', e));
+    reconciliarPedidosIfood()
+      .then(r => {
+        /* Ciclo que não conseguiu conferir não é ciclo bem-sucedido: sem esta
+           linha, a rede de segurança fica fora do ar em silêncio. */
+        if (r.naoConsegui > 0) {
+          console.error(`[ifood-reconcilia] não consegui conferir ${r.naoConsegui} pedido(s) neste ciclo.`);
+        }
+      })
+      .catch(e => console.error('[ifood-reconcilia] falhou:', e));
   }, 10 * 60_000);
 
   /*

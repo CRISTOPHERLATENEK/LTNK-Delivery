@@ -28,9 +28,17 @@ import { ehPedidoCanceladoLa, pedidosParaConferir, type PedidoParaConferir } fro
  * ciclo, no ritmo do polling, competiria com o polling — que é o que mantém a
  * loja online no iFood.
  */
-export async function reconciliarPedidosIfood(): Promise<void> {
+export interface ResumoReconciliacao {
+  conferidos: number;
+  corrigidos: number;
+  /** Não deu para perguntar — iFood fora, bloqueio de IP, erro inesperado. */
+  naoConsegui: number;
+}
+
+export async function reconciliarPedidosIfood(): Promise<ResumoReconciliacao> {
+  const r: ResumoReconciliacao = { conferidos: 0, corrigidos: 0, naoConsegui: 0 };
   const cred = credenciaisIfood();
-  if (!cred) return;
+  if (!cred) return r;
 
   for (const tenant of await listarTenants()) {
     if (!tenant.ativo) continue;
@@ -58,15 +66,30 @@ export async function reconciliarPedidosIfood(): Promise<void> {
        * 404, e o `GET /orders/{id}` responde 200 sem campo de estado. Num
        * pedido cancelado, este devolve 400 com "already cancelled".
        */
+      r.conferidos++;
       try {
         await motivosDeCancelamento(cred, p.orderId);
       } catch (e) {
         const erro = e as { httpStatus?: number; message?: string };
-        if (!ehPedidoCanceladoLa(erro)) continue;
+        if (!ehPedidoCanceladoLa(erro)) {
+          /*
+           * NÃO ENGOLIR. Este `catch` recebe duas coisas muito diferentes: "o
+           * pedido está cancelado lá" e "não consegui perguntar". Tratar as
+           * duas como `continue` mudo fez o comando responder "reconciliação
+           * concluída" sem ter conferido nada — durante um bloqueio da
+           * Cloudflare, com o pedido #85 preso do outro lado. Uma rede de
+           * segurança que mente sobre ter passado é pior que não ter rede: dá
+           * a certeza sem o fato.
+           */
+          r.naoConsegui++;
+          console.error(`[ifood-reconcilia] pedido #${p.id}: não consegui conferir — ${erro.message}`);
+          continue;
+        }
 
         await comTenant(tenant.db_nome, async () => {
           try {
             await transicionarStatus(p.id, 'cancelado' as never, { vindoDoIfood: true });
+            r.corrigidos++;
             console.log(
               `[ifood-reconcilia] pedido #${p.id} estava '${p.status}' aqui e CANCELADO no iFood — ` +
               `corrigido. O evento de cancelamento não chegou pelo polling.`,
@@ -78,4 +101,6 @@ export async function reconciliarPedidosIfood(): Promise<void> {
       }
     }
   }
+
+  return r;
 }

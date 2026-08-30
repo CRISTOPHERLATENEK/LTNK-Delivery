@@ -104,17 +104,25 @@ describe('o ciclo da reconciliação', () => {
   it('só mexe no pedido quando a resposta é de cancelamento', () => {
     /* Qualquer outro erro — 500, timeout, validação — não pode cancelar um
        pedido que a cozinha está produzindo. */
-    expect(fonte()).toContain('if (!ehPedidoCanceladoLa(erro)) continue;');
+    /* A asserção é sobre a REGRA, não sobre a sintaxe: o corpo do guarda mudou
+       quando ele passou a registrar o erro em vez de engolir. */
+    const s = fonte();
+    expect(s).toContain('if (!ehPedidoCanceladoLa(erro))');
+    const i = s.indexOf('if (!ehPedidoCanceladoLa(erro))');
+    expect(s.slice(i, i + 200)).toContain('continue;');
   });
 
   it('não roda no ritmo do polling', () => {
     /* Uma chamada por pedido ativo a cada 30s competiria com o polling — que é
        o que mantém a loja online no iFood. */
     const s = fs.readFileSync(path.join(__dirname, 'server.ts'), 'utf8');
-    const linha = s.split('\n').find(l => l.includes('reconciliarPedidosIfood().catch'));
-    expect(linha).toBeDefined();
-    const bloco = s.slice(s.indexOf(linha!), s.indexOf(linha!) + 200);
+    const i = s.indexOf('    reconciliarPedidosIfood()');
+    expect(i).toBeGreaterThan(0);
+    /* Até o fecho do setInterval, seja qual for o tamanho do callback: a
+       asserção é sobre o INTERVALO, e não pode quebrar quando o corpo cresce. */
+    const bloco = s.slice(i, s.indexOf('}, ', i) + 30);
     expect(bloco).toContain('10 * 60_000');
+    expect(bloco).not.toContain('30_000');
   });
 });
 
@@ -134,5 +142,34 @@ describe('um ciclo só', () => {
     for (const a of ['ifood-reconciliar-cli.ts']) {
       expect(semComentarios(a)).not.toContain('motivosDeCancelamento');
     }
+  });
+});
+
+describe('a rede não pode mentir sobre ter passado', () => {
+  const fonte = (a: string) => fs.readFileSync(path.join(__dirname, a), 'utf8');
+
+  it('erro que NÃO é cancelamento vira log, não silêncio', () => {
+    /*
+     * Este catch recebe duas coisas muito diferentes: "o pedido está cancelado
+     * lá" e "não consegui perguntar". Tratar as duas como `continue` mudo fez o
+     * comando responder "reconciliação concluída" sem ter conferido nada —
+     * durante um bloqueio da Cloudflare, com o pedido #85 preso do outro lado.
+     * Uma rede de segurança que mente sobre ter passado é pior que não ter
+     * rede: dá a certeza sem o fato.
+     */
+    const s = fonte('ifood-reconciliar-ciclo.ts');
+    expect(s).toContain('naoConsegui++');
+    expect(s).toContain('não consegui conferir');
+  });
+
+  it('o comando devolve o resumo, não um "concluída"', () => {
+    const s = fonte('ifood-reconciliar-cli.ts');
+    expect(s).toContain('r.conferidos');
+    expect(s).toContain('r.naoConsegui');
+    expect(s).not.toContain("'reconciliação concluída.'");
+  });
+
+  it('o laço do servidor grita quando não conseguiu conferir', () => {
+    expect(fonte('server.ts')).toContain('não consegui conferir ${r.naoConsegui} pedido(s)');
   });
 });
