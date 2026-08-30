@@ -56,6 +56,35 @@ const EVENTOS_NOTIFICAVEIS: Partial<Record<StatusPedido, string>> = {
 interface OpcoesTransicao {
   /** Colunas extras para atualizar no mesmo UPDATE (ex.: motivo_recusa). */
   camposExtras?: Record<string, string | number | null>;
+  /**
+   * A mudança VEIO do iFood — não vai voltar para lá, e pode cancelar de
+   * qualquer estado. Ver `ehCancelamentoVindoDeFora` e o bloco de aviso.
+   */
+  vindoDoIfood?: boolean;
+}
+
+/**
+ * O iFood mandou cancelar um pedido que aqui já passou do "pendente"?
+ *
+ * A tabela de transições só deixa cancelar de 'pendente', e essa regra é do
+ * NOSSO fluxo: depois de aceito, quem desiste é o lojista pela recusa. Só que o
+ * pedido do iFood tem outro dono — o cliente cancela no app dele, a qualquer
+ * momento, e isso não é um pedido de permissão: é um fato.
+ *
+ * Sem esta exceção o evento chegava, a transição era recusada com 409, virava
+ * uma linha de log e o pedido ficava em 'preparando' PARA SEMPRE: a cozinha
+ * seguia montando, o entregador saía com um pedido que não existe mais, e a
+ * comida ia para o lixo com a loja pagando por ela.
+ *
+ * Só vale para 'cancelado' e só vindo de fora. O lojista continua sem poder
+ * cancelar um pedido já aceito pelo painel — essa é uma decisão de produto, e
+ * não é esta a hora de mudá-la.
+ */
+export function ehCancelamentoVindoDeFora(
+  novoStatus: StatusPedido,
+  opcoes: { vindoDoIfood?: boolean },
+): boolean {
+  return novoStatus === 'cancelado' && opcoes.vindoDoIfood === true;
 }
 
 /**
@@ -89,7 +118,7 @@ export async function transicionarStatus(
   }
 
   const permitidos = TRANSICOES[pedido.status];
-  if (!permitidos.includes(novoStatus)) {
+  if (!permitidos.includes(novoStatus) && !ehCancelamentoVindoDeFora(novoStatus, opcoes)) {
     throw erroHttp(409,
       `Transição inválida: o pedido está "${ROTULOS[pedido.status]}" e não pode ir para "${ROTULOS[novoStatus]}".`);
   }
@@ -179,7 +208,7 @@ export async function transicionarStatus(
    * transformaria uma indisponibilidade deles em paralisia da cozinha.
    */
   if (pedido.origem === 'ifood') {
-    avisarIfoodDoStatus(pedido as Pedido & Record<string, unknown>, novoStatus)
+    avisarIfoodDoStatus(pedido as Pedido & Record<string, unknown>, novoStatus, opcoes.vindoDoIfood === true)
       .catch(e => console.error(`[ifood] falha ao avisar status do pedido ${pedidoId}:`, e));
   }
 
@@ -195,7 +224,17 @@ export async function transicionarStatus(
 async function avisarIfoodDoStatus(
   pedido: Pedido & Record<string, unknown>,
   novoStatus: StatusPedido,
+  vindoDoIfood = false,
 ): Promise<void> {
+  /*
+   * NÃO DEVOLVER O ECO. Quando a mudança veio de um evento do iFood, avisar de
+   * volta é contar a eles o que eles acabaram de nos contar. No melhor caso é
+   * uma chamada inútil por evento; no cancelamento é pior — seria pedir o
+   * cancelamento de um pedido que o próprio iFood já cancelou, e a resposta
+   * disso enche o log de falha para uma coisa que deu certo.
+   */
+  if (vindoDoIfood) return;
+
   const orderId = String(pedido.pagamento_gateway_id ?? '').trim();
   if (!orderId) return;
 

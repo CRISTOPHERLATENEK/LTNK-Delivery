@@ -810,7 +810,10 @@ async function processarEventoIfood(loja: LojaIfood, evento: { code?: string; fu
        * entregue de fato, e reescrever a história esconderia o problema.
        */
       try {
-        await transicionarStatus(linha.id, novoStatus as never);
+        /* `vindoDoIfood`: não devolve o eco para eles, e deixa cancelar um
+           pedido que aqui já passou do 'pendente' — o cliente deles cancela a
+           qualquer momento, e isso é fato, não pedido de permissão. */
+        await transicionarStatus(linha.id, novoStatus as never, { vindoDoIfood: true });
         console.log(`[ifood] pedido #${linha.id} → ${novoStatus} (evento do iFood)`);
       } catch (e) {
         console.error(`[ifood] pedido #${linha.id} está '${linha.status}' e o iFood mandou '${novoStatus}': ${(e as Error).message}`);

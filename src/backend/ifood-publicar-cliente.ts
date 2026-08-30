@@ -31,7 +31,16 @@ export async function publicarItem(
   );
 }
 
-/** Pausar ou reativar sem tocar em mais nada. */
+/**
+ * Pausar ou reativar sem tocar em mais nada.
+ *
+ * O CAMINHO É POR ITEM, não o lote `PATCH /items/status` da documentação. O de
+ * lá responde `PatchItemStatusDto is not valid` — testei quatro formatos de
+ * corpo (lista crua, envelopado, `itemId` no lugar de `id`, com
+ * `externalCode`) e os quatro foram recusados. `PATCH /items/{id}/status` com
+ * `{ status }` responde 200. Oitavo caso nesta API em que o que funciona não é
+ * o que está escrito.
+ */
 export async function mudarStatusItem(
   cred: CredenciaisIfood,
   merchantId: string,
@@ -41,11 +50,11 @@ export async function mudarStatusItem(
 ): Promise<{ status: number; corpo: unknown }> {
   return chamarIfood(
     cred,
-    `${base(merchantId)}/items/status`,
+    `${base(merchantId)}/items/${encodeURIComponent(itemId)}/status`,
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify([{ id: itemId, status: disponivel ? 'AVAILABLE' : 'UNAVAILABLE' }]),
+      body: JSON.stringify({ status: disponivel ? 'AVAILABLE' : 'UNAVAILABLE' }),
     },
     opcoes,
   );

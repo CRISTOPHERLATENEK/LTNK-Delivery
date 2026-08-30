@@ -42,12 +42,24 @@ describe('publicarItem', () => {
 });
 
 describe('mudarStatusItem', () => {
-  it('pausa sem tocar em mais nada', async () => {
-    const f = fetchFalso([TOKEN, { contem: '/items/status', corpo: {} }]);
+  it('usa o caminho POR ITEM, não o lote da documentação', async () => {
+    /*
+     * `PATCH /items/status` responde `PatchItemStatusDto is not valid`. Testei
+     * quatro formatos de corpo contra a API real e os quatro foram recusados;
+     * `PATCH /items/{id}/status` com `{ status }` responde 200.
+     */
+    const f = fetchFalso([TOKEN, { contem: '/status', corpo: {} }]);
     await mudarStatusItem(CRED, M, 'i1', false, { buscar: f.buscar, baseUrl: BASE });
     const c = f.chamadas.find(x => x.url.includes('/status'))!;
     expect(c.metodo).toBe('PATCH');
-    expect(JSON.parse(c.corpo)).toEqual([{ id: 'i1', status: 'UNAVAILABLE' }]);
+    expect(c.url).toBe(`${BASE}/catalog/v2.0/merchants/merch-1/items/i1/status`);
+    expect(JSON.parse(c.corpo)).toEqual({ status: 'UNAVAILABLE' });
+  });
+
+  it('reativar manda AVAILABLE', async () => {
+    const f = fetchFalso([TOKEN, { contem: '/status', corpo: {} }]);
+    await mudarStatusItem(CRED, M, 'i1', true, { buscar: f.buscar, baseUrl: BASE });
+    expect(JSON.parse(f.chamadas.find(x => x.url.includes('/status'))!.corpo)).toEqual({ status: 'AVAILABLE' });
   });
 });
 
