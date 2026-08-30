@@ -165,7 +165,10 @@ export function LojaConfiguracao() {
 
   return (
     <div className="space-y-5">
-      <CabecalhoSecao titulo="Loja">
+      {/* "Dados da loja", não "Loja": o item do menu se chama Dados, e clicar em
+          Dados para chegar numa tela chamada Loja faz a pessoa duvidar se
+          clicou certo. O título tem que responder ao clique. */}
+      <CabecalhoSecao titulo="Dados da loja">
         Nome, contato e endereço — o que o cliente vê antes de pedir.
       </CabecalhoSecao>
 
