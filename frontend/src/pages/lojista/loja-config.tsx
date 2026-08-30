@@ -165,12 +165,9 @@ export function LojaConfiguracao() {
 
   return (
     <div className="space-y-5">
-      {/* "Dados da loja", não "Loja": o item do menu se chama Dados, e clicar em
-          Dados para chegar numa tela chamada Loja faz a pessoa duvidar se
-          clicou certo. O título tem que responder ao clique. */}
-      <CabecalhoSecao titulo="Dados da loja">
-        Nome, contato e endereço — o que o cliente vê antes de pedir.
-      </CabecalhoSecao>
+      {/* O título é o rótulo do menu, letra por letra: clicar em "Dados" e
+          chegar em "Loja" faz a pessoa duvidar se clicou certo. */}
+      <CabecalhoSecao titulo="Dados" />
 
       {/* Status + botão abrir/fechar */}
       <Card>
@@ -553,9 +550,7 @@ export function HorarioLoja() {
 
   return (
     <div className="space-y-4">
-      <CabecalhoSecao titulo="Horário">
-        Quando a loja abre e fecha sozinha. Fora da agenda, ela não aceita pedido.
-      </CabecalhoSecao>
+      <CabecalhoSecao titulo="Horário" />
 
       {/* Toggle automático */}
       <Card className={cn(auto && 'border-primary/40 bg-primary/5')}>
@@ -722,9 +717,7 @@ function ResumoEntrega({
 
   return (
     <div className="space-y-4">
-      <CabecalhoSecao titulo="Entrega" ajuda="entrega-taxa">
-        Onde você entrega e quanto cobra por isso.
-      </CabecalhoSecao>
+      <CabecalhoSecao titulo="Entrega" ajuda="entrega-taxa" />
 
       {/* ── O que está valendo agora ── */}
       <Card>
@@ -1128,9 +1121,7 @@ export function EntregadoresLoja() {
 
   return (
     <div className="space-y-4">
-      <CabecalhoSecao titulo="Entregadores">
-        Quem leva os pedidos, e o login que eles usam para receber as entregas.
-      </CabecalhoSecao>
+      <CabecalhoSecao titulo="Entregadores" />
 
       <Card>
         <CardContent className="p-5">
@@ -1502,9 +1493,7 @@ export function PagamentosLoja() {
 
   return (
     <div className="mx-auto max-w-[720px] space-y-4">
-      <CabecalhoSecao titulo="Pagamentos" ajuda="pagamentos">
-        O dinheiro cai direto na sua conta — a plataforma não fica no meio.
-      </CabecalhoSecao>
+      <CabecalhoSecao titulo="Pagamentos" ajuda="pagamentos" />
 
       {/*
         ABAS EM FORMATO DE CARD, cada uma carregando o próprio status.
@@ -2373,9 +2362,7 @@ export function ImpressaoLoja() {
 
   return (
     <form onSubmit={salvar} className="space-y-4">
-      <CabecalhoSecao titulo="Impressão">
-        O tamanho do papel e o que sai no cupom da cozinha e do cliente.
-      </CabecalhoSecao>
+      <CabecalhoSecao titulo="Impressão" />
 
       <Card>
         <CardContent className="p-5 space-y-5">
@@ -2574,9 +2561,7 @@ export function SegurancaLoja() {
 
   return (
     <div className="max-w-lg space-y-4">
-      <CabecalhoSecao titulo="Segurança">
-        Sua senha e a verificação em duas etapas. Quem entra no painel se define em Usuários.
-      </CabecalhoSecao>
+      <CabecalhoSecao titulo="Segurança" />
 
       <Card className="border-green-500/40 bg-green-500/5">
         <CardContent className="p-5 flex items-center gap-4">
@@ -2730,9 +2715,7 @@ export function UsuariosLoja() {
 
   return (
     <div className="space-y-4">
-      <CabecalhoSecao titulo="Usuários" ajuda="usuarios">
-        Quem pode entrar no painel desta loja.
-      </CabecalhoSecao>
+      <CabecalhoSecao titulo="Usuários" ajuda="usuarios" />
 
       {/*
         DIZ O QUE O ACESSO É, em vez de deixar descobrir depois. Hoje não existe

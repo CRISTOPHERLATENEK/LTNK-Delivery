@@ -116,8 +116,7 @@ export function WhatsAppLoja() {
           <WhatsAppLogo className="size-7" />
         </div>
         <div>
-          <h1 className="text-xl font-extrabold tracking-tight">WhatsApp</h1>
-          <p className="text-sm text-muted-foreground">Confirmação de pedido enviada automaticamente pro cliente.</p>
+          <h2 className="text-lg font-bold">WhatsApp</h2>
         </div>
       </div>
 

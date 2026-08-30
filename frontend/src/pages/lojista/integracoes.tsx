@@ -13,6 +13,7 @@
  * Esta tela é o lugar que ele procura.
  */
 import { useEffect, useState } from 'react';
+import { CabecalhoSecao } from '@/components/ui/cabecalho-secao';
 import { Plug, Smartphone, ShoppingBag, ExternalLink, Download, Loader2, RefreshCw, Upload } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
@@ -150,16 +151,7 @@ export function IntegracoesLoja() {
 
   return (
     <div className="mx-auto max-w-[860px] space-y-5">
-      <div>
-        <h2 className="flex items-center gap-2 text-lg font-bold">
-          <Plug className="size-5 text-primary" /> Integrações
-        </h2>
-        <p className="mt-1 max-w-[640px] text-sm leading-relaxed text-muted-foreground">
-          Aqui ficam as conexões com sistemas de fora. Diferente de Pix e cartão
-          online, que você configura uma vez e esquece, estas dependem de
-          aparelhos e de aprovações — e podem parar por conta própria.
-        </p>
-      </div>
+      <CabecalhoSecao titulo="Integrações" icone={<Plug className="size-5 text-primary" />} />
 
       {/* ─────────────── iFood ─────────────── */}
       <Card>

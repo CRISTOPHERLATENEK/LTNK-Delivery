@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
+import { CabecalhoSecao } from '@/components/ui/cabecalho-secao';
 import {
   Settings, Palette, Image as ImageIcon, Image, UtensilsCrossed, MousePointerClick,
   Type, GalleryHorizontal, Sparkles, Code, Save, Eye,
@@ -78,10 +79,7 @@ export function VisualLoja() {
   return (
     <div className="space-y-4 pb-24 lg:pb-4">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-extrabold">Visual da loja</h1>
-          <p className="text-sm text-muted-foreground">Cores, logo, capa, cardápio, botões e mais.</p>
-        </div>
+        <CabecalhoSecao titulo="Visual" />
         <div className="flex items-center gap-2 shrink-0">
           <Button type="button" size="sm" variant="outline" className="lg:hidden" onClick={() => setPreviewAberto(true)}>
             <Eye className="size-3.5" /> Preview

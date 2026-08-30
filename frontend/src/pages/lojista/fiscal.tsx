@@ -14,7 +14,7 @@
  * dígito contra um papel, e em fonte proporcional 0/O e 1/l se confundem.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Ajuda } from '@/components/ui/ajuda';
+import { CabecalhoSecao } from '@/components/ui/cabecalho-secao';
 import {
   FileText, ShieldCheck, Upload, AlertTriangle, CheckCircle2, Save, FlaskConical,
   Download, Package, Ban, RefreshCw, Receipt, Loader2, FolderArchive, Mail, Landmark,
@@ -450,10 +450,10 @@ export function FiscalLoja() {
     <div className="space-y-4">
       {/* Cabeçalho: título da tela + ambiente, no mesmo desenho das outras abas */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <FileText className="size-5 text-primary" />
-          <span className="inline-flex items-baseline gap-1.5"><h1 className="text-lg font-extrabold">Emissão de NFC-e</h1><Ajuda chave="fiscal" /></span>
-        </div>
+        {/* "Fiscal", igual ao menu. Chamava-se "Emissão de NFC-e" — outro nome
+            para a mesma tela, e quem clicou em Fiscal ficava sem saber se
+            tinha chegado no lugar certo. */}
+        <CabecalhoSecao titulo="Fiscal" ajuda="fiscal" icone={<FileText className="size-5 text-primary" />} />
         <div className="flex items-center gap-3">
           {/* Progresso: um traço por etapa. Barra contínua sugeriria
               meio-termo onde só existe feito ou não feito. */}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Image, Plus, Trash2, ToggleLeft, ToggleRight, Tag, GripVertical } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { CabecalhoSecao } from '@/components/ui/cabecalho-secao';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -106,20 +107,15 @@ export function BannersLoja() {
 
   return (
     <div className="space-y-5 pb-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-            <Image className="size-6" />
-          </div>
-          <div>
-            <h1 className="text-xl font-extrabold">Banners da loja</h1>
-            <p className="text-sm text-muted-foreground">Aparecem no topo do seu cardápio para os clientes.</p>
-          </div>
-        </div>
-        <Button onClick={() => setCriando(c => !c)} size="sm" disabled={ativosNoLimite}>
-          <Plus className="size-4" /> Novo banner
-        </Button>
-      </div>
+      <CabecalhoSecao
+        titulo="Banners"
+        icone={<Image className="size-5 text-primary" />}
+        acao={
+          <Button onClick={() => setCriando(c => !c)} size="sm" disabled={ativosNoLimite}>
+            <Plus className="size-4" /> Novo banner
+          </Button>
+        }
+      />
 
       {ativosNoLimite && (
         <p className="text-xs text-amber-600 -mt-2">
