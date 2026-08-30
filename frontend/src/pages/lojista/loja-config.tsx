@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Ajuda } from '@/components/ui/ajuda';
+import { CabecalhoSecao } from '@/components/ui/cabecalho-secao';
 import { Settings, Save, Power, Clock, Zap, Bike, Plus, Trash2, MapPin, CreditCard, Eye, EyeOff, CheckCircle2, XCircle, Link2, Wand2, Printer, RefreshCw, FileText, Download, Globe, ExternalLink, Copy, Check, FlaskConical, Rocket, ShieldCheck, Search, AlertCircle, ChevronDown, X, Smartphone } from 'lucide-react';
 import { imprimirCupom, configImpressao } from '@/lib/impressao';
 import { statusAgente, esquecerStatusAgente, listarImpressorasAgente, impressoraAgente, definirImpressoraAgente, impressoraSetor, definirImpressoraSetor, URL_EDITOR_FISCAL, VERSAO_INSTALADOR, URL_INSTALADOR } from '@/lib/agente';
@@ -164,6 +165,10 @@ export function LojaConfiguracao() {
 
   return (
     <div className="space-y-5">
+      <CabecalhoSecao titulo="Loja">
+        Nome, contato e endereço — o que o cliente vê antes de pedir.
+      </CabecalhoSecao>
+
       {/* Status + botão abrir/fechar */}
       <Card>
         <CardContent className="p-5 flex items-center justify-between gap-3 flex-wrap">
@@ -545,6 +550,10 @@ export function HorarioLoja() {
 
   return (
     <div className="space-y-4">
+      <CabecalhoSecao titulo="Horário">
+        Quando a loja abre e fecha sozinha. Fora da agenda, ela não aceita pedido.
+      </CabecalhoSecao>
+
       {/* Toggle automático */}
       <Card className={cn(auto && 'border-primary/40 bg-primary/5')}>
         <CardContent className="p-5">
@@ -710,12 +719,9 @@ function ResumoEntrega({
 
   return (
     <div className="space-y-4">
-      <div>
-        <span className="inline-flex items-baseline gap-1.5"><h2 className="text-lg font-bold">Entrega</h2><Ajuda chave="entrega-taxa" /></span>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          Onde você entrega e quanto cobra por isso.
-        </p>
-      </div>
+      <CabecalhoSecao titulo="Entrega" ajuda="entrega-taxa">
+        Onde você entrega e quanto cobra por isso.
+      </CabecalhoSecao>
 
       {/* ── O que está valendo agora ── */}
       <Card>
@@ -1119,11 +1125,15 @@ export function EntregadoresLoja() {
 
   return (
     <div className="space-y-4">
+      <CabecalhoSecao titulo="Entregadores">
+        Quem leva os pedidos, e o login que eles usam para receber as entregas.
+      </CabecalhoSecao>
+
       <Card>
         <CardContent className="p-5">
           <div className="flex items-center gap-2 mb-1">
             <Bike className="size-5 text-primary" />
-            <span className="font-bold">Entregadores</span>
+            <span className="font-bold">Acesso do entregador</span>
           </div>
           <p className="text-xs text-muted-foreground">
             Cadastre o login dos seus motoboys aqui. Eles entram em <strong>/entregador</strong> com o
@@ -1489,12 +1499,9 @@ export function PagamentosLoja() {
 
   return (
     <div className="mx-auto max-w-[720px] space-y-4">
-      <div>
-        <span className="inline-flex items-baseline gap-1.5"><h2 className="text-lg font-bold">Pagamentos</h2><Ajuda chave="pagamentos" /></span>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          O dinheiro cai direto na sua conta — a plataforma não fica no meio.
-        </p>
-      </div>
+      <CabecalhoSecao titulo="Pagamentos" ajuda="pagamentos">
+        O dinheiro cai direto na sua conta — a plataforma não fica no meio.
+      </CabecalhoSecao>
 
       {/*
         ABAS EM FORMATO DE CARD, cada uma carregando o próprio status.
@@ -2363,6 +2370,10 @@ export function ImpressaoLoja() {
 
   return (
     <form onSubmit={salvar} className="space-y-4">
+      <CabecalhoSecao titulo="Impressão">
+        O tamanho do papel e o que sai no cupom da cozinha e do cliente.
+      </CabecalhoSecao>
+
       <Card>
         <CardContent className="p-5 space-y-5">
           <div className="flex items-center gap-2">
@@ -2560,6 +2571,10 @@ export function SegurancaLoja() {
 
   return (
     <div className="max-w-lg space-y-4">
+      <CabecalhoSecao titulo="Segurança">
+        Sua senha e a verificação em duas etapas. Quem entra no painel se define em Usuários.
+      </CabecalhoSecao>
+
       <Card className="border-green-500/40 bg-green-500/5">
         <CardContent className="p-5 flex items-center gap-4">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-green-500/15">
@@ -2712,12 +2727,9 @@ export function UsuariosLoja() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <span className="inline-flex items-baseline gap-1.5"><h2 className="text-lg font-bold">Usuários</h2><Ajuda chave="usuarios" /></span>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          Quem pode entrar no painel desta loja.
-        </p>
-      </div>
+      <CabecalhoSecao titulo="Usuários" ajuda="usuarios">
+        Quem pode entrar no painel desta loja.
+      </CabecalhoSecao>
 
       {/*
         DIZ O QUE O ACESSO É, em vez de deixar descobrir depois. Hoje não existe
