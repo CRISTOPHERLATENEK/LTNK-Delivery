@@ -1,0 +1,125 @@
+import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
+import {
+  ehPedidoCanceladoLa, pedidosParaConferir, STATUS_ATIVOS,
+  MINUTOS_MINIMOS, HORAS_MAXIMAS, type PedidoParaConferir,
+} from './ifood-reconciliar';
+
+const AGORA = Date.parse('2026-08-29T15:00:00.000Z');
+const minutosAtras = (m: number) => new Date(AGORA - m * 60_000).toISOString();
+
+const pedido = (over: Partial<PedidoParaConferir> = {}): PedidoParaConferir => ({
+  id: 85, status: 'preparando', orderId: 'abc-123', criadoEm: minutosAtras(30), ...over,
+});
+
+describe('ehPedidoCanceladoLa', () => {
+  it('reconhece a resposta REAL do iFood', () => {
+    /* Texto copiado da chamada de verdade contra o pedido #85. */
+    expect(ehPedidoCanceladoLa({
+      httpStatus: 400,
+      message: 'Order 98f42f66-6478-41fd-8a52-3f58a46048cb is already cancelled',
+    })).toBe(true);
+  });
+
+  it('outro 400 NÃO é cancelamento', () => {
+    /*
+     * A alternativa preguiçosa seria tratar todo 400 como cancelado — e aí um
+     * erro de validação cancelaria um pedido que a cozinha está produzindo.
+     * Entre deixar de consertar e cancelar o que está certo, a escolha não é
+     * difícil.
+     */
+    expect(ehPedidoCanceladoLa({ httpStatus: 400, message: 'Invalid order id' })).toBe(false);
+    expect(ehPedidoCanceladoLa({ httpStatus: 400, message: '' })).toBe(false);
+  });
+
+  it('404 e 500 não são cancelamento', () => {
+    expect(ehPedidoCanceladoLa({ httpStatus: 404, message: 'is already cancelled' })).toBe(false);
+    expect(ehPedidoCanceladoLa({ httpStatus: 500, message: 'boom' })).toBe(false);
+  });
+
+  it('aceita as duas grafias de "cancelled"', () => {
+    /* A API mistura inglês britânico e americano em mensagens diferentes. */
+    expect(ehPedidoCanceladoLa({ httpStatus: 400, message: 'Order X is already canceled' })).toBe(true);
+  });
+});
+
+describe('pedidosParaConferir', () => {
+  it('pega o pedido ativo com idade no meio da janela', () => {
+    expect(pedidosParaConferir([pedido()], AGORA)).toHaveLength(1);
+  });
+
+  it('ignora pedido em status terminal', () => {
+    for (const s of ['entregue', 'cancelado', 'recusado']) {
+      expect(pedidosParaConferir([pedido({ status: s })], AGORA)).toEqual([]);
+    }
+  });
+
+  it('confere TODOS os status ativos', () => {
+    /* Um cancelamento pode chegar em qualquer ponto antes da entrega; deixar um
+       estado de fora é deixar um buraco exatamente onde ninguém procura. */
+    for (const s of STATUS_ATIVOS) {
+      expect(pedidosParaConferir([pedido({ status: s })], AGORA), s).toHaveLength(1);
+    }
+  });
+
+  it('não confere pedido recém-criado', () => {
+    /* Ainda está sendo confirmado; perguntar a cada ciclo só gasta chamada. */
+    expect(pedidosParaConferir([pedido({ criadoEm: minutosAtras(MINUTOS_MINIMOS - 1) })], AGORA)).toEqual([]);
+  });
+
+  it('não confere pedido velho demais', () => {
+    /* Pedido antigo e ainda ativo é problema de operação, não de evento
+       perdido — e varrer o histórico inteiro cresce sem limite. */
+    expect(pedidosParaConferir([pedido({ criadoEm: minutosAtras(HORAS_MAXIMAS * 60 + 1) })], AGORA)).toEqual([]);
+  });
+
+  it('pedido sem orderId do iFood fica de fora', () => {
+    expect(pedidosParaConferir([pedido({ orderId: '  ' })], AGORA)).toEqual([]);
+  });
+
+  it('data ilegível NÃO faz pular a conferência', () => {
+    /*
+     * Um pedido preso com data estranha é exatamente o que ninguém vai notar.
+     * Pular por não conseguir ler a data seria esconder o caso mais provável de
+     * dar errado.
+     */
+    expect(pedidosParaConferir([pedido({ criadoEm: 'data-torta' })], AGORA)).toHaveLength(1);
+  });
+});
+
+describe('o laço do servidor', () => {
+  const fonte = () => fs.readFileSync(path.join(__dirname, 'server.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('corrige marcando como vindo do iFood', () => {
+    /*
+     * Sem isso a correção seria recusada pela máquina de estados (só se cancela
+     * de 'pendente') e ainda pediria ao iFood o cancelamento de um pedido que
+     * ELE já cancelou.
+     */
+    const s = fonte();
+    const i = s.indexOf('reconciliarPedidosIfood');
+    const trecho = s.slice(i, s.indexOf('async function sincronizarCardapiosIfood'));
+    expect(trecho).toContain('{ vindoDoIfood: true }');
+  });
+
+  it('só mexe no pedido quando a resposta é de cancelamento', () => {
+    /* Qualquer outro erro — 500, timeout, validação — não pode cancelar um
+       pedido que a cozinha está produzindo. */
+    const s = fonte();
+    const i = s.indexOf('reconciliarPedidosIfood');
+    const trecho = s.slice(i, s.indexOf('async function sincronizarCardapiosIfood'));
+    expect(trecho).toContain('if (!ehPedidoCanceladoLa(erro)) continue;');
+  });
+
+  it('não roda no ritmo do polling', () => {
+    /* Uma chamada por pedido ativo a cada 30s competiria com o polling — que é
+       o que mantém a loja online no iFood. */
+    const s = fonte();
+    const linha = s.split('\n').find(l => l.includes('reconciliarPedidosIfood().catch'));
+    expect(linha).toBeDefined();
+    const bloco = s.slice(s.indexOf(linha!), s.indexOf(linha!) + 200);
+    expect(bloco).toContain('10 * 60_000');
+  });
+});
