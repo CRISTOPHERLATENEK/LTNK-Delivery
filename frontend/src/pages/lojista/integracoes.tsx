@@ -11,17 +11,25 @@
  *
  * Quando o lojista pensa "o iFood parou", ele não pensa "vou em Pagamentos".
  * Esta tela é o lugar que ele procura.
+ *
+ * GRADE DE CARDS, DETALHE EM MODAL. A versão anterior era um card gigante com
+ * quatro cards aninhados dentro e três blocos de texto explicativo sempre
+ * abertos. Duas consequências: para saber se o iFood estava funcionando era
+ * preciso ler a tela inteira, e o texto que explicava as regras da
+ * sincronização ficava aberto para sempre, empurrando o interruptor para baixo
+ * — quem já entendeu não lê de novo, e quem não entendeu não lê da primeira
+ * vez. Agora cada integração é um card com UMA linha de status concreta, e o
+ * resto mora atrás de um clique.
  */
 import { useEffect, useState } from 'react';
-import { CabecalhoSecao } from '@/components/ui/cabecalho-secao';
-import { Plug, Smartphone, ShoppingBag, ExternalLink, Download, Loader2, RefreshCw, Upload } from 'lucide-react';
+import { Plug, Smartphone, ExternalLink, Download, Loader2, RefreshCw, Upload, Printer } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { agenteAtivo, impressoraAgente } from '@/lib/agente';
+import { CardIntegracao, ModalIntegracao, LogoIntegracao, Linha, Sanfona } from './integracoes-ui';
 
 interface PreviaCardapio {
   disponivel: boolean;
@@ -67,8 +75,15 @@ function Chave({ ativo, onAlternar, disabled }: {
   );
 }
 
+/** Atalho para uma seção das configurações, no formato que a tela entende. */
+function linkSecao(secao: string) {
+  return `/lojista/config?secao=${secao}`;
+}
+
 export function IntegracoesLoja() {
   const { mostrar } = useToast();
+  const [aberta, setAberta] = useState<'ifood' | 'whatsapp' | 'tef' | 'impressao' | null>(null);
+
   const [ifood, setIfood] = useState<EstadoIfood | null>(null);
   const [merchantId, setMerchantId] = useState('');
   const [carregado, setCarregado] = useState(false);
@@ -80,10 +95,27 @@ export function IntegracoesLoja() {
   const [conferindo, setConferindo] = useState(false);
   const [publicando, setPublicando] = useState(false);
 
+  const [tefAtivo, setTefAtivo] = useState(false);
+  const [zapMetodo, setZapMetodo] = useState('nenhum');
+  const [agente, setAgente] = useState<{ ligado: boolean; impressora: string } | null>(null);
+
   useEffect(() => {
     api<EstadoIfood>('GET', '/api/lojista/ifood')
       .then(r => { setIfood(r); if (!carregado) { setMerchantId(r.merchant_id); setCarregado(true); } })
       .catch(() => {});
+
+    /*
+     * O status de cada card vem da fonte de verdade de cada integração, não de
+     * um palpite. Falha de leitura deixa o card em "desligado" em vez de
+     * quebrar a tela: uma integração que não respondeu não é motivo para o
+     * lojista não conseguir mexer nas outras.
+     */
+    api<{ ativo: boolean }>('GET', '/api/lojista/tef').then(r => setTefAtivo(!!r.ativo)).catch(() => {});
+    api<{ metodo_ativo: string }>('GET', '/api/lojista/whatsapp')
+      .then(r => setZapMetodo(r.metodo_ativo || 'nenhum')).catch(() => {});
+    agenteAtivo()
+      .then(ligado => setAgente({ ligado, impressora: impressoraAgente() }))
+      .catch(() => setAgente({ ligado: false, impressora: '' }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -149,338 +181,379 @@ export function IntegracoesLoja() {
     } finally { setPublicando(false); }
   }
 
+  /*
+   * O STATUS DIZ O QUE ESTÁ ACONTECENDO, NÃO O ESTADO DO INTERRUPTOR.
+   *
+   * "Ligado" é a resposta que menos ajuda: a loja pode estar ligada e sem
+   * código, e aí nenhum pedido chega — e o lojista fica esperando um pedido
+   * que nunca vem, olhando para um selo verde.
+   */
+  const statusIfood = !ifood ? 'Carregando…'
+    : !ifood.plataforma_integrada ? 'Ainda não liberado pela plataforma'
+    : !ifood.ativo ? 'Desligado'
+    : !ifood.merchant_id ? 'Falta o código da loja'
+    : ifood.sincronizacao === 'do_ifood' ? 'Recebendo pedidos · cardápio sincronizado'
+    : 'Recebendo pedidos';
+
+  const logoIfood = (ativa: boolean) => (
+    <LogoIntegracao src="/integracoes/ifood.svg" nome="iFood" ativa={ativa} />
+  );
+  const logoZap = (ativa: boolean) => (
+    <LogoIntegracao src="/integracoes/whatsapp.svg" nome="WhatsApp" ativa={ativa} />
+  );
+  const logoTef = (ativa: boolean) => (
+    <LogoIntegracao nome="Maquininha" ativa={ativa} icone={<Smartphone className="size-[19px]" />} />
+  );
+  const logoImpressao = (ativa: boolean) => (
+    <LogoIntegracao nome="Impressão" ativa={ativa} icone={<Printer className="size-[19px]" />} />
+  );
+
+  const ifoodOk = !!ifood?.configurado && !!ifood.merchant_id;
+  const zapOk = zapMetodo !== 'nenhum';
+  const agenteOk = !!agente?.ligado;
+
   return (
-    <div className="mx-auto max-w-[860px] space-y-5">
-      <CabecalhoSecao titulo="Integrações" icone={<Plug className="size-5 text-primary" />} />
+    <div className="mx-auto max-w-[840px]">
+      <div className="mb-5">
+        <h2 className="flex items-center gap-2 text-[22px] font-extrabold">
+          <Plug className="size-5 text-primary" /> Integrações
+        </h2>
+        <p className="mt-1 max-w-[48ch] text-[13px] leading-relaxed text-muted-foreground">
+          Conexões com sistemas de fora. Dependem de aparelhos e aprovações,
+          então podem parar por conta própria.
+        </p>
+      </div>
 
-      {/* ─────────────── iFood ─────────────── */}
-      <Card>
-        <CardContent className="space-y-5 py-6">
-          <div className="flex items-start gap-3">
-            <ShoppingBag className="mt-0.5 size-5 shrink-0 text-primary" />
-            <div className="min-w-0 flex-1">
-              <h3 className="text-[15px] font-bold">iFood</h3>
-              <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                Os pedidos do iFood entram direto no seu painel, junto com os do
-                seu cardápio próprio — mesma tela, mesma cozinha, mesma impressora.
-              </p>
-            </div>
-            <span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[11.5px] font-bold',
-              ifood?.configurado
-                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-500'
-                : 'bg-muted text-muted-foreground')}>
-              {ifood?.configurado ? 'Ligado' : 'Desligado'}
-            </span>
+      <div className="grid grid-cols-2 gap-[14px] min-[380px]:grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] max-[379px]:grid-cols-1">
+        <CardIntegracao
+          logo={logoIfood(ifoodOk)} nome="iFood" status={statusIfood}
+          ligada={ifoodOk} onAbrir={() => setAberta('ifood')}
+        />
+        <CardIntegracao
+          logo={logoZap(zapOk)} nome="WhatsApp"
+          status={zapOk ? 'Avisando o cliente' : 'Desligado'}
+          ligada={zapOk} onAbrir={() => setAberta('whatsapp')}
+        />
+        <CardIntegracao
+          logo={logoTef(tefAtivo)} nome="Maquininha (TEF)"
+          status={tefAtivo ? 'Conectada' : 'Não configurada'}
+          ligada={tefAtivo} onAbrir={() => setAberta('tef')}
+        />
+        <CardIntegracao
+          logo={logoImpressao(agenteOk)} nome="Impressão automática"
+          status={agente === null ? 'Verificando…'
+            : agenteOk ? (agente.impressora || 'Agente conectado')
+            : 'Agente não detectado neste computador'}
+          ligada={agenteOk} onAbrir={() => setAberta('impressao')}
+        />
+      </div>
+
+      {/* ─────────────────────────── iFood ─────────────────────────── */}
+      <ModalIntegracao
+        aberta={aberta === 'ifood'} aoFechar={() => setAberta(null)}
+        logo={logoIfood(ifoodOk)} nome="iFood" status={statusIfood}
+      >
+        {ifood && !ifood.plataforma_integrada ? (
+          /*
+           * A DISTINÇÃO QUE EVITA CHAMADO ABERTO À TOA. "A plataforma ainda não
+           * está integrada" é problema NOSSO, não do lojista — e sem dizer
+           * isso ele olharia o próprio cadastro procurando o que fez de errado
+           * num campo que já estava certo.
+           */
+          <div className="px-5 py-6">
+            <p className="max-w-[46ch] text-[13px] leading-relaxed text-muted-foreground">
+              A integração com o iFood está sendo habilitada pela plataforma.
+              Não há nada para você fazer aqui ainda — avisaremos quando abrir.
+            </p>
           </div>
+        ) : ifood && (
+          <>
+            <Linha
+              titulo="Receber pedidos aqui"
+              descricao={ifood.ativo
+                ? 'Os pedidos entram no seu painel, junto com os do seu cardápio.'
+                : 'Desligado, os pedidos continuam só no aplicativo do iFood.'}
+              acao={<Chave ativo={!!ifood.ativo} disabled={enviando}
+                onAlternar={() => void salvarIfood({ ativo: !ifood.ativo })} />}
+            />
 
-          {/*
-            A DISTINÇÃO QUE EVITA CHAMADO ABERTO À TOA.
-
-            "A plataforma ainda não está integrada" é problema NOSSO, não do
-            lojista — e sem dizer isso ele olharia o próprio cadastro
-            procurando o que fez de errado num campo que já estava certo.
-          */}
-          {ifood && !ifood.plataforma_integrada && (
-            <div className="rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-4">
-              <p className="text-[13px] font-bold text-amber-700 dark:text-amber-500">
-                Ainda não disponível
-              </p>
-              <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
-                A integração com o iFood está sendo habilitada pela plataforma.
-                Não há nada para você fazer aqui ainda — avisaremos quando abrir.
-              </p>
-            </div>
-          )}
-
-          {ifood?.plataforma_integrada && (
-            <>
-              <div className="flex items-center justify-between gap-4 rounded-xl border border-border p-4">
-                <div className="min-w-0">
-                  <p className="text-sm font-bold">Receber pedidos do iFood</p>
-                  <p className="mt-0.5 text-[12.5px] text-muted-foreground">
-                    Desligado, os pedidos continuam só no aplicativo do iFood.
-                  </p>
-                </div>
-                <Chave
-                  ativo={!!ifood.ativo}
-                  disabled={enviando}
-                  onAlternar={() => void salvarIfood({ ativo: !ifood.ativo })}
-                />
-              </div>
-
-              {ifood.ativo && !ifood.merchant_id && (
-                <div className="rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-4 text-[12.5px] leading-relaxed text-muted-foreground">
-                  <b className="text-amber-700 dark:text-amber-500">Falta o código da loja.</b>{' '}
-                  Enquanto ele não for preenchido, nenhum pedido do iFood chega aqui.
-                </div>
-              )}
-
-              <form
-                className="space-y-2"
-                onSubmit={async e => {
-                  e.preventDefault();
-                  const r = await salvarIfood({ merchant_id: merchantId });
-                  if (r) mostrar({ tipo: 'sucesso', titulo: 'Código da loja salvo' });
-                }}
-              >
-                <Label htmlFor="ifood-merchant">Código da sua loja no iFood</Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="ifood-merchant" value={merchantId} disabled={enviando}
-                    onChange={e => setMerchantId(e.target.value)}
-                    placeholder="0a0000aa-0aa0-00aa-aa00-0000aa000001"
-                    className="font-mono text-sm"
-                  />
-                  <Button type="submit" disabled={enviando} className="shrink-0">Salvar</Button>
-                </div>
-                <p className="text-[12px] leading-relaxed text-muted-foreground">
-                  É o identificador da sua loja no Portal do Parceiro iFood. Peça
-                  ao seu contato no iFood se não souber onde encontrar.
-                </p>
-              </form>
-
-              {/* ─────── importar cardápio ─────── */}
-              {ifood.merchant_id && (
-                <div className="rounded-xl border border-border p-4">
-                  <div className="flex items-start gap-3">
-                    <Download className="mt-0.5 size-4 shrink-0 text-primary" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold">Trazer o cardápio do iFood</p>
-                      <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">
-                        Cria aqui os produtos que existem lá, com os complementos.
-                        Serve também para os pedidos do iFood passarem a dar baixa
-                        no seu estoque.
-                      </p>
-                    </div>
-                    <Button type="button" variant="outline" size="sm" className="shrink-0"
-                      disabled={lendo || importando} onClick={() => void verCardapio()}>
-                      {lendo ? <Loader2 className="size-4 animate-spin" /> : 'Ver o que tem lá'}
-                    </Button>
-                  </div>
-
-                  {/*
-                    A PRÉVIA MOSTRA OS NOMES, não só a contagem.
-                    "12 produtos" não deixa o lojista perceber que 3 são de um
-                    cardápio antigo que ele nem usa mais. Ver a lista é o que
-                    transforma o clique em decisão.
-                  */}
-                  {previa && (
-                    <div className="mt-4 space-y-3 border-t border-border pt-4">
-                      {previa.novos.length === 0 ? (
-                        <p className="text-[12.5px] text-muted-foreground">
-                          {previa.jaExistem > 0
-                            ? `Nada novo para trazer — os ${previa.jaExistem} produtos de lá já existem aqui.`
-                            : 'Não encontrei produtos no cardápio do iFood.'}
-                        </p>
-                      ) : (
-                        <>
-                          <p className="text-[13px] font-bold">
-                            {previa.novos.length} produto(s) para trazer
-                          </p>
-                          <ul className="max-h-52 space-y-1 overflow-y-auto text-[12.5px] text-muted-foreground">
-                            {previa.novos.map(p => (
-                              <li key={p.nome} className="flex items-baseline justify-between gap-3">
-                                <span className="truncate">{p.nome}</span>
-                                <span className="shrink-0 text-[11.5px] opacity-70">
-                                  {p.complementos > 0 && `${p.complementos} grupo(s) · `}
-                                  lá custa R$ {(p.precoIfoodCentavos / 100).toFixed(2).replace('.', ',')}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-
-                          {/*
-                            O AVISO DO PREÇO VEM ANTES DO BOTÃO, e é o ponto mais
-                            importante desta tela: o preço do iFood embute a
-                            comissão. Trazê-lo faria quem compra pelo seu link
-                            pagar uma comissão que ali não existe — e o número
-                            pareceria certo.
-                          */}
-                          <div className="rounded-lg border border-amber-500/40 bg-amber-500/[0.06] p-3 text-[12px] leading-relaxed text-muted-foreground">
-                            <b className="text-amber-700 dark:text-amber-500">O preço não vem junto.</b>{' '}
-                            No iFood ele costuma embutir a comissão; trazer esse valor
-                            faria quem compra pelo seu link pagar por algo que ali não
-                            existe. Os produtos entram <b>pausados e sem preço</b> — você
-                            define e coloca à venda.
-                          </div>
-
-                          {(previa.jaExistem > 0 || previa.semCodigo > 0) && (
-                            <p className="text-[12px] text-muted-foreground">
-                              {previa.jaExistem > 0 && `${previa.jaExistem} já existem aqui e serão pulados. `}
-                              {previa.semCodigo > 0 && `${previa.semCodigo} sem código no iFood — não dá para saber se já existem, então ficam de fora.`}
-                            </p>
-                          )}
-
-                          <Button type="button" disabled={importando} onClick={() => void importar()}>
-                            {importando ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-                            Trazer {previa.novos.length} produto(s)
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ─────── sincronização contínua ─────── */}
-              {ifood.merchant_id && (
-                <div className="rounded-xl border border-border p-4">
-                  <div className="flex items-start gap-3">
-                    <RefreshCw className="mt-0.5 size-4 shrink-0 text-primary" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold">Manter igual ao iFood</p>
-                      <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">
-                        De hora em hora, o cardápio daqui passa a seguir o de lá:
-                        nome, descrição, complementos e o que está pausado.
-                      </p>
-                    </div>
-                    <Chave
-                      ativo={ifood.sincronizacao === 'do_ifood'}
-                      onAlternar={() => void salvarIfood({
-                        sincronizacao: ifood.sincronizacao === 'do_ifood' ? 'nenhuma' : 'do_ifood',
-                      })}
+            {/*
+              DESLIGADO, AS LINHAS DE BAIXO SOMEM. Campo de código e botão de
+              importar com a integração desligada são controles órfãos: mexem
+              em algo que não está rodando, e o lojista mexe achando que
+              resolveu.
+            */}
+            {ifood.ativo && (
+              <>
+                <Linha titulo="Código da loja">
+                  <form
+                    className="mt-3 flex items-center gap-2"
+                    onSubmit={async e => {
+                      e.preventDefault();
+                      const r = await salvarIfood({ merchant_id: merchantId });
+                      if (r) mostrar({ tipo: 'sucesso', titulo: 'Código da loja salvo' });
+                    }}
+                  >
+                    <Input
+                      aria-label="Código da sua loja no iFood"
+                      value={merchantId} disabled={enviando}
+                      onChange={e => setMerchantId(e.target.value)}
+                      placeholder="0a0000aa-0aa0-00aa-aa00-0000aa000001"
+                      className="h-[38px] font-mono text-sm"
                     />
-                  </div>
-
-                  {/*
-                    O AVISO DE QUEM MANDA vem depois do interruptor e só quando
-                    está ligado. É a consequência que o lojista não imagina: ele
-                    vai editar um nome aqui, achar que salvou, e uma hora depois
-                    o nome volta. Dito antes de ligar seria um alerta no vazio;
-                    dito enquanto está ligado, explica o que ele vai ver.
-                  */}
-                  {ifood.sincronizacao === 'do_ifood' && (
-                    <div className="mt-4 space-y-2 border-t border-border pt-4 text-[12px] leading-relaxed text-muted-foreground">
-                      <p>
-                        <b className="text-foreground">Quem manda passa a ser o iFood.</b>{' '}
-                        Nome, descrição e complementos que você mudar por aqui
-                        voltam ao que está lá no próximo ciclo.
-                      </p>
-                      <p>
-                        <b className="text-foreground">O preço continua seu.</b>{' '}
-                        Nunca é sincronizado — o do iFood embute a comissão que
-                        no seu link não existe.
-                      </p>
-                      <p>
-                        <b className="text-foreground">Nada é apagado.</b>{' '}
-                        Produto removido de lá continua aqui, do jeito que está.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* ─────── publicar cardápio ─────── */}
-              {ifood.merchant_id && ifood.sincronizacao !== 'do_ifood' && (
-                <div className="rounded-xl border border-border p-4">
-                  <div className="flex items-start gap-3">
-                    <Upload className="mt-0.5 size-4 shrink-0 text-primary" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold">Enviar meu cardápio para o iFood</p>
-                      <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">
-                        Manda os produtos daqui para lá, com preço e complementos.
-                        Você aperta quando quiser — não fica enviando sozinho.
-                      </p>
-                    </div>
-                    <Button type="button" variant="outline" size="sm" className="shrink-0"
-                      disabled={conferindo || publicando} onClick={() => void conferirPublicacao()}>
-                      {conferindo ? <Loader2 className="size-4 animate-spin" /> : 'Ver o que vai'}
+                    {/*
+                      "Salvo" neutro enquanto nada mudou, "Salvar" em destaque
+                      quando há o que salvar. Um botão primário sempre aceso
+                      pede um clique que não faz nada — e ensina o lojista a
+                      ignorar o botão que um dia vai importar.
+                    */}
+                    <Button
+                      type="submit" disabled={enviando || merchantId === ifood.merchant_id}
+                      variant={merchantId === ifood.merchant_id ? 'outline' : 'default'}
+                      className="h-[38px] shrink-0 whitespace-nowrap"
+                    >
+                      {merchantId === ifood.merchant_id ? 'Salvo' : 'Salvar'}
                     </Button>
-                  </div>
-
-                  {/*
-                    A PRÉVIA NÃO É ENFEITE. No iFood, enviar um item substitui o
-                    item inteiro do lado de lá. Ver a lista antes é o que separa
-                    "atualizei meu cardápio" de "apaguei os complementos de um
-                    produto que estava vendendo".
-                  */}
-                  {publicacao && (
-                    <div className="mt-4 space-y-3 border-t border-border pt-4">
-                      {publicacao.previa.length === 0 ? (
-                        <p className="text-[12.5px] text-muted-foreground">
-                          Nenhum produto para enviar.
-                        </p>
-                      ) : (
-                        <>
-                          <p className="text-[13px] font-bold">
-                            {publicacao.previa.length} produto(s) para enviar
-                          </p>
-                          <ul className="max-h-52 space-y-1 overflow-y-auto text-[12.5px] text-muted-foreground">
-                            {publicacao.previa.map(p => (
-                              <li key={p.codigo} className="flex items-baseline justify-between gap-3">
-                                <span className="truncate">{p.nome}</span>
-                                <span className="shrink-0 text-[11.5px] opacity-70">
-                                  {p.acao === 'criar' ? 'novo lá' : 'atualiza o que já existe'}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                          <Button type="button" disabled={publicando} onClick={() => void publicar()}>
-                            {publicando ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-                            Enviar {publicacao.previa.length} produto(s)
-                          </Button>
-                        </>
-                      )}
-
-                      {/*
-                        Os que FICARAM DE FORA importam tanto quanto os que vão:
-                        um produto sem preço aqui iria a R$ 0,01 no lugar onde o
-                        cliente compra. Dizer só "3 enviados" esconderia isso.
-                      */}
-                      {publicacao.semPreco.length > 0 && (
-                        <div className="rounded-lg border border-amber-500/40 bg-amber-500/[0.06] p-3 text-[12px] leading-relaxed text-muted-foreground">
-                          <b className="text-amber-700 dark:text-amber-500">Ficaram de fora por não ter preço:</b>{' '}
-                          {publicacao.semPreco.join(', ')}. Enviar assim colocaria
-                          esses produtos a R$ 0,01 no iFood.
-                        </div>
-                      )}
-                      {publicacao.semCodigo.length > 0 && (
-                        <p className="text-[12px] text-muted-foreground">
-                          {publicacao.semCodigo.length} produto(s) sem código de barras ficaram de fora —
-                          sem ele não dá para saber se já existem lá.
-                        </p>
-                      )}
-                    </div>
+                  </form>
+                  {!ifood.merchant_id && (
+                    <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+                      Enquanto ele não for preenchido, nenhum pedido do iFood chega aqui.
+                      É o identificador da sua loja no Portal do Parceiro.
+                    </p>
                   )}
-                </div>
-              )}
+                </Linha>
 
-              <p className="border-t border-border pt-4 text-[12px] leading-relaxed text-muted-foreground">
-                <b className="text-foreground">Importante:</b> além de ligar aqui,
-                o iFood precisa aprovar o acesso do nosso aplicativo à sua loja.
-                Essa autorização é feita do lado deles, uma loja por vez.
-              </p>
-            </>
-          )}
-        </CardContent>
-      </Card>
+                {ifood.merchant_id && (
+                  <Linha
+                    titulo="Trazer o cardápio do iFood"
+                    descricao="Cria aqui os produtos que existem lá, com os complementos."
+                    acao={
+                      <Button type="button" variant="outline" size="sm"
+                        className="h-[34px] whitespace-nowrap"
+                        disabled={lendo || importando} onClick={() => void verCardapio()}>
+                        {lendo ? <Loader2 className="size-4 animate-spin" /> : 'Ver o que tem lá'}
+                      </Button>
+                    }
+                  >
+                    {/*
+                      A PRÉVIA MOSTRA OS NOMES, não só a contagem. "12 produtos"
+                      não deixa o lojista perceber que 3 são de um cardápio
+                      antigo que ele nem usa mais. Ver a lista é o que
+                      transforma o clique em decisão.
+                    */}
+                    {previa && (
+                      <div className="mt-4 space-y-3">
+                        {previa.novos.length === 0 ? (
+                          <p className="text-[12.5px] text-muted-foreground">
+                            {previa.jaExistem > 0
+                              ? `Nada novo para trazer — os ${previa.jaExistem} produtos de lá já existem aqui.`
+                              : 'Não encontrei produtos no cardápio do iFood.'}
+                          </p>
+                        ) : (
+                          <>
+                            <p className="text-[13px] font-bold">
+                              {previa.novos.length} produto(s) para trazer
+                            </p>
+                            <ul className="max-h-52 space-y-1 overflow-y-auto text-[12.5px] text-muted-foreground">
+                              {previa.novos.map(p => (
+                                <li key={p.nome} className="flex items-baseline justify-between gap-3">
+                                  <span className="truncate">{p.nome}</span>
+                                  <span className="shrink-0 text-[11.5px] opacity-70">
+                                    {p.complementos > 0 && `${p.complementos} grupo(s) · `}
+                                    lá custa R$ {(p.precoIfoodCentavos / 100).toFixed(2).replace('.', ',')}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
 
-      {/* ─────────────── Maquininha ─────────────── */}
-      <Card>
-        <CardContent className="py-6">
-          <div className="flex items-start gap-3">
-            <Smartphone className="mt-0.5 size-5 shrink-0 text-primary" />
-            <div className="min-w-0 flex-1">
-              <h3 className="text-[15px] font-bold">Maquininha (TEF)</h3>
-              <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-                Manda o valor da venda direto para a maquininha e recebe de volta
-                se aprovou, se foi crédito ou débito, a bandeira e o NSU.
-              </p>
-              {/*
-                Fica em Pagamentos e não aqui, apesar de ser uma integração.
-                Mover a tela agora obrigaria quem já configurou a procurar de
-                novo; o link resolve sem quebrar o caminho que já existe.
-              */}
-              <a
-                href="/lojista/config?secao=pagamentos"
-                className="mt-3 inline-flex items-center gap-1.5 text-[13px] font-semibold text-primary hover:underline"
-              >
-                Configurar em Pagamentos <ExternalLink className="size-3.5" />
-              </a>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+                            {/*
+                              ESTE AVISO CONTINUA SEMPRE VISÍVEL, e é a exceção
+                              deliberada à regra de esconder texto: ele só
+                              aparece DEPOIS do clique, no instante da decisão,
+                              e o que ele evita é o lojista vender pelo preço
+                              com comissão embutida no próprio link.
+                            */}
+                            <div className="rounded-lg border border-amber-500/40 bg-amber-500/[0.06] p-3 text-[12px] leading-relaxed text-muted-foreground">
+                              <b className="text-amber-700 dark:text-amber-500">O preço não vem junto.</b>{' '}
+                              No iFood ele costuma embutir a comissão. Os produtos entram
+                              <b> pausados e sem preço</b> — você define e coloca à venda.
+                            </div>
+
+                            {(previa.jaExistem > 0 || previa.semCodigo > 0) && (
+                              <p className="text-[12px] text-muted-foreground">
+                                {previa.jaExistem > 0 && `${previa.jaExistem} já existem aqui e serão pulados. `}
+                                {previa.semCodigo > 0 && `${previa.semCodigo} sem código no iFood ficam de fora.`}
+                              </p>
+                            )}
+
+                            <Button type="button" className="h-[38px] whitespace-nowrap"
+                              disabled={importando} onClick={() => void importar()}>
+                              {importando ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                              Trazer {previa.novos.length} produto(s)
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </Linha>
+                )}
+
+                {ifood.merchant_id && (
+                  <Linha
+                    titulo="Manter igual ao iFood"
+                    descricao={ifood.sincronizacao === 'do_ifood'
+                      ? 'De hora em hora, o cardápio daqui segue o de lá.'
+                      : 'Desligado, o cardápio daqui é independente do de lá.'}
+                    acao={
+                      <Chave
+                        ativo={ifood.sincronizacao === 'do_ifood'}
+                        onAlternar={() => void salvarIfood({
+                          sincronizacao: ifood.sincronizacao === 'do_ifood' ? 'nenhuma' : 'do_ifood',
+                        })}
+                      />
+                    }
+                  />
+                )}
+
+                {ifood.merchant_id && ifood.sincronizacao !== 'do_ifood' && (
+                  <Linha
+                    titulo="Enviar meu cardápio para o iFood"
+                    descricao="Você aperta quando quiser — não fica enviando sozinho."
+                    acao={
+                      <Button type="button" variant="outline" size="sm"
+                        className="h-[34px] whitespace-nowrap"
+                        disabled={conferindo || publicando} onClick={() => void conferirPublicacao()}>
+                        {conferindo ? <Loader2 className="size-4 animate-spin" /> : 'Ver o que vai'}
+                      </Button>
+                    }
+                  >
+                    {/*
+                      A PRÉVIA NÃO É ENFEITE. No iFood, enviar um item substitui
+                      o item inteiro do lado de lá. Ver a lista antes é o que
+                      separa "atualizei meu cardápio" de "apaguei os
+                      complementos de um produto que estava vendendo".
+                    */}
+                    {publicacao && (
+                      <div className="mt-4 space-y-3">
+                        {publicacao.previa.length === 0 ? (
+                          <p className="text-[12.5px] text-muted-foreground">Nenhum produto para enviar.</p>
+                        ) : (
+                          <>
+                            <p className="text-[13px] font-bold">
+                              {publicacao.previa.length} produto(s) para enviar
+                            </p>
+                            <ul className="max-h-52 space-y-1 overflow-y-auto text-[12.5px] text-muted-foreground">
+                              {publicacao.previa.map(p => (
+                                <li key={p.codigo} className="flex items-baseline justify-between gap-3">
+                                  <span className="truncate">{p.nome}</span>
+                                  <span className="shrink-0 text-[11.5px] opacity-70">
+                                    {p.acao === 'criar' ? 'novo lá' : 'atualiza o que já existe'}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                            <Button type="button" className="h-[38px] whitespace-nowrap"
+                              disabled={publicando} onClick={() => void publicar()}>
+                              {publicando ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+                              Enviar {publicacao.previa.length} produto(s)
+                            </Button>
+                          </>
+                        )}
+
+                        {/*
+                          Os que FICARAM DE FORA importam tanto quanto os que
+                          vão: um produto sem preço aqui iria a R$ 0,01 no lugar
+                          onde o cliente compra.
+                        */}
+                        {publicacao.semPreco.length > 0 && (
+                          <div className="rounded-lg border border-amber-500/40 bg-amber-500/[0.06] p-3 text-[12px] leading-relaxed text-muted-foreground">
+                            <b className="text-amber-700 dark:text-amber-500">Ficaram de fora por não ter preço:</b>{' '}
+                            {publicacao.semPreco.join(', ')}. Enviar assim colocaria
+                            esses produtos a R$ 0,01 no iFood.
+                          </div>
+                        )}
+                        {publicacao.semCodigo.length > 0 && (
+                          <p className="text-[12px] text-muted-foreground">
+                            {publicacao.semCodigo.length} produto(s) sem código de barras ficaram de fora.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </Linha>
+                )}
+
+                <Sanfona titulo="Como funciona a sincronização">
+                  <ul className="space-y-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                    <li>· <b className="text-foreground">Quem manda passa a ser o iFood.</b> Nome, descrição e complementos que você mudar aqui voltam ao que está lá no próximo ciclo.</li>
+                    <li>· <b className="text-foreground">O preço continua seu.</b> Nunca é sincronizado — o do iFood embute a comissão que no seu link não existe.</li>
+                    <li>· <b className="text-foreground">Nada é apagado.</b> Produto removido de lá continua aqui, do jeito que está.</li>
+                    <li>· <b className="text-foreground">O iFood precisa autorizar.</b> Além de ligar aqui, eles aprovam o acesso do nosso aplicativo à sua loja, uma loja por vez.</li>
+                  </ul>
+                </Sanfona>
+              </>
+            )}
+          </>
+        )}
+      </ModalIntegracao>
+
+      {/* ─────────────────────── WhatsApp ─────────────────────── */}
+      <ModalIntegracao
+        aberta={aberta === 'whatsapp'} aoFechar={() => setAberta(null)}
+        logo={logoZap(zapOk)} nome="WhatsApp"
+        status={zapOk ? 'Avisando o cliente' : 'Desligado'}
+      >
+        <div className="space-y-4 px-5 py-6">
+          <p className="max-w-[46ch] text-[13px] leading-relaxed text-muted-foreground">
+            Manda a confirmação do pedido e os avisos de status para o cliente,
+            sem ninguém precisar digitar.
+          </p>
+          <Button asChild className="h-[38px] whitespace-nowrap">
+            <a href={linkSecao('whatsapp')}>Configurar WhatsApp</a>
+          </Button>
+        </div>
+      </ModalIntegracao>
+
+      {/* ─────────────────────── Maquininha ─────────────────────── */}
+      <ModalIntegracao
+        aberta={aberta === 'tef'} aoFechar={() => setAberta(null)}
+        logo={logoTef(tefAtivo)} nome="Maquininha (TEF)"
+        status={tefAtivo ? 'Conectada' : 'Não configurada'}
+      >
+        <div className="space-y-4 px-5 py-6">
+          <p className="max-w-[46ch] text-[13px] leading-relaxed text-muted-foreground">
+            Manda o valor da venda direto para a maquininha e recebe de volta se
+            aprovou, se foi crédito ou débito, a bandeira e o NSU.
+          </p>
+          {/*
+            A configuração mora em Pagamentos e continua lá. Mover a tela agora
+            obrigaria quem já configurou a procurar de novo; o link resolve sem
+            quebrar o caminho que já existe.
+          */}
+          <Button asChild className="h-[38px] whitespace-nowrap">
+            <a href={linkSecao('pagamentos')}>
+              Configurar em Pagamentos <ExternalLink className="size-3.5" />
+            </a>
+          </Button>
+        </div>
+      </ModalIntegracao>
+
+      {/* ─────────────────────── Impressão ─────────────────────── */}
+      <ModalIntegracao
+        aberta={aberta === 'impressao'} aoFechar={() => setAberta(null)}
+        logo={logoImpressao(agenteOk)} nome="Impressão automática"
+        status={agenteOk ? (agente?.impressora || 'Agente conectado') : 'Agente não detectado'}
+      >
+        <div className="space-y-4 px-5 py-6">
+          <p className="max-w-[46ch] text-[13px] leading-relaxed text-muted-foreground">
+            {agenteOk
+              ? 'O agente está rodando neste computador e imprime o cupom direto na impressora térmica.'
+              : 'O agente roda no computador do caixa e imprime o cupom direto na impressora térmica. Ele não foi detectado aqui — pode estar fechado, ou este não é o computador do caixa.'}
+          </p>
+          <Button asChild className="h-[38px] whitespace-nowrap">
+            <a href={linkSecao('impressao')}>Configurar impressão</a>
+          </Button>
+        </div>
+      </ModalIntegracao>
     </div>
   );
 }

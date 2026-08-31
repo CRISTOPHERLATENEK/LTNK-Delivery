@@ -3,7 +3,7 @@ import gsap from 'gsap';
 import { detalheItem, linhasDoItem } from '@/lib/item-pedido';
 import { lerRepasse2FA, destinoRepasse2FA } from '../../lib/repasse-2fa';
 import { useQuery } from '@tanstack/react-query';
-import { Routes, Route, Link } from 'react-router-dom';
+import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import {
   CheckCircle2, ChefHat, XCircle, Package, Bell, Save, Eye, EyeOff, History,
   Printer, Store, Banknote, Plug } from 'lucide-react';
@@ -336,7 +336,22 @@ const GRUPOS_CONFIG: { titulo: string; itens: { id: AbaConfig; label: string; ic
 ];
 
 function ConfiguracoesLoja() {
-  const [aba, setAba] = useState<AbaConfig>('loja');
+  /*
+   * `?secao=pagamentos` ABRE NA SEÇÃO PEDIDA.
+   *
+   * O link "Configurar em Pagamentos", da tela de Integrações, já mandava esse
+   * parâmetro — e a tela ignorava, abrindo sempre em Dados. Quem clicava caía
+   * no lugar errado e tinha que procurar na lista, que é exatamente o trabalho
+   * que o link existia para poupar.
+   *
+   * Valor desconhecido cai em 'loja': um parâmetro digitado errado não pode
+   * deixar a tela sem conteúdo nenhum.
+   */
+  const pedida = new URLSearchParams(useLocation().search).get('secao');
+  const inicial = GRUPOS_CONFIG.some(g => g.itens.some(i => i.id === pedida))
+    ? (pedida as AbaConfig)
+    : 'loja';
+  const [aba, setAba] = useState<AbaConfig>(inicial);
 
   const conteudo = (
     <>
