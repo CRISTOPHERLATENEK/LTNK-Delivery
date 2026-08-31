@@ -89,6 +89,12 @@ ferramenta que poupa digitação e uma que sabota a margem do cardápio próprio
 
 ---
 
+> **A documentação desta API erra em nove pontos.** Cada um está registrado em
+> [ifood-api-divergencias.md](./ifood-api-divergencias.md), com o que a doc diz,
+> o que a API faz e como falha. Leia antes de escrever qualquer chamada — em
+> oito dos nove casos a mensagem de erro não diz o que está errado, e quatro
+> deles produzem a mesma mensagem.
+
 ## 4. Módulo B — Publicar (nós → iFood)
 
 Para o lojista que mantém o cardápio aqui.
