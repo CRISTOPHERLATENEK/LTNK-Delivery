@@ -95,7 +95,7 @@ export function IntegracoesLoja() {
   const [conferindo, setConferindo] = useState(false);
   const [publicando, setPublicando] = useState(false);
 
-  const [tefAtivo, setTefAtivo] = useState(false);
+  const [tef, setTef] = useState<{ ativo: boolean; configurado: boolean; pendencias: string[] } | null>(null);
   const [zapMetodo, setZapMetodo] = useState('nenhum');
   const [agente, setAgente] = useState<{ ligado: boolean; impressora: string } | null>(null);
 
@@ -110,7 +110,9 @@ export function IntegracoesLoja() {
      * quebrar a tela: uma integração que não respondeu não é motivo para o
      * lojista não conseguir mexer nas outras.
      */
-    api<{ ativo: boolean }>('GET', '/api/lojista/tef').then(r => setTefAtivo(!!r.ativo)).catch(() => {});
+    api<{ ativo: boolean; configurado: boolean; pendencias: string[] }>('GET', '/api/lojista/tef')
+      .then(r => setTef({ ativo: !!r.ativo, configurado: !!r.configurado, pendencias: r.pendencias ?? [] }))
+      .catch(() => {});
     api<{ metodo_ativo: string }>('GET', '/api/lojista/whatsapp')
       .then(r => setZapMetodo(r.metodo_ativo || 'nenhum')).catch(() => {});
     agenteAtivo()
@@ -216,6 +218,19 @@ export function IntegracoesLoja() {
   );
 
   const ifoodOk = !!ifood?.configurado && !!ifood.merchant_id;
+
+  /*
+   * LIGADA NÃO É CONECTADA, e o card mostrava "Conectada" para uma maquininha
+   * ligada e sem credencial — a tela de Pagamentos dizia "ainda não vai
+   * funcionar" ao mesmo tempo. Era o erro que este card existe para evitar,
+   * cometido nele mesmo: `ativo` é a posição do interruptor, `configurado` é o
+   * funcionamento. A API já devolvia os dois.
+   */
+  const tefStatus = !tef ? 'Carregando…'
+    : !tef.ativo ? 'Desligada'
+    : tef.configurado ? 'Conectada'
+    : tef.pendencias.length ? `Falta ${tef.pendencias[0]}`
+    : 'Falta configurar';
   const zapOk = zapMetodo !== 'nenhum';
   const agenteOk = !!agente?.ligado;
 
@@ -244,9 +259,9 @@ export function IntegracoesLoja() {
           ligada={zapOk} onAbrir={() => setAberta('whatsapp')}
         />
         <CardIntegracao
-          logo={logoTef(tefAtivo)} nome="Maquininha (TEF)"
-          status={tefAtivo ? 'Conectada' : 'Não configurada'}
-          ligada={tefAtivo} onAbrir={() => setAberta('tef')}
+          logo={logoTef(!!tef?.configurado)} nome="Maquininha (TEF)"
+          status={tefStatus}
+          ligada={!!tef?.configurado} onAbrir={() => setAberta('tef')}
         />
         <CardIntegracao
           logo={logoImpressao(agenteOk)} nome="Impressão automática"
@@ -525,14 +540,22 @@ export function IntegracoesLoja() {
       {/* ─────────────────────── Maquininha ─────────────────────── */}
       <ModalIntegracao
         aberta={aberta === 'tef'} aoFechar={() => setAberta(null)}
-        logo={logoTef(tefAtivo)} nome="Maquininha (TEF)"
-        status={tefAtivo ? 'Conectada' : 'Não configurada'}
+        logo={logoTef(!!tef?.configurado)} nome="Maquininha (TEF)"
+        status={tefStatus}
       >
         <div className="space-y-4 px-5 py-6">
           <p className="max-w-[46ch] text-[13px] leading-relaxed text-muted-foreground">
             Manda o valor da venda direto para a maquininha e recebe de volta se
             aprovou, se foi crédito ou débito, a bandeira e o NSU.
           </p>
+          {/* O que falta, dito aqui, poupa a viagem até Pagamentos para
+              descobrir. */}
+          {tef?.ativo && !tef.configurado && tef.pendencias.length > 0 && (
+            <p className="max-w-[46ch] text-[12.5px] leading-relaxed text-muted-foreground">
+              Está ligada, mas ainda falta {tef.pendencias.join(', ')} — tudo isso
+              vem no seu credenciamento com a adquirente.
+            </p>
+          )}
           {/*
             A configuração mora em Pagamentos e continua lá. Mover a tela agora
             obrigaria quem já configurou a procurar de novo; o link resolve sem
