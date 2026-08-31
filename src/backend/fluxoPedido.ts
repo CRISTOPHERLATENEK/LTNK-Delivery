@@ -6,6 +6,9 @@
 import { acaoParaStatus, escolherMotivoCancelamento, motivoDaRecusaDeCancelamento, type StatusNosso } from './ifood-status';
 import { avisarStatusIfood, motivosDeCancelamento, solicitarCancelamento, ErroIfood, credenciaisDoAmbiente as credenciaisIfoodDoAmbiente } from './ifood-cliente';
 import db from './db-mysql';
+import { descriptografar } from './cripto';
+import { enviarCobrancaPos } from './pdvmobi-cliente';
+import { deveLancarNaMaquininha, idCobrancaDoPedido, descricaoDaCobranca } from './pdvmobi-quando';
 import { agoraUTC, erroHttp } from './util';
 import { registrarEvento, notificarEntregadoresCorridaDisponivel } from './notificacoes';
 import { Pedido, StatusPedido } from '../tipos/modelos';
@@ -212,6 +215,16 @@ export async function transicionarStatus(
       .catch(e => console.error(`[ifood] falha ao avisar status do pedido ${pedidoId}:`, e));
   }
 
+  /*
+   * LANÇA NA MAQUININHA quando o pedido é "cartão na entrega" e chegou a hora.
+   *
+   * NÃO BLOQUEIA, pelo mesmo motivo do iFood: maquininha fora do ar não pode
+   * impedir o entregador de sair. Se o lançamento falhar, ele cobra digitando o
+   * valor, que é o que já faz hoje — e o log diz o que aconteceu.
+   */
+  lancarNaMaquininha(pedidoId, { ...pedido, status: novoStatus } as Pedido & Record<string, unknown>)
+    .catch(e => console.error(`[tef] falha ao lançar o pedido ${pedidoId} na maquininha:`, e));
+
   return { ...pedido, status: novoStatus, atualizado_em: agora, ...extras };
 }
 
@@ -347,4 +360,89 @@ async function pedirCancelamentoIfood(
     `[ifood] pedido ${pedido.id}: cancelamento SOLICITADO (motivo ${motivo}) — ` +
     `aguardando o evento CANCELLED para confirmar`,
   );
+}
+
+/**
+ * Manda o pedido para a maquininha, uma vez só.
+ *
+ * A DECISÃO de lançar mora em `pdvmobi-quando`, sem banco e sem rede. Aqui é só
+ * o encanamento: ler a configuração da loja, chamar, e MARCAR que lançou.
+ *
+ * A marca é gravada com `WHERE tef_lancado_em = ''`, e é isso que segura o caso
+ * de duas transições simultâneas — duas abas, dois cliques. Sem a condição no
+ * UPDATE, as duas leriam "não lançado" e o cliente pagaria duas vezes.
+ */
+async function lancarNaMaquininha(
+  pedidoId: number,
+  pedido: Pedido & Record<string, unknown>,
+): Promise<void> {
+  const tipo = String(pedido.tipo_entrega ?? 'entrega') === 'retirada' ? 'retirada' : 'entrega';
+
+  const loja = await db.prepare(
+    `SELECT smarttef_ativo, smarttef_base_url, smarttef_usuario, smarttef_senha,
+            smarttef_gateway_token, smarttef_serial_pos
+       FROM lojas WHERE id = ?`
+  ).get(pedido.loja_id) as {
+    smarttef_ativo: number; smarttef_base_url: string; smarttef_usuario: string;
+    smarttef_senha: string | null; smarttef_gateway_token: string | null;
+    smarttef_serial_pos: string;
+  } | undefined;
+
+  const abrir = (c: string | null) => { try { return c ? descriptografar(c) : ''; } catch { return ''; } };
+  const senha = abrir(loja?.smarttef_senha ?? null);
+  const chaveOcp = abrir(loja?.smarttef_gateway_token ?? null);
+  const configurado = !!loja?.smarttef_ativo && !!loja.smarttef_usuario?.trim() && !!senha && !!chaveOcp;
+
+  if (!deveLancarNaMaquininha({
+    formaPagamento: String(pedido.forma_pagamento ?? ''),
+    novoStatus: pedido.status,
+    tefConfigurado: configurado,
+    jaLancado: !!String(pedido.tef_lancado_em ?? '').trim(),
+    tipoEntrega: tipo,
+  })) return;
+
+  /*
+   * MARCA ANTES DE CHAMAR, e a condição no WHERE é a trava. Marcar depois
+   * deixaria a janela entre a chamada e a marca aberta para uma segunda
+   * transição lançar de novo — e "duas cobranças" é pior que "uma cobrança
+   * perdida", porque a segunda o cliente paga.
+   */
+  const agora = agoraUTC();
+  const marcou = await db.prepare(
+    "UPDATE pedidos SET tef_lancado_em = ? WHERE id = ? AND tef_lancado_em = ''"
+  ).run(agora, pedidoId);
+  if (marcou.changes === 0) return;
+
+  const cliente = await db.prepare(
+    'SELECT nome FROM usuarios WHERE id = ?'
+  ).get(pedido.cliente_id) as { nome: string } | undefined;
+
+  const comecou = Date.now();
+  try {
+    await enviarCobrancaPos(
+      { usuario: loja!.smarttef_usuario, senha, chaveOcp },
+      {
+        idCobranca: idCobrancaDoPedido(pedidoId),
+        valorCentavos: Number(pedido.total_centavos) || 0,
+        serialPos: loja!.smarttef_serial_pos || '',
+        nome: descricaoDaCobranca(cliente?.nome ?? '', pedidoId),
+      },
+      { baseUrl: loja!.smarttef_base_url || undefined },
+    );
+    console.log(`[tef] pedido ${pedidoId} lançado na maquininha em ${Date.now() - comecou}ms`);
+  } catch (e) {
+    /*
+     * DESFAZ A MARCA para a próxima tentativa poder acontecer — mas só quando a
+     * falha é CONHECIDA. Em queda de rede o lançamento pode ter chegado, e
+     * desmarcar aí é o caminho para a cobrança dobrada.
+     */
+    const erro = e as { httpStatus?: number; message?: string };
+    if (typeof erro.httpStatus === 'number' && erro.httpStatus > 0) {
+      await db.prepare("UPDATE pedidos SET tef_lancado_em = '' WHERE id = ?").run(pedidoId);
+    }
+    console.error(
+      `[tef] pedido ${pedidoId} NÃO foi lançado na maquininha: ${erro.message}. ` +
+      `O entregador vai precisar digitar o valor.`,
+    );
+  }
 }

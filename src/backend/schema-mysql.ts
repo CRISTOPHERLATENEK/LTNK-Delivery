@@ -1083,6 +1083,16 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * `smarttef_token` continua na tabela e deixa de ser usado: derrubar coluna
      * com credencial cifrada de loja em produção é risco sem ganho.
      */
+    /*
+     * QUANDO O PEDIDO FOI LANÇADO NA MAQUININHA. Vazio = nunca foi.
+     *
+     * Existe porque o `newItem` do PDV MOBI NÃO é idempotente: chamei duas vezes
+     * com o mesmo IDCobranca e recebi dois itens na mesma preconta. Sem esta
+     * marca, uma reentrada de status dobraria o valor a cobrar do cliente — e as
+     * duas cobranças pareceriam corretas.
+     */
+    ['pedidos', 'tef_lancado_em', "tef_lancado_em VARCHAR(30) NOT NULL DEFAULT ''"],
+
     ['lojas', 'smarttef_usuario', "smarttef_usuario VARCHAR(160) NOT NULL DEFAULT ''"],
     ['lojas', 'smarttef_senha',   'smarttef_senha TEXT NULL'],
 
