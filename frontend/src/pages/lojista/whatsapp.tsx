@@ -38,7 +38,12 @@ function WhatsAppLogo({ className }: { className?: string }) {
   );
 }
 
-export function WhatsAppLoja() {
+/**
+ * `semCabecalho` existe porque esta tela passou a viver DENTRO do modal de
+ * Integrações, que já mostra o logo e o nome no topo. Repetir os dois viraria
+ * "WhatsApp" duas vezes na mesma janela.
+ */
+export function WhatsAppLoja({ semCabecalho = false }: { semCabecalho?: boolean } = {}) {
   const { mostrar } = useToast();
   const [cfg, setCfg] = useState<ConfigWhatsApp | null>(null);
   const [form, setForm] = useState({ numero: '', phone_id: '', business_id: '', template: 'confirmacao_pedido', token: '' });
@@ -111,14 +116,16 @@ export function WhatsAppLoja() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <div className="flex size-12 items-center justify-center rounded-2xl bg-[#25D366] text-white">
-          <WhatsAppLogo className="size-7" />
+      {!semCabecalho && (
+        <div className="flex items-center gap-3">
+          <div className="flex size-12 items-center justify-center rounded-2xl bg-[#25D366] text-white">
+            <WhatsAppLogo className="size-7" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold">WhatsApp</h2>
+          </div>
         </div>
-        <div>
-          <h2 className="text-lg font-bold">WhatsApp</h2>
-        </div>
-      </div>
+      )}
 
       {/* Ativar / desativar */}
       <Card>

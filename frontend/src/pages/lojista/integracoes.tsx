@@ -22,7 +22,7 @@
  * resto mora atrás de um clique.
  */
 import { useEffect, useState } from 'react';
-import { Plug, Smartphone, ExternalLink, Download, Loader2, Upload, Printer } from 'lucide-react';
+import { Plug, Smartphone, Download, Loader2, Upload, Printer } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
@@ -30,6 +30,8 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { agenteAtivo, impressoraAgente } from '@/lib/agente';
 import { CardIntegracao, ModalIntegracao, LogoIntegracao, Linha, Sanfona } from './integracoes-ui';
+import { WhatsAppLoja } from './whatsapp';
+import { PainelTef } from './loja-config';
 
 interface PreviaCardapio {
   disponivel: boolean;
@@ -47,6 +49,18 @@ interface PreviaPublicacao {
   semPreco: string[];
   soExistemNoIfood: string[];
   previa: Array<{ nome: string; codigo: string; acao: 'criar' | 'atualizar'; complementos: number }>;
+}
+
+/** O que a rota /tef devolve. Segredos vêm mascarados. */
+interface EstadoTefCompleto {
+  ativo: boolean;
+  base_url: string;
+  serial_pos: string;
+  usuario: string;
+  senha: string | null;
+  gateway_token: string | null;
+  configurado: boolean;
+  pendencias: string[];
 }
 
 interface EstadoIfood {
@@ -95,7 +109,12 @@ export function IntegracoesLoja() {
   const [conferindo, setConferindo] = useState(false);
   const [publicando, setPublicando] = useState(false);
 
-  const [tef, setTef] = useState<{ ativo: boolean; configurado: boolean; pendencias: string[] } | null>(null);
+  /*
+   * O estado do TEF é o objeto INTEIRO da rota, não um resumo: `PainelTef`
+   * agora mora dentro do modal daqui e precisa dele para preencher os campos.
+   * Um resumo obrigaria a tela a buscar de novo o que já veio.
+   */
+  const [tef, setTef] = useState<EstadoTefCompleto | null>(null);
   const [zapMetodo, setZapMetodo] = useState('nenhum');
   const [agente, setAgente] = useState<{ ligado: boolean; impressora: string } | null>(null);
 
@@ -110,9 +129,7 @@ export function IntegracoesLoja() {
      * quebrar a tela: uma integração que não respondeu não é motivo para o
      * lojista não conseguir mexer nas outras.
      */
-    api<{ ativo: boolean; configurado: boolean; pendencias: string[] }>('GET', '/api/lojista/tef')
-      .then(r => setTef({ ativo: !!r.ativo, configurado: !!r.configurado, pendencias: r.pendencias ?? [] }))
-      .catch(() => {});
+    api<EstadoTefCompleto>('GET', '/api/lojista/tef').then(setTef).catch(() => {});
     api<{ metodo_ativo: string }>('GET', '/api/lojista/whatsapp')
       .then(r => setZapMetodo(r.metodo_ativo || 'nenhum')).catch(() => {});
     agenteAtivo()
@@ -526,14 +543,13 @@ export function IntegracoesLoja() {
         logo={logoZap(zapOk)} nome="WhatsApp"
         status={zapOk ? 'Avisando o cliente' : 'Desligado'}
       >
-        <div className="space-y-4 px-5 py-6">
-          <p className="max-w-[46ch] text-[13px] leading-relaxed text-muted-foreground">
-            Manda a confirmação do pedido e os avisos de status para o cliente,
-            sem ninguém precisar digitar.
-          </p>
-          <Button asChild className="h-[38px] whitespace-nowrap">
-            <a href={linkSecao('whatsapp')}>Configurar WhatsApp</a>
-          </Button>
+        {/*
+          A TELA DE VERDADE, aqui dentro. Ela saiu do menu de configurações a
+          pedido: WhatsApp é conexão com sistema de fora, e o lugar onde o
+          lojista procura isso é Integrações — não "Aparência e acesso".
+        */}
+        <div className="px-5 py-5">
+          <WhatsAppLoja semCabecalho />
         </div>
       </ModalIntegracao>
 
@@ -543,29 +559,15 @@ export function IntegracoesLoja() {
         logo={logoTef(!!tef?.configurado)} nome="Maquininha (TEF)"
         status={tefStatus}
       >
-        <div className="space-y-4 px-5 py-6">
-          <p className="max-w-[46ch] text-[13px] leading-relaxed text-muted-foreground">
-            Manda o valor da venda direto para a maquininha e recebe de volta se
-            aprovou, se foi crédito ou débito, a bandeira e o NSU.
-          </p>
-          {/* O que falta, dito aqui, poupa a viagem até Pagamentos para
-              descobrir. */}
-          {tef?.ativo && !tef.configurado && tef.pendencias.length > 0 && (
-            <p className="max-w-[46ch] text-[12.5px] leading-relaxed text-muted-foreground">
-              Está ligada, mas ainda falta {tef.pendencias.join(', ')} — tudo isso
-              vem no seu credenciamento com a adquirente.
-            </p>
-          )}
-          {/*
-            A configuração mora em Pagamentos e continua lá. Mover a tela agora
-            obrigaria quem já configurou a procurar de novo; o link resolve sem
-            quebrar o caminho que já existe.
-          */}
-          <Button asChild className="h-[38px] whitespace-nowrap">
-            <a href={linkSecao('pagamentos')}>
-              Configurar em Pagamentos <ExternalLink className="size-3.5" />
-            </a>
-          </Button>
+        {/*
+          A CONFIGURAÇÃO MUDOU DE CASA. Era uma aba dentro de Pagamentos, ao
+          lado de Pix e cartão online — e não é a mesma natureza: aqueles são
+          dinheiro que cai pela internet e se configura uma vez; esta é aparelho
+          de terceiro, que quebra por conta própria. Quando o lojista pensa "a
+          maquininha parou", ele não pensa em ir a Pagamentos.
+        */}
+        <div className="px-5 py-5">
+          <PainelTef estado={tef} aoMudar={setTef} />
         </div>
       </ModalIntegracao>
 

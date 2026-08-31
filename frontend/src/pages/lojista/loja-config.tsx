@@ -1337,7 +1337,7 @@ export function PagamentosLoja() {
    * ABA PADRÃO: Pix. É o meio que praticamente toda loja usa, e cartão é opcional
    * — abrir no que a maioria veio ver poupa um clique de quase todo mundo.
    */
-  const [aba, setAba] = useState<'pix' | 'cartao' | 'maquininha'>('pix');
+  const [aba, setAba] = useState<'pix' | 'cartao'>('pix');
   const [tef, setTef] = useState<EstadoTef | null>(null);
   const [webhookAberto, setWebhookAberto] = useState(false);
 
@@ -1525,21 +1525,12 @@ export function PagamentosLoja() {
               : `${modo === 'teste' ? 'Modo teste' : 'Produção'} · Mercado Pago`,
           },
           /*
-            MAQUININHA é outro assunto dos dois primeiros, e por isso aba
-            própria: Pix e cartão online são dinheiro que cai pela internet, sem
-            ninguém presente. Esta é a máquina em cima do balcão, com o cliente
-            na frente — quem configura, quando configura e o que dá errado são
-            outros.
+            A MAQUININHA SAIU DAQUI. Ela mora em Integrações, junto com iFood e
+            impressão — que é onde o lojista procura quando "a maquininha
+            parou". Pix e cartão online são dinheiro que cai pela internet e se
+            configura uma vez; maquininha é aparelho de terceiro, que quebra por
+            conta própria. Duas naturezas, dois lugares.
           */
-          {
-            id: 'maquininha' as const,
-            titulo: 'Maquininha (TEF)',
-            Icone: Smartphone,
-            ok: !!tef?.configurado,
-            status: !tef?.ativo
-              ? 'Desligado'
-              : tef.configurado ? 'Ligado · Smart TEF' : 'Falta configurar',
-          },
         ]).map(a => {
           const atual = aba === a.id;
           return (
@@ -2039,7 +2030,6 @@ export function PagamentosLoja() {
       </>)}
 
       {/* ───────────────────── ABA MAQUININHA (TEF) ───────────────────── */}
-      {aba === 'maquininha' && <PainelTef estado={tef} aoMudar={setTef} />}
     </div>
   );
 }
@@ -2060,7 +2050,7 @@ export function PagamentosLoja() {
  * só mostrar três campos vazios: campo sem procedência é campo que fica vazio
  * para sempre.
  */
-function PainelTef({ estado, aoMudar }: {
+export function PainelTef({ estado, aoMudar }: {
   estado: EstadoTef | null;
   aoMudar: (e: EstadoTef) => void;
 }) {

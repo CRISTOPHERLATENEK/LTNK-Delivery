@@ -46,7 +46,6 @@ import { FiscalLoja } from './fiscal';
 import { IntegracoesLoja } from './integracoes';
 import { CategoriasLoja } from './categorias';
 import { RelatoriosLoja } from './relatorios';
-import { WhatsAppLoja } from './whatsapp';
 import { AvaliacoesLoja } from './avaliacoes';
 import { MesasLoja } from './mesas';
 import { BalcaoLoja } from './balcao';
@@ -273,7 +272,7 @@ export function PainelLojista() {
    Cupons, Clientes e Avaliações agora vivem na aba "Mais" (operação). ── */
 type AbaConfig =
   | 'loja' | 'horario' | 'entrega' | 'entregadores' | 'visual'
-  | 'banners' | 'pagamentos' | 'impressao' | 'fiscal' | 'whatsapp' | 'seguranca' | 'usuarios'
+  | 'banners' | 'pagamentos' | 'impressao' | 'fiscal' | 'seguranca' | 'usuarios'
   | 'integracoes';
 
 /**
@@ -325,7 +324,6 @@ const GRUPOS_CONFIG: { titulo: string; itens: { id: AbaConfig; label: string; ic
     itens: [
       { id: 'visual', label: 'Visual', icone: Palette },
       { id: 'banners', label: 'Banners', icone: Image },
-      { id: 'whatsapp', label: 'WhatsApp', icone: MessageCircle },
       // Ao lado de Segurança: quem entra no painel é assunto de acesso, não de
       // operação. Fica logo antes dela porque criar usuário vem antes de
       // proteger o login deles.
@@ -360,7 +358,6 @@ function ConfiguracoesLoja() {
       {aba === 'entrega' && <ZonasEntrega />}
       {aba === 'entregadores' && <EntregadoresLoja />}
       {aba === 'pagamentos' && <PagamentosLoja />}
-      {aba === 'whatsapp' && <WhatsAppLoja />}
       {aba === 'fiscal' && <FiscalLoja />}
       {aba === 'integracoes' && <IntegracoesLoja />}
       {aba === 'impressao' && <ImpressaoLoja />}
