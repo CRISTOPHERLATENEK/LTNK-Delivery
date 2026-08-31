@@ -23,6 +23,9 @@
  * palpite — endereço errado nesta API não dá erro legível, dá venda falhada.
  */
 import { ErroTef } from './smarttef-cliente';
+import { expiraDoJwt } from './jwt-prazo';
+
+export { expiraDoJwt };
 
 /**
  * Caminho do login, relativo à base URL.
@@ -51,29 +54,6 @@ const tokens = new Map<string, Guardado>();
 /** Para os testes: limpa o cache entre casos. */
 export function limparTokensTef(): void {
   tokens.clear();
-}
-
-/**
- * O `exp` do JWT, em milissegundos, ou `null` se não der para ler.
- *
- * Não valida assinatura, e não é para validar: quem valida é o servidor deles.
- * Aqui só se lê o prazo, e é por isso que um token estranho não pode explodir —
- * devolve `null`, e quem chama decide o padrão.
- */
-export function expiraDoJwt(token: string, agoraMs: number): number | null {
-  const partes = token.split('.');
-  if (partes.length !== 3) return null;
-  try {
-    const corpo = JSON.parse(Buffer.from(partes[1], 'base64url').toString('utf8')) as Record<string, unknown>;
-    const exp = Number(corpo.exp);
-    if (!Number.isFinite(exp) || exp <= 0) return null;
-    const ms = exp * 1000;
-    /* Prazo no passado é token vencido: não serve, e tratar como válido faria a
-       primeira venda falhar sem explicação. */
-    return ms > agoraMs ? ms : null;
-  } catch {
-    return null;
-  }
 }
 
 /**

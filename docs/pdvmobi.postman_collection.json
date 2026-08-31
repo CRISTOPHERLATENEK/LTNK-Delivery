@@ -1,0 +1,954 @@
+{
+	"info": {
+		"_postman_id": "8ede9f17-1b98-452f-a158-d3539b38d490",
+		"name": "POS Controle - PDV",
+		"description": "HAR To Postman Generated Collection",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "9113418"
+	},
+	"item": [
+		{
+			"name": "Autenticação",
+			"item": [
+				{
+					"name": "Auth",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Ocp-Apim-Subscription-Key",
+								"value": ""
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded"
+							}
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": [
+								{
+									"key": "username",
+									"value": "",
+									"type": "text"
+								},
+								{
+									"key": "password",
+									"value": "",
+									"type": "text"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{baseURL1}}/v2/auth/token",
+							"host": [
+								"{{baseURL1}}"
+							],
+							"path": [
+								"v2",
+								"auth",
+								"token"
+							]
+						},
+						"description": "## Endpoint: POST /v2/auth/token\n\nThis endpoint is used to authenticate a user and obtain a JSON Web Token (JWT). The JWT can then be used for subsequent requests that require authentication.\n\n### Request Parameters\n\nThe request must be sent with the `x-www-form-urlencoded` content type and should include the following parameters:\n\n- **username** (string, required): The username of the user attempting to authenticate.\n    \n- **password** (string, required): The password associated with the provided username.\n    \n\n### Response Structure\n\nUpon successful authentication, the server responds with a status code of **200** and a JSON object containing the following:\n\n- **jwt** (string): The JSON Web Token that can be used for accessing protected resources, valid for 1 hour.\n    \n\n### Example Request\n\n```\nPOST {{baseURL1}}/v2/auth/token\nContent-Type: application/x-www-form-urlencoded\nusername=your_username&password=your_password\n\n ```\n\n### Example Response\n\n``` json\n{\n    \"jwt\": \"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpYXQiOjE3NTY5OTk5MzcsImp0aSI6Im9nVDlodXFCbU1nWkdNYW5kSlN1Mno1ZWx0YlNQOEd2WTFtekhUeDdCbXM9IiwiaXNzIjoiYXBpLnBvc2NvbnRyb2xlLmNvbS5iciIsIm5iZiI6MTc1Njk5OTkzNywiZXhwIjoxNzU3MDAzNTM3LCJkYXRhIjp7IkdycElkIjoiQUFEREJFMUUtNUJDMS00NzU1LTg5RDgtNDYzQTVDQzMxNEUzIiwiSWQiOiI5MjU2MjJERi0yMUUwLTRFNzAtODBDMy0yOTBBQUMxNTQ1MkMiLCJOYW1lIjoiMDU3NjQyMzYwMDAxMTguYXBwLnBvc2NvbnRyb2xlLmNvbS5iciJ9fQ.ubImkecRD8uCbHSvmuAE0f9KdhLkOa0MYHQz8Hu9hTR4qk9nHphurodteUIyTtktBpyc0-YV7HcFEk2MeXsc7w\"\n}\n\n ```\n\nEnsure that you provide valid credentials to receive a valid JWT in the response."
+					},
+					"response": [
+						{
+							"name": "no response code found",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Ocp-Apim-Subscription-Key",
+										"value": ""
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/x-www-form-urlencoded"
+									}
+								],
+								"url": {
+									"raw": "{{baseURL1}}/v2/auth/token",
+									"host": [
+										"{{baseURL1}}"
+									],
+									"path": [
+										"v2",
+										"auth",
+										"token"
+									]
+								}
+							},
+							"_postman_previewlanguage": "Text",
+							"header": [],
+							"cookie": [],
+							"body": ""
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Groups",
+			"item": [
+				{
+					"name": "Productgroups",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Ocp-Apim-Subscription-Key",
+								"value": ""
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\r\n  \"ProductGroups\": [\r\n    {\r\n      \"ProductGroupID\": \"\",\r\n      \"StatusID\": \"ABCDEABC-ABCD-ABCD-ABCD-ABCED1758966\",\r\n      \"Name\": \"\",\r\n      \"ImageGroupBase64\": \"\"\r\n    }\r\n  ]\r\n}"
+						},
+						"url": {
+							"raw": "{{baseURL1}}/v2/productgroups",
+							"host": [
+								"{{baseURL1}}"
+							],
+							"path": [
+								"v2",
+								"productgroups"
+							]
+						},
+						"description": "## API Endpoint: Create Product Groups\n\nThis endpoint allows users to create new product groups within the system. By sending a POST request to this endpoint, you can add one or more product groups with their associated details.\n\n### Request Format\n\n**HTTP Method:** `POST`  \n**URL:** `{{baseURL1}}/v2/productgroups`\n\n**Headers:**\n\n- `Content-Type: application/json` - This header indicates that the request body format is JSON.\n    \n\n**Request Body:**  \nThe request body must be a JSON object containing a key `ProductGroups`, which is an array of product group objects. Each product group object should include the following fields:\n\n- `ProductGroupID` (string): A unique identifier for the product group. This can be left empty if the system generates it automatically.\n    \n- `StatusID` (string): The identifier for the status of the product group. This is a required field.\n    \n- `Name` (string): The name of the product group, must be provided .\n    \n\n### Example Request Body\n\n``` json\n{\n  \"ProductGroups\": [\n    {\n      \"ProductGroupID\": \"\",\n      \"StatusID\": \"ABCDEABC-ABCD-ABCD-ABCD-ABCED1758966\",\n      \"Name\": \"namegroups\",\n      \"ImageGroupBase64\": \"\"\n    }\n  ]\n}\n\n ```\n\n### Response Format\n\nUpon successful creation of the product group(s), the API will respond with a JSON object. The structure of the response may include:\n\n- A confirmation message indicating success.\n    \n- The details of the created product group(s), including their generated identifiers and any other relevant information.\n    \n\n### Example Response\n\n``` json\n{\n    \"retorno\": [\n        {\n            \"ProductGroupID\": \"158F7356-120E-4012-8B5E-7AEA1C71FDB1\",\n            \"Name\": \"namegroups\",\n            \"st\": 1,\n            \"msg\": \"Inserido com Sucesso\"\n        }\n    ]\n}\n\n ```\n\nEnsure that the request body adheres to the specified format to avoid errors during the creation process."
+					},
+					"response": [
+						{
+							"name": "no response code found",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Ocp-Apim-Subscription-Key",
+										"value": ""
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer "
+									}
+								],
+								"url": {
+									"raw": "{{baseURL1}}/v2/productgroups",
+									"host": [
+										"{{baseURL1}}"
+									],
+									"path": [
+										"v2",
+										"productgroups"
+									]
+								}
+							},
+							"_postman_previewlanguage": "Text",
+							"header": [],
+							"cookie": [],
+							"body": ""
+						}
+					]
+				},
+				{
+					"name": "Productgroups",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Ocp-Apim-Subscription-Key",
+								"value": ""
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL1}}/v2/productgroups",
+							"host": [
+								"{{baseURL1}}"
+							],
+							"path": [
+								"v2",
+								"productgroups"
+							]
+						},
+						"description": "## Endpoint: Retrieve Product Groups\n\n### Description\n\nThis endpoint allows users to retrieve a list of product groups from the system. It is useful for obtaining detailed information about various product categories that are available for management or display.\n\n### Request\n\n- **Method**: GET\n    \n- **URL**: `{{baseURL1}}/v2/productgroups`\n    \n\n### Response\n\n- **Status Code**: 200 OK\n    \n- **Content-Type**: application/json\n    \n\n#### Response Structure\n\nThe response will return a JSON object containing an array of product groups. Each product group object includes the following keys:\n\n- `ProductGroupID`: A unique identifier for the product group.\n    \n- `StatusID`: The status of the product group, indicating its current state.\n    \n- `InternalCode`: An internal reference code for the product group.\n    \n- `Name`: The name of the product group.\n    \n\n#### Example Response\n\n``` json\n{\n    \"ProductGroups\": [\n        {\n            \"ProductGroupID\": \"9D49AC26-D515-41D4-BB91-BCFB601C814A\",\n            \"StatusID\": \"ABCDEABC-ABCD-ABCD-ABCD-ABCED1758966\",\n            \"InternalCode\": \"\",\n            \"Name\": \"VINS\"\n        }\n    ]\n}\n\n ```\n\n### Usage\n\nTo effectively use this endpoint, simply send a GET request to the specified URL. The response will provide you with the necessary details about the available product groups, which can be utilized for further processing or display in your application."
+					},
+					"response": [
+						{
+							"name": "no response code found",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Ocp-Apim-Subscription-Key",
+										"value": ""
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer "
+									}
+								],
+								"url": {
+									"raw": "{{baseURL1}}/v2/productgroups",
+									"host": [
+										"{{baseURL1}}"
+									],
+									"path": [
+										"v2",
+										"productgroups"
+									]
+								}
+							},
+							"_postman_previewlanguage": "Text",
+							"header": [],
+							"cookie": [],
+							"body": ""
+						}
+					]
+				},
+				{
+					"name": "New Request",
+					"request": {
+						"method": "GET",
+						"header": []
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Products",
+			"item": [
+				{
+					"name": "Products",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Ocp-Apim-Subscription-Key",
+								"value": ""
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "[\r\n  {\r\n    \"Product\": {\r\n      \"ProductID\": \"\",\r\n      \"StatusID\":\"ABCDEABC-ABCD-ABCD-ABCD-ABCED1758966\",\r\n      \"ProductGroupID\":\"\",\r\n      \"ProductTypeID\":\"55550E77-10D1-40DA-A067-075CB2124577\",\r\n      \"UnitTypeID\":\"55550E77-10D1-40DA-A067-075CB2124ACC\",\r\n      \"Name\": \"Product Name\",\r\n      \"NameEng\": \"\",\r\n      \"InternalCode\": \"\",\r\n      \"BarCode\": \"\",\r\n      \"NFCeNCM\": \"\",\r\n      \"NFCeCFOP\": \"\",\r\n      \"NFCeCST\": \"\",\r\n      \"NFCeCEST\": \"\",\r\n      \"NFCeAliqICMS\": \"\",\r\n      \"SalePrice\": \"10.00\",\r\n      \"NFCeCSTPIS\": \"\",\r\n      \"NFCeAliqPIS\": \"\",\r\n      \"NFCeCSTCOFINS\": \"\",\r\n      \"NFCeAliqCOFINS\": \"\",\r\n      \"NFCeBaseRedICMS\": \"\",\r\n      \"NFCeCodBenef\": \"\",\r\n      \"NFCeMotBenef\": \"\",\r\n      \"NFCecClassTrib\": \"\",\r\n      \"NFCeIBS_CBS_CST\": \"\",\r\n      \"NFCeIBS_AliqUF\": \"\",\r\n      \"NFCeIBS_AliqMUN\": \"\",\r\n      \"NFCeIBS_PercRedBase\": \"\",\r\n      \"NFCeIBS_PercRedAliq\": \"\",\r\n      \"NFCeCBS_Aliq\": \"\",\r\n      \"NFCeCBS_PercRedBase\": \"\",\r\n      \"NFCeCBS_PercRedAliq\": \"\"\r\n    }\r\n  }\r\n]",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL1}}/v2/products",
+							"host": [
+								"{{baseURL1}}"
+							],
+							"path": [
+								"v2",
+								"products"
+							]
+						},
+						"description": "## Endpoint Description\n\nThis endpoint allows users to create a new product in the system by sending a POST request to `{{baseURL1}}/v2/products`. The request requires a JSON payload that contains detailed information about the product being created.\n\n### Request Body Format\n\nThe request body must be a JSON array containing a single object with the following structure:\n\n``` json\n[\n  {\n    \"Product\": {\n      \"ProductID\": \"string\",          // Unique identifier for the product (inclusion it must be empty)\n      \"StatusID\": \"string\",           // Identifier for the product status\n      \"ProductGroupID\": \"string\",     // Identifier for the product group\n      \"ProductTypeID\": \"string\",      // Identifier for the product type\n      \"UnitTypeID\": \"string\",         // Identifier for the unit type\n      \"Name\": \"string\",               // Name of the product\n      \"NameEng\": \"string\",            // English name of the product (optional)\n      \"InternalCode\": \"string\",       // Internal code for the product\n      \"BarCode\": \"string\",            // Barcode of the product (optional)\n      \"NFCeNCM\": \"string\",            // NCM code for NFCe (optional)\n      \"NFCeCFOP\": \"string\",           // CFOP code for NFCe (optional)\n      \"NFCeCST\": \"string\",            // CST code for NFCe (optional)\n      \"NFCeCEST\": \"string\",           // CEST code for NFCe (optional)\n      \"NFCeAliqICMS\": \"string\",       // ICMS rate for NFCe (optional)\n      \"SalePrice\": \"string\",          // Sale price of the product\n      \"NFCeCSTPIS\": \"string\",         // PIS CST code for NFCe (optional)\n      \"NFCeAliqPIS\": \"string\",        // PIS rate for NFCe (optional)\n      \"NFCeCSTCOFINS\": \"string\",      // COFINS CST code for NFCe (optional)\n      \"NFCeAliqCOFINS\": \"string\",     // COFINS rate for NFCe (optional)\n      \"NFCeBaseRedICMS\": \"string\",    // Base reduction for ICMS (optional)\n      \"NFCeCodBenef\": \"string\",       // Benefit code for NFCe (optional)\n      \"NFCeMotBenef\": \"string\"        // Benefit motivation for NFCe (optional)\n    }\n  }\n]\n\n ```\n\n### Response Structure\n\nUpon a successful request, the API will return a response with a status code of `200` and a JSON object containing the following structure:\n\n``` json\n{\n  \"Result\": [\n    {\n      \"ProductID\": \"string\",          // Unique identifier for the created product\n      \"InternalCode\": \"string\",       // Internal code for the created product\n      \"BarCode\": \"string\"             // Barcode of the created product (optional)\n    }\n  ]\n}\n\n ```\n\nThis response confirms the successful creation of the product and provides the identifiers for reference."
+					},
+					"response": [
+						{
+							"name": "no response code found",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Ocp-Apim-Subscription-Key",
+										"value": ""
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer "
+									}
+								],
+								"url": {
+									"raw": "{{baseURL1}}/v2/products",
+									"host": [
+										"{{baseURL1}}"
+									],
+									"path": [
+										"v2",
+										"products"
+									]
+								}
+							},
+							"_postman_previewlanguage": "Text",
+							"header": [],
+							"cookie": [],
+							"body": ""
+						}
+					]
+				},
+				{
+					"name": "Products BarcodeJS",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiJ9.eyJpYXQiOjE3NTUwODY1OTAsImp0aSI6InlseTlvNDFIVEMrN2xPZStmTThpRUY3RE85N0dSeDBcLytmdU1yUXRwT3AwPSIsImlzcyI6ImFwaS5wb3Njb250cm9sZS5jb20uYnIiLCJuYmYiOjE3NTUwODY1OTAsImV4cCI6MTc1NTA5MDE5MCwiZGF0YSI6eyJHcnBJZCI6Ijg4M0Y2MDExLTMzNjAtNDVFOS1CNTIwLUQzMEVGMTJBRTg2OCIsIklkIjoiMjI4NTQ1MjktRkYyQS00QjRGLUJGQjktQUE1NDcxNUYyQTNFIiwiTmFtZSI6IjIzOTQwNzQzMDAwMTQ3LmFwcC5wb3Njb250cm9sZS5jb20uYnIifX0.3RSIMlvGcM66kZDA5Eu8L6ZH0nbSli-P12mGy3UUG4ZJhLsC4bG-b8skxJ1u1vRRuobMRpxr3gvhQw8MuMc9dg",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Ocp-Apim-Subscription-Key",
+								"value": ""
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "[\r\n  {\r\n    \"Product\": {\r\n      \"ProductID\": \"\",\r\n      \"StatusID\": \"ABCDEABC-ABCD-ABCD-ABCD-ABCED1758966\",\r\n      \"ProductGroupID\": \"\",\r\n      \"ProductTypeID\": \"55550E77-10D1-40DA-A067-075CB2124577\",\r\n      \"UnitTypeID\": \"55550E77-10D1-40DA-A067-075CB2124ACC\",\r\n      \"Name\": \"\",\r\n      \"NameEng\": \"\",\r\n      \"InternalCode\": \"\",\r\n      \"BarCode\": \"\",\r\n      \"BarCodeJS\":[{\"BarCode\":\"\"},{\"BarCode\":\"\"},{\"BarCode\":\"\"},{\"BarCode\":\"\"},{\"BarCode\":\"\"}],\r\n      \"ImageBase64\": \"\",\r\n      \"NFCeNCM\": \"\",\r\n      \"NFCeCFOP\": \"\",\r\n      \"NFCeCST\": \"\",\r\n      \"NFCeAliqICMS\": \"\",\r\n      \"NFCeCEST\": \"\",\r\n      \"NFCeCSTPIS\": \"\",\r\n      \"NFCeAliqPIS\": \"\",\r\n      \"NFCeCSTCOFINS\": \"\",\r\n      \"NFCeAliqCOFINS\": \"\",\r\n      \"NFCeCodANP\": \"\",\r\n      \"NFCeBaseRedICMS\": \"\",\r\n      \"NFCeCodBenef\": \"\",\r\n      \"NFCecBenef\": \"\",\r\n      \"NFCeMotBenef\": \"\",\r\n      \"SalePrice\": \"\",\r\n      \"NFCeIBS_CBS_CST\": \"\",\r\n      \"NFCeIBS_AliqUF\": \"\",\r\n      \"NFCeIBS_AliqMUN\": \"\",\r\n      \"NFCeIBS_PercRedBase\": \"\",\r\n      \"NFCeIBS_PercRedAliq\": \"\",\r\n      \"NFCeCBS_Aliq\": \"\",\r\n      \"NFCeCBS_PercRedBase\": \"\",\r\n      \"NFCeCBS_PercRedAliq\": \"\"\r\n    }\r\n  }\r\n]",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseURL1}}/v2/products",
+							"host": [
+								"{{baseURL1}}"
+							],
+							"path": [
+								"v2",
+								"products"
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "no response code found",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Ocp-Apim-Subscription-Key",
+										"value": ""
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer "
+									}
+								],
+								"url": {
+									"raw": "{{baseURL1}}/v2/products",
+									"host": [
+										"{{baseURL1}}"
+									],
+									"path": [
+										"v2",
+										"products"
+									]
+								}
+							},
+							"_postman_previewlanguage": "Text",
+							"header": [],
+							"cookie": [],
+							"body": ""
+						}
+					]
+				},
+				{
+					"name": "Products",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Ocp-Apim-Subscription-Key",
+								"value": ""
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL1}}/v2/products",
+							"host": [
+								"{{baseURL1}}"
+							],
+							"path": [
+								"v2",
+								"products"
+							]
+						},
+						"description": "## GET /v2/products\n\nThis endpoint retrieves a list of products from the system. It allows clients to access detailed information about each product available in the inventory.\n\n### Request Format\n\n- **Method**: GET\n    \n- **URL**: `{{baseURL1}}/v2/products`\n    \n\nThere are no request parameters or body required for this GET request.\n\n### Response Structure\n\nUpon a successful request, the server responds with a status code of 200 and a JSON object containing an array of products. The response body has the following structure:\n\n``` json\n{\n  \"Products\": [\n    {\n      \"ProductID\": \"string\",\n      \"SequentialID\": \"string\",\n      \"ListOrder\": \"string\",\n      \"StatusID\": \"string\",\n      \"ProductGroupID\": \"string\",\n      \"ProductTypeID\": \"string\",\n      \"UnitTypeID\": \"string\",\n      \"altUnitTypeTxt\": \"string or null\",\n      \"Name\": \"string\",\n      \"NameEng\": \"string\",\n      \"InternalCode\": \"string\",\n      \"BarCode\": \"string\",\n      \"BarCodeJS\": \"string or null\",\n      \"ImageBase64\": \"string\",\n      \"NFCeNCM\": \"string\",\n      \"NFCeCFOP\": \"string\",\n      \"NFCeCST\": \"string\",\n      \"NFCeAliqICMS\": \"string\",\n      \"NFCeCEST\": \"string\",\n      \"NFCeCSTPIS\": \"string\",\n      \"NFCeAliqPIS\": \"string\",\n      \"NFCeCSTCOFINS\": \"string\",\n      \"NFCeAliqCOFINS\": \"string\",\n      \"NFCeCodANP\": \"string\",\n      \"NFCeBaseRedICMS\": \"string\",\n      \"NFCeCodBenef\": \"string or null\",\n      \"NFCeMotBenef\": \"string or null\",\n      \"SalePrice\": \"string\",\n      \"SalePriceDesc\": \"string or null\",\n      \"DataDescIni\": \"string or null\",\n      \"DataDescFim\": \"string or null\",\n      \"SalePriceDescMult\": \"string or null\",\n      \"QTDescMult\": \"string or null\",\n      \"SalePriceDescMultFaixa1\": \"string or null\",\n      \"QTDescFaixa1\": \"string or null\",\n      \"SalePriceDescMultFaixa2\": \"string or null\",\n      \"QTDescFaixa2\": \"string or null\",\n      \"SalePriceDescMultFaixa3\": \"string or null\",\n      \"QTDescFaixa3\": \"string or null\",\n      \"SalePriceDescMultFaixa4\": \"string or null\",\n      \"QTDescFaixa4\": \"string or null\",\n      \"SalePriceDescMultFaixa5\": \"string or null\",\n      \"QTDescFaixa5\": \"string or null\"\n    }\n  ]\n}\n\n ```"
+					},
+					"response": [
+						{
+							"name": "no response code found",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Ocp-Apim-Subscription-Key",
+										"value": ""
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer "
+									}
+								],
+								"url": {
+									"raw": "{{baseURL1}}/v2/products",
+									"host": [
+										"{{baseURL1}}"
+									],
+									"path": [
+										"v2",
+										"products"
+									]
+								}
+							},
+							"_postman_previewlanguage": "Text",
+							"header": [],
+							"cookie": [],
+							"body": ""
+						}
+					]
+				},
+				{
+					"name": "Statustypes",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Ocp-Apim-Subscription-Key",
+								"value": ""
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL1}}/v2/statustypes",
+							"host": [
+								"{{baseURL1}}"
+							],
+							"path": [
+								"v2",
+								"statustypes"
+							]
+						},
+						"description": "## Endpoint: Retrieve Status Types\n\nThis endpoint allows clients to retrieve a list of status types available in the system. It is useful for understanding the various statuses that can be assigned or referenced within the application.\n\n### Request\n\n- **Method**: GET\n    \n- **URL**: `{{baseURL1}}/v2/statustypes`\n    \n\n### Response\n\n- **Status Code**: 200 OK\n    \n- **Content-Type**: application/json\n    \n\n#### Response Body Format\n\nThe response will contain a JSON object with the following structure:\n\n``` json\n{\n    \"StatusTypes\": [\n        {\n            \"StatusID\": \"ABCDEABC-ABCD-ABCD-ABCD-ABCED1457822\",\n            \"Name\": \"Desabilitado\"\n        },\n        {\n            \"StatusID\": \"ABCDEABC-ABCD-ABCD-ABCD-ABCED1758966\",\n            \"Name\": \"Habilitado\"\n        }\n    ]\n}\n\n ```\n\n- **StatusTypes**: An array of status type objects.\n    \n    - **StatusID**: A unique identifier for the status type (string).\n        \n    - **Name**: The name of the status type (string).\n        \n\nThis endpoint does not require a request body as it is a simple retrieval operation."
+					},
+					"response": [
+						{
+							"name": "no response code found",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Ocp-Apim-Subscription-Key",
+										"value": ""
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer "
+									}
+								],
+								"url": {
+									"raw": "{{baseURL1}}/v2/statustypes",
+									"host": [
+										"{{baseURL1}}"
+									],
+									"path": [
+										"v2",
+										"statustypes"
+									]
+								}
+							},
+							"_postman_previewlanguage": "Text",
+							"header": [],
+							"cookie": [],
+							"body": ""
+						}
+					]
+				},
+				{
+					"name": "ProiductTypes",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Ocp-Apim-Subscription-Key",
+								"value": ""
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL1}}/v2/producttypes",
+							"host": [
+								"{{baseURL1}}"
+							],
+							"path": [
+								"v2",
+								"producttypes"
+							]
+						},
+						"description": "### Endpoint Description\n\nThis endpoint retrieves a list of product types available in the system. It is useful for clients that need to display or utilize the different categories of products.\n\n### HTTP Method\n\n`GET`\n\n### Request Format\n\n- **URL**: `{{baseURL1}}/v2/producttypes`\n    \n- **Headers**:\n    \n    - `Content-Type: application/json`\n        \n\nNo request body is required for this GET request.\n\n### Response Structure\n\nUpon a successful request, the server responds with a status code of `200` and a JSON object containing an array of product types. The structure of the response is as follows:\n\n``` json\n{\n    \"ProductTypes\": [\n        {\n            \"ProductTypeID\": \"55550E77-10D1-40DA-A067-075CB2124577\",\n            \"Name\": \"Fornecido\"\n        },\n        {\n            \"ProductTypeID\": \"55550E77-10D1-40DA-A067-075CB2147DCA\",\n            \"Name\": \"Produzido\"\n        }\n    ]\n}\n\n ```\n\n- **ProductTypes**: An array of product type objects.\n    \n    - **ProductTypeID**: A unique identifier for the product type (string).\n        \n    - **Name**: The name of the product type (string).\n        \n\nThis endpoint is essential for applications that need to fetch and display the available product categories for further processing or user interaction."
+					},
+					"response": [
+						{
+							"name": "no response code found",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Ocp-Apim-Subscription-Key",
+										"value": ""
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer "
+									}
+								],
+								"url": {
+									"raw": "{{baseURL1}}/v2/statustypes",
+									"host": [
+										"{{baseURL1}}"
+									],
+									"path": [
+										"v2",
+										"statustypes"
+									]
+								}
+							},
+							"_postman_previewlanguage": "Text",
+							"header": [],
+							"cookie": [],
+							"body": ""
+						}
+					]
+				},
+				{
+					"name": "Unittypes",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Ocp-Apim-Subscription-Key",
+								"value": ""
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL1}}/v2/unittypes",
+							"host": [
+								"{{baseURL1}}"
+							],
+							"path": [
+								"v2",
+								"unittypes"
+							]
+						},
+						"description": "## Endpoint: Retrieve Unit Types\n\n### Request Method\n\n`GET`\n\n### Request URL\n\n`{{baseURL1}}/v2/unittypes`\n\n### Description\n\nThis endpoint is used to retrieve a list of unit types available in the system. It provides a way for clients to access information about different unit types that can be utilized in various operations.\n\n### Request Parameters\n\nThere are no request parameters required for this GET request.\n\n### Expected Response\n\nOn a successful request, the server will respond with a status code of `200` and a content type of `application/json`. The response will be structured as follows:\n\n``` json\n{\n    \"UnitTypes\": [\n        {\n            \"UnitTypeID\": \"55550E77-10D1-40DA-A067-075CB2124ACC\",\n            \"Name\": \"Un\"\n        },\n        {\n            \"UnitTypeID\": \"55550E77-10D1-40DA-A067-075CB2ACCE25\",\n            \"Name\": \"Kg\"\n        },\n        {\n            \"UnitTypeID\": \"55550E77-10D1-40DA-A067-075CB2EDDD85\",\n            \"Name\": \"Cx\"\n        },\n        {\n            \"UnitTypeID\": \"55550E77-10D1-40DA-A067-075CB2EEEA29\",\n            \"Name\": \"L\"\n        },\n        {\n            \"UnitTypeID\": \"70FC0030-56DC-4316-AAF5-5B4A106FBE93\",\n            \"Name\": \"In\"\n        },\n        {\n            \"UnitTypeID\": \"71F5C365-95D4-4B8C-B648-5CE0A2DA297E\",\n            \"Name\": \"VR\"\n        },\n        {\n            \"UnitTypeID\": \"D46DAEDE-CDC7-4C2D-889F-66E2BB7CE170\",\n            \"Name\": \"Vq\"\n        },\n        {\n            \"UnitTypeID\": \"F6EC57BA-BBE5-429A-B018-A2B4DF7B1A9E\",\n            \"Name\": \"CB\"\n        },\n        {\n            \"UnitTypeID\": \"34088DE9-2DE6-42B5-AAB1-CADB9AA226FB\",\n            \"Name\": \"M3\"\n        },\n        {\n            \"UnitTypeID\": \"78866486-AC5D-472A-9C2D-D9A8454FE79C\",\n            \"Name\": \"M2\"\n        },\n        {\n            \"UnitTypeID\": \"FB3BFE14-7D94-4043-BC76-F198D00BE34A\",\n            \"Name\": \"Pc\"\n        }\n    ]\n}\n\n ```\n\n- **UnitTypes**: An array containing objects that represent each unit type.\n    \n    - **UnitTypeID**: A unique identifier for the unit type.\n        \n    - **Name**: The name of the unit type.\n        \n\nThis response format allows clients to easily parse and utilize the information about unit types.\n\nThis endpoint retrieves a list of unit types available in the system."
+					},
+					"response": [
+						{
+							"name": "no response code found",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Ocp-Apim-Subscription-Key",
+										"value": ""
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer "
+									}
+								],
+								"url": {
+									"raw": "{{baseURL1}}/v2/unittypes",
+									"host": [
+										"{{baseURL1}}"
+									],
+									"path": [
+										"v2",
+										"unittypes"
+									]
+								}
+							},
+							"_postman_previewlanguage": "Text",
+							"header": [],
+							"cookie": [],
+							"body": ""
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Users",
+			"item": [
+				{
+					"name": "Users",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Ocp-Apim-Subscription-Key",
+								"value": ""
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "[\r\n   {\r\n      \"Users\":{\r\n        \"UsersID\":\"\",\r\n\t\t\"StatusConfigID\":\"ABCDEABC-ABCD-ABCD-ABCD-ABCED1457822\",\r\n        \"Name\":\"\",\r\n        \"EMail\":\"\",\r\n\t\t\"DescMAX\":\"0\",\r\n        \"Pass\":\"\"\r\n      }\r\n   }\r\n]"
+						},
+						"url": {
+							"raw": "{{baseURL1}}/v2/users",
+							"host": [
+								"{{baseURL1}}"
+							],
+							"path": [
+								"v2",
+								"users"
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "no response code found",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Ocp-Apim-Subscription-Key",
+										"value": ""
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer "
+									}
+								],
+								"url": {
+									"raw": "{{baseURL1}}/v2/users",
+									"host": [
+										"{{baseURL1}}"
+									],
+									"path": [
+										"v2",
+										"users"
+									]
+								}
+							},
+							"_postman_previewlanguage": "Text",
+							"header": [],
+							"cookie": [],
+							"body": ""
+						}
+					]
+				},
+				{
+					"name": "Users",
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Ocp-Apim-Subscription-Key",
+								"value": ""
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{baseURL1}}/v2/users",
+							"host": [
+								"{{baseURL1}}"
+							],
+							"path": [
+								"v2",
+								"users"
+							]
+						}
+					},
+					"response": [
+						{
+							"name": "no response code found",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Ocp-Apim-Subscription-Key",
+										"value": ""
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer "
+									}
+								],
+								"url": {
+									"raw": "{{baseURL1}}/v2/users",
+									"host": [
+										"{{baseURL1}}"
+									],
+									"path": [
+										"v2",
+										"users"
+									]
+								}
+							},
+							"_postman_previewlanguage": "Text",
+							"header": [],
+							"cookie": [],
+							"body": ""
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Sales",
+			"item": [
+				{
+					"name": "Sales",
+					"protocolProfileBehavior": {
+						"disableBodyPruning": true
+					},
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [
+							{
+								"key": "Ocp-Apim-Subscription-Key",
+								"value": ""
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/x-www-form-urlencoded",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "urlencoded",
+							"urlencoded": []
+						},
+						"url": {
+							"raw": "{{baseURL1}}/v2/sales?datetimeini=2025-09-04 00:00:01&datetimeend=2025-09-04 23:59:59",
+							"host": [
+								"{{baseURL1}}"
+							],
+							"path": [
+								"v2",
+								"sales"
+							],
+							"query": [
+								{
+									"key": "datetimeini",
+									"value": "2025-09-04 00:00:01"
+								},
+								{
+									"key": "datetimeend",
+									"value": "2025-09-04 23:59:59"
+								}
+							]
+						},
+						"description": "# Retrieve Sales Data\n\nThis endpoint allows you to retrieve sales data within a specified date and time range.\n\n## Request Parameters\n\nThe following query parameters are required for the request:\n\n- **datetimeini** (string): The start date and time for the sales data retrieval in the format `YYYY-MM-DD HH:MM:SS`.\n    \n- **datetimeend** (string): The end date and time for the sales data retrieval in the format `YYYY-MM-DD HH:MM:SS`.\n    \n\n### Example\n\n```\nGET {{baseURL1}}/v2/sales?datetimeini=2025-09-04 00:00:01&datetimeend=2025-09-04 23:59:59\n\n ```\n\n## Response Structure\n\nThe response will contain the sales data that falls within the specified date and time range. The structure of the response will typically include:\n\n- **sales** (array): A collection of sales records, each containing details such as:\n    \n    - **id** (string): Unique identifier for the sale.\n        \n    - **amount** (number): The total amount of the sale.\n        \n    - **timestamp** (string): The date and time when the sale occurred.\n        \n    - **customer** (object): Information about the customer associated with the sale, which may include:\n        \n        - **name** (string): The name of the customer.\n            \n        - **email** (string): The email address of the customer.\n            \n\nMake sure to provide the correct date and time parameters to retrieve the desired sales data."
+					},
+					"response": [
+						{
+							"name": "no response code found",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Ocp-Apim-Subscription-Key",
+										"value": ""
+									},
+									{
+										"key": "Authorization",
+										"value": "Bearer "
+									}
+								],
+								"url": {
+									"raw": "{{baseURL1}}/v2/sales",
+									"host": [
+										"{{baseURL1}}"
+									],
+									"path": [
+										"v2",
+										"sales"
+									]
+								}
+							},
+							"_postman_previewlanguage": "Text",
+							"header": [],
+							"cookie": [],
+							"body": ""
+						}
+					]
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "baseURL1",
+			"value": "https://api.poscontrole.com.br",
+			"type": "any"
+		}
+	]
+}
