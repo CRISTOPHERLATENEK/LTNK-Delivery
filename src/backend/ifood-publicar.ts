@@ -127,7 +127,13 @@ export function montarPayloadItem(
    * item, como a documentação e o próprio assistente do iFood sugerem. Foi o
    * que fez o item de teste finalmente ser aceito.
    */
-  const idsDosGrupos: string[] = [];
+  /*
+   * REFERÊNCIA DE GRUPO É OBJETO, NÃO ID. O produto lista
+   * `{ id, min, max, index }` — mandar só o id responde
+   * `FullItemDto is not valid`, sem dizer o que está errado. Copiado do item
+   * REAL lido pelo `/flat`, não de exemplo de documentação.
+   */
+  const refsDosGrupos: Array<Record<string, unknown>> = [];
 
   nosso.grupos.forEach((g, i) => {
     const atualG = gruposAtuais.find(x => String(x.externalCode ?? '') === g.codigoExterno) ?? {};
@@ -145,6 +151,9 @@ export function montarPayloadItem(
       const produtoDaOpcao = produtosAtuais.find(p => String(p.id ?? '') === String(atualO.productId ?? ''));
       const idProdutoOpcao = String(produtoDaOpcao?.id ?? '') || novoId();
       produtos.push({
+        /* `optionGroups: []` explícito: o complemento é produto e o campo
+           existe no item real, vazio. Ausente, o item novo é recusado. */
+        optionGroups: [],
         ...(produtoDaOpcao ?? {}),
         id: idProdutoOpcao,
         name: o.nome,
@@ -163,7 +172,9 @@ export function montarPayloadItem(
     });
 
     const idGrupo = String(atualG.id ?? '') || novoId();
-    idsDosGrupos.push(idGrupo);
+    const min = g.obrigatorio ? 1 : 0;
+    const max = Math.max(1, g.maxEscolhas);
+    refsDosGrupos.push({ id: idGrupo, min, max, index: i });
     grupos.push({
       ...atualG,
       id: idGrupo,
@@ -172,8 +183,8 @@ export function montarPayloadItem(
       index: i,
       status: 'AVAILABLE',
       /* `min > 0` é como o obrigatório existe lá: não há interruptor. */
-      min: g.obrigatorio ? 1 : 0,
-      max: Math.max(1, g.maxEscolhas),
+      min,
+      max,
       /* Nenhum exemplo da documentação mostra este campo, e sem ele o grupo é
          recusado. */
       optionGroupType: String(atualG.optionGroupType ?? 'DEFAULT'),
@@ -187,7 +198,7 @@ export function montarPayloadItem(
     name: nosso.nome,
     description: nosso.descricao,
     externalCode: nosso.codigoBarras,
-    optionGroups: idsDosGrupos,
+    optionGroups: refsDosGrupos,
   });
 
   return { item, products: produtos, optionGroups: grupos, options: opcoes };

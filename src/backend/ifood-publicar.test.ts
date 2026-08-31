@@ -117,7 +117,15 @@ describe('os nossos campos entram', () => {
     expect((p.item as Record<string, unknown>).optionGroups).toBeUndefined();
     const produtos = p.products as Array<Record<string, unknown>>;
     const grupos = p.optionGroups as Array<Record<string, unknown>>;
-    expect(produtos[0].optionGroups).toEqual([grupos[0].id]);
+    /*
+     * A referência é OBJETO, não id. Mandar `[id]` responde
+     * `FullItemDto is not valid` — sem dizer o que está errado. O formato saiu
+     * do item REAL lido pelo /flat, e é o que fez o item com complemento ser
+     * finalmente aceito.
+     */
+    expect(produtos[0].optionGroups).toEqual([
+      { id: grupos[0].id, min: 0, max: 2, index: 0 },
+    ]);
   });
 });
 
@@ -258,5 +266,36 @@ describe('os ids são gerados por quem chama', () => {
     expect(String((p.item as Record<string, unknown>).id)).toMatch(uuid);
     expect(String((p.optionGroups as Array<Record<string, unknown>>)[0].id)).toMatch(uuid);
     expect(String((p.options as Array<Record<string, unknown>>)[0].id)).toMatch(uuid);
+  });
+});
+
+describe('o formato que a API exige nos complementos', () => {
+  it('a referência do grupo repete min, max e index do item real', () => {
+    /* Copiado de fixtures/ifood-item-flat.json, não de exemplo da doc. */
+    const real = (FLAT.products as Array<Record<string, unknown>>)[0].optionGroups;
+    expect(real).toEqual([{ id: expect.any(String), min: 0, max: 2, index: 0 }]);
+  });
+
+  it('grupo obrigatório leva min 1 também na referência', () => {
+    const g = nosso().grupos[0];
+    const p = montarPayloadItem(nosso({ grupos: [{ ...g, obrigatorio: true, maxEscolhas: 1 }] }), CAT, null);
+    const ref = (p.products as Array<Record<string, unknown>>)[0].optionGroups as Array<Record<string, unknown>>;
+    expect(ref[0]).toMatchObject({ min: 1, max: 1, index: 0 });
+  });
+
+  it('a referência e o grupo dizem o MESMO min e max', () => {
+    /* Divergir entre os dois é dizer duas coisas na mesma requisição — e a API
+       aceita uma delas sem avisar qual. */
+    const p = montarPayloadItem(nosso(), CAT, null);
+    const ref = ((p.products as Array<Record<string, unknown>>)[0].optionGroups as Array<Record<string, unknown>>)[0];
+    const grupo = (p.optionGroups as Array<Record<string, unknown>>)[0];
+    expect([ref.min, ref.max]).toEqual([grupo.min, grupo.max]);
+  });
+
+  it('o produto do complemento leva optionGroups vazio, não ausente', () => {
+    /* O campo existe no item real, vazio. Ausente, o item novo é recusado. */
+    const p = montarPayloadItem(nosso(), CAT, null);
+    const produtos = p.products as Array<Record<string, unknown>>;
+    expect(produtos[1].optionGroups).toEqual([]);
   });
 });
