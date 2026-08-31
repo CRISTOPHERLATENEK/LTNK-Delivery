@@ -14,6 +14,7 @@
  * código HTTP, nunca os headers — log de servidor é lido por muita gente, e
  * quem tem o token cobra na maquininha de alguém.
  */
+import { tokenTef } from './smarttef-auth';
 import {
   lerTransacao, mensagemDeErro, valorParaApi,
   type DadosTransacao,
@@ -21,13 +22,30 @@ import {
 
 export interface CredenciaisCliente {
   baseUrl: string;
-  token: string;
+  /*
+   * USUÁRIO E SENHA, NÃO TOKEN PRONTO.
+   *
+   * O Bearer é um JWT gerado a partir destes dois e tem validade — quem
+   * confirmou foi o suporte da POS Controle. Se este tipo aceitasse um token
+   * pronto, alguém guardaria um no banco e a venda falharia no dia em que ele
+   * vencesse. Aqui o cliente pede o token a `tokenTef`, que cuida do cache e da
+   * renovação.
+   */
+  usuario: string;
+  senha: string;
   gatewayToken: string;
 }
 
 export interface OpcoesCliente {
   /** Substitui o `fetch` global — usado pelos testes. */
   buscar?: typeof fetch;
+  /**
+   * Caminho do login, enquanto o real não é conhecido.
+   *
+   * Ver `smarttef-auth`: `CAMINHO_LOGIN` nasce vazio, e sem ele a chamada é
+   * recusada com mensagem clara em vez de tentar um palpite de URL.
+   */
+  caminhoLogin?: string;
   /**
    * Teto de espera por requisição.
    *
@@ -64,6 +82,17 @@ async function chamar(
   opcoes: OpcoesCliente = {},
 ): Promise<unknown> {
   const buscar = opcoes.buscar ?? fetch;
+
+  /*
+   * O TOKEN VEM ANTES DA CHAMADA, e de propósito não é cacheado aqui: quem
+   * guarda é `tokenTef`, com o prazo lido do próprio JWT. Duas caches do mesmo
+   * token seria a receita para uma delas ficar velha.
+   */
+  const token = await tokenTef(
+    { baseUrl: cred.baseUrl, usuario: cred.usuario, senha: cred.senha },
+    { buscar: opcoes.buscar, timeoutMs: opcoes.timeoutMs, caminho: opcoes.caminhoLogin },
+  );
+
   const controlador = new AbortController();
   const timer = setTimeout(() => controlador.abort(), opcoes.timeoutMs ?? 20_000);
 
@@ -72,7 +101,7 @@ async function chamar(
     resp = await buscar(`${cred.baseUrl}${caminho}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${cred.token}`,
+        'Authorization': `Bearer ${token}`,
         'ocp-apim-subscription-key': cred.gatewayToken,
         'Content-Type': 'application/json',
       },

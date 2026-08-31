@@ -1072,6 +1072,20 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * consentimento. E o consentimento é individual mesmo: o iFood exige
      * aprovação loja a loja, então ligar uma não liga as outras.
      */
+    /*
+     * USUÁRIO E SENHA DA API DO TEF, não um Bearer colado.
+     *
+     * O Bearer do Smart TEF é um JWT gerado a partir destas credenciais — quem
+     * confirmou foi o suporte da POS Controle, contra o que a documentação
+     * pública sugere. Token colado à mão expira e falha na hora da venda; com
+     * usuário e senha o sistema renova sozinho.
+     *
+     * `smarttef_token` continua na tabela e deixa de ser usado: derrubar coluna
+     * com credencial cifrada de loja em produção é risco sem ganho.
+     */
+    ['lojas', 'smarttef_usuario', "smarttef_usuario VARCHAR(160) NOT NULL DEFAULT ''"],
+    ['lojas', 'smarttef_senha',   'smarttef_senha TEXT NULL'],
+
     ['lojas', 'ifood_merchant_id',  "ifood_merchant_id VARCHAR(60) NOT NULL DEFAULT ''"],
     /*
      * Ligado ≠ configurado. O lojista pode desligar temporariamente sem perder

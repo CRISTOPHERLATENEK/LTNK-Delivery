@@ -4,7 +4,8 @@ import { normalizarBaseUrl, tefConfigurado, pendenciasTef, type CredenciaisTef }
 const PRONTA: CredenciaisTef = {
   ativo: true,
   baseUrl: 'https://api.smarttef.com.br',
-  token: 'tok-loja',
+  usuario: 'loja@exemplo',
+  senha: 'senha-da-api',
   gatewayToken: 'gw-key',
   serialPos: '',
 };
@@ -59,14 +60,18 @@ describe('tefConfigurado', () => {
     expect(tefConfigurado({ ...PRONTA, ativo: false })).toBe(false);
   });
 
-  it('falta qualquer uma das três e não está pronto', () => {
+  it('falta qualquer uma das quatro e não está pronto', () => {
+    /* Quatro, não três: o Bearer virou usuário + senha, porque é um JWT que o
+       sistema gera — token colado à mão expira e falha na venda. */
     expect(tefConfigurado({ ...PRONTA, baseUrl: '' })).toBe(false);
-    expect(tefConfigurado({ ...PRONTA, token: null })).toBe(false);
+    expect(tefConfigurado({ ...PRONTA, usuario: '' })).toBe(false);
+    expect(tefConfigurado({ ...PRONTA, senha: null })).toBe(false);
     expect(tefConfigurado({ ...PRONTA, gatewayToken: null })).toBe(false);
   });
 
   it('credencial só com espaço não conta como preenchida', () => {
-    expect(tefConfigurado({ ...PRONTA, token: '   ' })).toBe(false);
+    expect(tefConfigurado({ ...PRONTA, senha: '   ' })).toBe(false);
+    expect(tefConfigurado({ ...PRONTA, usuario: '  ' })).toBe(false);
     expect(tefConfigurado({ ...PRONTA, gatewayToken: '\t' })).toBe(false);
   });
 
@@ -85,12 +90,15 @@ describe('tefConfigurado', () => {
 });
 
 describe('pendenciasTef', () => {
-  it('loja zerada lista as três de uma vez', () => {
-    /* Uma por vez faria a pessoa salvar três vezes pra descobrir as três. */
-    const faltas = pendenciasTef({ ativo: true, baseUrl: '', token: null, gatewayToken: null, serialPos: '' });
-    expect(faltas).toHaveLength(3);
+  it('loja zerada lista as quatro de uma vez', () => {
+    /* Uma por vez faria a pessoa salvar quatro vezes pra descobrir as quatro. */
+    const faltas = pendenciasTef({
+      ativo: true, baseUrl: '', usuario: '', senha: null, gatewayToken: null, serialPos: '',
+    });
+    expect(faltas).toHaveLength(4);
     expect(faltas.join(' ')).toContain('endereço da API');
-    expect(faltas.join(' ')).toContain('token da loja');
+    expect(faltas.join(' ')).toContain('usuário da API');
+    expect(faltas.join(' ')).toContain('senha da API');
     expect(faltas.join(' ')).toContain('gateway token');
   });
 

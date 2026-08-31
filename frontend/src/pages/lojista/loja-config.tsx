@@ -1202,7 +1202,9 @@ interface EstadoTef {
   ativo: boolean;
   base_url: string;
   serial_pos: string;
-  token: string | null;
+  /** Usuário das Credenciais API — não é segredo, vem inteiro. */
+  usuario: string;
+  senha: string | null;
   gateway_token: string | null;
   configurado: boolean;
   pendencias: string[];
@@ -2065,7 +2067,8 @@ function PainelTef({ estado, aoMudar }: {
   const { mostrar } = useToast();
   const [enviando, setEnviando] = useState(false);
   const [baseUrl, setBaseUrl] = useState('');
-  const [token, setToken] = useState('');
+  const [usuario, setUsuario] = useState('');
+  const [senha, setSenha] = useState('');
   const [gatewayToken, setGatewayToken] = useState('');
   const [serialPos, setSerialPos] = useState('');
   const [carregado, setCarregado] = useState(false);
@@ -2081,7 +2084,8 @@ function PainelTef({ estado, aoMudar }: {
   useEffect(() => {
     if (!estado || carregado) return;
     setBaseUrl(estado.base_url);
-    setToken(estado.token || '');
+    setUsuario(estado.usuario || '');
+    setSenha(estado.senha || '');
     setGatewayToken(estado.gateway_token || '');
     setSerialPos(estado.serial_pos);
     setCarregado(true);
@@ -2096,7 +2100,8 @@ function PainelTef({ estado, aoMudar }: {
          normalizada (sem barra sobrando, sem o caminho colado junto), e mostrar
          o texto original faria a tela discordar do banco. */
       setBaseUrl(r.base_url);
-      setToken(r.token || '');
+      setUsuario(r.usuario || '');
+      setSenha(r.senha || '');
       setGatewayToken(r.gateway_token || '');
       setSerialPos(r.serial_pos);
       return r;
@@ -2180,7 +2185,8 @@ function PainelTef({ estado, aoMudar }: {
             e.preventDefault();
             const r = await salvar({
               base_url: baseUrl,
-              token,
+              usuario,
+              senha,
               gateway_token: gatewayToken,
               serial_pos: serialPos,
             });
@@ -2204,11 +2210,25 @@ function PainelTef({ estado, aoMudar }: {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
+            {/*
+              USUÁRIO E SENHA, NÃO UM TOKEN COLADO.
+              O Bearer da API é um JWT gerado a partir destes dois, e expira. A
+              versão anterior pedia o token pronto: funcionaria no dia em que
+              fosse colado e falharia sozinho depois, na hora de passar o cartão.
+              Confirmado por escrito pelo suporte da POS Controle.
+            */}
             <div>
-              <Label htmlFor="tef-token">Token da loja</Label>
+              <Label htmlFor="tef-usuario">Usuário da API</Label>
               <Input
-                id="tef-token" value={token} onChange={e => setToken(e.target.value)}
-                placeholder="Bearer token" className="mt-1 font-mono text-sm" disabled={enviando}
+                id="tef-usuario" value={usuario} onChange={e => setUsuario(e.target.value)}
+                placeholder="00000000000000.sualoja.pdv.mobi" className="mt-1 font-mono text-sm" disabled={enviando}
+              />
+            </div>
+            <div>
+              <Label htmlFor="tef-senha">Senha da API</Label>
+              <Input
+                id="tef-senha" value={senha} onChange={e => setSenha(e.target.value)}
+                placeholder="senha das Credenciais API" className="mt-1 font-mono text-sm" disabled={enviando}
               />
             </div>
             <div>

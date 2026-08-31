@@ -3469,11 +3469,13 @@ router.put('/pagamentos', async (req, res, next) => {
 /** Lê a linha da loja e devolve as credenciais em claro (uso interno). */
 async function credenciaisTefDaLoja(lojaId: number) {
   const row = await db.prepare(
-    `SELECT smarttef_ativo, smarttef_base_url, smarttef_token, smarttef_gateway_token, smarttef_serial_pos
+    `SELECT smarttef_ativo, smarttef_base_url, smarttef_usuario, smarttef_senha,
+            smarttef_gateway_token, smarttef_serial_pos
        FROM lojas WHERE id = ?`
   ).get(lojaId) as {
     smarttef_ativo: number; smarttef_base_url: string;
-    smarttef_token: string | null; smarttef_gateway_token: string | null;
+    smarttef_usuario: string; smarttef_senha: string | null;
+    smarttef_gateway_token: string | null;
     smarttef_serial_pos: string;
   } | undefined;
 
@@ -3492,7 +3494,8 @@ async function credenciaisTefDaLoja(lojaId: number) {
   return {
     ativo: !!row?.smarttef_ativo,
     baseUrl: row?.smarttef_base_url || '',
-    token: abrir(row?.smarttef_token ?? null),
+    usuario: row?.smarttef_usuario || '',
+    senha: abrir(row?.smarttef_senha ?? null),
     gatewayToken: abrir(row?.smarttef_gateway_token ?? null),
     serialPos: row?.smarttef_serial_pos || '',
   };
@@ -3507,7 +3510,8 @@ router.get('/tef', async (req, res, next) => {
       ativo: c.ativo,
       base_url: c.baseUrl,
       serial_pos: c.serialPos,
-      token: mascarar(c.token),
+      usuario: c.usuario,
+      senha: mascarar(c.senha),
       gateway_token: mascarar(c.gatewayToken),
       configurado: tefConfigurado(c),
       /* Com `ativo: false` não há pendência a cobrar: a loja desligou de
@@ -3542,8 +3546,14 @@ router.put('/tef', async (req, res, next) => {
       vals.push(v ? criptografar(v) : null);
     };
 
-    gravarSegredo('smarttef_token', req.body.token);
+    gravarSegredo('smarttef_senha', req.body.senha);
     gravarSegredo('smarttef_gateway_token', req.body.gateway_token);
+
+    /* Usuário não é segredo: aparece inteiro na tela e é gravado como texto. */
+    if (typeof req.body.usuario === 'string') {
+      sets.push('smarttef_usuario = ?');
+      vals.push(textoLimpo(req.body.usuario, 160));
+    }
 
     if (typeof req.body.base_url === 'string') {
       /*
@@ -3585,7 +3595,8 @@ router.put('/tef', async (req, res, next) => {
       ativo: c.ativo,
       base_url: c.baseUrl,
       serial_pos: c.serialPos,
-      token: mascarar(c.token),
+      usuario: c.usuario,
+      senha: mascarar(c.senha),
       gateway_token: mascarar(c.gatewayToken),
       configurado: tefConfigurado(c),
       pendencias: c.ativo ? pendenciasTef(c) : [],

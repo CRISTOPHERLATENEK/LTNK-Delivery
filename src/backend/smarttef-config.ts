@@ -16,7 +16,9 @@
 export interface CredenciaisTef {
   ativo: boolean;
   baseUrl: string;
-  token: string | null;
+  /** Usuário das Credenciais API, do portal do PDV. Gera o JWT. */
+  usuario: string;
+  senha: string | null;
   gatewayToken: string | null;
   serialPos: string;
 }
@@ -77,7 +79,8 @@ export function tefConfigurado(c: CredenciaisTef): boolean {
   return (
     c.ativo &&
     normalizarBaseUrl(c.baseUrl) !== '' &&
-    !!c.token?.trim() &&
+    !!c.usuario?.trim() &&
+    !!c.senha?.trim() &&
     !!c.gatewayToken?.trim()
   );
 }
@@ -93,7 +96,12 @@ export function pendenciasTef(c: CredenciaisTef): string[] {
   const faltas: string[] = [];
   if (!String(c.baseUrl ?? '').trim()) faltas.push('o endereço da API');
   else if (!normalizarBaseUrl(c.baseUrl)) faltas.push('um endereço da API válido, começando com https://');
-  if (!c.token?.trim()) faltas.push('o token da loja');
+  /*
+   * Usuário e senha, não "token". A tela pedia um Bearer colado à mão; o Bearer
+   * é gerado a partir destas duas coisas e expira sozinho.
+   */
+  if (!c.usuario?.trim()) faltas.push('o usuário da API');
+  if (!c.senha?.trim()) faltas.push('a senha da API');
   if (!c.gatewayToken?.trim()) faltas.push('o gateway token');
   return faltas;
 }
