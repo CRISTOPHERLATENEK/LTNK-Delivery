@@ -22,7 +22,7 @@
  * resto mora atrás de um clique.
  */
 import { useEffect, useState } from 'react';
-import { Plug, Smartphone, ExternalLink, Download, Loader2, RefreshCw, Upload, Printer } from 'lucide-react';
+import { Plug, Smartphone, ExternalLink, Download, Loader2, Upload, Printer } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
@@ -192,8 +192,15 @@ export function IntegracoesLoja() {
     : !ifood.plataforma_integrada ? 'Ainda não liberado pela plataforma'
     : !ifood.ativo ? 'Desligado'
     : !ifood.merchant_id ? 'Falta o código da loja'
-    : ifood.sincronizacao === 'do_ifood' ? 'Recebendo pedidos · cardápio sincronizado'
     : 'Recebendo pedidos';
+
+  /*
+   * O STATUS CABE NUMA LINHA DE CARD DE 190px, e isso é requisito, não estética:
+   * cortado com reticências ele deixa de ser concreto, que era a única razão de
+   * existir. "Recebendo pedidos · cardápio sincronizado" virava
+   * "Recebendo pedidos · car…". O estado da sincronização mora no modal, onde
+   * há linha inteira para ele.
+   */
 
   const logoIfood = (ativa: boolean) => (
     <LogoIntegracao src="/integracoes/ifood.svg" nome="iFood" ativa={ativa} />
@@ -224,7 +231,9 @@ export function IntegracoesLoja() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-[14px] min-[380px]:grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))] max-[379px]:grid-cols-1">
+      {/* Uma coluna em telefone pequeno, duas a partir de 380px, e daí em
+          diante o quanto couber de 190px. */}
+      <div className="grid grid-cols-1 gap-[14px] min-[380px]:grid-cols-2 sm:grid-cols-[repeat(auto-fill,minmax(190px,1fr))]">
         <CardIntegracao
           logo={logoIfood(ifoodOk)} nome="iFood" status={statusIfood}
           ligada={ifoodOk} onAbrir={() => setAberta('ifood')}
@@ -243,7 +252,7 @@ export function IntegracoesLoja() {
           logo={logoImpressao(agenteOk)} nome="Impressão automática"
           status={agente === null ? 'Verificando…'
             : agenteOk ? (agente.impressora || 'Agente conectado')
-            : 'Agente não detectado neste computador'}
+            : 'Agente não detectado'}
           ligada={agenteOk} onAbrir={() => setAberta('impressao')}
         />
       </div>
