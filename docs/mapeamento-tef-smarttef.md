@@ -7,6 +7,27 @@ que precisam ser tomadas **antes** de escrever, mais o que já sei que vai doer.
 Ainda faltam duas coisas que não dependem de mim: a **base URL da API** (não
 está na doc pública, vem no credenciamento) e os **dois tokens** por loja.
 
+> **Correção, 31/08/2026.** As duas frases acima estavam erradas, e o custo foi
+> um dia inteiro.
+>
+> A base URL **está** na documentação pública — na página de cada endpoint,
+> dentro do exemplo cURL. Eu li quatro páginas de visão geral, não encontrei, e
+> concluí pela ausência.
+>
+> E a cobrança na maquininha **não precisa** dos tokens do portal Smart TEF:
+> passa por `POST /v3/smart-tef/newItem` em `api.poscontrole.com.br`, com a
+> MESMA autenticação do PDV MOBI (JWT + chave OCP) que a loja já tem. Informado
+> pelo suporte da POS Controle.
+>
+> Antes disso eu havia sondado `POST /v2/sales`, `/v2/sale` e `/v2/orders`,
+> recebido 404 nos três, e concluído que a API não recebia venda. A conclusão
+> valia para o `/v2`; generalizar para a API inteira foi apressado — o grupo
+> `smart-tef` vive em `/v3` e não aparece na coleção Postman.
+>
+> A lição, que vale para a próxima API: **404 em três caminhos que eu inventei
+> não é prova de ausência.** É prova de que os três caminhos que eu inventei não
+> existem.
+
 ---
 
 ## 1. O que muda de verdade

@@ -236,3 +236,132 @@ export async function listarUnidades(cred: CredenciaisPdvMobi, opcoes: OpcoesPdv
 export async function listarStatus(cred: CredenciaisPdvMobi, opcoes: OpcoesPdvMobi = {}): Promise<unknown> {
   return chamar(cred, '/v2/statustypes', opcoes);
 }
+
+/**
+ * MANDAR A COBRANÇA PARA A MAQUININHA — `POST /v3/smart-tef/newItem`.
+ *
+ * Este é o endpoint que estava faltando, e ele desmente uma conclusão minha:
+ * eu havia sondado `POST /v2/sales`, `/v2/sale` e `/v2/orders`, recebido 404 nos
+ * três, e concluído que a API não recebia venda. A conclusão valia para o `/v2`;
+ * generalizar para a API inteira foi apressado — o caminho real é `/v3`, num
+ * grupo (`smart-tef`) que não aparece na coleção Postman.
+ *
+ * O ACHADO BOM É O HOST. É `api.poscontrole.com.br`, o mesmo do PDV MOBI, com a
+ * MESMA autenticação (JWT + chave OCP) que já funciona. Ou seja: não depende do
+ * portal Smart TEF, nem de Bearer emitido por integrador, nem de host de
+ * produção separado. As duas coisas que travaram o dia inteiro deixaram de
+ * travar.
+ *
+ * O QUE ELE MANDA É COBRANÇA, NÃO VENDA ITEMIZADA: `Amount`, `IDPagamento`,
+ * `QTParcelas`. Continua não existindo campo de item nem de NFC-e — quem emite
+ * a nota segue sendo o nosso sistema.
+ *
+ * `Amount` VAI COMO STRING, com ponto decimal, e é assim no exemplo oficial
+ * ("0.10"). Mandar número arriscaria o serializador imprimir `0.1` — e valor com
+ * uma casa decimal num campo de dinheiro é o tipo de coisa que a maquininha
+ * aceita e o conferente descobre no fim do mês.
+ */
+export interface CobrancaPos {
+  /** Nosso identificador da cobrança — numérico neste endpoint. */
+  idCobranca: number;
+  valorCentavos: number;
+  /** Forma de pagamento no PDV MOBI. `'1'` no exemplo oficial. */
+  idPagamento?: string;
+  parcelas?: number;
+  /** Vazio = qualquer aparelho da loja pega. */
+  serialPos?: string;
+  cpf?: string;
+  nome?: string;
+}
+
+/**
+ * Centavos → o texto que o campo `Amount` espera.
+ *
+ * Duas casas SEMPRE. `(10/100).toFixed(2)` dá "0.10"; `String(10/100)` daria
+ * "0.1". O primeiro é o do exemplo oficial.
+ */
+export function valorParaAmount(centavos: number): string {
+  if (!Number.isFinite(centavos) || centavos <= 0) {
+    throw new ErroPdvMobi('Valor inválido para cobrança na maquininha.', 0);
+  }
+  return (Math.round(centavos) / 100).toFixed(2);
+}
+
+/** O corpo do `newItem`, no formato exato do exemplo oficial. */
+export function corpoDaCobranca(c: CobrancaPos): Record<string, unknown> {
+  const extras: Record<string, string> = {};
+  /* `Extras` só leva o que existe: mandar CPF vazio é declarar consumidor
+     identificado sem identificar ninguém. */
+  if (c.cpf?.trim()) extras.CPF = c.cpf.replace(/\D/g, '');
+  if (c.nome?.trim()) extras.Nome = c.nome.trim();
+
+  return {
+    NumSerialPOS: c.serialPos?.trim() ?? '',
+    IDCobranca: c.idCobranca,
+    IDPagamento: c.idPagamento ?? '1',
+    /* Parcelas como texto, e nunca zero: "0 vezes" não existe em cartão. */
+    QTParcelas: String(Math.max(1, c.parcelas ?? 1)),
+    Extras: extras,
+    Amount: valorParaAmount(c.valorCentavos),
+  };
+}
+
+/**
+ * Cria a cobrança na fila do aparelho.
+ *
+ * NÃO COBRA NINGUÉM SOZINHO: o que isto faz é a maquininha mostrar um card com
+ * o valor. Sem alguém passar o cartão, nada acontece. Ainda assim é escrita em
+ * sistema de produção — e como o Smart TEF não tem homologação, todo teste é
+ * real. Valor mínimo e cancelamento em seguida.
+ *
+ * A resposta ainda não foi vista. Devolve o corpo cru, como as consultas: o
+ * exemplo oficial mostra só a REQUISIÇÃO, e inventar o formato da resposta é o
+ * erro que este arquivo já registrou uma vez.
+ */
+export async function enviarCobrancaPos(
+  cred: CredenciaisPdvMobi,
+  cobranca: CobrancaPos,
+  opcoes: OpcoesPdvMobi = {},
+): Promise<unknown> {
+  const buscar = opcoes.buscar ?? fetch;
+  const base = opcoes.baseUrl ?? BASE_PDVMOBI;
+  const token = await tokenPdvMobi(cred, opcoes);
+
+  const controlador = new AbortController();
+  const timer = setTimeout(() => controlador.abort(), opcoes.timeoutMs ?? 20_000);
+
+  let resp: Response;
+  try {
+    resp = await buscar(`${base}/v3/smart-tef/newItem`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Ocp-Apim-Subscription-Key': cred.chaveOcp,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(corpoDaCobranca(cobranca)),
+      signal: controlador.signal,
+    });
+  } catch {
+    /*
+     * INDEFINIDO, e aqui o cuidado é maior que nas leituras: a requisição pode
+     * ter chegado e a cobrança existir no aparelho. Mandar de novo criaria duas
+     * cobranças para a mesma venda — por isso o `IDCobranca` tem que ser o do
+     * pedido, estável, e não um contador novo a cada tentativa.
+     */
+    throw new ErroPdvMobi('A maquininha não respondeu. A cobrança pode ter sido criada — consulte antes de repetir.', 0);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const texto = await resp.text().catch(() => '');
+  let corpo: unknown = null;
+  try { corpo = JSON.parse(texto); } catch { corpo = null; }
+
+  if (!resp.ok) {
+    const d = (corpo && typeof corpo === 'object' ? corpo : {}) as Record<string, unknown>;
+    const msg = String(d.message ?? d.Message ?? d.error ?? '').trim();
+    throw new ErroPdvMobi(msg || `A cobrança na maquininha respondeu ${resp.status}.`, resp.status);
+  }
+  return corpo;
+}

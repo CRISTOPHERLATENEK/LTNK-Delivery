@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   tokenPdvMobi, listarVendas, listarProdutos, momentoParaConsulta,
   limparTokensPdvMobi, MARGEM_SEGUNDOS, BASE_PDVMOBI, type CredenciaisPdvMobi,
+  enviarCobrancaPos, corpoDaCobranca, valorParaAmount,
 } from './pdvmobi-cliente';
 
 const AGORA = Date.parse('2026-08-31T12:00:00.000Z');
@@ -192,5 +193,97 @@ describe('o que este cliente NÃO faz', () => {
     const mod = await import('./pdvmobi-cliente');
     const nomes = Object.keys(mod).join(' ');
     expect(nomes).not.toMatch(/criarVenda|enviarVenda|emitirNota|nfce/i);
+  });
+});
+
+describe('valorParaAmount', () => {
+  it('sempre duas casas, com ponto', () => {
+    /*
+     * O exemplo oficial manda "0.10". `String(10/100)` daria "0.1" — valor com
+     * uma casa decimal num campo de dinheiro é o que a maquininha aceita e o
+     * conferente descobre no fim do mês.
+     */
+    expect(valorParaAmount(10)).toBe('0.10');
+    expect(valorParaAmount(6990)).toBe('69.90');
+    expect(valorParaAmount(100000)).toBe('1000.00');
+  });
+
+  it('valor zerado ou negativo nem monta corpo', () => {
+    for (const v of [0, -1, NaN]) expect(() => valorParaAmount(v)).toThrow();
+  });
+});
+
+describe('corpoDaCobranca', () => {
+  const base = { idCobranca: 10222, valorCentavos: 10 };
+
+  it('monta no formato exato do exemplo oficial', () => {
+    expect(corpoDaCobranca({ ...base, cpf: '111.111.111-11', nome: 'Teste' })).toEqual({
+      NumSerialPOS: '',
+      IDCobranca: 10222,
+      IDPagamento: '1',
+      QTParcelas: '1',
+      Extras: { CPF: '11111111111', Nome: 'Teste' },
+      Amount: '0.10',
+    });
+  });
+
+  it('Extras só leva o que existe', () => {
+    /* CPF vazio é declarar consumidor identificado sem identificar ninguém. */
+    expect(corpoDaCobranca(base).Extras).toEqual({});
+    expect(corpoDaCobranca({ ...base, cpf: '  ' }).Extras).toEqual({});
+  });
+
+  it('parcelas nunca é zero', () => {
+    /* "0 vezes" não existe em cartão. */
+    expect(corpoDaCobranca({ ...base, parcelas: 0 }).QTParcelas).toBe('1');
+    expect(corpoDaCobranca({ ...base, parcelas: 3 }).QTParcelas).toBe('3');
+  });
+
+  it('serial vazio quando não informado', () => {
+    /* Vazio = qualquer aparelho da loja pega a cobrança. */
+    expect(corpoDaCobranca(base).NumSerialPOS).toBe('');
+    expect(corpoDaCobranca({ ...base, serialPos: 'PB3S249' }).NumSerialPOS).toBe('PB3S249');
+  });
+});
+
+describe('enviarCobrancaPos', () => {
+  const cobranca = { idCobranca: 10222, valorCentavos: 10 };
+
+  it('bate em /v3/smart-tef/newItem, não em /v2', async () => {
+    /*
+     * O caminho é `/v3` e o grupo é `smart-tef` — não aparece na coleção
+     * Postman, que só documenta `/v2`. Eu havia sondado `/v2/sales` e concluído
+     * que a API não recebia venda; valia para o `/v2`, e generalizei errado.
+     */
+    const f = fetchFalso([AUTH_OK, { corpo: { ok: true } }]);
+    await enviarCobrancaPos(CRED, cobranca, { buscar: f.buscar, baseUrl: BASE, agoraMs: AGORA });
+    const c = f.chamadas.find(x => x.url.includes('newItem'))!;
+    expect(c.url).toBe(`${BASE}/v3/smart-tef/newItem`);
+    expect(c.metodo).toBe('POST');
+    expect(c.headers.Authorization).toBe(`Bearer ${jwt(3600)}`);
+    expect(c.headers['Ocp-Apim-Subscription-Key']).toBe('chave-ocp');
+  });
+
+  it('queda de rede avisa que a cobrança PODE existir', async () => {
+    /*
+     * A requisição pode ter chegado. Repetir criaria duas cobranças para a mesma
+     * venda — e é por isso que `IDCobranca` tem que ser o do pedido, estável.
+     */
+    const f = fetchFalso([AUTH_OK, { contem: 'newItem', erro: new Error('rede caiu') }]);
+    await expect(enviarCobrancaPos(CRED, cobranca, { buscar: f.buscar, baseUrl: BASE, agoraMs: AGORA }))
+      .rejects.toThrow(/pode ter sido criada/);
+  });
+
+  it('devolve o corpo cru — a resposta ainda não foi vista', async () => {
+    const bruto = { QualquerCoisa: 1 };
+    const f = fetchFalso([AUTH_OK, { corpo: bruto }]);
+    expect(await enviarCobrancaPos(CRED, cobranca, { buscar: f.buscar, baseUrl: BASE, agoraMs: AGORA }))
+      .toEqual(bruto);
+  });
+
+  it('erro da API vira a mensagem da API', async () => {
+    const f = fetchFalso([AUTH_OK, { contem: 'newItem', status: 400, corpo: { Message: 'serial invalido' } }]);
+    await expect(enviarCobrancaPos(CRED, cobranca, { buscar: f.buscar, baseUrl: BASE, agoraMs: AGORA }))
+      .rejects.toThrow(/serial invalido/);
   });
 });
