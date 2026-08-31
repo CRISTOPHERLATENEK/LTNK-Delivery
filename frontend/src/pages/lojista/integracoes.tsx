@@ -203,10 +203,10 @@ export function IntegracoesLoja() {
    */
 
   const logoIfood = (ativa: boolean) => (
-    <LogoIntegracao src="/integracoes/ifood.svg" nome="iFood" ativa={ativa} />
+    <LogoIntegracao src="/integracoes/ifood.png" nome="iFood" ativa={ativa} />
   );
   const logoZap = (ativa: boolean) => (
-    <LogoIntegracao src="/integracoes/whatsapp.svg" nome="WhatsApp" ativa={ativa} />
+    <LogoIntegracao src="/integracoes/whatsapp.png" nome="WhatsApp" ativa={ativa} />
   );
   const logoTef = (ativa: boolean) => (
     <LogoIntegracao nome="Maquininha" ativa={ativa} icone={<Smartphone className="size-[19px]" />} />
