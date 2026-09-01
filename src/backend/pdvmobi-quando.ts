@@ -131,6 +131,21 @@ export function deveLancarNaMaquininha(c: ContextoLancamento): boolean {
 }
 
 /**
+ * A FORMA DE PAGAMENTO QUE VAI NA PRECONTA (`IDPagamento` do `newItem`).
+ *
+ * `1` é o valor do exemplo oficial e faz a maquininha abrir pedindo cartão —
+ * que é o certo para quem ainda vai pagar na porta.
+ *
+ * `99` é o **Faturado**. Para um pedido já pago no app, é ele que evita a pior
+ * cena desta integração: a preconta abrindo em modo cobrança na frente de um
+ * cliente que já pagou. Faturado conclui a venda de imediato e imprime a nota,
+ * com `<tPag>99</tPag>` — confirmado por escrito pelo suporte da POS Controle.
+ */
+export function idPagamentoDoPedido(jaPago: boolean): string {
+  return jaPago ? '99' : '1';
+}
+
+/**
  * O identificador da cobrança é o ID DO PEDIDO.
  *
  * Estável por natureza, numérico como o campo exige, e único na loja. Um

@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   deveLancarNaMaquininha, statusDeLancamento, idCobrancaDoPedido, descricaoDaCobranca,
-  ehPagoOnline, ehJaPago, type ContextoLancamento,
+  ehPagoOnline, ehJaPago, idPagamentoDoPedido, type ContextoLancamento,
 } from './pdvmobi-quando';
 
 const base: ContextoLancamento = {
@@ -360,5 +360,29 @@ describe('PAGO é o dinheiro que entrou, não a forma escolhida', () => {
     const fonte = fs.readFileSync(path.join(__dirname, 'fluxoPedido.ts'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     expect(fonte).toContain("pagamento_status ?? '') === 'aprovado'");
+  });
+});
+
+describe('a forma que vai na preconta (IDPagamento)', () => {
+  /*
+   * ERA ISTO QUE FALTAVA NO PEDIDO 95 E NO CARTÃO APROVADO DEPOIS DELE: a
+   * preconta subia com `IDPagamento: '1'`, e a maquininha abria pedindo cartão
+   * na frente de um cliente que já tinha pago. 99 é o Faturado, que conclui a
+   * venda de imediato e imprime a nota com <tPag>99</tPag>.
+   */
+  it('pedido já pago vai como Faturado (99)', () => {
+    expect(idPagamentoDoPedido(true)).toBe('99');
+  });
+
+  it('pedido a receber na porta continua em 1, que abre cobrando', () => {
+    /* Aqui a cobrança É o objetivo: trocar por 99 faria o entregador entregar
+       sem receber. */
+    expect(idPagamentoDoPedido(false)).toBe('1');
+  });
+
+  it('o fluxo manda a forma junto com a cobrança', () => {
+    const fonte = fs.readFileSync(path.join(__dirname, 'fluxoPedido.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(fonte).toContain('idPagamento: idPagamentoDoPedido(pago)');
   });
 });
