@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   tokenPdvMobi, listarVendas, listarProdutos, momentoParaConsulta,
   limparTokensPdvMobi, MARGEM_SEGUNDOS, BASE_PDVMOBI, type CredenciaisPdvMobi,
-  enviarCobrancaPos, corpoDaCobranca, valorParaAmount,
+  enviarCobrancaPos, corpoDaCobranca, valorParaAmount, listarFormasDePagamento, acharForma,
 } from './pdvmobi-cliente';
 
 const AGORA = Date.parse('2026-08-31T12:00:00.000Z');
@@ -285,5 +285,51 @@ describe('enviarCobrancaPos', () => {
     const f = fetchFalso([AUTH_OK, { contem: 'newItem', status: 400, corpo: { Message: 'serial invalido' } }]);
     await expect(enviarCobrancaPos(CRED, cobranca, { buscar: f.buscar, baseUrl: BASE, agoraMs: AGORA }))
       .rejects.toThrow(/serial invalido/);
+  });
+});
+
+describe('as formas de pagamento da loja', () => {
+  const cred = { usuario: 'u', senha: 's', chaveOcp: 'k' };
+  const RESPOSTA = {
+    PaymentTypes: [
+      { PaymentTypeID: 'C793AB08-BCD5-4E56-A796-8010A288FCBD', Name: 'Dinheiro' },
+      { PaymentTypeID: '0F61723B-3EB9-4B6B-8008-50387F3A295F', Name: 'Faturado' },
+      { PaymentTypeID: '', Name: 'Sem id' },
+    ],
+  };
+
+  function buscarFake(corpo: unknown) {
+    return async (url: string) => {
+      if (String(url).includes('/auth/token')) {
+        return new Response(JSON.stringify({ jwt: 'a.' + Buffer.from(JSON.stringify({ exp: 9e9 })).toString('base64url') + '.c' }), { status: 200 });
+      }
+      return new Response(JSON.stringify(corpo), { status: 200 });
+    };
+  }
+
+  it('lê a lista e descarta linha sem id', async () => {
+    /* Linha sem GUID não serve para nada: mandá-la no `IDPagamento` seria o
+       mesmo vazio que fez a preconta do 97 não chegar. */
+    const formas = await listarFormasDePagamento(cred, { buscar: buscarFake(RESPOSTA) as unknown as typeof fetch });
+    expect(formas.map(f => f.nome)).toEqual(['Dinheiro', 'Faturado']);
+  });
+
+  it('acha pelo nome, sem ligar para acento nem caixa', async () => {
+    const formas = await listarFormasDePagamento(cred, { buscar: buscarFake(RESPOSTA) as unknown as typeof fetch });
+    expect(acharForma(formas, 'Faturado')).toBe('0F61723B-3EB9-4B6B-8008-50387F3A295F');
+    expect(acharForma(formas, 'faturado')).toBe('0F61723B-3EB9-4B6B-8008-50387F3A295F');
+    expect(acharForma(formas, 'DINHEIRO')).toBe('C793AB08-BCD5-4E56-A796-8010A288FCBD');
+  });
+
+  it('forma que não existe devolve vazio, não um id qualquer', async () => {
+    /* Devolver o primeiro da lista "para não falhar" mandaria a venda paga na
+       forma errada. Vazio faz quem chama decidir, e o log registrar. */
+    const formas = await listarFormasDePagamento(cred, { buscar: buscarFake(RESPOSTA) as unknown as typeof fetch });
+    expect(acharForma(formas, 'Vale Refeição')).toBe('');
+  });
+
+  it('resposta sem PaymentTypes não quebra', async () => {
+    const formas = await listarFormasDePagamento(cred, { buscar: buscarFake({}) as unknown as typeof fetch });
+    expect(formas).toEqual([]);
   });
 });

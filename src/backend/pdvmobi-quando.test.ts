@@ -370,19 +370,41 @@ describe('a forma que vai na preconta (IDPagamento)', () => {
    * na frente de um cliente que já tinha pago. 99 é o Faturado, que conclui a
    * venda de imediato e imprime a nota com <tPag>99</tPag>.
    */
-  it('pedido já pago vai como Faturado (99)', () => {
-    expect(idPagamentoDoPedido(true)).toBe('99');
+  const FATURADO = '0F61723B-3EB9-4B6B-8008-50387F3A295F';
+
+  it('pedido já pago vai no GUID do Faturado', () => {
+    expect(idPagamentoDoPedido(true, FATURADO)).toBe(FATURADO);
+  });
+
+  it('99 NÃO é IDPagamento — é o tPag da nota', () => {
+    /*
+     * O pedido 97 saiu daqui com HTTP 200 mandando '99' e nunca apareceu no
+     * aparelho. `GET /v2/paymenttypes` mostrou por quê: as formas são GUIDs
+     * (Dinheiro, Cartao, TEF, Faturado, POS...), e '99' não é nenhuma delas.
+     */
+    expect(idPagamentoDoPedido(true, FATURADO)).not.toBe('99');
   });
 
   it('pedido a receber na porta continua em 1, que abre cobrando', () => {
-    /* Aqui a cobrança É o objetivo: trocar por 99 faria o entregador entregar
+    /* Aqui a cobrança É o objetivo: mandar Faturado faria o entregador entregar
        sem receber. */
-    expect(idPagamentoDoPedido(false)).toBe('1');
+    expect(idPagamentoDoPedido(false, FATURADO)).toBe('1');
   });
 
-  it('o fluxo manda a forma junto com a cobrança', () => {
+  it('sem o GUID, o pedido pago ainda vai — no 1', () => {
+    /* Escolha consciente: não lançar deixaria o pedido sem nota nenhuma. Vai
+       como cobrança, marcado PAGO, e o operador conclui na forma certa. */
+    expect(idPagamentoDoPedido(true, '')).toBe('1');
+    expect(idPagamentoDoPedido(true, '   ')).toBe('1');
+  });
+
+  it('o fluxo resolve a forma pelo NOME, não por GUID fixo', () => {
+    /* A lista veio das credenciais de uma loja só. GUID fixo apostaria que ele
+       vale para todo cliente — e GUID errado não dá erro, dá preconta que não
+       chega. */
     const fonte = fs.readFileSync(path.join(__dirname, 'fluxoPedido.ts'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    expect(fonte).toContain('idPagamento: idPagamentoDoPedido(pago)');
+    expect(fonte).toContain("acharForma(await promessa, 'Faturado')");
+    expect(fonte).toContain('idPagamento: idPagamentoDoPedido(pago, idFaturado)');
   });
 });

@@ -293,19 +293,37 @@ número (emitir nos dois lugares daria duas notas para a mesma venda), e:
 - `POST /nfce/emitir/:pedidoId` (o botão do lojista) continua funcionando **de
   propósito**: é a saída para o dia em que o aparelho estiver fora do ar.
 
-### `IDPagamento` do `newItem`
+### `IDPagamento` do `newItem` é um GUID
 
-| valor | forma | quando usamos |
-|---|---|---|
-| `1` | cartão (valor do exemplo oficial) | pedido a receber na porta — abrir cobrando é o objetivo |
-| `99` | **Faturado** | pedido já pago no app |
+**`99` não serve aqui.** 99 é o `tPag` da NFC-e; como `IDPagamento` ele fez a
+preconta do pedido 97 sair com HTTP 200 e nunca aparecer no aparelho.
 
-Mandar `1` num pedido já pago faz a maquininha abrir pedindo cartão na frente
-de um cliente que já pagou. Aconteceu com o pedido 95 e de novo com um cartão
-aprovado depois dele — os dois com `IDPagamento: "1"` fixo, copiado do exemplo
-sem conferir o significado. Não existe endpoint que liste as formas: a coleção
-Postman só tem `productgroups`, `products`, `statustypes`, `producttypes`,
-`unittypes`, `users` e `sales`.
+As formas vêm de **`GET /v2/paymenttypes`** — endpoint que **não está na coleção
+Postman**, achado por analogia com `/v2/statustypes`, `/v2/producttypes` e
+`/v2/unittypes` e confirmado com 200 e corpo real. Os vizinhos inventados
+(`/v2/paymenttype`, `/v2/payments`, `/v2/saletypes`, `/v3/smart-tef/paymenttypes`)
+deram 404, então o 200 não é rota curinga.
+
+Da loja 1 (Unimaxx), 17 formas. As que importam:
+
+| GUID | nome |
+|---|---|
+| `C793AB08-BCD5-4E56-A796-8010A288FCBD` | Dinheiro |
+| `66A73A2B-C69E-4D63-A7B2-333CDB953A0C` | Cartao |
+| `43914FB5-4FAA-4FF8-9A02-49F747A6BA56` | TEF |
+| **`0F61723B-3EB9-4B6B-8008-50387F3A295F`** | **Faturado** |
+| `DDE88341-DD5C-40E0-805C-4E5868694A9E` | PIX |
+
+**Resolvemos pelo NOME, não pelo GUID fixo.** A lista veio das credenciais de
+uma loja só, e não dá para afirmar que o mesmo GUID vale para outro cliente da
+POS Controle — GUID errado não dá erro, dá preconta que não chega, ou seja,
+venda sem nota. `listarFormasDePagamento` + `acharForma(formas, 'Faturado')`,
+com cache por loja.
+
+Pedido a receber na porta continua em `'1'`, que abre cobrando: ali a cobrança
+é o objetivo. Sem conseguir resolver o Faturado, o pedido pago vai em `'1'`
+mesmo, com aviso no log — nota recuperável vale mais que nota perdida, e a
+preconta chega marcada `· PAGO`.
 
 ### O `tPag` do "Faturado"
 Confirmado por escrito pelo suporte da POS Controle (Gabriela Bahia,

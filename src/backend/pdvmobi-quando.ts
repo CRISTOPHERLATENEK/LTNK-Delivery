@@ -136,13 +136,26 @@ export function deveLancarNaMaquininha(c: ContextoLancamento): boolean {
  * `1` é o valor do exemplo oficial e faz a maquininha abrir pedindo cartão —
  * que é o certo para quem ainda vai pagar na porta.
  *
- * `99` é o **Faturado**. Para um pedido já pago no app, é ele que evita a pior
- * cena desta integração: a preconta abrindo em modo cobrança na frente de um
- * cliente que já pagou. Faturado conclui a venda de imediato e imprime a nota,
- * com `<tPag>99</tPag>` — confirmado por escrito pelo suporte da POS Controle.
+ * O **Faturado** é um GUID vindo de `GET /v2/paymenttypes`, não um número: para
+ * um pedido já pago no app, é ele que evita a pior cena desta integração — a
+ * preconta abrindo em modo cobrança na frente de quem já pagou. Faturado
+ * conclui a venda de imediato e imprime a nota, com `<tPag>99</tPag>`.
+ *
+ * `99` NÃO SERVE AQUI. É o `tPag` da NFC-e, que é outra coisa; mandado como
+ * `IDPagamento` fez a preconta do pedido 97 sair com HTTP 200 e nunca aparecer
+ * no aparelho.
  */
-export function idPagamentoDoPedido(jaPago: boolean): string {
-  return jaPago ? '99' : '1';
+export function idPagamentoDoPedido(jaPago: boolean, idFaturado: string): string {
+  /*
+   * SEM O GUID DO FATURADO, CAI NO `1` — e isso é escolha, não descuido.
+   *
+   * A alternativa seria não lançar, e aí o pedido fica sem nota nenhuma. Com o
+   * `1` a maquininha abre pedindo cartão, mas a preconta chega marcada `· PAGO`
+   * e o operador pode concluir na forma certa. Nota recuperável vale mais que
+   * nota perdida — e quem chama registra o aviso no log.
+   */
+  if (!jaPago) return '1';
+  return idFaturado.trim() || '1';
 }
 
 /**

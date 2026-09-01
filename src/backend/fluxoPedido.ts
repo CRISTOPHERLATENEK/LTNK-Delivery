@@ -7,7 +7,7 @@ import { acaoParaStatus, escolherMotivoCancelamento, motivoDaRecusaDeCancelament
 import { avisarStatusIfood, motivosDeCancelamento, solicitarCancelamento, ErroIfood, credenciaisDoAmbiente as credenciaisIfoodDoAmbiente } from './ifood-cliente';
 import db from './db-mysql';
 import { descriptografar } from './cripto';
-import { enviarCobrancaPos } from './pdvmobi-cliente';
+import { enviarCobrancaPos, listarFormasDePagamento, acharForma, type FormaPagamentoPos } from './pdvmobi-cliente';
 import { deveLancarNaMaquininha, statusDeLancamento, idCobrancaDoPedido, descricaoDaCobranca, ehJaPago, idPagamentoDoPedido, type ContextoLancamento, type EmissorNfce } from './pdvmobi-quando';
 import { agoraUTC, erroHttp } from './util';
 import { registrarEvento, notificarEntregadoresCorridaDisponivel } from './notificacoes';
@@ -375,6 +375,9 @@ async function pedirCancelamentoIfood(
  * de duas transições simultâneas — duas abas, dois cliques. Sem a condição no
  * UPDATE, as duas leriam "não lançado" e o cliente pagaria duas vezes.
  */
+/** As formas de pagamento de cada loja, lidas uma vez por processo. */
+const formasDePagamentoPorLoja = new Map<number, Promise<FormaPagamentoPos[]>>();
+
 export async function lancarPedidoNaMaquininha(pedidoId: number): Promise<void> {
   const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ?')
     .get(pedidoId) as (Pedido & Record<string, unknown>) | undefined;
@@ -450,6 +453,41 @@ export async function lancarPedidoNaMaquininha(pedidoId: number): Promise<void> 
     'SELECT nome FROM usuarios WHERE id = ?'
   ).get(pedido.cliente_id) as { nome: string } | undefined;
 
+  /*
+   * O GUID DO FATURADO, resolvido PELO NOME.
+   *
+   * A lista veio das credenciais de uma loja só; fixar o GUID no código
+   * apostaria que ele é igual para todo cliente da POS Controle. E GUID errado
+   * não dá erro: dá preconta que sai daqui com 200 e não chega no aparelho —
+   * exatamente o pedido 97.
+   *
+   * Cache por loja porque a lista não muda no dia a dia, e uma chamada a mais
+   * por pedido atrasaria o lançamento sem motivo. Falha apaga a entrada, para a
+   * próxima tentativa não herdar o vazio.
+   */
+  let idFaturado = '';
+  if (pago) {
+    try {
+      let promessa = formasDePagamentoPorLoja.get(pedido.loja_id);
+      if (!promessa) {
+        promessa = listarFormasDePagamento(
+          { usuario: loja!.smarttef_usuario, senha, chaveOcp },
+          { baseUrl: loja!.smarttef_base_url || undefined },
+        );
+        formasDePagamentoPorLoja.set(pedido.loja_id, promessa);
+      }
+      idFaturado = acharForma(await promessa, 'Faturado');
+    } catch (e) {
+      formasDePagamentoPorLoja.delete(pedido.loja_id);
+      console.log(`[tef] pedido ${pedidoId}: não consegui ler as formas de pagamento da maquininha:`, (e as Error).message);
+    }
+    if (!idFaturado) {
+      /* O pedido vai assim mesmo, no `1`, e a preconta chega marcada PAGO. Nota
+         recuperável vale mais que nota perdida — mas o motivo fica registrado. */
+      console.log(`[tef] pedido ${pedidoId} está pago, mas não achei a forma "Faturado" na maquininha: vai como cobrança, o operador precisa concluir na mão.`);
+    }
+  }
+
   const comecou = Date.now();
   try {
     await enviarCobrancaPos(
@@ -459,7 +497,7 @@ export async function lancarPedidoNaMaquininha(pedidoId: number): Promise<void> 
         valorCentavos: Number(pedido.total_centavos) || 0,
         serialPos: loja!.smarttef_serial_pos || '',
         nome: descricaoDaCobranca(cliente?.nome ?? '', pedidoId, pago),
-        idPagamento: idPagamentoDoPedido(pago),
+        idPagamento: idPagamentoDoPedido(pago, idFaturado),
       },
       { baseUrl: loja!.smarttef_base_url || undefined },
     );

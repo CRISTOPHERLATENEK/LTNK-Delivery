@@ -220,6 +220,44 @@ export async function listarProdutos(
 }
 
 /**
+ * AS FORMAS DE PAGAMENTO DA LOJA — `GET /v2/paymenttypes`.
+ *
+ * NÃO ESTÁ NA COLEÇÃO POSTMAN. Achei por analogia com `/v2/statustypes`,
+ * `/v2/producttypes` e `/v2/unittypes`, e confirmei com 200 e corpo real; os
+ * caminhos vizinhos que inventei (`/v2/paymenttype`, `/v2/payments`,
+ * `/v2/saletypes`) deram 404, então o 200 aqui não é acidente de rota curinga.
+ *
+ * O QUE ELA RESOLVE: `IDPagamento` do `newItem` é um **GUID**, não um número
+ * pequeno. Mandar `'99'` (o `tPag` da nota, que é outra coisa) fez a preconta
+ * sair daqui com 200 e nunca aparecer no aparelho — pedido 97.
+ */
+export interface FormaPagamentoPos { id: string; nome: string }
+
+export async function listarFormasDePagamento(
+  cred: CredenciaisPdvMobi,
+  opcoes: OpcoesPdvMobi = {},
+): Promise<FormaPagamentoPos[]> {
+  const bruto = await chamar(cred, '/v2/paymenttypes', opcoes) as
+    { PaymentTypes?: { PaymentTypeID?: string; Name?: string }[] } | null;
+  return (bruto?.PaymentTypes ?? [])
+    .map(f => ({ id: String(f.PaymentTypeID ?? ''), nome: String(f.Name ?? '') }))
+    .filter(f => f.id && f.nome);
+}
+
+/**
+ * Acha a forma pelo NOME, sem diferenciar maiúscula nem acento.
+ *
+ * Pelo nome e não pelo GUID fixo porque a lista veio das credenciais de UMA
+ * loja: não tenho como afirmar que o mesmo GUID vale para outro cliente da POS
+ * Controle, e um GUID errado não dá erro — dá preconta que não chega, ou seja,
+ * venda sem nota.
+ */
+export function acharForma(formas: FormaPagamentoPos[], nome: string): string {
+  const limpo = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+  return formas.find(f => limpo(f.nome) === limpo(nome))?.id ?? '';
+}
+
+/**
  * As tabelas de domínio: tipos de produto, unidades e status.
  *
  * Existem porque `POST /v2/products` exige `ProductTypeID`, `UnitTypeID` e
