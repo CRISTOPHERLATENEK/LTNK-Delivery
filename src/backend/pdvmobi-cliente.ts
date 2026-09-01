@@ -401,5 +401,35 @@ export async function enviarCobrancaPos(
     const msg = String(d.message ?? d.Message ?? d.error ?? '').trim();
     throw new ErroPdvMobi(msg || `A cobrança na maquininha respondeu ${resp.status}.`, resp.status);
   }
+
+  /*
+   * O 200 DESTE ENDPOINT NÃO QUER DIZER QUE DEU CERTO.
+   *
+   * A falha vem DENTRO do corpo, com HTTP 200:
+   *
+   *     {"responseCode":"401.03","msg":"Erro na insercao."}
+   *
+   * e o sucesso é `{"responseCode":"200","data":{...},"msg":"OK"}`. Só olhar o
+   * status HTTP foi o que fez os pedidos 97 e 98 escreverem "lançado na
+   * maquininha" no log e nunca chegarem no aparelho — o pior tipo de erro
+   * possível nesta integração, porque o sistema fica convencido de que a venda
+   * está lá e ninguém vai conferir.
+   */
+  const d = (corpo && typeof corpo === 'object' ? corpo : {}) as Record<string, unknown>;
+  const codigo = String(d.responseCode ?? '').trim();
+  if (codigo && codigo !== '200') {
+    const msg = String(d.msg ?? d.message ?? '').trim();
+    /*
+     * `httpStatus` leva o 200 que realmente veio, e isso importa: quem chama
+     * usa `httpStatus > 0` para saber se pode desfazer a marca de lançado. Uma
+     * recusa como esta é falha CONHECIDA — a cobrança não existe do lado de lá
+     * — então ela PRECISA liberar a próxima tentativa. Um valor zero ou
+     * negativo aqui congelaria o pedido como "já lançado" para sempre.
+     */
+    throw new ErroPdvMobi(
+      `A maquininha recusou a cobrança (${codigo}${msg ? ': ' + msg : ''}).`,
+      resp.status,
+    );
+  }
   return corpo;
 }

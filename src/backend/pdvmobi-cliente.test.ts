@@ -333,3 +333,54 @@ describe('as formas de pagamento da loja', () => {
     expect(formas).toEqual([]);
   });
 });
+
+describe('o 200 do newItem não quer dizer que deu certo', () => {
+  const cred = { usuario: 'u', senha: 's', chaveOcp: 'k' };
+  const cobranca = { idCobranca: 990102, valorCentavos: 1, serialPos: 'X', nome: 'Teste' };
+
+  function respondendo(corpo: unknown) {
+    return (async (url: string) => {
+      if (String(url).includes('/auth/token')) {
+        return new Response(JSON.stringify({ jwt: 'a.' + Buffer.from(JSON.stringify({ exp: 9e9 })).toString('base64url') + '.c' }), { status: 200 });
+      }
+      return new Response(JSON.stringify(corpo), { status: 200 });
+    }) as unknown as typeof fetch;
+  }
+
+  it('corpo com responseCode de erro vira erro, mesmo com HTTP 200', async () => {
+    /*
+     * O CASO REAL: {"responseCode":"401.03","msg":"Erro na insercao."} com
+     * HTTP 200. Aceitar isso como sucesso fez os pedidos 97 e 98 gravarem
+     * "lançado na maquininha" no log e nunca chegarem no aparelho — o pior erro
+     * possível aqui, porque o sistema fica convencido de que a venda está lá.
+     */
+    await expect(enviarCobrancaPos(cred, cobranca, {
+      buscar: respondendo({ responseCode: '401.03', msg: 'Erro na insercao.' }),
+    })).rejects.toThrow(/401\.03/);
+  });
+
+  it('a recusa carrega httpStatus positivo, para liberar a retentativa', async () => {
+    /* Quem chama usa `httpStatus > 0` para desfazer a marca de lançado. Zero ou
+       negativo congelaria o pedido como "já lançado" para sempre. */
+    await enviarCobrancaPos(cred, cobranca, {
+      buscar: respondendo({ responseCode: '401.03', msg: 'Erro na insercao.' }),
+    }).then(
+      () => { throw new Error('devia ter falhado'); },
+      (e: { httpStatus?: number }) => expect(e.httpStatus).toBeGreaterThan(0),
+    );
+  });
+
+  it('responseCode 200 passa', async () => {
+    const r = await enviarCobrancaPos(cred, cobranca, {
+      buscar: respondendo({ responseCode: '200', data: { Pedidos: [] }, msg: 'OK' }),
+    });
+    expect(r).toMatchObject({ msg: 'OK' });
+  });
+
+  it('resposta sem responseCode não é tratada como recusa', async () => {
+    /* Endpoint que responda outro formato não pode virar falha inventada: sem o
+       campo, o 200 do HTTP continua valendo. */
+    const r = await enviarCobrancaPos(cred, cobranca, { buscar: respondendo({ ok: true }) });
+    expect(r).toMatchObject({ ok: true });
+  });
+});
