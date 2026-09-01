@@ -336,7 +336,17 @@ export function corpoDaCobranca(c: CobrancaPos): Record<string, unknown> {
   return {
     NumSerialPOS: c.serialPos?.trim() ?? '',
     IDCobranca: c.idCobranca,
-    IDPagamento: c.idPagamento ?? '1',
+    /*
+     * A FORMA SÓ VAI SE ALGUÉM ESCOLHER. Antes ia `'1'` fixo, o valor do
+     * exemplo oficial — e `1` é DÉBITO, confirmado pelo suporte e pela própria
+     * comanda. Ou seja, todo pedido subia declarado como débito, inclusive os
+     * de dinheiro e os já pagos no app, e era por isso que a maquininha abria
+     * pedindo o cartão: nós é que mandávamos ela pedir.
+     *
+     * Sem o campo, a escolha volta para quem está no aparelho — que é o fluxo
+     * que o suporte descreveu desde o começo.
+     */
+    ...(c.idPagamento?.trim() ? { IDPagamento: c.idPagamento.trim() } : {}),
     /* Parcelas como texto, e nunca zero: "0 vezes" não existe em cartão. */
     QTParcelas: String(Math.max(1, c.parcelas ?? 1)),
     Extras: extras,

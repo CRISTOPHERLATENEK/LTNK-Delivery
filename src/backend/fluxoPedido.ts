@@ -8,7 +8,7 @@ import { avisarStatusIfood, motivosDeCancelamento, solicitarCancelamento, ErroIf
 import db from './db-mysql';
 import { descriptografar } from './cripto';
 import { enviarCobrancaPos } from './pdvmobi-cliente';
-import { deveLancarNaMaquininha, statusDeLancamento, idCobrancaDoPedido, descricaoDaCobranca, ehJaPago, idPagamentoDoPedido, type ContextoLancamento, type EmissorNfce } from './pdvmobi-quando';
+import { deveLancarNaMaquininha, statusDeLancamento, idCobrancaDoPedido, descricaoDaCobranca, ehJaPago, type ContextoLancamento, type EmissorNfce } from './pdvmobi-quando';
 import { agoraUTC, erroHttp } from './util';
 import { registrarEvento, notificarEntregadoresCorridaDisponivel } from './notificacoes';
 import { Pedido, StatusPedido } from '../tipos/modelos';
@@ -459,7 +459,6 @@ export async function lancarPedidoNaMaquininha(pedidoId: number): Promise<void> 
         valorCentavos: Number(pedido.total_centavos) || 0,
         serialPos: loja!.smarttef_serial_pos || '',
         nome: descricaoDaCobranca(cliente?.nome ?? '', pedidoId, pago),
-        idPagamento: idPagamentoDoPedido(),
       },
       { baseUrl: loja!.smarttef_base_url || undefined },
     );

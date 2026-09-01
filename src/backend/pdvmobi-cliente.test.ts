@@ -1,4 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import {
   tokenPdvMobi, listarVendas, listarProdutos, momentoParaConsulta,
   limparTokensPdvMobi, MARGEM_SEGUNDOS, BASE_PDVMOBI, type CredenciaisPdvMobi,
@@ -220,7 +222,8 @@ describe('corpoDaCobranca', () => {
     expect(corpoDaCobranca({ ...base, cpf: '111.111.111-11', nome: 'Teste' })).toEqual({
       NumSerialPOS: '',
       IDCobranca: 10222,
-      IDPagamento: '1',
+      /* Sem IDPagamento: `'1'` é DÉBITO, e impor débito em todo pedido é o que
+         fazia a maquininha abrir pedindo cartão. A forma é escolha do operador. */
       QTParcelas: '1',
       Extras: { CPF: '11111111111', Nome: 'Teste' },
       Amount: '0.10',
@@ -382,5 +385,31 @@ describe('o 200 do newItem não quer dizer que deu certo', () => {
        campo, o 200 do HTTP continua valendo. */
     const r = await enviarCobrancaPos(cred, cobranca, { buscar: respondendo({ ok: true }) });
     expect(r).toMatchObject({ ok: true });
+  });
+});
+
+describe('a forma de pagamento não é imposta pelo servidor', () => {
+  /*
+   * `IDPagamento: '1'` — o valor do exemplo oficial — é DÉBITO, confirmado pelo
+   * suporte e pela comanda. Ia fixo em TODO pedido: dinheiro, Pix e cartão
+   * online subiam declarados como débito, e a maquininha abria pedindo o cartão
+   * porque nós mandávamos ela pedir. A escolha é de quem está no aparelho.
+   */
+  it('sem forma escolhida, o campo NÃO vai no corpo', () => {
+    expect(corpoDaCobranca({ idCobranca: 1, valorCentavos: 100 })).not.toHaveProperty('IDPagamento');
+  });
+
+  it('nunca cai no 1 sozinho', () => {
+    for (const v of [undefined, '', '   ']) {
+      expect(corpoDaCobranca({ idCobranca: 1, valorCentavos: 100, idPagamento: v }).IDPagamento, String(v)).toBeUndefined();
+    }
+  });
+
+  it('quando alguém escolhe, vai o que foi escolhido', () => {
+    expect(corpoDaCobranca({ idCobranca: 1, valorCentavos: 100, idPagamento: '4' }).IDPagamento).toBe('4');
+  });
+
+  it('e o fluxo do pedido não manda forma nenhuma', () => {
+    expect(fs.readFileSync(path.join(__dirname, 'fluxoPedido.ts'), 'utf8')).not.toContain('idPagamento');
   });
 });

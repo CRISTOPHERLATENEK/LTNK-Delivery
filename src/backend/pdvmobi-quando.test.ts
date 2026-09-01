@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   deveLancarNaMaquininha, statusDeLancamento, idCobrancaDoPedido, descricaoDaCobranca,
-  ehPagoOnline, ehJaPago, idPagamentoDoPedido, type ContextoLancamento,
+  ehPagoOnline, ehJaPago, type ContextoLancamento,
 } from './pdvmobi-quando';
 
 const base: ContextoLancamento = {
@@ -360,37 +360,5 @@ describe('PAGO é o dinheiro que entrou, não a forma escolhida', () => {
     const fonte = fs.readFileSync(path.join(__dirname, 'fluxoPedido.ts'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     expect(fonte).toContain("pagamento_status ?? '') === 'aprovado'");
-  });
-});
-
-describe('a forma que vai na preconta (IDPagamento)', () => {
-  /*
-   * TRÊS VALORES TESTADOS EM PRODUÇÃO. `'1'` chega (pedidos 89, 95, 96); `'99'`
-   * (o tPag da nota) e o GUID do Faturado saem daqui com HTTP 200 e não viram
-   * preconta NEM venda — confirmado lendo GET /v2/sales depois (pedidos 97 e
-   * 98). O campo descarta em silêncio o que não reconhece.
-   *
-   * Por isso vai `'1'` em todo pedido: chegar cobrando é ruim, mas não chegar é
-   * VENDA SEM NOTA.
-   */
-  it('vai sempre 1, o único valor que a maquininha aceita', () => {
-    expect(idPagamentoDoPedido()).toBe('1');
-  });
-
-  it('nunca 99 nem GUID — os dois fizeram a preconta sumir', () => {
-    expect(idPagamentoDoPedido()).not.toBe('99');
-    expect(idPagamentoDoPedido()).not.toMatch(/^[0-9a-f]{8}-/i);
-  });
-
-  it('o fluxo manda a forma junto com a cobrança', () => {
-    const fonte = fs.readFileSync(path.join(__dirname, 'fluxoPedido.ts'), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    expect(fonte).toContain('idPagamento: idPagamentoDoPedido()');
-  });
-
-  it('e o PAGO na descrição vira a única proteção do cliente', () => {
-    /* Como a preconta abre cobrando mesmo estando paga, a marca deixa de ser
-       redundante e passa a ser o que impede a cobrança em dobro. */
-    expect(descricaoDaCobranca('GamerExtreme', 98, true)).toBe('GamerExtreme · PAGO');
   });
 });
