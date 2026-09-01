@@ -8,7 +8,7 @@ import { avisarStatusIfood, motivosDeCancelamento, solicitarCancelamento, ErroIf
 import db from './db-mysql';
 import { descriptografar } from './cripto';
 import { enviarCobrancaPos } from './pdvmobi-cliente';
-import { deveLancarNaMaquininha, statusDeLancamento, idCobrancaDoPedido, descricaoDaCobranca, ehPagoOnline, type ContextoLancamento, type EmissorNfce } from './pdvmobi-quando';
+import { deveLancarNaMaquininha, statusDeLancamento, idCobrancaDoPedido, descricaoDaCobranca, ehJaPago, type ContextoLancamento, type EmissorNfce } from './pdvmobi-quando';
 import { agoraUTC, erroHttp } from './util';
 import { registrarEvento, notificarEntregadoresCorridaDisponivel } from './notificacoes';
 import { Pedido, StatusPedido } from '../tipos/modelos';
@@ -408,9 +408,11 @@ export async function lancarPedidoNaMaquininha(pedidoId: number): Promise<void> 
     jaLancado: !!String(pedido.tef_lancado_em ?? '').trim(),
     tipoEntrega: tipo,
     emissorNfce,
+    /* O status do pagamento, não a forma. Ver o comentário do campo. */
+    pagamentoAprovado: String(pedido.pagamento_status ?? '') === 'aprovado',
   };
 
-  const pago = ehPagoOnline(contexto.formaPagamento);
+  const pago = ehJaPago(contexto.formaPagamento, contexto.pagamentoAprovado);
 
   if (!deveLancarNaMaquininha(contexto)) {
     /*

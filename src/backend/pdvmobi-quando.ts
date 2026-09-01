@@ -42,6 +42,16 @@ export interface ContextoLancamento {
    * lá.
    */
   emissorNfce: EmissorNfce;
+  /**
+   * O DINHEIRO ENTROU DE VERDADE?
+   *
+   * `pagamento_status === 'aprovado'`, e não "a forma é online". Um Pix pode
+   * estar aguardando ou ter sido recusado, e nesse caso o pedido é um pedido A
+   * RECEBER — foi exatamente o que aconteceu no pedido 95: Pix recusado,
+   * marcado como pago, e mandado para o aparelho para ser fechado como
+   * Faturado. Venda sem dinheiro e com nota emitida.
+   */
+  pagamentoAprovado: boolean;
 }
 
 /**
@@ -52,6 +62,17 @@ export interface ContextoLancamento {
  */
 export function ehPagoOnline(formaPagamento: string): boolean {
   return formaPagamento === 'pix' || formaPagamento === 'cartao_online';
+}
+
+/**
+ * JÁ PAGO = forma online **E** pagamento aprovado.
+ *
+ * As duas condições, sempre juntas. A forma diz por onde o dinheiro deveria
+ * entrar; só o status diz se entrou. Confiar na forma é o erro que fez uma
+ * preconta de Pix recusado chegar no aparelho marcada como paga.
+ */
+export function ehJaPago(formaPagamento: string, pagamentoAprovado: boolean): boolean {
+  return ehPagoOnline(formaPagamento) && pagamentoAprovado;
 }
 
 /**
@@ -90,7 +111,7 @@ export function deveLancarNaMaquininha(c: ContextoLancamento): boolean {
   if (c.jaLancado) return false;
   if (!c.tefConfigurado) return false;
 
-  const pago = ehPagoOnline(c.formaPagamento);
+  const pago = ehJaPago(c.formaPagamento, c.pagamentoAprovado);
 
   if (c.emissorNfce === 'maquininha') {
     /*

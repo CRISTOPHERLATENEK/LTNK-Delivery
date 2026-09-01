@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   deveLancarNaMaquininha, statusDeLancamento, idCobrancaDoPedido, descricaoDaCobranca,
-  ehPagoOnline, type ContextoLancamento,
+  ehPagoOnline, ehJaPago, type ContextoLancamento,
 } from './pdvmobi-quando';
 
 const base: ContextoLancamento = {
@@ -13,6 +13,7 @@ const base: ContextoLancamento = {
   jaLancado: false,
   tipoEntrega: 'entrega',
   emissorNfce: 'sistema',
+  pagamentoAprovado: true,
 };
 
 /** A mesma loja, com a maquininha como emissora da NFC-e. */
@@ -317,5 +318,47 @@ describe('o encanamento do emissor no fluxo', () => {
 
   it('a descrição que vai para o aparelho leva a marca de pago', () => {
     expect(fonte).toContain('pedidoId, pago)');
+  });
+});
+
+describe('PAGO é o dinheiro que entrou, não a forma escolhida', () => {
+  /*
+   * O PEDIDO 95 É O CASO REAL. Pix com `pagamento_status = 'recusado'`, dinheiro
+   * nenhum na conta, e a preconta subiu para o aparelho marcada `· PAGO` — ou
+   * seja, instruindo o operador a fechar como Faturado. Venda entregue de graça
+   * e com nota emitida. A forma diz por onde o dinheiro DEVERIA entrar; só o
+   * status diz se entrou.
+   */
+
+  it('Pix não aprovado NÃO é pago', () => {
+    expect(ehJaPago('pix', false)).toBe(false);
+    expect(ehJaPago('cartao_online', false)).toBe(false);
+  });
+
+  it('Pix aprovado é pago', () => {
+    expect(ehJaPago('pix', true)).toBe(true);
+    expect(ehJaPago('cartao_online', true)).toBe(true);
+  });
+
+  it('aprovado não transforma dinheiro em pago', () => {
+    /* `pagamento_status` aprovado num pedido de dinheiro/cartão na entrega não
+       quer dizer nada: esses são recebidos na porta. */
+    expect(ehJaPago('dinheiro', true)).toBe(false);
+    expect(ehJaPago('cartao_entrega', true)).toBe(false);
+  });
+
+  it('a preconta de um Pix recusado NÃO chega marcada como paga', () => {
+    const naoPago = { ...fiscal, formaPagamento: 'pix', pagamentoAprovado: false };
+    /* Sem aprovação ele deixa de ser "já pago": não sobe no pronto, sobe na
+       saída — e vai SEM a marca, para o operador cobrar de verdade. */
+    expect(deveLancarNaMaquininha({ ...naoPago, novoStatus: 'pronto' })).toBe(false);
+    expect(deveLancarNaMaquininha({ ...naoPago, novoStatus: 'em_entrega' })).toBe(true);
+    expect(descricaoDaCobranca('GamerExtreme', 95, ehJaPago('pix', false))).toBe('GamerExtreme');
+  });
+
+  it('o fluxo lê o status do pedido, não só a forma', () => {
+    const fonte = fs.readFileSync(path.join(__dirname, 'fluxoPedido.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(fonte).toContain("pagamento_status ?? '') === 'aprovado'");
   });
 });
