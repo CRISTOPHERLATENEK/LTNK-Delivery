@@ -314,16 +314,27 @@ Da loja 1 (Unimaxx), 17 formas. As que importam:
 | **`0F61723B-3EB9-4B6B-8008-50387F3A295F`** | **Faturado** |
 | `DDE88341-DD5C-40E0-805C-4E5868694A9E` | PIX |
 
-**Resolvemos pelo NOME, não pelo GUID fixo.** A lista veio das credenciais de
-uma loja só, e não dá para afirmar que o mesmo GUID vale para outro cliente da
-POS Controle — GUID errado não dá erro, dá preconta que não chega, ou seja,
-venda sem nota. `listarFormasDePagamento` + `acharForma(formas, 'Faturado')`,
-com cache por loja.
+**MAS O `newItem` NÃO ACEITA ESSE GUID.** Três valores testados em produção:
 
-Pedido a receber na porta continua em `'1'`, que abre cobrando: ali a cobrança
-é o objetivo. Sem conseguir resolver o Faturado, o pedido pago vai em `'1'`
-mesmo, com aviso no log — nota recuperável vale mais que nota perdida, e a
-preconta chega marcada `· PAGO`.
+| `IDPagamento` | resultado |
+|---|---|
+| `'1'` (exemplo oficial) | a preconta **chega** (pedidos 89, 95, 96) |
+| `'99'` (o `tPag` da nota) | HTTP 200, **não chega** (pedido 97) |
+| GUID do Faturado | HTTP 200, **não chega** (pedido 98) |
+
+Os dois últimos não viraram preconta nem venda — confirmado lendo
+`GET /v2/sales` depois. O endpoint aceita qualquer coisa no campo e descarta em
+silêncio o que não reconhece, então não dá para descobrir os valores válidos
+por tentativa sem olhar o aparelho a cada teste. A tabela `/v2/paymenttypes` é
+o domínio do RELATÓRIO de vendas, não deste campo.
+
+**Hoje vai `'1'` em todo pedido.** A maquininha abre pedindo cartão, e o pedido
+já pago depende do operador ver o `· PAGO` e concluir como Faturado na mão. É
+pior que o ideal e melhor que a alternativa: valor não reconhecido = preconta
+que não chega = **venda sem nota**.
+
+**O que falta:** a lista de valores válidos do `IDPagamento`. Não está na
+documentação nem na coleção Postman — é pergunta para o suporte.
 
 ### O `tPag` do "Faturado"
 Confirmado por escrito pelo suporte da POS Controle (Gabriela Bahia,

@@ -136,26 +136,30 @@ export function deveLancarNaMaquininha(c: ContextoLancamento): boolean {
  * `1` é o valor do exemplo oficial e faz a maquininha abrir pedindo cartão —
  * que é o certo para quem ainda vai pagar na porta.
  *
- * O **Faturado** é um GUID vindo de `GET /v2/paymenttypes`, não um número: para
- * um pedido já pago no app, é ele que evita a pior cena desta integração — a
- * preconta abrindo em modo cobrança na frente de quem já pagou. Faturado
- * conclui a venda de imediato e imprime a nota, com `<tPag>99</tPag>`.
+ * TRÊS VALORES TESTADOS EM PRODUÇÃO, e só um funciona:
  *
- * `99` NÃO SERVE AQUI. É o `tPag` da NFC-e, que é outra coisa; mandado como
- * `IDPagamento` fez a preconta do pedido 97 sair com HTTP 200 e nunca aparecer
- * no aparelho.
+ * | valor | resultado |
+ * |---|---|
+ * | `'1'` (exemplo oficial) | a preconta CHEGA (pedidos 89, 95, 96) |
+ * | `'99'` (o `tPag` da NFC-e) | HTTP 200 e a preconta não chega (pedido 97) |
+ * | GUID do Faturado, de `/v2/paymenttypes` | HTTP 200 e a preconta não chega (pedido 98) |
+ *
+ * Os dois últimos não viraram preconta NEM venda — confirmado lendo
+ * `GET /v2/sales` depois. Ou seja, o endpoint aceita qualquer coisa no campo e
+ * descarta em silêncio o que não reconhece, o que torna impossível descobrir os
+ * valores válidos por tentativa sem olhar o aparelho a cada teste.
+ *
+ * ENTÃO VAI `'1'` EM TODO PEDIDO, inclusive nos já pagos. A maquininha abre
+ * pedindo cartão, e quem já pagou depende do operador ver o `· PAGO` na
+ * descrição e concluir como Faturado na mão. É pior que o ideal e melhor que a
+ * alternativa: com valor não reconhecido o pedido não chega, e pedido que não
+ * chega é VENDA SEM NOTA.
+ *
+ * O que falta para fechar isso é a lista de valores válidos deste campo — não
+ * está na documentação nem na coleção Postman, e é pergunta para o suporte.
  */
-export function idPagamentoDoPedido(jaPago: boolean, idFaturado: string): string {
-  /*
-   * SEM O GUID DO FATURADO, CAI NO `1` — e isso é escolha, não descuido.
-   *
-   * A alternativa seria não lançar, e aí o pedido fica sem nota nenhuma. Com o
-   * `1` a maquininha abre pedindo cartão, mas a preconta chega marcada `· PAGO`
-   * e o operador pode concluir na forma certa. Nota recuperável vale mais que
-   * nota perdida — e quem chama registra o aviso no log.
-   */
-  if (!jaPago) return '1';
-  return idFaturado.trim() || '1';
+export function idPagamentoDoPedido(): string {
+  return '1';
 }
 
 /**
