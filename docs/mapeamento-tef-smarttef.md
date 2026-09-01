@@ -293,6 +293,20 @@ número (emitir nos dois lugares daria duas notas para a mesma venda), e:
 - `POST /nfce/emitir/:pedidoId` (o botão do lojista) continua funcionando **de
   propósito**: é a saída para o dia em que o aparelho estiver fora do ar.
 
+### `IDPagamento` do `newItem`
+
+| valor | forma | quando usamos |
+|---|---|---|
+| `1` | cartão (valor do exemplo oficial) | pedido a receber na porta — abrir cobrando é o objetivo |
+| `99` | **Faturado** | pedido já pago no app |
+
+Mandar `1` num pedido já pago faz a maquininha abrir pedindo cartão na frente
+de um cliente que já pagou. Aconteceu com o pedido 95 e de novo com um cartão
+aprovado depois dele — os dois com `IDPagamento: "1"` fixo, copiado do exemplo
+sem conferir o significado. Não existe endpoint que liste as formas: a coleção
+Postman só tem `productgroups`, `products`, `statustypes`, `producttypes`,
+`unittypes`, `users` e `sales`.
+
 ### O `tPag` do "Faturado"
 Confirmado por escrito pelo suporte da POS Controle (Gabriela Bahia,
 31/08/2026), com o trecho do XML:
