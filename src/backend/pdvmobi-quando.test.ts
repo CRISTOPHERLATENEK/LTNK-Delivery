@@ -134,8 +134,8 @@ describe('o encanamento no fluxo do pedido', () => {
 
   it('não bloqueia a transição', () => {
     /* Maquininha fora do ar não pode impedir o entregador de sair. */
-    expect(fonte).toContain('lancarNaMaquininha(pedidoId');
-    const i = fonte.indexOf('lancarNaMaquininha(pedidoId');
+    const i = fonte.indexOf('lancarPedidoNaMaquininha(pedidoId)');
+    expect(i).toBeGreaterThan(0);
     expect(fonte.slice(i, i + 260)).toContain('.catch(');
   });
 
@@ -145,5 +145,46 @@ describe('o encanamento no fluxo do pedido', () => {
      * para a cobrança dobrada — por isso a condição de httpStatus > 0.
      */
     expect(fonte).toContain("erro.httpStatus === 'number' && erro.httpStatus > 0");
+  });
+});
+
+describe('todo caminho que grava em_entrega lança na maquininha', () => {
+  const semComentarios = (a: string) => fs.readFileSync(path.join(__dirname, a), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('a rota do entregador chama o lançamento', () => {
+    /*
+     * ESTE É O TESTE QUE FALTAVA. `rotas/entregador.ts` grava `em_entrega` com
+     * UPDATE próprio — precisa da transação com trava no entregador para
+     * garantir "um entregador, uma corrida" — então não passa por
+     * `transicionarStatus`. O comentário de lá afirmava ser "o ponto único por
+     * onde TODO status passa", e essa afirmação falsa fez o pedido 88 sair para
+     * entrega sem cobrança nenhuma chegar no aparelho.
+     */
+    expect(semComentarios('rotas/entregador.ts')).toContain('lancarPedidoNaMaquininha(');
+  });
+
+  it('nenhum outro arquivo grava em_entrega sem lançar', () => {
+    /* Se aparecer um terceiro caminho, este teste falha e obriga a decidir. */
+    const dir = path.join(__dirname, 'rotas');
+    const culpados: string[] = [];
+    for (const arq of fs.readdirSync(dir).filter(f => f.endsWith('.ts') && !f.includes('.test.'))) {
+      const fonte = semComentarios(path.join('rotas', arq));
+      const grava = /UPDATE pedidos[\s\S]{0,120}status\s*=\s*'em_entrega'/.test(fonte);
+      if (grava && !fonte.includes('lancarPedidoNaMaquininha(')) culpados.push(arq);
+    }
+    expect(culpados).toEqual([]);
+  });
+
+  it('a função é exportada para poder ser chamada de fora', () => {
+    expect(semComentarios('fluxoPedido.ts')).toContain('export async function lancarPedidoNaMaquininha');
+  });
+
+  it('avisa quando era cartão na entrega e a maquininha não está configurada', () => {
+    /*
+     * Silêncio só quando não era o caso. Foi a ausência de log que fez o
+     * diagnóstico do pedido 88 levar meia hora.
+     */
+    expect(semComentarios('fluxoPedido.ts')).toContain('não está configurada');
   });
 });

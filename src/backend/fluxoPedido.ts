@@ -8,7 +8,7 @@ import { avisarStatusIfood, motivosDeCancelamento, solicitarCancelamento, ErroIf
 import db from './db-mysql';
 import { descriptografar } from './cripto';
 import { enviarCobrancaPos } from './pdvmobi-cliente';
-import { deveLancarNaMaquininha, idCobrancaDoPedido, descricaoDaCobranca } from './pdvmobi-quando';
+import { deveLancarNaMaquininha, statusDeLancamento, idCobrancaDoPedido, descricaoDaCobranca, type ContextoLancamento } from './pdvmobi-quando';
 import { agoraUTC, erroHttp } from './util';
 import { registrarEvento, notificarEntregadoresCorridaDisponivel } from './notificacoes';
 import { Pedido, StatusPedido } from '../tipos/modelos';
@@ -159,9 +159,12 @@ export async function transicionarStatus(
   /*
    * AVISO NO WHATSAPP a cada troca de status.
    *
-   * Aqui porque `transicionarStatus` é o ponto único por onde TODO status passa
-   * — o mesmo motivo já registrado logo abaixo pro pool de entregadores. Em
-   * qualquer outro lugar, algum caminho ficaria de fora.
+   * Aqui porque `transicionarStatus` é por onde passa quase todo status — mas
+   * NÃO todo: `rotas/entregador.ts` grava `em_entrega` com UPDATE próprio,
+   * dentro de uma transação com trava no entregador, e chama os efeitos
+   * colaterais por conta. Esta ressalva está escrita porque a versão anterior
+   * afirmava "ponto único", e essa afirmação falsa me fez ligar o lançamento na
+   * maquininha só aqui — o pedido 88 saiu para entrega e nada foi lançado.
    *
    * Até aqui o WhatsApp mandava a confirmação e sumia: o cliente ficava sem
    * notícia justamente entre 'confirmado' e a comida na porta, que é quando ele
@@ -222,7 +225,7 @@ export async function transicionarStatus(
    * impedir o entregador de sair. Se o lançamento falhar, ele cobra digitando o
    * valor, que é o que já faz hoje — e o log diz o que aconteceu.
    */
-  lancarNaMaquininha(pedidoId, { ...pedido, status: novoStatus } as Pedido & Record<string, unknown>)
+  lancarPedidoNaMaquininha(pedidoId)
     .catch(e => console.error(`[tef] falha ao lançar o pedido ${pedidoId} na maquininha:`, e));
 
   return { ...pedido, status: novoStatus, atualizado_em: agora, ...extras };
@@ -372,10 +375,11 @@ async function pedirCancelamentoIfood(
  * de duas transições simultâneas — duas abas, dois cliques. Sem a condição no
  * UPDATE, as duas leriam "não lançado" e o cliente pagaria duas vezes.
  */
-async function lancarNaMaquininha(
-  pedidoId: number,
-  pedido: Pedido & Record<string, unknown>,
-): Promise<void> {
+export async function lancarPedidoNaMaquininha(pedidoId: number): Promise<void> {
+  const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ?')
+    .get(pedidoId) as (Pedido & Record<string, unknown>) | undefined;
+  if (!pedido) return;
+
   const tipo = String(pedido.tipo_entrega ?? 'entrega') === 'retirada' ? 'retirada' : 'entrega';
 
   const loja = await db.prepare(
@@ -393,13 +397,27 @@ async function lancarNaMaquininha(
   const chaveOcp = abrir(loja?.smarttef_gateway_token ?? null);
   const configurado = !!loja?.smarttef_ativo && !!loja.smarttef_usuario?.trim() && !!senha && !!chaveOcp;
 
-  if (!deveLancarNaMaquininha({
+  const contexto: ContextoLancamento = {
     formaPagamento: String(pedido.forma_pagamento ?? ''),
     novoStatus: pedido.status,
     tefConfigurado: configurado,
     jaLancado: !!String(pedido.tef_lancado_em ?? '').trim(),
     tipoEntrega: tipo,
-  })) return;
+  };
+
+  if (!deveLancarNaMaquininha(contexto)) {
+    /*
+     * SILÊNCIO SÓ QUANDO NÃO ERA O CASO. Um pedido de cartão na entrega, no
+     * status de lançar, que não lança por falta de credencial, precisa dizer
+     * isso — foi exatamente a ausência de log que fez o pedido 88 levar meia
+     * hora para ser diagnosticado.
+     */
+    if (!configurado && contexto.formaPagamento === 'cartao_entrega'
+        && contexto.novoStatus === statusDeLancamento(tipo) && !contexto.jaLancado) {
+      console.log(`[tef] pedido ${pedidoId} é cartão na entrega, mas a maquininha da loja não está configurada.`);
+    }
+    return;
+  }
 
   /*
    * MARCA ANTES DE CHAMAR, e a condição no WHERE é a trava. Marcar depois

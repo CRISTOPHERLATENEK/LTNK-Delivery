@@ -2,6 +2,7 @@
  * Módulo do ENTREGADOR: corridas, aceite ATÔMICO, entrega ativa, histórico.
  */
 import { Router } from 'express';
+import { lancarPedidoNaMaquininha } from '../fluxoPedido';
 import db, { comTransacao } from '../db-mysql';
 import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, erroHttp } from '../util';
@@ -128,6 +129,22 @@ router.post('/corridas/:id/aceitar', async (req, res, next) => {
      * entregador que nunca aceitou.
      */
     await registrarEvento(Number(req.params.id), 'saiu_para_entrega');
+
+    /*
+     * LANÇA NA MAQUININHA daqui também, e não só de `transicionarStatus`.
+     *
+     * Esta rota grava `em_entrega` com UPDATE próprio — precisa da transação com
+     * trava no entregador para garantir "um entregador, uma corrida" — então não
+     * passa pelo funil de status. A versão anterior do comentário em
+     * `fluxoPedido` afirmava que aquele era o ponto único por onde todo status
+     * passa; não é, e por causa dessa afirmação o pedido 88 saiu para entrega
+     * sem cobrança nenhuma chegar no aparelho.
+     *
+     * Não bloqueia a resposta: a corrida foi aceita, e maquininha fora do ar não
+     * pode transformar isso em erro para o entregador.
+     */
+    lancarPedidoNaMaquininha(Number(req.params.id))
+      .catch(e => console.error(`[tef] falha ao lançar o pedido ${req.params.id} na maquininha:`, e));
 
     res.json({ ok: true, mensagem: 'Corrida aceita! Boa entrega.' });
   } catch (e) { next(e); }
