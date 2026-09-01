@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   deveLancarNaMaquininha, statusDeLancamento, idCobrancaDoPedido, descricaoDaCobranca,
-  type ContextoLancamento,
+  ehPagoOnline, type ContextoLancamento,
 } from './pdvmobi-quando';
 
 const base: ContextoLancamento = {
@@ -12,7 +12,11 @@ const base: ContextoLancamento = {
   tefConfigurado: true,
   jaLancado: false,
   tipoEntrega: 'entrega',
+  emissorNfce: 'sistema',
 };
+
+/** A mesma loja, com a maquininha como emissora da NFC-e. */
+const fiscal: ContextoLancamento = { ...base, emissorNfce: 'maquininha' };
 
 describe('só cartão na entrega vai para a maquininha', () => {
   it('cartão na entrega, saindo para entrega: lança', () => {
@@ -186,5 +190,132 @@ describe('todo caminho que grava em_entrega lança na maquininha', () => {
      * diagnóstico do pedido 88 levar meia hora.
      */
     expect(semComentarios('fluxoPedido.ts')).toContain('não está configurada');
+  });
+});
+
+describe('quando a maquininha é a emissora da NFC-e', () => {
+  /*
+   * Aqui a maquininha deixa de ser só a cobradora e vira o EMISSOR FISCAL: o
+   * servidor não emite mais, o pedido sobe como preconta e o operador conclui
+   * no aparelho, que gera a NFC-e. O suporte da POS Controle confirmou por
+   * escrito o XML da forma "Faturado": <tPag>99</tPag>.
+   *
+   * A INVERSÃO QUE ESTE BLOCO PROTEGE: um pedido que não sobe deixa de ser uma
+   * cobrança perdida e passa a ser uma VENDA SEM NOTA FISCAL.
+   */
+
+  it('todo pedido sobe — inclusive os já pagos no app', () => {
+    expect(deveLancarNaMaquininha({ ...fiscal, formaPagamento: 'pix', novoStatus: 'pronto' })).toBe(true);
+    expect(deveLancarNaMaquininha({ ...fiscal, formaPagamento: 'cartao_online', novoStatus: 'pronto' })).toBe(true);
+    expect(deveLancarNaMaquininha({ ...fiscal, formaPagamento: 'dinheiro' })).toBe(true);
+    expect(deveLancarNaMaquininha(fiscal)).toBe(true);
+  });
+
+  it('pedido já pago sobe no PRONTO, não na saída', () => {
+    /* A nota tem que ir dentro da sacola. Esperar o "saiu para entrega" seria
+       pedir ao operador que emitisse o cupom de um pedido já na rua. */
+    expect(statusDeLancamento('entrega', true)).toBe('pronto');
+    expect(deveLancarNaMaquininha({ ...fiscal, formaPagamento: 'pix', novoStatus: 'em_entrega' })).toBe(false);
+  });
+
+  it('cartão na entrega continua subindo na SAÍDA', () => {
+    /* Esse ainda vai ser cobrado na porta: o motivo original de esperar a saída
+       — não encher a lista com pedidos que ainda estão na cozinha — não mudou. */
+    expect(deveLancarNaMaquininha({ ...fiscal, novoStatus: 'pronto' })).toBe(false);
+    expect(deveLancarNaMaquininha({ ...fiscal, novoStatus: 'em_entrega' })).toBe(true);
+  });
+
+  it('e as travas de sempre continuam valendo', () => {
+    /* Emitir nota lá não afrouxa nada: já lançado continua sendo não, e sem
+       credencial continua sendo não. */
+    expect(deveLancarNaMaquininha({ ...fiscal, jaLancado: true })).toBe(false);
+    expect(deveLancarNaMaquininha({ ...fiscal, tefConfigurado: false })).toBe(false);
+  });
+
+  it('sem a chave ligada, um pedido já pago NÃO vira cobrança', () => {
+    /*
+     * A regressão mais cara possível: se o modo fiscal vazasse para as lojas
+     * normais, um pedido pago no Pix apareceria como cobrança na mão do
+     * entregador e o cliente pagaria duas vezes.
+     */
+    for (const forma of ['pix', 'cartao_online', 'dinheiro']) {
+      expect(deveLancarNaMaquininha({ ...base, formaPagamento: forma, novoStatus: 'pronto' }), forma).toBe(false);
+      expect(deveLancarNaMaquininha({ ...base, formaPagamento: forma }), forma).toBe(false);
+    }
+  });
+});
+
+describe('a marca PAGO na tela do aparelho', () => {
+  it('pedido já pago chega marcado', () => {
+    /*
+     * NÃO É ENFEITE. No aparelho, uma preconta já paga fica idêntica a uma
+     * cobrança de verdade. Quem está na frente da tela precisa ver, ANTES de
+     * escolher a forma, que este é Faturado e não crédito — senão o erro de um
+     * toque é o cliente pagando duas vezes pelo mesmo pedido.
+     */
+    expect(descricaoDaCobranca('Maria Silva', 85, true)).toBe('Maria Silva · PAGO');
+    expect(descricaoDaCobranca('   ', 85, true)).toBe('Pedido 85 · PAGO');
+  });
+
+  it('pedido a receber na porta NÃO é marcado', () => {
+    /* Esse vai ser cobrado mesmo. Marcar tudo faria a marca virar paisagem. */
+    expect(descricaoDaCobranca('Maria Silva', 85, false)).toBe('Maria Silva');
+  });
+
+  it('pago online é Pix e cartão online, e só', () => {
+    expect(ehPagoOnline('pix')).toBe(true);
+    expect(ehPagoOnline('cartao_online')).toBe(true);
+    /* Estes dois são recebidos na porta: marcá-los como PAGO faria o entregador
+       entregar sem cobrar. */
+    expect(ehPagoOnline('dinheiro')).toBe(false);
+    expect(ehPagoOnline('cartao_entrega')).toBe(false);
+  });
+});
+
+describe('o servidor para de emitir quando a maquininha emite', () => {
+  const fonte = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('a emissão automática desiste ANTES de reservar número', () => {
+    /*
+     * Emitir nos dois lugares produziria DUAS notas para a mesma venda, cada
+     * uma com seu número — e desfazer isso depois custa cancelamento. A ordem
+     * importa: a desistência tem que vir antes de `reservarNumero`, senão o
+     * número da sequência é consumido à toa a cada pedido.
+     */
+    const i = fonte.indexOf("=== 'maquininha') return null;");
+    expect(i).toBeGreaterThan(0);
+    expect(fonte.indexOf('reservarNumero(loja.id)', i)).toBeGreaterThan(i);
+  });
+
+  it('a emissão MANUAL do lojista continua de pé', () => {
+    /* É a saída para o dia em que o aparelho estiver fora do ar e a venda
+       precisar de nota. Se ela parasse junto, não haveria como emitir. */
+    expect(fonte).toContain("router.post('/nfce/emitir/:pedidoId'");
+  });
+
+  it('não se entrega a emissão a um aparelho inalcançável', () => {
+    /*
+     * Ligar o modo fiscal sem credencial completa não dá tela de erro: dá uma
+     * sequência de vendas sem nota que ninguém percebe até o contador perguntar.
+     */
+    const i = fonte.indexOf("sets.push('nfce_emissor = ?')");
+    expect(i).toBeGreaterThan(0);
+    expect(fonte.slice(0, i)).toContain('!tefConfigurado(depois)');
+  });
+});
+
+describe('o encanamento do emissor no fluxo', () => {
+  const fonte = fs.readFileSync(path.join(__dirname, 'fluxoPedido.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('lê o emissor da loja e cai em sistema no que for estranho', () => {
+    /* Padrão seguro: nota a mais se corrige, nota a menos é multa. */
+    expect(fonte).toContain('nfce_emissor');
+    expect(fonte).toContain("=== 'maquininha' ? 'maquininha' : 'sistema'");
+  });
+
+  it('a descrição que vai para o aparelho leva a marca de pago', () => {
+    expect(fonte).toContain('pedidoId, pago)');
   });
 });

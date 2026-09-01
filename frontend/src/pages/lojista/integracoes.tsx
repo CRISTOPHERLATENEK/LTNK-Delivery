@@ -60,6 +60,7 @@ interface EstadoTefCompleto {
   senha: string | null;
   gateway_token: string | null;
   configurado: boolean;
+  nfce_emissor: 'sistema' | 'maquininha';
   pendencias: string[];
 }
 

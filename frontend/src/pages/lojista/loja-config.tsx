@@ -1207,6 +1207,8 @@ interface EstadoTef {
   senha: string | null;
   gateway_token: string | null;
   configurado: boolean;
+  /** 'sistema' (padrão) ou 'maquininha' — quem emite a NFC-e desta loja. */
+  nfce_emissor: 'sistema' | 'maquininha';
   pendencias: string[];
 }
 
@@ -2063,6 +2065,10 @@ export function PainelTef({ estado, aoMudar }: {
   const [serialPos, setSerialPos] = useState('');
   const [carregado, setCarregado] = useState(false);
 
+  /* Vem do servidor, sem cópia local: a escolha grava na hora do clique, então
+     um estado próprio aqui só criaria a chance de a tela discordar do banco. */
+  const emissor = estado?.nfce_emissor ?? 'sistema';
+
   /*
    * Os campos de segredo nascem com a MÁSCARA que veio do servidor, não vazios.
    *
@@ -2168,6 +2174,70 @@ export function PainelTef({ estado, aoMudar }: {
             </p>
           </div>
         )}
+
+        {/*
+          QUEM EMITE A NFC-E. As duas opções aparecem juntas, porque a pergunta
+          só faz sentido como escolha: um interruptor "emitir na maquininha"
+          esconderia o que acontece quando ele está desligado.
+        */}
+        <div>
+          <h4 className="text-sm font-bold">Quem emite a NFC-e</h4>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {([
+              {
+                v: 'sistema' as const,
+                t: 'Este sistema',
+                d: 'A nota sai sozinha quando o pedido é entregue.',
+                bloqueado: false,
+              },
+              {
+                v: 'maquininha' as const,
+                t: 'A maquininha',
+                d: 'O pedido vira uma preconta no aparelho e alguém finaliza lá.',
+                /* O servidor recusa esta opção sem credencial completa. Desabilitar
+                   aqui é dizer o motivo antes do erro, em vez de depois dele. */
+                bloqueado: !estado.ativo || !estado.configurado,
+              },
+            ]).map(o => (
+              <button
+                key={o.v}
+                type="button"
+                disabled={enviando || o.bloqueado}
+                aria-pressed={emissor === o.v}
+                onClick={() => void salvar({ nfce_emissor: o.v })}
+                className={cn(
+                  'rounded-xl border p-3.5 text-left transition-colors disabled:opacity-50',
+                  emissor === o.v ? 'border-primary bg-primary/[0.06]' : 'border-border hover:bg-muted/40',
+                )}
+              >
+                <span className="flex items-center gap-2">
+                  <span className={cn('size-3.5 shrink-0 rounded-full border-2',
+                    emissor === o.v ? 'border-primary bg-primary' : 'border-muted-foreground/40')} />
+                  <span className="text-[13.5px] font-bold">{o.t}</span>
+                </span>
+                <span className="mt-1 block text-[12.5px] leading-relaxed text-muted-foreground">
+                  {o.bloqueado ? 'Precisa da maquininha ligada e configurada abaixo.' : o.d}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {emissor === 'maquininha' && (
+            <div className="mt-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-4">
+              <p className="text-[13px] font-bold text-amber-700 dark:text-amber-500">
+                Toda venda depende de alguém finalizar no aparelho
+              </p>
+              <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+                Este sistema deixa de emitir. Todo pedido sobe como preconta — os
+                pagos no app chegam marcados <b>PAGO</b>, e devem ser concluídos
+                como <b>Faturado</b>, sem passar cartão de novo. Preconta que
+                ninguém finaliza é <b>venda sem nota</b>. O botão de emitir de um
+                pedido continua aqui, para o dia em que o aparelho estiver fora
+                do ar.
+              </p>
+            </div>
+          )}
+        </div>
 
         <form
           className="space-y-4"

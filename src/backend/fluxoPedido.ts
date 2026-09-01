@@ -8,7 +8,7 @@ import { avisarStatusIfood, motivosDeCancelamento, solicitarCancelamento, ErroIf
 import db from './db-mysql';
 import { descriptografar } from './cripto';
 import { enviarCobrancaPos } from './pdvmobi-cliente';
-import { deveLancarNaMaquininha, statusDeLancamento, idCobrancaDoPedido, descricaoDaCobranca, type ContextoLancamento } from './pdvmobi-quando';
+import { deveLancarNaMaquininha, statusDeLancamento, idCobrancaDoPedido, descricaoDaCobranca, ehPagoOnline, type ContextoLancamento, type EmissorNfce } from './pdvmobi-quando';
 import { agoraUTC, erroHttp } from './util';
 import { registrarEvento, notificarEntregadoresCorridaDisponivel } from './notificacoes';
 import { Pedido, StatusPedido } from '../tipos/modelos';
@@ -384,12 +384,12 @@ export async function lancarPedidoNaMaquininha(pedidoId: number): Promise<void> 
 
   const loja = await db.prepare(
     `SELECT smarttef_ativo, smarttef_base_url, smarttef_usuario, smarttef_senha,
-            smarttef_gateway_token, smarttef_serial_pos
+            smarttef_gateway_token, smarttef_serial_pos, nfce_emissor
        FROM lojas WHERE id = ?`
   ).get(pedido.loja_id) as {
     smarttef_ativo: number; smarttef_base_url: string; smarttef_usuario: string;
     smarttef_senha: string | null; smarttef_gateway_token: string | null;
-    smarttef_serial_pos: string;
+    smarttef_serial_pos: string; nfce_emissor: string | null;
   } | undefined;
 
   const abrir = (c: string | null) => { try { return c ? descriptografar(c) : ''; } catch { return ''; } };
@@ -397,13 +397,20 @@ export async function lancarPedidoNaMaquininha(pedidoId: number): Promise<void> 
   const chaveOcp = abrir(loja?.smarttef_gateway_token ?? null);
   const configurado = !!loja?.smarttef_ativo && !!loja.smarttef_usuario?.trim() && !!senha && !!chaveOcp;
 
+  /* Qualquer valor estranho no banco cai em 'sistema'. O padrão seguro é o
+     servidor continuar emitindo: nota a mais se resolve, nota a menos não. */
+  const emissorNfce: EmissorNfce = loja?.nfce_emissor === 'maquininha' ? 'maquininha' : 'sistema';
+
   const contexto: ContextoLancamento = {
     formaPagamento: String(pedido.forma_pagamento ?? ''),
     novoStatus: pedido.status,
     tefConfigurado: configurado,
     jaLancado: !!String(pedido.tef_lancado_em ?? '').trim(),
     tipoEntrega: tipo,
+    emissorNfce,
   };
+
+  const pago = ehPagoOnline(contexto.formaPagamento);
 
   if (!deveLancarNaMaquininha(contexto)) {
     /*
@@ -412,9 +419,15 @@ export async function lancarPedidoNaMaquininha(pedidoId: number): Promise<void> 
      * isso — foi exatamente a ausência de log que fez o pedido 88 levar meia
      * hora para ser diagnosticado.
      */
-    if (!configurado && contexto.formaPagamento === 'cartao_entrega'
-        && contexto.novoStatus === statusDeLancamento(tipo) && !contexto.jaLancado) {
-      console.log(`[tef] pedido ${pedidoId} é cartão na entrega, mas a maquininha da loja não está configurada.`);
+    if (!configurado && !contexto.jaLancado
+        && contexto.novoStatus === statusDeLancamento(tipo, pago)
+        && (contexto.formaPagamento === 'cartao_entrega' || emissorNfce === 'maquininha')) {
+      /* Com emissor = maquininha o silêncio é pior ainda: não é uma cobrança
+         perdida, é uma VENDA SEM NOTA. */
+      const porque = emissorNfce === 'maquininha'
+        ? 'a maquininha é quem emite a NFC-e desta loja'
+        : 'é cartão na entrega';
+      console.log(`[tef] pedido ${pedidoId}: ${porque}, mas a maquininha da loja não está configurada.`);
     }
     return;
   }
@@ -443,7 +456,7 @@ export async function lancarPedidoNaMaquininha(pedidoId: number): Promise<void> 
         idCobranca: idCobrancaDoPedido(pedidoId),
         valorCentavos: Number(pedido.total_centavos) || 0,
         serialPos: loja!.smarttef_serial_pos || '',
-        nome: descricaoDaCobranca(cliente?.nome ?? '', pedidoId),
+        nome: descricaoDaCobranca(cliente?.nome ?? '', pedidoId, pago),
       },
       { baseUrl: loja!.smarttef_base_url || undefined },
     );

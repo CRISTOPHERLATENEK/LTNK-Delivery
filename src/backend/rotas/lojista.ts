@@ -3470,13 +3470,13 @@ router.put('/pagamentos', async (req, res, next) => {
 async function credenciaisTefDaLoja(lojaId: number) {
   const row = await db.prepare(
     `SELECT smarttef_ativo, smarttef_base_url, smarttef_usuario, smarttef_senha,
-            smarttef_gateway_token, smarttef_serial_pos
+            smarttef_gateway_token, smarttef_serial_pos, nfce_emissor
        FROM lojas WHERE id = ?`
   ).get(lojaId) as {
     smarttef_ativo: number; smarttef_base_url: string;
     smarttef_usuario: string; smarttef_senha: string | null;
     smarttef_gateway_token: string | null;
-    smarttef_serial_pos: string;
+    smarttef_serial_pos: string; nfce_emissor: string | null;
   } | undefined;
 
   /*
@@ -3498,6 +3498,9 @@ async function credenciaisTefDaLoja(lojaId: number) {
     senha: abrir(row?.smarttef_senha ?? null),
     gatewayToken: abrir(row?.smarttef_gateway_token ?? null),
     serialPos: row?.smarttef_serial_pos || '',
+    /* Valor estranho no banco cai em 'sistema': o padrão seguro é o servidor
+       continuar emitindo. Nota a mais se corrige; nota a menos é multa. */
+    emissorNfce: row?.nfce_emissor === 'maquininha' ? 'maquininha' as const : 'sistema' as const,
   };
 }
 
@@ -3514,6 +3517,7 @@ router.get('/tef', async (req, res, next) => {
       senha: mascarar(c.senha),
       gateway_token: mascarar(c.gatewayToken),
       configurado: tefConfigurado(c),
+      nfce_emissor: c.emissorNfce,
       /* Com `ativo: false` não há pendência a cobrar: a loja desligou de
          propósito, e listar faltas aí viraria alarme sobre uma decisão dela. */
       pendencias: c.ativo ? pendenciasTef(c) : [],
@@ -3559,9 +3563,9 @@ router.put('/tef', async (req, res, next) => {
       /*
        * Guardamos NORMALIZADO, não como veio.
        *
-       * O host não está na documentação pública — vem no credenciamento, então é
-       * texto colado por gente, com barra sobrando e às vezes com o caminho do
-       * endpoint junto. Normalizar na gravação evita que cada leitor tenha que
+       * O host vem no credenciamento (e nos exemplos cURL da documentação),
+       * então é texto colado por gente: com barra sobrando e às vezes com o
+       * caminho do endpoint junto. Normalizar na gravação evita que cada leitor tenha que
        * lembrar de fazer isso.
        *
        * Texto que não vira URL válida é gravado VAZIO em vez de recusado com
@@ -3582,6 +3586,40 @@ router.put('/tef', async (req, res, next) => {
       vals.push(req.body.ativo ? 1 : 0);
     }
 
+    if (typeof req.body.nfce_emissor === 'string') {
+      const quem = req.body.nfce_emissor === 'maquininha' ? 'maquininha' : 'sistema';
+      /*
+       * NÃO SE ENTREGA A EMISSÃO FISCAL A UM APARELHO QUE NÃO DÁ PARA ALCANÇAR.
+       *
+       * Com `maquininha`, o servidor PARA de emitir e a nota passa a depender do
+       * pedido chegar no aparelho. Se as credenciais não estão completas, nada
+       * chega — e o resultado não é uma tela com erro, é uma sequência de vendas
+       * sem nota fiscal que ninguém percebe até o contador perguntar.
+       *
+       * O `ativo` entra na conta porque a tela pode desligar o TEF depois; a
+       * checagem aqui usa o estado que vai valer DEPOIS deste mesmo PUT.
+       */
+      if (quem === 'maquininha') {
+        const atual = await credenciaisTefDaLoja(loja.id);
+        const ativoDepois = typeof req.body.ativo === 'boolean' ? req.body.ativo : atual.ativo;
+        const depois = {
+          ...atual,
+          ativo: ativoDepois,
+          usuario: typeof req.body.usuario === 'string' ? textoLimpo(req.body.usuario, 160) : atual.usuario,
+          baseUrl: typeof req.body.base_url === 'string' ? normalizarBaseUrl(req.body.base_url) : atual.baseUrl,
+        };
+        if (!depois.ativo || !tefConfigurado(depois)) {
+          return res.status(400).json({
+            erro: 'Para a maquininha emitir a NFC-e, o TEF precisa estar ligado e configurado. '
+              + 'Sem isso o pedido não chega no aparelho e a venda sai sem nota.',
+            pendencias: pendenciasTef(depois),
+          });
+        }
+      }
+      sets.push('nfce_emissor = ?');
+      vals.push(quem);
+    }
+
     if (sets.length) {
       vals.push(loja.id);
       await db.prepare(`UPDATE lojas SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
@@ -3599,6 +3637,7 @@ router.put('/tef', async (req, res, next) => {
       senha: mascarar(c.senha),
       gateway_token: mascarar(c.gatewayToken),
       configurado: tefConfigurado(c),
+      nfce_emissor: c.emissorNfce,
       pendencias: c.ativo ? pendenciasTef(c) : [],
     });
   } catch (e) { next(e); }
@@ -4206,6 +4245,19 @@ export async function emitirNfcePedido(pedidoId: number): Promise<{ autorizada: 
     if (!pedido) return null;
     const loja = await db.prepare('SELECT * FROM lojas WHERE id = ?').get(pedido.loja_id) as any;
     if (!loja || !loja.nfce_ativo) return null;
+    /*
+     * A MAQUININHA É A EMISSORA DESTA LOJA: o servidor não emite.
+     *
+     * O pedido sobe para o aparelho como preconta e o operador conclui lá — e é
+     * a maquininha que gera a NFC-e. Emitir aqui também produziria DUAS notas
+     * para a mesma venda, cada uma com seu número, e desfazer isso depois custa
+     * carta de correção ou cancelamento.
+     *
+     * Só a emissão AUTOMÁTICA para aqui. `POST /nfce/emitir/:pedidoId`, que o
+     * lojista dispara na mão, continua funcionando de propósito: é a saída para
+     * o dia em que o aparelho estiver fora do ar e a venda precisar de nota.
+     */
+    if (String(loja.nfce_emissor ?? 'sistema') === 'maquininha') return null;
     const ja = await db.prepare("SELECT id FROM notas_fiscais WHERE pedido_id = ? AND status = 'autorizada'").get(pedidoId);
     if (ja) return null;
     const pfxPath = caminhoCertificado(loja.id);

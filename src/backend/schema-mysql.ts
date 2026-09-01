@@ -1058,6 +1058,10 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * caixas quer o primeiro, senão a cobrança aparece no balcão errado.
      */
     ['lojas', 'smarttef_serial_pos',     "smarttef_serial_pos VARCHAR(40) NOT NULL DEFAULT ''"],
+    /* 'sistema' (padrão) ou 'maquininha'. Quem emite a NFC-e da loja: nova
+       coluna com padrão seguro, para as lojas existentes continuarem emitindo
+       pelo servidor sem ninguém precisar tocar em nada. */
+    ['lojas', 'nfce_emissor',            "nfce_emissor VARCHAR(20) NOT NULL DEFAULT 'sistema'"],
 
     /*
      * ─── iFood ───

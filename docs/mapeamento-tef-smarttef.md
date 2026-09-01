@@ -259,3 +259,55 @@ linhas estão como "sob consulta" ou "em certificação".
 
 **Confirmar a dupla adquirente + modelo do lojista antes de vender a
 integração.** Não é toda maquininha que aceita.
+
+---
+
+## Quem emite a NFC-e: o servidor ou a maquininha
+
+Coluna `lojas.nfce_emissor` — `'sistema'` (padrão) ou `'maquininha'`. É **por
+loja**: isto é uma plataforma, e as outras lojas continuam emitindo pelo
+servidor sem ninguém tocar em nada.
+
+### `sistema` (padrão)
+A maquininha só **cobra**. Sobe para o aparelho o que precisa de cartão na
+porta (`cartao_entrega`) e nada mais — um pedido já pago que subisse viraria
+cobrança na mão do entregador, e o cliente pagaria duas vezes. A NFC-e é
+emitida automaticamente na entrega, por `emitirNfcePedido`.
+
+### `maquininha`
+A maquininha **cobra e emite**. `emitirNfcePedido` desiste antes de reservar
+número (emitir nos dois lugares daria duas notas para a mesma venda), e:
+
+- **Todo** pedido sobe como preconta, inclusive Pix e cartão online — uma venda
+  que não chega lá é uma venda **sem nota fiscal**.
+- Pedido já pago sobe no status **`pronto`**, não na saída: a nota tem que ir
+  dentro da sacola.
+- A descrição desses chega no aparelho marcada **`· PAGO`**. É uma trava, não
+  um enfeite: na tela do aparelho uma preconta paga é idêntica a uma cobrança
+  de verdade, e o operador precisa ver antes de escolher a forma que este é
+  Faturado, não crédito.
+- `PUT /api/lojista/tef` **recusa** ligar o modo sem TEF ligado e configurado.
+  Sem credencial nada chega no aparelho, e o resultado não é uma tela de erro:
+  é uma sequência de vendas sem nota que ninguém percebe até o contador
+  perguntar.
+- `POST /nfce/emitir/:pedidoId` (o botão do lojista) continua funcionando **de
+  propósito**: é a saída para o dia em que o aparelho estiver fora do ar.
+
+### O `tPag` do "Faturado"
+Confirmado por escrito pelo suporte da POS Controle (Gabriela Bahia,
+31/08/2026), com o trecho do XML:
+
+```xml
+<tPag>99</tPag>
+```
+
+99 = "Outros". É o código correto para uma venda cujo dinheiro entrou por fora
+do PDV — que é exatamente o caso do pedido pago no app. A forma pode ser
+renomeada para "Externo" em `unimaxx.pdv.mobi → Configuração de Pagamento →
+Faturado → Descrição Faturada`; o `tPag` **não** é configurável por lá, é fixo
+do tipo Faturado.
+
+**O que ainda não foi verificado contra uma nota real:** ninguém leu um XML
+emitido de verdade por este caminho. Quando a primeira venda for finalizada
+como Faturado no aparelho, vale ler a venda de volta em
+`GET /v2/sales` e conferir o `XMLautURL`.
