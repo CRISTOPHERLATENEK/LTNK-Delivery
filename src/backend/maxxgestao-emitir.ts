@@ -1,16 +1,20 @@
 /**
- * EMITIR A NFC-E DO PEDIDO NO MAXX GESTÃO.
+ * MANDAR O PEDIDO PARA O MAXX GESTÃO.
  *
- * Três chamadas, nesta ordem, e nenhuma delas é opcional:
+ * Uma chamada: `POST /documento` como `PV` (pedido de venda), com os itens
+ * vinculados às mercadorias do ERP. **A parte fiscal é resolvida lá** — decisão
+ * do dono do projeto, e a certa: natureza de operação, forma de pagamento e
+ * tributação são cadastro do ERP, e cada uma que tentássemos resolver daqui
+ * seria palpite sobre dado que não é nosso.
  *
- *   POST /documento          → cria como PV (pedido de venda)
- *   POST /documento/{id}/transformar → vira modelo fiscal
- *   POST /documento/{id}/emitir      → sai a nota
+ * `transformar` e `emitir` existem na API e chegaram a ser chamados aqui.
+ * Saíram junto com essa decisão: o pedido chega, e quem fecha a nota é quem tem
+ * o certificado e a numeração.
  *
- * A PARTE PERIGOSA É A PRIMEIRA. `POST /documento` não é idempotente do lado
- * deles: chamar duas vezes cria dois documentos, cada um consumindo um número
- * da sequência fiscal. Por isso o id do documento é GRAVADO NO PEDIDO assim que
- * ele existe — e a criação só acontece quando o campo está vazio.
+ * A PARTE PERIGOSA CONTINUA SENDO A CRIAÇÃO. `POST /documento` não é
+ * idempotente do lado deles: chamar duas vezes cria dois documentos. Por isso o
+ * id é GRAVADO NO PEDIDO assim que ele existe, e a criação só acontece com o
+ * campo vazio.
  *
  * O `idExterno` (o id do nosso pedido, dentro do documento) é a rede de
  * segurança da rede de segurança: se a resposta se perder no caminho e a marca
@@ -117,24 +121,8 @@ export function idDoDocumento(resposta: unknown): number {
   return 0;
 }
 
-/**
- * A CHAVE DA NFC-E, TIRADA DO XML.
- *
- * Quarenta e quatro dígitos. Sem guardá-la, o pedido fica com um "documento
- * 312" que só existe dentro do ERP: quem precisa achar a nota — o contador, o
- * cliente que pediu, a conferência do mês — não tem por onde começar.
- *
- * Dois formatos porque a NFC-e traz a chave nos dois lugares: no atributo
- * `Id="NFe4126..."` da infNFe e, quando é o protocolo, dentro de `<chNFe>`.
- */
-export function chaveDoXml(xml: string): string {
-  const porTag = /<chNFe>\s*(\d{44})\s*<\/chNFe>/.exec(xml);
-  if (porTag) return porTag[1];
-  const porId = /Id="NFe(\d{44})"/.exec(xml);
-  return porId ? porId[1] : '';
-}
-
 export interface ResultadoEmissao {
+  /** O documento foi criado no ERP? A NOTA é emitida lá, por gente. */
   emitiu: boolean;
   documento?: number;
   motivo?: string;
@@ -148,7 +136,7 @@ export interface ResultadoEmissao {
  * problema fiscal por um problema operacional — o pedido tem que seguir mesmo
  * quando a nota não sai. O motivo vai no retorno e no log.
  */
-export async function emitirPedidoNoErp(
+export async function enviarPedidoAoErp(
   pedidoId: number,
   opcoes: OpcoesMaxxGestao = {},
 ): Promise<ResultadoEmissao> {
@@ -217,10 +205,26 @@ export async function emitirPedidoNoErp(
     /* Natureza 1 = "VENDA DE MERCADORIA DENTRO DO ESTADO" (CFOP 5102) na conta
        conferida. Fica aqui como padrão até virar configuração por loja. */
     idNatureza = 1;
-    idPagamento = acharPagamento(await formasDaNatureza(token, idNatureza, opcoes), dados.formaPagamento);
   } catch (e) {
     const erro = e as ErroMaxxGestao;
     return { emitiu: false, motivo: `não consegui ler a configuração do ERP: ${erro.message}` };
+  }
+
+  /*
+   * A FORMA DE PAGAMENTO É TENTATIVA, NÃO REQUISITO.
+   *
+   * Se estiver ligada à natureza no ERP, o documento chega completo. Se não —
+   * e hoje `/natureza-operacao/1/pagamentos` volta vazio — o pedido vai sem, e
+   * a forma é escolhida lá. Falhar aqui bloquearia o envio por causa de um
+   * cadastro que não é nosso.
+   */
+  try {
+    idPagamento = acharPagamento(await formasDaNatureza(token, idNatureza, opcoes), dados.formaPagamento);
+  } catch (e) {
+    console.log(`[erp] pedido ${pedidoId}: não consegui ler as formas de pagamento (${(e as Error).message}) — vai sem`);
+  }
+  if (idPagamento <= 0) {
+    console.log(`[erp] pedido ${pedidoId}: a forma "${dados.formaPagamento}" não está ligada à natureza ${idNatureza} — documento vai sem forma de pagamento`);
   }
 
   const { corpo, impedimentos } = montarDocumento(dados, {
@@ -268,44 +272,12 @@ export async function emitirPedidoNoErp(
     return { emitiu: false, motivo: 'o ERP não devolveu o id do documento' };
   }
 
-  /* MARCA ANTES DE SEGUIR. O documento existe: se transformar ou emitir
-     falharem, a próxima tentativa tem que continuar deste documento, nunca
-     criar outro. */
-  await db.prepare('UPDATE pedidos SET maxxgestao_documento_id = ? WHERE id = ?').run(documento, pedidoId);
+  /* MARCA O DOCUMENTO. Ele existe: sem gravar, uma segunda passada criaria
+     outro para a mesma venda. */
+  await db.prepare('UPDATE pedidos SET maxxgestao_documento_id = ?, maxxgestao_emitido_em = ? WHERE id = ?')
+    .run(documento, agoraUTC(), pedidoId);
 
-  try {
-    await chamarMaxxGestao(token, `/api/documento/${documento}/transformar/v1`, opcoes, { method: 'POST' });
-    await chamarMaxxGestao(token, `/api/documento/${documento}/emitir/v1`, opcoes, { method: 'POST' });
-  } catch (e) {
-    const erro = e as ErroMaxxGestao;
-    console.log(`[erp] pedido ${pedidoId}: documento ${documento} criado, mas a emissão falhou: ${erro.message}`);
-    return { emitiu: false, documento, motivo: erro.message };
-  }
+  console.log(`[erp] pedido ${pedidoId}: enviado ao Maxx Gestão como documento ${documento} em ${Date.now() - comecou}ms`);
+  return { emitiu: true, documento };
 
-  await db.prepare('UPDATE pedidos SET maxxgestao_emitido_em = ? WHERE id = ?').run(agoraUTC(), pedidoId);
-
-  /*
-   * A CHAVE VEM DEPOIS, e falhar aqui NÃO desfaz a emissão.
-   *
-   * A nota já existe e já está autorizada; não ter conseguido ler o XML é
-   * inconveniente, não erro fiscal. Tratar isso como falha faria a próxima
-   * tentativa querer emitir de novo uma nota que já saiu.
-   */
-  let chave = '';
-  try {
-    const xml = await chamarMaxxGestao(token, `/api/documento/${documento}/xml/v1`, opcoes);
-    chave = chaveDoXml(typeof xml === 'string' ? xml : JSON.stringify(xml ?? ''));
-    if (chave) {
-      await db.prepare('UPDATE pedidos SET maxxgestao_chave = ? WHERE id = ?').run(chave, pedidoId);
-    }
-  } catch (e) {
-    console.log(`[erp] pedido ${pedidoId}: nota emitida, mas não consegui ler a chave: ${(e as Error).message}`);
-  }
-
-  console.log(
-    `[erp] pedido ${pedidoId}: NFC-e emitida no documento ${documento}`
-    + (chave ? ` (chave ${chave})` : ' (chave não lida)')
-    + ` em ${Date.now() - comecou}ms`,
-  );
-  return { emitiu: true, documento, chave };
 }

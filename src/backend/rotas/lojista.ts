@@ -42,7 +42,7 @@ import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarC
 import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, peneirarPorCatalogo, type ItemDoCatalogo } from '../maxxgestao-importar';
 import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
 import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '../maxxgestao-preambulo';
-import { emitirPedidoNoErp } from '../maxxgestao-emitir';
+import { enviarPedidoAoErp } from '../maxxgestao-emitir';
 import { credenciaisDoAmbiente as credenciaisIfood } from '../ifood-cliente';
 import { lerCardapioIfood } from '../ifood-catalogo';
 import { planejarImportacao, type ProdutoImportado } from '../ifood-importar';
@@ -4654,11 +4654,13 @@ export async function emitirNotaDoPedido(pedidoId: number): Promise<void> {
   const emissor = String(loja?.nfce_emissor ?? 'sistema');
 
   if (emissor === 'erp') {
-    const r = await emitirPedidoNoErp(pedidoId);
-    /* `emitirPedidoNoErp` nunca lança e já registra o motivo no log — aqui só
-       não se engole o silêncio: pedido sem nota tem que aparecer. */
+    /* Quem emite a NOTA é o Maxx Gestão, por gente. O nosso trabalho é o pedido
+       chegar lá como documento, com os itens vinculados às mercadorias. */
+    const r = await enviarPedidoAoErp(pedidoId);
+    /* `enviarPedidoAoErp` nunca lança e já registra o motivo no log — aqui só
+       não se engole o silêncio: pedido que não chegou tem que aparecer. */
     if (!r.emitiu && r.motivo !== 'já tem documento') {
-      console.log(`[erp] pedido ${pedidoId} ficou sem nota: ${r.motivo}`);
+      console.log(`[erp] pedido ${pedidoId} NÃO chegou ao Maxx Gestão: ${r.motivo}`);
     }
     return;
   }

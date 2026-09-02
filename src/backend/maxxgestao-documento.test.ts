@@ -5,7 +5,7 @@ import {
   montarDocumento, valorDoErp, diferencaDoTotal,
   type DadosDoPedido, type ConfigDocumento,
 } from './maxxgestao-documento';
-import { acharPagamento, idDoDocumento, chaveDoXml } from './maxxgestao-emitir';
+import { acharPagamento, idDoDocumento } from './maxxgestao-emitir';
 
 const config: ConfigDocumento = {
   idNaturezaOperacao: 1,
@@ -97,16 +97,24 @@ describe('na dúvida, NÃO emite', () => {
     expect(m.impedimentos.join(' ')).not.toContain('X-Bacon');
   });
 
-  it('forma de pagamento sem correspondente impede', () => {
+  it('forma de pagamento sem correspondente NÃO impede — vai sem', () => {
     /*
-     * É o `idPagamento` do ERP que carrega o `tPag` da nota. Mandar zero, ou o
-     * primeiro da lista "para não falhar", daria uma nota com forma de pagamento
-     * errada — que a SEFAZ autoriza, porque o código é válido, e que só aparece
-     * numa fiscalização.
+     * MUDOU DE LADO, e por um motivo. Enquanto nós emitíamos a nota, forma
+     * errada seria `tPag` errado e a ausência tinha que bloquear. Agora quem
+     * emite é o ERP: forma de pagamento é cadastro dele, e bloquear o envio por
+     * causa disso deixava o pedido não chegar — o oposto do que se quer.
      */
     const m = montarDocumento(pedido(), { ...config, idPagamento: 0 });
-    expect(m.corpo).toBeNull();
-    expect(m.impedimentos.join(' ')).toContain('pix');
+    expect(m.impedimentos).toEqual([]);
+    expect(m.corpo).not.toBeNull();
+    /* Sem forma resolvida, o bloco não vai: `idPagamento: 0` seria inventar um
+       cadastro que não existe. */
+    expect(m.corpo).not.toHaveProperty('pagamentoLista');
+  });
+
+  it('com forma resolvida, o pagamento vai completo', () => {
+    const m = montarDocumento(pedido(), config);
+    expect(m.corpo?.pagamentoLista).toEqual([{ idPagamento: 3, valor: 30, valAcrescimo: 0, valDesconto: 0 }]);
   });
 
   it('pedido sem itens impede', () => {
@@ -128,7 +136,7 @@ describe('na dúvida, NÃO emite', () => {
      */
     const m = montarDocumento(
       pedido({ itens: [{ nome: 'Sem vínculo', quantidade: 1, precoUnitarioCentavos: 100, variacaoErp: 0 }] }),
-      { ...config, idPagamento: 0, idNaturezaOperacao: 0 },
+      { ...config, idNaturezaOperacao: 0, idPessoa: 0 },
     );
     expect(m.impedimentos.length).toBeGreaterThanOrEqual(3);
   });
@@ -255,53 +263,27 @@ describe('o funil da nota', () => {
     expect(j).toBeGreaterThan(i);
   });
 
-  it('o id do documento é gravado ANTES de transformar e emitir', () => {
-    /* Se transformar ou emitir falharem, a próxima tentativa tem que continuar
-       deste documento — nunca criar outro. */
-    const f = fonte('maxxgestao-emitir.ts');
-    const marca = f.indexOf('UPDATE pedidos SET maxxgestao_documento_id = ?');
-    const transformar = f.indexOf('/transformar/v1');
-    expect(marca).toBeGreaterThan(0);
-    expect(transformar).toBeGreaterThan(marca);
-  });
-});
-
-describe('a chave da NFC-e no XML', () => {
-  /*
-   * Sem guardar a chave, o pedido fica com um "documento 312" que só existe
-   * dentro do ERP: quem precisa achar a nota depois — o contador, o cliente que
-   * pediu, a conferência do mês — não tem por onde começar.
-   */
-  const DA_NOTA = '4'.repeat(44);
-  const DO_PROTOCOLO = '9'.repeat(44);
-
-  it('acha no atributo Id da infNFe', () => {
-    expect(chaveDoXml(`<infNFe Id="NFe${DA_NOTA}" versao="4.00">`)).toBe(DA_NOTA);
-  });
-
-  it('acha na tag chNFe do protocolo', () => {
-    expect(chaveDoXml(`<protNFe><infProt><chNFe>${DO_PROTOCOLO}</chNFe></infProt></protNFe>`)).toBe(DO_PROTOCOLO);
-  });
-
-  it('a tag do protocolo tem prioridade', () => {
-    /* Um XML com nota e protocolo juntos traz as duas; a do protocolo é a que
-       voltou autorizada pela SEFAZ. */
-    expect(chaveDoXml(`<infNFe Id="NFe${DA_NOTA}"><chNFe>${DO_PROTOCOLO}</chNFe>`)).toBe(DO_PROTOCOLO);
-  });
-
-  it('sem chave devolve vazio, não lixo', () => {
-    /* Devolver pedaço de string faria o pedido guardar uma chave inválida — e
-       chave inválida é pior que ausente, porque parece resposta. */
-    expect(chaveDoXml('<xml>sem chave</xml>')).toBe('');
-    expect(chaveDoXml('')).toBe('');
+  it('o id do documento é gravado assim que ele existe', () => {
     /*
-     * 43 dígitos não é chave, NOS DOIS CAMINHOS. A primeira versão deste teste
-     * só cobria a tag; sabotei o atributo `Id` para aceitar `\d+` e ela
-     * continuou passando, ou seja, um `Id="NFe123"` viraria chave de 3 dígitos
-     * gravada no pedido.
+     * `POST /documento` não é idempotente: duas chamadas criam dois documentos
+     * para a mesma venda. A marca é o que impede a segunda.
      */
-    expect(chaveDoXml(`<chNFe>${'1'.repeat(43)}</chNFe>`)).toBe('');
-    expect(chaveDoXml(`<infNFe Id="NFe${'1'.repeat(43)}">`)).toBe('');
-    expect(chaveDoXml('<infNFe Id="NFe123">')).toBe('');
+    const f = fonte('maxxgestao-emitir.ts');
+    const criacao = f.indexOf("'/api/documento/v1'");
+    const marca = f.indexOf('UPDATE pedidos SET maxxgestao_documento_id = ?');
+    expect(criacao).toBeGreaterThan(0);
+    expect(marca).toBeGreaterThan(criacao);
+  });
+
+  it('NÃO transforma nem emite: isso é do ERP', () => {
+    /*
+     * Decisão do dono do projeto, e a certa: natureza de operação, forma de
+     * pagamento e tributação são cadastro do ERP. Cada uma que tentássemos
+     * resolver daqui seria palpite sobre dado que não é nosso — e foi
+     * justamente a forma de pagamento que bloqueava o pedido de chegar lá.
+     */
+    const f = fonte('maxxgestao-emitir.ts');
+    expect(f).not.toContain('/transformar/v1');
+    expect(f).not.toContain('/emitir/v1');
   });
 });

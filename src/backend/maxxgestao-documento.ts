@@ -6,9 +6,14 @@
  * exceção — dá nota fiscal errada, e nota fiscal errada se descobre no mês
  * seguinte.
  *
- * O CAMINHO SÃO TRÊS CHAMADAS: criar como `PV` (pedido de venda) →
- * `transformar` (vira modelo fiscal) → `emitir`. Elas não são intercambiáveis e
- * a ordem não é negociável.
+ * O QUE MANDAMOS É O PEDIDO, NÃO A NOTA.
+ *
+ * Uma chamada: `POST /documento` com `modelo: 'PV'` (pedido de venda) e os
+ * itens. `transformar` e `emitir` existem na API e chegaram a ser chamados
+ * aqui, mas quem conclui a parte fiscal é o ERP — decisão do dono do projeto,
+ * e a certa: natureza de operação, forma de pagamento e tributação são
+ * configuração de lá, e cada uma que a gente tentasse resolver daqui seria um
+ * palpite sobre cadastro que não é nosso.
  *
  * A REGRA QUE MANDA: NA DÚVIDA, NÃO EMITE.
  *
@@ -41,7 +46,14 @@ export interface ConfigDocumento {
   idNaturezaOperacao: number;
   /** Consumidor final padrão da empresa (`idPessoaPadrao` das configurações). */
   idPessoa: number;
-  /** A forma de pagamento no ERP que corresponde à do pedido. */
+  /**
+   * A forma de pagamento no ERP, quando dá para resolver. Zero = manda sem.
+   *
+   * NÃO IMPEDE MAIS. Enquanto nós emitíamos a nota, forma errada seria `tPag`
+   * errado e por isso a ausência bloqueava; agora quem emite é o ERP, e forma
+   * de pagamento é cadastro dele. Bloquear o envio por causa disso deixava o
+   * pedido sem chegar lá — que é o oposto do que se quer.
+   */
   idPagamento: number;
   /** Momento do documento, em ISO. Injetável para o teste não depender do relógio. */
   dataHora: string;
@@ -77,18 +89,6 @@ export function montarDocumento(
   if (!pedido.itens.length) impedimentos.push('o pedido não tem itens');
   if (config.idNaturezaOperacao <= 0) impedimentos.push('a natureza de operação não está configurada');
   if (config.idPessoa <= 0) impedimentos.push('o consumidor final padrão do ERP não foi encontrado');
-
-  /*
-   * FORMA DE PAGAMENTO SEM CORRESPONDENTE PARA A EMISSÃO.
-   *
-   * É o `idPagamento` do ERP que carrega o `tPag` da NFC-e. Mandar zero, ou o
-   * primeiro da lista "para não falhar", produziria uma nota com a forma de
-   * pagamento errada — que a SEFAZ autoriza, porque o código é válido, e que só
-   * aparece numa fiscalização.
-   */
-  if (config.idPagamento <= 0) {
-    impedimentos.push(`a forma de pagamento "${pedido.formaPagamento}" não está ligada à natureza de operação no ERP`);
-  }
 
   const semVinculo = pedido.itens.filter(i => !(i.variacaoErp > 0));
   if (semVinculo.length) {
@@ -146,12 +146,24 @@ export function montarDocumento(
       tipoEntrega: pedido.tipoEntrega === 'retirada' ? 'R' : 'E',
     },
     mercadoriaLista,
-    pagamentoLista: [{
-      idPagamento: config.idPagamento,
-      valor: valorDoErp(somaItens),
-      valAcrescimo: 0,
-      valDesconto: 0,
-    }],
+    /*
+     * O PAGAMENTO SÓ VAI SE DER PARA RESOLVER.
+     *
+     * Com a forma ligada à natureza no ERP, mandar é melhor: o documento chega
+     * completo. Sem ela, mandar `idPagamento: 0` seria inventar um cadastro que
+     * não existe — e o pedido tem que chegar lá de qualquer forma, porque a
+     * parte fiscal é resolvida no ERP.
+     */
+    ...(config.idPagamento > 0
+      ? {
+        pagamentoLista: [{
+          idPagamento: config.idPagamento,
+          valor: valorDoErp(somaItens),
+          valAcrescimo: 0,
+          valDesconto: 0,
+        }],
+      }
+      : {}),
   };
 
   return { corpo, impedimentos: [] };
