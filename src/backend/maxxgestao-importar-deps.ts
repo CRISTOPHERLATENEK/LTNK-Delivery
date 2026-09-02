@@ -20,11 +20,12 @@ import type { PlanoImportacao, ProdutoNosso } from './maxxgestao-importar';
 export async function produtosDaLoja(lojaId: number): Promise<ProdutoNosso[]> {
   const linhas = await db.prepare(
     `SELECT id, nome, descricao, categoria, maxxgestao_variacao_id, disponivel,
-            preco_centavos
+            preco_centavos, sku
        FROM produtos WHERE loja_id = ? AND excluido = 0`
   ).all(lojaId) as Array<{
     id: number; nome: string; descricao: string | null; categoria: string | null;
     maxxgestao_variacao_id: number; disponivel: number; preco_centavos: number;
+    sku: string | null;
   }>;
   return linhas.map(l => ({
     id: l.id,
@@ -34,6 +35,7 @@ export async function produtosDaLoja(lojaId: number): Promise<ProdutoNosso[]> {
     variacaoErp: Number(l.maxxgestao_variacao_id ?? 0),
     disponivel: !!l.disponivel,
     precoCentavos: Number(l.preco_centavos ?? 0),
+    sku: l.sku ?? '',
   }));
 }
 
@@ -62,11 +64,11 @@ export async function aplicarPlano(lojaId: number, plano: PlanoImportacao): Prom
      */
     await db.prepare(
       `INSERT INTO produtos (loja_id, nome, descricao, categoria, preco_centavos,
-                             codigo_barras, maxxgestao_variacao_id,
+                             codigo_barras, maxxgestao_variacao_id, sku,
                              disponivel, disponivel_pdv, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`
     ).run(lojaId, p.nome, p.descricao, p.categoria, p.precoCentavos,
-          p.codigoBarras, p.variacao, agora);
+          p.codigoBarras, p.variacao, p.sku, agora);
     criados++;
   }
 
@@ -83,6 +85,7 @@ export async function aplicarPlano(lojaId: number, plano: PlanoImportacao): Prom
     if (a.descricao !== undefined) { sets.push('descricao = ?'); vals.push(a.descricao); }
     if (a.categoria !== undefined) { sets.push('categoria = ?'); vals.push(a.categoria); }
     if (a.precoCentavos !== undefined) { sets.push('preco_centavos = ?'); vals.push(a.precoCentavos); }
+    if (a.sku !== undefined) { sets.push('sku = ?'); vals.push(a.sku); }
     if (!sets.length) continue;
     vals.push(a.id, lojaId);
     await db.prepare(`UPDATE produtos SET ${sets.join(', ')} WHERE id = ? AND loja_id = ?`).run(...vals);

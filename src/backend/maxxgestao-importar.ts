@@ -33,6 +33,8 @@ export interface ProdutoNosso {
   disponivel: boolean;
   /** Em centavos. `PRECO_MARCADOR` significa "ninguém precificou ainda". */
   precoCentavos: number;
+  /** O código interno que já está gravado aqui. */
+  sku: string;
 }
 
 /**
@@ -61,11 +63,13 @@ export interface PlanoImportacao {
     codigoBarras: string;
     /** Do ERP; `PRECO_MARCADOR` quando ele não tem preço para este produto. */
     precoCentavos: number;
+    sku: string;
   }>;
   atualizar: Array<{
     id: number; nome?: string; descricao?: string; categoria?: string;
     /** Só vem preenchido quando o nosso preço ainda é o marcador. */
     precoCentavos?: number;
+    sku?: string;
   }>;
   /** Estavam vinculados e saíram do catálogo do ERP: pausar, nunca apagar. */
   pausar: number[];
@@ -124,6 +128,7 @@ export function planejarImportacao(
         /* Sem preço no ERP, nasce no marcador — não em zero, que o banco
            recusa, nem num valor inventado, que seria vendido. */
         precoCentavos: item.precoCentavos && item.precoCentavos > 0 ? item.precoCentavos : PRECO_MARCADOR,
+        sku: produto.referencia,
       });
       continue;
     }
@@ -154,6 +159,16 @@ export function planejarImportacao(
     if (produto.descricao !== nosso.nome) { campos.nome = produto.descricao; mudou = true; }
     if (produto.descricaoAdicional !== nosso.descricao) { campos.descricao = produto.descricaoAdicional; mudou = true; }
     if (item.categoria && item.categoria !== nosso.categoria) { campos.categoria = item.categoria; mudou = true; }
+
+    /*
+     * SKU SÓ QUANDO O ERP TEM UM. Referência vazia lá não é ordem para apagar a
+     * daqui — se alguém preencheu o código interno no nosso cadastro, uma
+     * importação de um ERP com o campo em branco levaria embora.
+     */
+    if (produto.referencia && produto.referencia !== nosso.sku) {
+      campos.sku = produto.referencia;
+      mudou = true;
+    }
 
     if (mudou) plano.atualizar.push(campos);
     else plano.semMudanca++;

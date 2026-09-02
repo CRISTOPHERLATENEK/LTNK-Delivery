@@ -11,7 +11,7 @@ const doErp = (variacao: number, descricao: string, extra: Partial<ItemDoCatalog
   categoria: 'Lanches',
   produto: {
     variacao, mercadoria: variacao, descricao,
-    descricaoAdicional: '', codigoBarras: '', ncm: '', cest: '', ativo: true,
+    descricaoAdicional: '', codigoBarras: '', ncm: '', cest: '', ativo: true, referencia: '',
     ...extra,
   },
 });
@@ -20,7 +20,7 @@ const nosso = (id: number, nome: string, extra: Partial<ProdutoNosso> = {}): Pro
   id, nome, descricao: '', categoria: 'Lanches', variacaoErp: id, disponivel: true,
   /* Por padrão já precificado: o caso do marcador é escrito explicitamente nos
      testes que tratam dele, para não passar sem alguém ver. */
-  precoCentavos: 1500, ...extra,
+  precoCentavos: 1500, sku: '', ...extra,
 });
 
 describe('produto novo entra pausado e sem preço de verdade', () => {
@@ -28,7 +28,7 @@ describe('produto novo entra pausado e sem preço de verdade', () => {
     const p = planejarImportacao([doErp(10, 'X-Bacon')], []);
     expect(p.criar).toEqual([{
       variacao: 10, nome: 'X-Bacon', descricao: '', categoria: 'Lanches',
-      codigoBarras: '', precoCentavos: PRECO_MARCADOR,
+      codigoBarras: '', precoCentavos: PRECO_MARCADOR, sku: '',
     }]);
   });
 
@@ -187,11 +187,13 @@ describe('a tradução do produto do ERP', () => {
        ser string não vazia) publicaria produto desativado. */
     const p = produtoDoErp({
       codigoMercadoriaVariacao: 10, codigoMercadoria: 7, descricao: '  X-Bacon  ',
-      descricaoAdicional: 'artesanal', codigoBarras: '789', ncm: '2106.90.90', cest: '17.001.00', ativo: 'N',
+      descricaoAdicional: 'artesanal', codigoBarras: '789', ncm: '2106.90.90',
+      cest: '17.001.00', ativo: 'N', referenciaVariacao: 'SKU-9',
     });
     expect(p).toEqual({
       variacao: 10, mercadoria: 7, descricao: 'X-Bacon', descricaoAdicional: 'artesanal',
       codigoBarras: '789', ncm: '2106.90.90', cest: '17.001.00', ativo: false,
+      referencia: 'SKU-9',
     });
   });
 
@@ -389,5 +391,70 @@ describe('a peneira do catálogo', () => {
     const fonte = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8')
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     expect(fonte).toContain('(guardado.catalogo ?? 0) !== catalogoPedido');
+  });
+});
+
+describe('o código interno (SKU)', () => {
+  /*
+   * NÃO É O IDENTIFICADOR DA NOTA. O documento exige
+   * `mercadoriaLista[].idMercadoriaVariacao`, que é a chave da mercadoria no
+   * ERP — e é por ele que as tributações (NCM, CEST, CFOP, perfil tributário)
+   * são resolvidas LÁ, sem viajarem no nosso pedido.
+   *
+   * A referência é para gente reconhecer o produto. No cadastro conferido ela
+   * vem vazia em todos os itens; fica lida porque o dia em que for preenchida
+   * ninguém vai lembrar de voltar aqui.
+   */
+  it('a referência da variação tem prioridade sobre a da mercadoria', () => {
+    expect(produtoDoErp({
+      codigoMercadoriaVariacao: 1, descricao: 'X',
+      referenciaMercadoria: 'MERC', referenciaVariacao: 'VAR',
+    })?.referencia).toBe('VAR');
+    expect(produtoDoErp({
+      codigoMercadoriaVariacao: 1, descricao: 'X', referenciaMercadoria: 'MERC',
+    })?.referencia).toBe('MERC');
+  });
+
+  it('entra no produto novo', () => {
+    const p = planejarImportacao([doErp(10, 'X', { referencia: 'SKU-1' })], []);
+    expect(p.criar[0].sku).toBe('SKU-1');
+  });
+
+  it('atualiza quando muda', () => {
+    const p = planejarImportacao(
+      [doErp(11, 'X', { referencia: 'NOVO' })],
+      [nosso(11, 'X', { sku: 'VELHO' })],
+    );
+    expect(p.atualizar).toEqual([{ id: 11, sku: 'NOVO' }]);
+  });
+
+  it('referência VAZIA no ERP não apaga a nossa', () => {
+    /*
+     * Campo em branco lá não é ordem para apagar aqui. Se alguém preencheu o
+     * código interno no nosso cadastro, uma importação levaria embora — e o
+     * cadastro do ERP está com esse campo vazio em TODOS os produtos, então
+     * seria o caso comum, não a exceção.
+     */
+    const p = planejarImportacao(
+      [doErp(11, 'X', { referencia: '' })],
+      [nosso(11, 'X', { sku: 'MEU-SKU' })],
+    );
+    expect(p.atualizar).toEqual([]);
+    expect(p.semMudanca).toBe(1);
+  });
+
+  it('igual não gera update', () => {
+    const p = planejarImportacao(
+      [doErp(11, 'X', { referencia: 'IGUAL' })],
+      [nosso(11, 'X', { sku: 'IGUAL' })],
+    );
+    expect(p.atualizar).toEqual([]);
+  });
+
+  it('o banco grava o SKU nas duas operações', () => {
+    const fonte = fs.readFileSync(path.join(__dirname, 'maxxgestao-importar-deps.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(fonte).toContain('p.sku');
+    expect(fonte).toContain("sets.push('sku = ?')");
   });
 });

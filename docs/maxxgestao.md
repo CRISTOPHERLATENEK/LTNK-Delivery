@@ -225,6 +225,34 @@ Duas regras que a peneira obriga:
 O catálogo escolhido é guardado junto do preâmbulo: trocar de catálogo no meio
 da varredura misturaria dois cardápios, então trocar invalida o rascunho.
 
+### O identificador do produto: é o `codigoMercadoriaVariacao`, não o SKU
+
+A pergunta aparece: "falta o código interno (SKU) para o ERP reconhecer o
+produto e aplicar as tributações". Não falta — o identificador já é guardado, e
+é mais forte que o SKU:
+
+| nosso produto | `maxxgestao_variacao_id` | código de barras |
+|---|---|---|
+| A LISTA | 1 | 7898432070004 |
+| SALGADINHO BITES SNACKS CEBOLA 90GR | 2 | 7898432071001 |
+| TRIDENT X SENSES MENTA 14 UN | 5 | 7622300847791 |
+
+São os mesmos números da coluna "Código" da tela de Mercadorias, e é o que
+`mercadoriaLista[].idMercadoriaVariacao` exige. Mandando esse id, **NCM, CEST,
+CFOP e perfil tributário são resolvidos DENTRO do ERP** — dado fiscal não viaja
+no nosso pedido, e é por isso que a importação não copia NCM nem CEST: seria
+guardar cópia de dado que não manda em nada.
+
+O SKU (`referenciaMercadoria` / `referenciaVariacao`) vem **vazio em todos os
+produtos** do cadastro conferido, e o documento não tem campo para referência.
+Ainda assim é lido e gravado em `produtos.sku`, porque o dia em que for
+preenchido ninguém vai lembrar de voltar aqui — com uma regra: **referência
+vazia no ERP não apaga a nossa**. Campo em branco lá não é ordem para apagar
+aqui, e como ele está em branco em TODOS os itens, isso seria o caso comum.
+
+Os dois aparecem na tela de Produtos (`ERP 2 · SKU X-9`, em mono para comparar
+caractere por caractere com o ERP) e valem na busca.
+
 ### As formas de pagamento: `idTipo` É o `tPag`
 
 `GET /api/pagamento/v1` — 15 formas na conta da Unimaxx, e o `idTipo` de cada

@@ -140,6 +140,15 @@ export interface ProdutoErp {
   ncm: string;
   cest: string;
   ativo: boolean;
+  /**
+   * O código interno (SKU) — a `Referência` da tela deles.
+   *
+   * NÃO é o identificador do documento fiscal: esse é o `variacao`. A
+   * referência serve para gente reconhecer o produto, e no cadastro conferido
+   * ela vem VAZIA em todos os itens. Fica lida porque o dia em que for
+   * preenchida ninguém vai lembrar de voltar aqui.
+   */
+  referencia: string;
 }
 
 export async function consultarMercadoria(
@@ -170,6 +179,9 @@ export function produtoDoErp(d: Record<string, unknown> | null): ProdutoErp | nu
     codigoBarras: String(d.codigoBarras ?? '').trim(),
     ncm: String(d.ncm ?? '').trim(),
     cest: String(d.cest ?? '').trim(),
+    /* Variação primeiro: quando as duas existem, a da variação é a específica. */
+    referencia: (String(d.referenciaVariacao ?? '').trim()
+      || String(d.referenciaMercadoria ?? '').trim()),
     ativo: String(d.ativo ?? 'S').toUpperCase() === 'S',
   };
 }

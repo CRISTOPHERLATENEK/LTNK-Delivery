@@ -1093,6 +1093,11 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
        nunca existe e quando existe muda. Zero = produto que nasceu aqui, e a
        importação não mexe nele. */
     ['produtos', 'maxxgestao_variacao_id', 'maxxgestao_variacao_id INT NOT NULL DEFAULT 0'],
+    /* O código interno (SKU) do produto no sistema de origem — a `Referência`
+       do Maxx Gestão. Hoje vem vazia naquele cadastro, mas é o campo que existe
+       para ela; o identificador que MANDA na nota é o
+       `maxxgestao_variacao_id`, porque é a chave da mercadoria lá. */
+    ['produtos', 'sku',                    "sku VARCHAR(60) NOT NULL DEFAULT ''"],
     /*
      * O DOCUMENTO DO PEDIDO NO MAXX GESTÃO.
      *

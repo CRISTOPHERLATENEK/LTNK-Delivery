@@ -437,6 +437,15 @@ export interface Produto {
   estoque?: number;
   vendido_por?: 'un' | 'kg';
   codigo_barras?: string;
+  /** Código interno (SKU) — a `Referência` do sistema de origem. */
+  sku?: string;
+  /**
+   * A chave da mercadoria no Maxx Gestão. É ELA que vai na NFC-e emitida pelo
+   * ERP (`mercadoriaLista[].idMercadoriaVariacao`), e é por ela que as
+   * tributações são resolvidas lá — não pelo SKU. Zero = produto que nasceu
+   * aqui, e a importação não o toca.
+   */
+  maxxgestao_variacao_id?: number;
   grupos?: GrupoOpcoes[];
   /** Dados fiscais (NFC-e) — mesmos campos editáveis em lojista/fiscal.tsx. */
   ncm?: string;

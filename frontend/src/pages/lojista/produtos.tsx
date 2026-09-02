@@ -655,7 +655,11 @@ export function ProdutosLoja() {
     if (!termo) return true;
     return p.nome.toLowerCase().includes(termo)
       || (p.categoria || '').toLowerCase().includes(termo)
-      || (p.codigo_barras || '').includes(termo);
+      || (p.codigo_barras || '').includes(termo)
+      /* Busca também pelo código do ERP e pelo SKU: com mil produtos
+         importados, achar "o 47" é mais rápido que lembrar o nome dele. */
+      || String(p.maxxgestao_variacao_id ?? '') === termo
+      || (p.sku || '').toLowerCase().includes(termo);
   });
 
   const porCategoria = filtrados.reduce<Record<string, Record<string, Produto[]>>>((acc, p) => {
@@ -2215,6 +2219,21 @@ function CardProduto({
 
           {p.descricao && (
             <p className="mt-1 line-clamp-2 text-[13.5px] leading-snug text-muted-foreground">{p.descricao}</p>
+          )}
+
+          {/*
+            O CÓDIGO DO ERP, para conferir produto a produto sem abrir o banco.
+            É ele que vai na NFC-e emitida pelo Maxx Gestão e é por ele que as
+            tributações são resolvidas lá — então quando ele falta, aquele
+            produto não pode ir na nota. Aparece em mono porque é para comparar
+            caractere por caractere com a tela do ERP.
+          */}
+          {(p.maxxgestao_variacao_id || p.sku) && (
+            <p className="mt-1 font-mono text-[11.5px] text-muted-foreground">
+              {p.maxxgestao_variacao_id ? `ERP ${p.maxxgestao_variacao_id}` : ''}
+              {p.maxxgestao_variacao_id && p.sku ? ' · ' : ''}
+              {p.sku ? `SKU ${p.sku}` : ''}
+            </p>
           )}
 
           {/*
