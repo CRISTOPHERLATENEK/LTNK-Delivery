@@ -293,48 +293,35 @@ número (emitir nos dois lugares daria duas notas para a mesma venda), e:
 - `POST /nfce/emitir/:pedidoId` (o botão do lojista) continua funcionando **de
   propósito**: é a saída para o dia em que o aparelho estiver fora do ar.
 
-### `IDPagamento` do `newItem` é um GUID
+### `IDPagamento` do `newItem`: manda LIVRE
 
-**`99` não serve aqui.** 99 é o `tPag` da NFC-e; como `IDPagamento` ele fez a
-preconta do pedido 97 sair com HTTP 200 e nunca aparecer no aparelho.
+**A tabela** (suporte POS Controle, Anderson Duarte, 02/09/2026):
 
-As formas vêm de **`GET /v2/paymenttypes`** — endpoint que **não está na coleção
-Postman**, achado por analogia com `/v2/statustypes`, `/v2/producttypes` e
-`/v2/unittypes` e confirmado com 200 e corpo real. Os vizinhos inventados
-(`/v2/paymenttype`, `/v2/payments`, `/v2/saletypes`, `/v3/smart-tef/paymenttypes`)
-deram 404, então o 200 não é rota curinga.
-
-Da loja 1 (Unimaxx), 17 formas. As que importam:
-
-| GUID | nome |
+| valor | forma |
 |---|---|
-| `C793AB08-BCD5-4E56-A796-8010A288FCBD` | Dinheiro |
-| `66A73A2B-C69E-4D63-A7B2-333CDB953A0C` | Cartao |
-| `43914FB5-4FAA-4FF8-9A02-49F747A6BA56` | TEF |
-| **`0F61723B-3EB9-4B6B-8008-50387F3A295F`** | **Faturado** |
-| `DDE88341-DD5C-40E0-805C-4E5868694A9E` | PIX |
+| `1` | Débito |
+| `2` | Crédito |
+| `3` | Voucher |
+| `6` | Pix |
 
-**MAS O `newItem` NÃO ACEITA ESSE GUID.** Três valores testados em produção:
+**Faturado NÃO pode ser pré-definido no card** — palavras dele: *"Não é
+possível criar um card com forma de pagamento Faturado."* Formas como Dinheiro
+e Faturado precisam estar habilitadas no portal, e aí o card enviado **sem
+forma ("LIVRE")** permite selecioná-las na própria máquina.
 
-| `IDPagamento` | resultado |
-|---|---|
-| `'1'` (exemplo oficial) | a preconta **chega** (pedidos 89, 95, 96) |
-| `'99'` (o `tPag` da nota) | HTTP 200, **não chega** (pedido 97) |
-| GUID do Faturado | HTTP 200, **não chega** (pedido 98) |
+**Por isso não mandamos o campo.** Antes ia `'1'` fixo, do exemplo oficial — e
+`1` é Débito. Resultado: todo pedido subia declarado como débito (dinheiro, Pix,
+cartão online), e a maquininha abria pedindo o cartão porque nós mandávamos ela
+pedir.
 
-Os dois últimos não viraram preconta nem venda — confirmado lendo
-`GET /v2/sales` depois. O endpoint aceita qualquer coisa no campo e descarta em
-silêncio o que não reconhece, então não dá para descobrir os valores válidos
-por tentativa sem olhar o aparelho a cada teste. A tabela `/v2/paymenttypes` é
-o domínio do RELATÓRIO de vendas, não deste campo.
+Valores fora da tabela são recusados DENTRO de um HTTP 200:
+`{"responseCode":"401.03","msg":"Erro na insercao."}`. Foi assim que os pedidos
+97 (com `'99'`) e 98 (com um GUID de `/v2/paymenttypes`) gravaram "lançado na
+maquininha" no log e nunca chegaram. `'99'` foi testado como texto, como número,
+sem `QTParcelas` e sem `Extras` — recusado em todos.
 
-**Hoje vai `'1'` em todo pedido.** A maquininha abre pedindo cartão, e o pedido
-já pago depende do operador ver o `· PAGO` e concluir como Faturado na mão. É
-pior que o ideal e melhor que a alternativa: valor não reconhecido = preconta
-que não chega = **venda sem nota**.
-
-**O que falta:** a lista de valores válidos do `IDPagamento`. Não está na
-documentação nem na coleção Postman — é pergunta para o suporte.
+`/v2/paymenttypes` é outra numeração (GUIDs, e nem tem "Débito" na lista): é o
+domínio do relatório de vendas, não deste campo.
 
 ### O `tPag` do "Faturado"
 Confirmado por escrito pelo suporte da POS Controle (Gabriela Bahia,
