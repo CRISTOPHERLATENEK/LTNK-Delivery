@@ -129,16 +129,27 @@ E uma específica daqui: **produto que nasceu no delivery
 (`maxxgestao_variacao_id = 0`) não é tocado.** Sem essa condição, a primeira
 importação pausaria o cardápio inteiro que o lojista montou à mão.
 
-### O buraco: PREÇO DE VENDA**Nenhum endpoint de leitura devolve preço de venda.** `PublicaMercadoriaResponse`
+### O buraco: PREÇO DE VENDA
+
+**Nenhum endpoint de leitura devolve preço de venda.** `PublicaMercadoriaResponse`
 (52 campos) não tem; `mercadoria-custo` só tem `valCusto` e `valCustoMedio`; e
 `/api/mercadoria-tabela-preco/v1` é **PUT apenas** — dá para gravar preço, não
 para ler.
 
-Duas saídas, e é decisão de negócio:
+**Decidido: o preço mora no delivery.** O ERP manda descrição, NCM e perfil
+tributário; quem define quanto custa no app é o lojista — o que combina com o
+delivery ser o canal de venda, já que preço de delivery costuma ser diferente do
+balcão. Produto importado nasce a R$ 0,01 e pausado até alguém precificar.
 
-1. **O preço mora no delivery.** O ERP manda descrição, NCM e perfil
-   tributário; quem define quanto custa no app é o lojista. Combina com o
-   delivery ser o canal de venda (preço de delivery costuma ser diferente do
-   balcão).
-2. **Pedir ao suporte** um endpoint de leitura da tabela de preço. Se existir,
-   o cardápio vem inteiro de lá.
+Se algum dia fizer diferença, cabe pedir ao suporte um endpoint de LEITURA da
+tabela de preço; hoje só existe o PUT.
+
+## O que falta (Fase 3)
+
+Criar o documento do pedido: `POST /documento` como `PV` com
+`idExterno` = id do nosso pedido → `transformar` → `emitir` → guardar chave e
+XML. Depende de duas coisas fora do código:
+
+- as formas de pagamento ligadas na natureza de operação (hoje
+  `/natureza-operacao/1/pagamentos` volta vazio);
+- produtos importados e precificados, para o `idMercadoriaVariacao` existir.
