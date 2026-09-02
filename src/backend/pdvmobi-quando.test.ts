@@ -278,13 +278,15 @@ describe('o servidor para de emitir quando a maquininha emite', () => {
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
   it('a emissão automática desiste ANTES de reservar número', () => {
+    /* A condição é `!== 'sistema'`, não uma lista de exceções: emissor novo no
+       futuro entra desligando a emissão daqui, que é o lado seguro do erro. */
     /*
      * Emitir nos dois lugares produziria DUAS notas para a mesma venda, cada
      * uma com seu número — e desfazer isso depois custa cancelamento. A ordem
      * importa: a desistência tem que vir antes de `reservarNumero`, senão o
      * número da sequência é consumido à toa a cada pedido.
      */
-    const i = fonte.indexOf("=== 'maquininha') return null;");
+    const i = fonte.indexOf("!== 'sistema') return null;");
     expect(i).toBeGreaterThan(0);
     expect(fonte.indexOf('reservarNumero(loja.id)', i)).toBeGreaterThan(i);
   });

@@ -1208,7 +1208,7 @@ interface EstadoTef {
   gateway_token: string | null;
   configurado: boolean;
   /** 'sistema' (padrão) ou 'maquininha' — quem emite a NFC-e desta loja. */
-  nfce_emissor: 'sistema' | 'maquininha';
+  nfce_emissor: 'sistema' | 'maquininha' | 'erp';
   pendencias: string[];
 }
 

@@ -37,6 +37,7 @@ import {
 } from '../sefaz';
 import { criptografar, descriptografar } from '../cripto';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
+import { consultarEmpresa, formatarCnpj } from '../maxxgestao-cliente';
 import { credenciaisDoAmbiente as credenciaisIfood } from '../ifood-cliente';
 import { lerCardapioIfood } from '../ifood-catalogo';
 import { planejarImportacao, type ProdutoImportado } from '../ifood-importar';
@@ -3587,7 +3588,23 @@ router.put('/tef', async (req, res, next) => {
     }
 
     if (typeof req.body.nfce_emissor === 'string') {
-      const quem = req.body.nfce_emissor === 'maquininha' ? 'maquininha' : 'sistema';
+      const pedido = req.body.nfce_emissor;
+      const quem: 'sistema' | 'maquininha' | 'erp' =
+        pedido === 'maquininha' ? 'maquininha' : pedido === 'erp' ? 'erp' : 'sistema';
+
+      /*
+       * O ERP EXIGE TOKEN, pelo mesmo motivo que a maquininha exige credencial:
+       * ligar o emissor sem ele não dá tela de erro, dá uma fila de vendas sem
+       * nota que ninguém percebe até o contador perguntar.
+       */
+      if (quem === 'erp') {
+        const t = await tokenMaxxGestaoDaLoja(loja.id);
+        if (!t) {
+          return res.status(400).json({
+            erro: 'Para o Maxx Gestão emitir a NFC-e, cole o token da API dele primeiro.',
+          });
+        }
+      }
       /*
        * NÃO SE ENTREGA A EMISSÃO FISCAL A UM APARELHO QUE NÃO DÁ PARA ALCANÇAR.
        *
@@ -3640,6 +3657,82 @@ router.put('/tef', async (req, res, next) => {
       nfce_emissor: c.emissorNfce,
       pendencias: c.ativo ? pendenciasTef(c) : [],
     });
+  } catch (e) { next(e); }
+});
+
+// ----- Maxx Gestão (Meu ERP Online) ---------------------------------------
+//
+// Terceiro emissor possível da NFC-e. Aqui o ERP é quem tem o certificado e a
+// numeração: o pedido vira documento lá e a nota sai de lá — e é o único dos
+// três caminhos em que ela pode sair com a forma de pagamento REAL, porque o
+// documento aceita `tefLista` com NSU e bandeira.
+//
+// O token é POR LOJA e cifrado, igual ao do Mercado Pago: quem tem ele emite
+// nota fiscal no CNPJ de alguém.
+
+/** O token em claro (uso interno). Nulo quando não há, ou não decifra. */
+async function tokenMaxxGestaoDaLoja(lojaId: number): Promise<string | null> {
+  const row = await db.prepare('SELECT maxxgestao_token FROM lojas WHERE id = ?')
+    .get(lojaId) as { maxxgestao_token: string | null } | undefined;
+  if (!row?.maxxgestao_token) return null;
+  /* Credencial que não decifra vale NULO, não erro: acontece de verdade quando
+     a chave de criptografia é trocada, e lançar aqui derrubaria justamente a
+     tela onde a pessoa iria colar o token de novo. */
+  try { return descriptografar(row.maxxgestao_token) || null; } catch { return null; }
+}
+
+/** Estado do ERP da loja. O token sai MASCARADO. */
+router.get('/erp', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const token = await tokenMaxxGestaoDaLoja(loja.id);
+    res.json({ token: mascarar(token), configurado: !!token });
+  } catch (e) { next(e); }
+});
+
+router.put('/erp', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    if (typeof req.body?.token === 'string') {
+      const v = req.body.token.trim();
+      /* Valor que começa com `****` é a máscara voltando da tela: gravar isso
+         apagaria o token de verdade. Mesmo trato do Mercado Pago. */
+      if (!v.startsWith('****')) {
+        await db.prepare('UPDATE lojas SET maxxgestao_token = ? WHERE id = ?')
+          .run(v ? criptografar(v) : null, loja.id);
+      }
+    }
+    const token = await tokenMaxxGestaoDaLoja(loja.id);
+    res.json({ token: mascarar(token), configurado: !!token });
+  } catch (e) { next(e); }
+});
+
+/**
+ * TESTE DE CONEXÃO.
+ *
+ * Devolve a RAZÃO SOCIAL, não um "ok". Um visto verde não prova nada; ver o
+ * CNPJ da própria empresa prova que o token é da conta certa — e token da conta
+ * errada é o erro que só apareceria na primeira nota emitida no CNPJ de outro.
+ */
+router.post('/erp/testar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const token = await tokenMaxxGestaoDaLoja(loja.id);
+    if (!token) return res.status(400).json({ erro: 'Cole o token do Maxx Gestão primeiro.' });
+    try {
+      const empresa = await consultarEmpresa(token);
+      res.json({
+        ok: true,
+        razao_social: empresa.razaoSocial,
+        fantasia: empresa.fantasia,
+        cnpj: formatarCnpj(empresa.cnpjCpf),
+        local: empresa.municipio + '/' + empresa.uf,
+        regime: empresa.crtDescricao,
+      });
+    } catch (e) {
+      const erro = e as { message?: string };
+      res.status(400).json({ ok: false, erro: erro.message || 'Não consegui falar com o Maxx Gestão.' });
+    }
   } catch (e) { next(e); }
 });
 
@@ -4246,18 +4339,24 @@ export async function emitirNfcePedido(pedidoId: number): Promise<{ autorizada: 
     const loja = await db.prepare('SELECT * FROM lojas WHERE id = ?').get(pedido.loja_id) as any;
     if (!loja || !loja.nfce_ativo) return null;
     /*
-     * A MAQUININHA É A EMISSORA DESTA LOJA: o servidor não emite.
+     * O SERVIDOR SÓ EMITE QUANDO ELE É O EMISSOR DESIGNADO.
      *
-     * O pedido sobe para o aparelho como preconta e o operador conclui lá — e é
-     * a maquininha que gera a NFC-e. Emitir aqui também produziria DUAS notas
-     * para a mesma venda, cada uma com seu número, e desfazer isso depois custa
-     * carta de correção ou cancelamento.
+     * Com `maquininha`, o pedido sobe como preconta e quem conclui no aparelho
+     * gera a nota. Com `erp` (Maxx Gestão), o documento é criado no ERP, que
+     * tem o certificado e a numeração. Nos dois casos, emitir aqui também
+     * produziria DUAS notas para a mesma venda, cada uma com seu número — e
+     * desfazer isso depois custa carta de correção ou cancelamento.
+     *
+     * A condição é `!== 'sistema'` e não uma lista de exceções: emissor novo no
+     * futuro entra desligando a emissão daqui, que é o lado seguro do erro. O
+     * contrário — nosso servidor emitindo junto com um emissor que ninguém
+     * mapeou — só apareceria na conversa com o contador.
      *
      * Só a emissão AUTOMÁTICA para aqui. `POST /nfce/emitir/:pedidoId`, que o
      * lojista dispara na mão, continua funcionando de propósito: é a saída para
-     * o dia em que o aparelho estiver fora do ar e a venda precisar de nota.
+     * o dia em que o outro emissor estiver fora do ar e a venda precisar de nota.
      */
-    if (String(loja.nfce_emissor ?? 'sistema') === 'maquininha') return null;
+    if (String(loja.nfce_emissor ?? 'sistema') !== 'sistema') return null;
     const ja = await db.prepare("SELECT id FROM notas_fiscais WHERE pedido_id = ? AND status = 'autorizada'").get(pedidoId);
     if (ja) return null;
     const pfxPath = caminhoCertificado(loja.id);

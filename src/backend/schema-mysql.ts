@@ -1062,6 +1062,10 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
        coluna com padrão seguro, para as lojas existentes continuarem emitindo
        pelo servidor sem ninguém precisar tocar em nada. */
     ['lojas', 'nfce_emissor',            "nfce_emissor VARCHAR(20) NOT NULL DEFAULT 'sistema'"],
+    /* Token da API do Maxx Gestão (Meu ERP Online), CIFRADO como o do Mercado
+       Pago: quem tem ele emite nota fiscal no CNPJ de alguém. Não expira — nasce
+       no painel do ERP e vale até ser trocado lá. */
+    ['lojas', 'maxxgestao_token',        'maxxgestao_token TEXT'],
 
     /*
      * ─── iFood ───

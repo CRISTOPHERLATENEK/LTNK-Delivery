@@ -18,7 +18,15 @@
 import type { StatusPedido } from '../tipos/modelos';
 
 /** Quem emite a NFC-e da loja. */
-export type EmissorNfce = 'sistema' | 'maquininha';
+/**
+ * Quem emite a NFC-e da loja.
+ *
+ * `erp` (Maxx Gestão) não aparece nas decisões deste arquivo de propósito: com
+ * ele o pedido não vai para a maquininha nenhuma — o documento é criado no ERP,
+ * que tem o certificado e a numeração. Aqui ele se comporta como `sistema`: a
+ * maquininha volta a ser só cobradora.
+ */
+export type EmissorNfce = 'sistema' | 'maquininha' | 'erp';
 
 /** O que a decisão precisa saber. Nada além disso. */
 export interface ContextoLancamento {

@@ -22,13 +22,14 @@
  * resto mora atrás de um clique.
  */
 import { useEffect, useState } from 'react';
-import { Plug, Smartphone, Download, Loader2, Upload, Printer } from 'lucide-react';
+import { Plug, Smartphone, Download, Loader2, Upload, Printer, Receipt } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { agenteAtivo, impressoraAgente } from '@/lib/agente';
+import { PainelMaxxGestao } from './painel-maxxgestao';
 import { CardIntegracao, ModalIntegracao, LogoIntegracao, Linha, Sanfona } from './integracoes-ui';
 import { WhatsAppLoja } from './whatsapp';
 import { PainelTef } from './loja-config';
@@ -60,7 +61,7 @@ interface EstadoTefCompleto {
   senha: string | null;
   gateway_token: string | null;
   configurado: boolean;
-  nfce_emissor: 'sistema' | 'maquininha';
+  nfce_emissor: 'sistema' | 'maquininha' | 'erp';
   pendencias: string[];
 }
 
@@ -97,7 +98,7 @@ function linkSecao(secao: string) {
 
 export function IntegracoesLoja() {
   const { mostrar } = useToast();
-  const [aberta, setAberta] = useState<'ifood' | 'whatsapp' | 'tef' | 'impressao' | null>(null);
+  const [aberta, setAberta] = useState<'ifood' | 'whatsapp' | 'tef' | 'impressao' | 'erp' | null>(null);
 
   const [ifood, setIfood] = useState<EstadoIfood | null>(null);
   const [merchantId, setMerchantId] = useState('');
@@ -234,6 +235,9 @@ export function IntegracoesLoja() {
   const logoImpressao = (ativa: boolean) => (
     <LogoIntegracao nome="Impressão" ativa={ativa} icone={<Printer className="size-[19px]" />} />
   );
+  const logoErp = (ativa: boolean) => (
+    <LogoIntegracao nome="Maxx Gestão" ativa={ativa} icone={<Receipt className="size-[19px]" />} />
+  );
 
   const ifoodOk = !!ifood?.configurado && !!ifood.merchant_id;
 
@@ -249,6 +253,15 @@ export function IntegracoesLoja() {
     : tef.configurado ? 'Conectada'
     : tef.pendencias.length ? `Falta ${tef.pendencias[0]}`
     : 'Falta configurar';
+  /* O emissor mora em `/tef` porque é uma configuração só, com três valores —
+     duas telas gravando o mesmo campo é melhor que dois campos discordando. */
+  const erpEmitindo = tef?.nfce_emissor === 'erp';
+
+  async function mudarEmissor(novo: 'sistema' | 'erp') {
+    const r = await api<EstadoTefCompleto>('PUT', '/api/lojista/tef', { nfce_emissor: novo });
+    setTef(r);
+  }
+
   const zapOk = zapMetodo !== 'nenhum';
   const agenteOk = !!agente?.ligado;
 
@@ -280,6 +293,12 @@ export function IntegracoesLoja() {
           logo={logoTef(!!tef?.configurado)} nome="Maquininha (TEF)"
           status={tefStatus}
           ligada={!!tef?.configurado} onAbrir={() => setAberta('tef')}
+        />
+        <CardIntegracao
+          logo={logoErp(erpEmitindo)} nome="Maxx Gestão"
+          /* O status responde a pergunta que importa: quem emite a nota. */
+          status={!tef ? 'Carregando…' : erpEmitindo ? 'Emitindo a NFC-e' : 'Não está emitindo'}
+          ligada={erpEmitindo} onAbrir={() => setAberta('erp')}
         />
         <CardIntegracao
           logo={logoImpressao(agenteOk)} nome="Impressão automática"
@@ -570,6 +589,18 @@ export function IntegracoesLoja() {
         <div className="px-5 py-5">
           <PainelTef estado={tef} aoMudar={setTef} />
         </div>
+      </ModalIntegracao>
+
+      {/* ───────────────────────── Maxx Gestão ───────────────────────── */}
+      <ModalIntegracao
+        aberta={aberta === 'erp'} aoFechar={() => setAberta(null)}
+        logo={logoErp(erpEmitindo)} nome="Maxx Gestão"
+        status={erpEmitindo ? 'Emitindo a NFC-e' : 'Não está emitindo'}
+      >
+        <PainelMaxxGestao
+          emissor={tef?.nfce_emissor ?? 'sistema'}
+          aoMudarEmissor={mudarEmissor}
+        />
       </ModalIntegracao>
 
       {/* ─────────────────────── Impressão ─────────────────────── */}
