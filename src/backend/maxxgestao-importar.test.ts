@@ -5,7 +5,7 @@ import {
   planejarImportacao, planoVazio, resumoDoPlano,
   type ItemDoCatalogo, type ProdutoNosso,
 } from './maxxgestao-importar';
-import { produtoDoErp, segundosEstimados, todasAsPaginas } from './maxxgestao-catalogo';
+import { produtoDoErp, segundosEstimados, todasAsPaginas, categoriaDoProduto } from './maxxgestao-catalogo';
 
 const doErp = (variacao: number, descricao: string, extra: Partial<ItemDoCatalogo['produto']> = {}): ItemDoCatalogo => ({
   categoria: 'Lanches',
@@ -208,15 +208,27 @@ describe('a paginação e o tempo', () => {
     expect(chamadas).toBe(5);
   });
 
-  it('estima o tempo pelo limite de 20 por minuto', () => {
+  it('estima o tempo por PÁGINA, não por produto', () => {
     /*
-     * A tela precisa dizer "137 itens, cerca de 6 minutos" ANTES de começar.
-     * Numa importação que dura minutos, a alternativa é a pessoa olhar um
-     * spinner e concluir que travou.
+     * A conta mudou junto com o endpoint. A listagem devolve 50 produtos por
+     * requisição, então 137 produtos são 3 requisições — não 137. A primeira
+     * versão disto media o caminho errado (o do catálogo, que devolve só ids) e
+     * prometia sete minutos para o que leva segundos.
      */
     expect(segundosEstimados(0)).toBe(0);
-    expect(segundosEstimados(20)).toBe(0);
-    expect(segundosEstimados(21)).toBe(3);
-    expect(segundosEstimados(140)).toBe(360);
+    expect(segundosEstimados(137)).toBe(0);
+    /* Mil páginas de folga: só passa a esperar acima de 20 requisições, ou seja
+       acima de mil produtos. */
+    expect(segundosEstimados(50 * 20)).toBe(0);
+    expect(segundosEstimados(50 * 21)).toBe(3);
+  });
+
+  it('a categoria vem do subgrupo, e cai no grupo', () => {
+    /* Nesta conta o grupo é "Restaurantes" para tudo, enquanto o subgrupo
+       separa SALGADINHOS, DOCES, CONSERVAS — que é o que serve de categoria. */
+    const mapas = { subgrupos: new Map([[2, 'SALGADINHOS']]), grupos: new Map([[6, 'Restaurantes']]) };
+    expect(categoriaDoProduto({ idSubgrupo: 2, idGrupo: 6 }, mapas)).toBe('SALGADINHOS');
+    expect(categoriaDoProduto({ idSubgrupo: 99, idGrupo: 6 }, mapas)).toBe('Restaurantes');
+    expect(categoriaDoProduto({}, mapas)).toBe('');
   });
 });

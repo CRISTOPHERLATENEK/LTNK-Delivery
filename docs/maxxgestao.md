@@ -92,28 +92,44 @@ Blocos: `documento`, `pessoa`, `transporte`, `intermediador`, `pedido`,
 consultamos antes de criar de novo. Sem isso, uma retentativa gera dois
 documentos fiscais para a mesma venda.
 
-## Puxar o cardápio do ERP (Fase 2)
+## Puxar o cardápio do ERP (Fase 2) — implementado
 
 A direção é do ERP **para** o delivery, decisão do dono do projeto: assim o
-perfil tributário já vem vinculado ao produto e o `idMercadoriaVariacao` que o
-documento exige vem de graça — sem nenhum palpite fiscal nosso.
+perfil tributário já vem vinculado ao produto e o `codigoMercadoriaVariacao` que
+o documento exige vem de graça — sem nenhum palpite fiscal nosso.
 
-- `GET /api/mercadoria-catalogo/v1` → catálogos (`codigo`, `descricao`,
-  `idTabelaPreco`).
-- `GET /api/mercadoria-catalogo/{idCatalogo}/categorias/v1` → categorias
-  (`codigo`, `descricao`, `ordem`, `foto`, `icone`).
-- `GET /api/mercadoria-catalogo/{id}/mercadorias/v1` → **só uma lista de ids**
-  (`PublicaPagedResponseInt32`), não os produtos.
-- `GET /api/mercadoria/v1/{id}` → o produto: `codigoMercadoriaVariacao`,
-  `descricao`, `codigoBarras`, `ncm`, `cest`, `idPerfilTributario*`, 52 campos.
+**O endpoint é `GET /api/mercadoria/v1?page=N&limit=50`**, que devolve o produto
+INTEIRO (52 campos). Mil produtos = 20 requisições = um minuto.
 
-Ou seja: um produto = uma requisição. Com 20/min, um cardápio de 100 itens leva
-5 minutos — o limitador não é zelo, é o que evita 429 no meio e catálogo pela
-metade no delivery.
+> **Registro de um caminho errado que parece razoável.** A primeira versão usou
+> `mercadoria-catalogo → categorias → /{id}/mercadorias`. Aquele último devolve
+> só INTEIROS (`PublicaPagedResponseInt32`), obrigando um GET por produto: 137
+> produtos, 137 requisições, sete minutos — e uma importação em lotes puxada
+> pela tela só para caber no limite. A diferença entre os dois endpoints não
+> está na documentação.
 
-### O buraco: PREÇO DE VENDA
+**A categoria vem do subgrupo da mercadoria** (`/api/mercadoria-subgrupo/v1`),
+com o grupo como reserva. Não existe endpoint que ligue item a categoria de
+catálogo — só listar as categorias e, separadamente, os ids do catálogo inteiro.
+Nesta conta o grupo é "Restaurantes" para tudo, enquanto o subgrupo separa
+SALGADINHOS, DOCES, CONSERVAS, que é o que serve de categoria num cardápio.
 
-**Nenhum endpoint de leitura devolve preço de venda.** `PublicaMercadoriaResponse`
+`POST /api/lojista/erp/importar` faz tudo numa requisição. Três regras no
+planejador (`maxxgestao-importar.ts`), as mesmas da sincronização do iFood:
+
+1. **Nunca mexe no preço.** Mora no delivery, e o ERP nem devolve preço de
+   venda. Reimportar não pode desfazer quem precificou o cardápio.
+2. **Nunca apaga.** Produto que saiu do catálogo é pausado — excluir levaria
+   embora o histórico de pedidos que aponta para ele.
+3. **Nunca publica sozinho.** Produto novo entra pausado a R$ 0,01,
+   visivelmente errado de propósito; qualquer valor plausível passaria batido e
+   seria vendido por esse valor.
+
+E uma específica daqui: **produto que nasceu no delivery
+(`maxxgestao_variacao_id = 0`) não é tocado.** Sem essa condição, a primeira
+importação pausaria o cardápio inteiro que o lojista montou à mão.
+
+### O buraco: PREÇO DE VENDA**Nenhum endpoint de leitura devolve preço de venda.** `PublicaMercadoriaResponse`
 (52 campos) não tem; `mercadoria-custo` só tem `valCusto` e `valCustoMedio`; e
 `/api/mercadoria-tabela-preco/v1` é **PUT apenas** — dá para gravar preço, não
 para ler.

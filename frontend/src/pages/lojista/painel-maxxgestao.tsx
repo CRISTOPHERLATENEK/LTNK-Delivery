@@ -53,6 +53,28 @@ export function PainelMaxxGestao({ emissor, aoMudarEmissor }: {
     return () => { vivo = false; };
   }, []);
 
+  const [importando, setImportando] = useState(false);
+  const [resumo, setResumo] = useState('');
+
+  async function importar() {
+    setImportando(true);
+    setResumo('');
+    try {
+      const r = await api<{ resumo: string; criados: number }>('POST', '/api/lojista/erp/importar', {});
+      setResumo(r.resumo);
+      /*
+       * O toast diz o RESUMO, não "importado com sucesso": produto novo entra
+       * pausado e a R$ 0,01, e quem acabou de clicar é quem precisa saber disso
+       * agora — não depois, quando um cliente comprar por um centavo.
+       */
+      mostrar({ tipo: r.criados ? 'sucesso' : 'info', titulo: r.resumo });
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setImportando(false);
+    }
+  }
+
   async function salvarETestar() {
     setEnviando(true);
     setEmpresa(null);
@@ -149,6 +171,33 @@ export function PainelMaxxGestao({ emissor, aoMudarEmissor }: {
             emissor === 'erp' ? 'left-[22px]' : 'left-0.5')} />
         </span>
       </button>
+
+      {/*
+        TRAZER O CARDÁPIO fica JUNTO do emissor, e não noutra tela, porque as
+        duas coisas dependem do mesmo token e a segunda depende da primeira: o
+        documento fiscal exige o produto vinculado ao ERP.
+      */}
+      <div className="rounded-xl border border-border p-4">
+        <p className="text-[13px] font-bold">Trazer o cardápio do Maxx Gestão</p>
+        <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">
+          Traz nome, descrição, categoria e código de barras — e o vínculo fiscal
+          de cada produto, que é o que a nota exige. <b>O preço não vem</b>: o ERP
+          não devolve preço de venda, então quem define é você.
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          className="mt-2"
+          disabled={importando || !configurado}
+          onClick={() => void importar()}
+        >
+          {importando ? 'Trazendo…' : 'Trazer o cardápio'}
+        </Button>
+
+        {resumo && (
+          <p className="mt-2 rounded-lg bg-muted/50 p-3 text-[12.5px] leading-relaxed">{resumo}</p>
+        )}
+      </div>
 
       {/*
         DOIS EMISSORES NÃO CONVIVEM. Se a maquininha estiver marcada como

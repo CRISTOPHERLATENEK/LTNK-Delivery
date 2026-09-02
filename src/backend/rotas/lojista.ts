@@ -38,6 +38,9 @@ import {
 import { criptografar, descriptografar } from '../cripto';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
 import { consultarEmpresa, formatarCnpj } from '../maxxgestao-cliente';
+import { listarMercadorias, mapaDeCategorias } from '../maxxgestao-catalogo';
+import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, type ItemDoCatalogo } from '../maxxgestao-importar';
+import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
 import { credenciaisDoAmbiente as credenciaisIfood } from '../ifood-cliente';
 import { lerCardapioIfood } from '../ifood-catalogo';
 import { planejarImportacao, type ProdutoImportado } from '../ifood-importar';
@@ -3733,6 +3736,56 @@ router.post('/erp/testar', async (req, res, next) => {
       const erro = e as { message?: string };
       res.status(400).json({ ok: false, erro: erro.message || 'Não consegui falar com o Maxx Gestão.' });
     }
+  } catch (e) { next(e); }
+});
+
+/**
+ * TRAZER O CARDÁPIO DO MAXX GESTÃO.
+ *
+ * A direção é do ERP para o delivery: assim o produto chega com o perfil
+ * tributário já vinculado e com o `codigoMercadoriaVariacao` que o documento
+ * fiscal exige. O contrário obrigaria alguém a escolher NCM, CFOP e CSOSN aqui,
+ * e errar isso é multa.
+ *
+ * SÍNCRONA de propósito. A listagem devolve 50 produtos por requisição, então
+ * mil produtos são 20 chamadas — cabe no limite de um minuto. A primeira versão
+ * disto ia ser em lotes puxados pela tela, porque eu havia escolhido o endpoint
+ * do catálogo, que devolve só ids e obriga um GET por produto.
+ */
+router.post('/erp/importar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const token = await tokenMaxxGestaoDaLoja(loja.id);
+    if (!token) return res.status(400).json({ erro: 'Cole o token do Maxx Gestão primeiro.' });
+
+    const comecou = Date.now();
+    let doErp: ItemDoCatalogo[];
+    try {
+      const mapas = await mapaDeCategorias(token);
+      doErp = await listarMercadorias(token, mapas);
+    } catch (e) {
+      /* Falha de leitura não escreve nada: importação pela metade é pior que
+         nenhuma, porque ninguém sabe qual metade entrou. */
+      const erro = e as { message?: string };
+      return res.status(400).json({ erro: erro.message || 'Não consegui ler o cardápio do Maxx Gestão.' });
+    }
+
+    const nossos = await produtosDaLoja(loja.id);
+    const plano = planejarImportacaoErp(doErp, nossos);
+    const gravado = await aplicarPlano(loja.id, plano);
+
+    console.log(
+      `[erp] loja ${loja.id}: ${doErp.length} do ERP, `
+      + `${gravado.criados} criados, ${gravado.atualizados} atualizados, `
+      + `${gravado.pausados} pausados em ${Date.now() - comecou}ms`,
+    );
+
+    res.json({
+      lidos: doErp.length,
+      ...gravado,
+      sem_mudanca: plano.semMudanca,
+      resumo: resumoDoPlanoErp(plano),
+    });
   } catch (e) { next(e); }
 });
 

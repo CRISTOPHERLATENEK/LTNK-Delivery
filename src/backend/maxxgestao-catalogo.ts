@@ -7,15 +7,22 @@
  * caminho contrário — cadastrar produto no ERP a partir do nosso — obrigaria
  * alguém a escolher NCM, CFOP e CSOSN no nosso cadastro, e errar isso é multa.
  *
- * O CAMINHO É EM DOIS SALTOS, e o segundo é caro:
+ * O CAMINHO É `GET /api/mercadoria/v1`, PAGINADO — e isso importa.
  *
- *   catálogo → categorias → lista de IDS → um GET por produto
+ * A listagem devolve o produto INTEIRO (os 52 campos), 50 por página. Com o
+ * limite de 20 requisições por minuto, um cardápio de mil itens sai em 20
+ * páginas, ou seja num minuto.
  *
- * `/mercadoria-catalogo/{id}/mercadorias/v1` devolve só inteiros
- * (`PublicaPagedResponseInt32`), não os produtos. Ou seja: um produto = uma
- * requisição, e o limite é de 20 por minuto. Cardápio de 100 itens leva cinco
- * minutos — por isso toda leitura aqui passa pelo limitador de
- * `maxxgestao-cliente`, e por isso a importação precisa poder ser retomada.
+ * O caminho pelo catálogo (`/mercadoria-catalogo/{id}/mercadorias/v1`) foi a
+ * minha primeira escolha e era ruim: aquele endpoint devolve só INTEIROS
+ * (`PublicaPagedResponseInt32`), obrigando um GET por produto — 137 produtos,
+ * 137 requisições, sete minutos. Fica registrado porque a diferença entre os
+ * dois não está na documentação, e a escolha errada parece razoável até alguém
+ * comparar.
+ *
+ * A CATEGORIA vem do subgrupo (ou do grupo) da mercadoria, não das categorias
+ * do catálogo: não existe endpoint que ligue item a categoria do catálogo — só
+ * dá para listar as categorias e, separadamente, os ids do catálogo inteiro.
  */
 import { chamarMaxxGestao, type OpcoesMaxxGestao } from './maxxgestao-cliente';
 
@@ -109,31 +116,6 @@ export async function listarCategorias(
 }
 
 /**
- * Os IDS dos produtos de um catálogo. Só os ids — é o que o endpoint devolve.
- *
- * Vem antes dos produtos de propósito: com a lista na mão dá para dizer "são
- * 137 itens, isto vai levar 7 minutos" ANTES de começar, em vez de descobrir no
- * meio. Numa importação que dura minutos, saber o tamanho é metade da paciência.
- */
-export async function idsDoCatalogo(
-  token: string,
-  idCatalogo: number,
-  opcoes: OpcoesMaxxGestao = {},
-): Promise<number[]> {
-  const brutos = await todasAsPaginas<unknown>(async p =>
-    pagina(await chamarMaxxGestao(
-      token, `/api/mercadoria-catalogo/${idCatalogo}/mercadorias/v1?page=${p}&limit=200`, opcoes)));
-  const vistos = new Set<number>();
-  for (const b of brutos) {
-    const n = Number(b);
-    /* Repetido acontece quando o produto está em mais de uma categoria do mesmo
-       catálogo. Importar duas vezes criaria produto duplicado no delivery. */
-    if (Number.isFinite(n) && n > 0) vistos.add(n);
-  }
-  return [...vistos];
-}
-
-/**
  * Um produto do ERP, só com o que nos interessa.
  *
  * `codigoMercadoriaVariacao` é O VÍNCULO. É ele que o documento fiscal exige em
@@ -188,6 +170,67 @@ export function produtoDoErp(d: Record<string, unknown> | null): ProdutoErp | nu
   };
 }
 
+/** Subgrupo e grupo, que é de onde sai a categoria do cardápio. */
+export async function mapaDeCategorias(
+  token: string,
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<{ subgrupos: Map<number, string>; grupos: Map<number, string> }> {
+  const ler = async (caminho: string) => {
+    const brutos = await todasAsPaginas<Record<string, unknown>>(async p =>
+      pagina(await chamarMaxxGestao(token, `${caminho}?page=${p}&limit=100`, opcoes)));
+    const m = new Map<number, string>();
+    for (const c of brutos) {
+      const codigo = Number(c.codigo ?? 0);
+      const descricao = String(c.descricao ?? '').trim();
+      if (codigo > 0 && descricao) m.set(codigo, descricao);
+    }
+    return m;
+  };
+  return {
+    subgrupos: await ler('/api/mercadoria-subgrupo/v1'),
+    grupos: await ler('/api/mercadoria-grupo/v1'),
+  };
+}
+
+/**
+ * TODAS as mercadorias da empresa, com os campos que interessam.
+ *
+ * `limit=50` e não 500: o limite deles é de requisições, não de bytes, mas
+ * página gigante é o tipo de coisa que a API corta em silêncio e devolve
+ * incompleta. Cinquenta é o que a própria doc usa nos exemplos.
+ */
+export async function listarMercadorias(
+  token: string,
+  mapas: { subgrupos: Map<number, string>; grupos: Map<number, string> },
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<Array<{ produto: ProdutoErp; categoria: string }>> {
+  const brutos = await todasAsPaginas<Record<string, unknown>>(async p =>
+    pagina(await chamarMaxxGestao(token, `/api/mercadoria/v1?page=${p}&limit=50`, opcoes)));
+  const fora: Array<{ produto: ProdutoErp; categoria: string }> = [];
+  for (const b of brutos) {
+    const produto = produtoDoErp(b);
+    /* Sem vínculo ou sem nome não entra — ver `produtoDoErp`. Descartar aqui é
+       melhor que importar um item que derruba a emissão no dia da venda. */
+    if (produto) fora.push({ produto, categoria: categoriaDoProduto(b, mapas) });
+  }
+  return fora;
+}
+
+/** A categoria do cardápio: subgrupo, depois grupo, depois nada. */
+export function categoriaDoProduto(
+  bruto: Record<string, unknown>,
+  mapas: { subgrupos: Map<number, string>; grupos: Map<number, string> },
+): string {
+  /*
+   * Subgrupo primeiro porque é o mais específico: nesta conta o grupo é
+   * "Restaurantes" para tudo, enquanto o subgrupo separa SALGADINHOS, DOCES,
+   * CONSERVAS — que é o que serve de categoria num cardápio.
+   */
+  return mapas.subgrupos.get(Number(bruto.idSubgrupo ?? 0))
+    ?? mapas.grupos.get(Number(bruto.idGrupo ?? 0))
+    ?? '';
+}
+
 /**
  * Quanto tempo a importação vai levar, em segundos.
  *
@@ -195,10 +238,11 @@ export function produtoDoErp(d: Record<string, unknown> | null): ProdutoErp | nu
  * começar — "137 itens, cerca de 7 minutos" — em vez de deixar a pessoa olhando
  * um spinner e concluindo que travou.
  */
-export function segundosEstimados(quantidadeDeProdutos: number, porMinuto = 20): number {
+export function segundosEstimados(quantidadeDeProdutos: number, porPagina = 50, porMinuto = 20): number {
   if (quantidadeDeProdutos <= 0) return 0;
-  /* As primeiras `porMinuto` saem sem espera (o balde começa cheio); as demais
-     esperam 3 segundos cada. */
-  const comEspera = Math.max(0, quantidadeDeProdutos - porMinuto);
+  const paginas = Math.ceil(quantidadeDeProdutos / porPagina);
+  /* As primeiras `porMinuto` requisições saem sem espera (o balde começa
+     cheio); as demais esperam 3 segundos cada. */
+  const comEspera = Math.max(0, paginas - porMinuto);
   return Math.ceil((comEspera * 60) / porMinuto);
 }
