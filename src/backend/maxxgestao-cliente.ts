@@ -47,35 +47,36 @@ export const LIMITE_POR_MINUTO = 20;
  * 3 segundos para dizer "conectado" — e só freia quando a rajada acaba.
  */
 
-/** Estado do balde de um token. */
-export interface BaldeFichas {
-  fichas: number;
-  /** Quando as fichas foram recalculadas por último (ms). */
-  emMs: number;
-}
-
-/** Balde cheio. Começa cheio porque o minuto anterior não foi usado. */
-export function baldeNovo(agoraMs: number): BaldeFichas {
-  return { fichas: LIMITE_POR_MINUTO, emMs: agoraMs };
-}
-
 /**
- * Repõe as fichas pelo tempo passado.
+ * JANELA DESLIZANTE, não balde de fichas.
  *
- * Reposição CONTÍNUA (uma ficha a cada 3s), não em degrau de minuto: em degrau,
- * quem estourasse às 10:00:59 esperaria 1 segundo e quem estourasse às 10:00:01
- * esperaria 59 — mesma fila, esperas absurdamente diferentes.
+ * A primeira versão era um balde que repunha uma ficha a cada 3 segundos, e
+ * MEDIDO EM PRODUÇÃO ela estava errada: 20 chamadas saíram em 2 segundos e a
+ * 21ª levou 58 segundos. O gateway deles não recusa o excesso — a "fila de 10"
+ * da documentação ENFILEIRA a chamada até a janela do minuto virar.
+ *
+ * Então o modelo real é: no máximo 20 chamadas em qualquer minuto corrido. A
+ * 21ª espera a mais antiga das 20 completar um minuto. Respeitar isso mantém as
+ * respostas em 60-100ms; desrespeitar joga a chamada na fila deles e ela volta
+ * em quase um minuto — e aí qualquer timeout nosso razoável aborta.
  */
-export function reporFichas(balde: BaldeFichas, agoraMs: number): BaldeFichas {
-  const decorrido = Math.max(0, agoraMs - balde.emMs);
-  const ganhas = (decorrido / 60_000) * LIMITE_POR_MINUTO;
-  return { fichas: Math.min(LIMITE_POR_MINUTO, balde.fichas + ganhas), emMs: agoraMs };
+
+/** Os instantes das últimas chamadas de um token, em ms. */
+export type JanelaChamadas = number[];
+
+export const JANELA_MS = 60_000;
+
+/** Quanto esperar para a próxima chamada caber na janela. Zero quando cabe. */
+export function esperaEmMs(janela: JanelaChamadas, agoraMs: number): number {
+  const dentro = janela.filter(t => agoraMs - t < JANELA_MS);
+  if (dentro.length < LIMITE_POR_MINUTO) return 0;
+  /* A mais antiga define a vez: quando ela sair da janela, abre uma vaga. */
+  return Math.max(1, dentro[0] + JANELA_MS - agoraMs);
 }
 
-/** Quanto esperar até haver uma ficha. Zero quando já dá para chamar. */
-export function esperaEmMs(balde: BaldeFichas): number {
-  if (balde.fichas >= 1) return 0;
-  return Math.ceil(((1 - balde.fichas) / LIMITE_POR_MINUTO) * 60_000);
+/** A janela com as chamadas velhas descartadas. */
+export function limparJanela(janela: JanelaChamadas, agoraMs: number): JanelaChamadas {
+  return janela.filter(t => agoraMs - t < JANELA_MS);
 }
 
 /*
@@ -89,13 +90,13 @@ function chaveDoToken(token: string): string {
   return createHash('sha256').update(token.trim()).digest('hex').slice(0, 16);
 }
 
-const baldes = new Map<string, BaldeFichas>();
+const janelas = new Map<string, JanelaChamadas>();
 /** A fila de cada token: promessas encadeadas, uma chamada por vez. */
 const filas = new Map<string, Promise<unknown>>();
 
 /** Só para teste: esquece o que foi contado. */
 export function limparLimitesMaxxGestao(): void {
-  baldes.clear();
+  janelas.clear();
   filas.clear();
 }
 
@@ -107,12 +108,19 @@ export interface DepsLimite {
 /**
  * Roda `fn` respeitando o limite do token.
  *
- * SERIALIZA POR TOKEN, e é isso que faz a conta valer. Sem a fila, dez chamadas
- * disparadas juntas leem o balde no mesmo instante, todas veem 20 fichas e
- * todas passam — o limitador existiria só no papel.
+ * SERIALIZA POR TOKEN. O que a fila garante é a integridade da conta ATRAVÉS
+ * DA ESPERA: quando duas chamadas precisam aguardar a janela virar, sem a fila
+ * as duas acordariam juntas e as duas se marcariam na mesma janela, passando de
+ * 20. No caminho sem espera a conta já se protege sozinha, porque ler a janela
+ * e se marcar nela acontece sem `await` no meio.
  *
- * A fila é por token e não global: uma loja sincronizando catálogo não pode
- * atrasar a nota de outra.
+ * (Vale registrar: eu havia escrito aqui que sem a fila "todas passam". Sabotei
+ * o código removendo a fila e o teste continuou passando — a afirmação era
+ * falsa, e o comentário estava vendendo uma proteção que o código não dava
+ * naquele caminho.)
+ *
+ * A fila é por token e não global: uma loja varrendo catálogo não pode atrasar
+ * a nota de outra.
  */
 export async function comLimiteMaxxGestao<T>(
   token: string,
@@ -120,18 +128,19 @@ export async function comLimiteMaxxGestao<T>(
   deps: DepsLimite = {},
 ): Promise<T> {
   const agora = deps.agora ?? Date.now;
-  const dormir = deps.dormir ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
+  const dormir = deps.dormir ?? ((ms: number) => new Promise<void>(r => { setTimeout(r, ms); }));
   const chave = chaveDoToken(token);
 
   const anterior = filas.get(chave) ?? Promise.resolve();
   const minha = anterior.then(async () => {
-    let balde = reporFichas(baldes.get(chave) ?? baldeNovo(agora()), agora());
-    const espera = esperaEmMs(balde);
+    let janela = limparJanela(janelas.get(chave) ?? [], agora());
+    const espera = esperaEmMs(janela, agora());
     if (espera > 0) {
       await dormir(espera);
-      balde = reporFichas(balde, agora());
+      janela = limparJanela(janela, agora());
     }
-    baldes.set(chave, { fichas: Math.max(0, balde.fichas - 1), emMs: balde.emMs });
+    janela.push(agora());
+    janelas.set(chave, janela);
     return fn();
   });
 
@@ -140,11 +149,6 @@ export async function comLimiteMaxxGestao<T>(
    * as seguintes — cada uma reporta o próprio erro a quem a chamou — e uma
    * promessa rejeitada guardada aqui viraria "unhandled rejection" quando
    * ninguém mais a observasse.
-   *
-   * Um `.catch` só: eu havia escrito dois (aqui e antes do `.then`), e
-   * sabotando um por vez o teste continuou passando — porque qualquer um deles
-   * sozinho já protege. Código que sobrevive à própria remoção não estava
-   * fazendo nada.
    */
   filas.set(chave, minha.catch(() => {}));
   return minha;

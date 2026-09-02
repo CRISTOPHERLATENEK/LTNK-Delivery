@@ -4,7 +4,7 @@ import path from 'path';
 import {
   chamarMaxxGestao, consultarEmpresa, formatarCnpj, mensagemPorStatus,
   BASE_MAXXGESTAO, LIMITE_POR_MINUTO, ErroMaxxGestao,
-  limparLimitesMaxxGestao, reporFichas, baldeNovo, esperaEmMs,
+  limparLimitesMaxxGestao, esperaEmMs, limparJanela, JANELA_MS,
 } from './maxxgestao-cliente';
 
 /** Um `fetch` que grava o que recebeu e devolve o que mandarem. */
@@ -199,20 +199,26 @@ describe('o servidor não emite junto com o ERP', () => {
 
 describe('o limite de 20 requisições por minuto', () => {
   /*
-   * O limite é POR TOKEN. Emitir uma nota por pedido cabe folgado nos 20;
-   * espelhar catálogo, não. Sem limitador a primeira sincronização manda tudo
-   * de uma vez, toma 429 no meio, e sobra catálogo pela metade no ERP — pior
-   * que nenhum, porque ninguém sabe qual metade existe.
+   * O limite é POR TOKEN e é uma JANELA DESLIZANTE: no máximo 20 chamadas em
+   * qualquer minuto corrido. Medido em produção — 20 chamadas saíram em 2
+   * segundos e a 21ª levou 58 SEGUNDOS, porque o gateway deles não recusa o
+   * excesso, enfileira até a janela virar.
+   *
+   * Respeitar isso mantém as respostas em 60-100ms. Desrespeitar joga a chamada
+   * na fila deles, ela volta em quase um minuto, e qualquer timeout nosso
+   * razoável aborta — foi exatamente assim que a varredura do catálogo morria
+   * na segunda letra.
    */
   function relogio(inicio = 1_000_000) {
     let t = inicio;
     const dormidas: number[] = [];
     return {
       dormidas,
+      avancar: (ms: number) => { t += ms; },
       deps: {
         agora: () => t,
         /* Não espera de verdade: anota quanto teria esperado e adianta o
-           relógio. Teste que dorme 3 segundos por chamada ninguém roda. */
+           relógio. Teste que dorme um minuto ninguém roda. */
         dormir: async (ms: number) => { dormidas.push(ms); t += ms; },
       },
     };
@@ -221,8 +227,7 @@ describe('o limite de 20 requisições por minuto', () => {
   beforeEach(() => limparLimitesMaxxGestao());
 
   it('as primeiras 20 saem sem esperar', async () => {
-    /* O teste de conexão do lojista não pode levar 3 segundos para dizer
-       "conectado" — daí balde de fichas, e não intervalo fixo. */
+    /* O teste de conexão do lojista não pode ficar na fila atrás de nada. */
     const r = relogio();
     const { buscar } = espiao(200, EMPRESA);
     for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
@@ -231,39 +236,50 @@ describe('o limite de 20 requisições por minuto', () => {
     expect(r.dormidas).toEqual([]);
   });
 
-  it('a 21ª espera os 3 segundos da próxima ficha', async () => {
+  it('a 21ª espera a mais antiga completar um MINUTO, não 3 segundos', async () => {
+    /*
+     * A conta que a primeira versão errava. Balde com reposição de 3 em 3
+     * segundos deixaria a 21ª sair em 3s — e ela cairia na fila do gateway,
+     * voltando em 58s.
+     */
     const r = relogio();
     const { buscar } = espiao(200, EMPRESA);
-    for (let i = 0; i < LIMITE_POR_MINUTO + 1; i++) {
+    for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
       await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps });
     }
+    await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps });
     expect(r.dormidas).toHaveLength(1);
-    /* 20 fichas por minuto = uma a cada 3000ms. */
-    expect(r.dormidas[0]).toBe(3000);
+    expect(r.dormidas[0]).toBe(JANELA_MS);
   });
 
   it('chamadas simultâneas NÃO furam a conta', async () => {
     /*
-     * A serialização é o que faz o limitador valer. Sem a fila, 25 chamadas
-     * disparadas juntas leem o balde no mesmo instante, todas veem 20 fichas e
-     * todas passam — o limitador existiria só no papel.
+     * 25 de uma vez respeitam a conta. Não é a fila que garante isto — ler a
+     * janela e se marcar nela acontece sem `await` no meio, então o caminho sem
+     * espera já se protege sozinho. A fila garante a integridade ATRAVÉS da
+     * espera, quando duas chamadas aguardam a janela virar.
      */
     const r = relogio();
     const { buscar } = espiao(200, EMPRESA);
     await Promise.all(
       Array.from({ length: 25 }, () => chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps })),
     );
-    expect(r.dormidas).toHaveLength(5);
+    /*
+     * UMA espera só, de um minuto — não cinco de três segundos. As 20 primeiras
+     * passam, a 21ª espera a janela virar, e aí as quatro últimas cabem na
+     * janela nova. É a diferença entre o modelo de balde (errado) e o de janela
+     * deslizante (o que o gateway deles faz de verdade).
+     */
+    expect(r.dormidas).toEqual([JANELA_MS]);
   });
 
-  it('esperar repõe fichas, e a rajada seguinte passa direto', async () => {
+  it('depois de um minuto parado, as 20 seguintes saem direto', async () => {
     const r = relogio();
     const { buscar } = espiao(200, EMPRESA);
     for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
       await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps });
     }
-    /* Um minuto parado devolve o balde cheio. */
-    r.deps.agora = (() => { const t = 1_000_000 + 60_000; return () => t; })();
+    r.avancar(JANELA_MS + 1);
     r.dormidas.length = 0;
     for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
       await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps });
@@ -272,7 +288,7 @@ describe('o limite de 20 requisições por minuto', () => {
   });
 
   it('a conta é por TOKEN, não global', async () => {
-    /* Uma loja sincronizando catálogo não pode atrasar a nota de outra. */
+    /* Uma loja varrendo catálogo não pode atrasar a nota de outra. */
     const r = relogio();
     const { buscar } = espiao(200, EMPRESA);
     for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
@@ -293,12 +309,17 @@ describe('o limite de 20 requisições por minuto', () => {
     await expect(chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps })).resolves.toBeTruthy();
   });
 
-  it('o balde nunca passa da capacidade', () => {
-    /* Ficar parado uma hora não dá direito a 1200 chamadas de uma vez — isso
-       tomaria 429 na cara, que é justamente o que o limitador evita. */
-    const cheio = reporFichas(baldeNovo(0), 3_600_000);
-    expect(cheio.fichas).toBe(LIMITE_POR_MINUTO);
-    expect(esperaEmMs(cheio)).toBe(0);
+  it('a janela esquece o que passou de um minuto', () => {
+    /* Sem a limpeza, a lista cresceria para sempre e a conta olharia chamadas
+       de horas atrás. */
+    expect(esperaEmMs([0], 60_001)).toBe(0);
+    expect(limparJanela([0, 59_000], 60_001)).toEqual([59_000]);
+  });
+
+  it('com a janela cheia, a espera é o que falta da mais antiga', () => {
+    const cheia = Array.from({ length: LIMITE_POR_MINUTO }, (_, i) => 1000 + i);
+    /* A mais antiga é 1000; em 21000 faltam 40 segundos para ela sair. */
+    expect(esperaEmMs(cheia, 21_000)).toBe(40_000);
   });
 });
 

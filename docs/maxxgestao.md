@@ -18,9 +18,17 @@ com a forma de pagamento REAL, em vez do "todo cartão é crédito" que
 - **Token não expira.** Nasce no painel do ERP; não existe endpoint que o
   emita. `POST /api/usuario/validar/v1` só valida e-mail/senha, não devolve
   credencial. Guardamos cifrado em `lojas.maxxgestao_token`.
-- **Limite: 20 requisições por minuto POR TOKEN**, fila de 10, HTTP 429 ao
-  estourar. Implementado em `maxxgestao-cliente.ts` (balde de fichas + fila por
-  token).
+- **Limite: 20 requisições por minuto POR TOKEN**, em JANELA DESLIZANTE. A doc
+  fala de "fila de 10" e HTTP 429; medido em produção, o que acontece é a FILA:
+  20 chamadas saíram em 2 segundos e a **21ª levou 58 segundos** — o gateway não
+  recusa, ele enfileira até a janela do minuto virar. Respeitar o limite mantém
+  as respostas em 60-100ms.
+  Implementado em `maxxgestao-cliente.ts` como janela deslizante por token. A
+  primeira versão era um balde repondo uma ficha a cada 3s: deixava a 21ª sair
+  em 3 segundos, ela caía na fila deles e voltava em quase um minuto, e o nosso
+  timeout abortava. Era isso que matava a varredura do catálogo na segunda letra.
+- **O timeout começa DEPOIS da vez na fila do nosso limitador.** Começando
+  antes, a espera do nosso próprio limitador contava como demora deles.
 - **A documentação (swagger) exige login próprio**, diferente do token: o spec
   fica em `/publica/swagger/publica/swagger.json` e só abre com a sessão da doc.
   Por isso este arquivo existe — para não depender daquele login.
