@@ -72,3 +72,62 @@ describe('os grupos do cardápio são lidos em lote', () => {
     expect(f).toContain('gruposPorProduto.get(p.id) ?? []');
   });
 });
+
+describe('as listas de pedidos também são lidas em lote', () => {
+  /*
+   * As duas rotas de pedidos do painel tinham (ou teriam) o mesmo N+1 da lista
+   * de produtos: uma consulta de itens por pedido. A de ativos ainda tinha uma
+   * segunda, de mensagens não lidas — e ela recarrega sozinha a cada 15
+   * segundos, então eram até 400 idas ao banco quatro vezes por minuto em toda
+   * loja aberta.
+   *
+   * O custo só aparece no dia de movimento: 20 pedidos ativos custam 40
+   * consultas rápidas e ninguém nota. É o tipo de coisa que se descobre com o
+   * cliente esperando.
+   */
+  const rotas = fonte(path.join('rotas', 'lojista.ts'));
+
+  function trecho(rota: string) {
+    const i = rotas.indexOf(`router.get('${rota}'`);
+    expect(i, rota).toBeGreaterThan(0);
+    const fim = rotas.indexOf('router.', i + 12);
+    return rotas.slice(i, fim > i ? fim : undefined);
+  }
+
+  for (const rota of ['/pedidos', '/pedidos-historico']) {
+    it(`${rota} não consulta itens dentro de laço`, () => {
+      const t = trecho(rota);
+      /* O que custava caro: `WHERE ip.pedido_id = ?` (um pedido por consulta).
+         Em lote é `IN (...)`. */
+      expect(t).not.toContain('WHERE ip.pedido_id = ?');
+      expect(t).toContain('WHERE ip.pedido_id IN (');
+    });
+  }
+
+  it('/pedidos conta mensagens não lidas com GROUP BY, não uma por pedido', () => {
+    const t = trecho('/pedidos');
+    expect(t).not.toContain('WHERE pedido_id = ? AND remetente');
+    expect(t).toContain('GROUP BY pedido_id');
+  });
+
+  it('pedido sem mensagem vira zero, não undefined', () => {
+    /* Pedido sem mensagem não aparece no GROUP BY: sem o `?? 0` a tela receberia
+       undefined onde espera número, e o selo de mensagens sumiria ou quebraria. */
+    expect(trecho('/pedidos')).toContain('naoLidasPorPedido.get(p.id) ?? 0');
+  });
+
+  it('pedido sem item vira array vazio', () => {
+    /* Pedido cancelado antes de fechar existe sem item, e a tela espera array. */
+    for (const rota of ['/pedidos', '/pedidos-historico']) {
+      expect(trecho(rota), rota).toContain('?? []');
+    }
+  });
+
+  it('lista vazia sai antes de montar o IN', () => {
+    /* `IN ()` é erro de sintaxe no MySQL: sem esta saída, uma loja sem pedido
+       nenhum receberia 500 em vez de lista vazia. */
+    for (const rota of ['/pedidos', '/pedidos-historico']) {
+      expect(trecho(rota), rota).toContain('if (!pedidos.length) return res.json({ pedidos: [] });');
+    }
+  });
+});

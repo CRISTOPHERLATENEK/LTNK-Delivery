@@ -2347,19 +2347,57 @@ router.get('/pedidos', async (req, res, next) => {
 
     type PedidoLojista = Record<string, unknown> & { id: number };
     const pedidos = await db.prepare(sql).all(...params) as PedidoLojista[];
-    // JOIN com produtos pra trazer a categoria de cada item — usada pra rotear
-    // a impressão por setor (Cozinha/Bar) quando o pedido chega pelo app.
-    for (const p of pedidos) {
-      p.itens = await db.prepare(
-        `SELECT ip.*, p.categoria AS categoria
-           FROM itens_pedido ip
-           LEFT JOIN produtos p ON p.id = ip.produto_id
-          WHERE ip.pedido_id = ?`
-      ).all(p.id);
-      p.mensagens_nao_lidas = (await db.prepare(
-        "SELECT COUNT(*) AS n FROM mensagens_pedido WHERE pedido_id = ? AND remetente = 'cliente' AND lida = 0"
-      ).get(p.id) as { n: number }).n;
+    if (!pedidos.length) return res.json({ pedidos: [] });
+
+    /*
+     * TRÊS CONSULTAS, NÃO QUATROCENTAS.
+     *
+     * Aqui havia um laço com uma consulta de itens e uma de mensagens não lidas
+     * POR PEDIDO. Com o teto de 200 pedidos são até 400 idas ao banco — e esta
+     * tela recarrega sozinha a cada 15 segundos, então era isso repetido quatro
+     * vezes por minuto, para sempre, em toda loja aberta.
+     *
+     * É o mesmo N+1 que deixou a lista de produtos lenta com mil itens. A
+     * diferença é que aqui ele não incomodava ninguém: 20 pedidos ativos custam
+     * 40 consultas rápidas. O custo só aparece no dia de movimento — exatamente
+     * quando a tela precisa responder.
+     */
+    const ids = pedidos.map(p => p.id);
+    const marcas = ids.map(() => '?').join(', ');
+
+    /* JOIN com produtos pra trazer a categoria de cada item — usada pra rotear
+       a impressão por setor (Cozinha/Bar) quando o pedido chega pelo app. */
+    const itens = await db.prepare(
+      `SELECT ip.*, pr.categoria AS categoria
+         FROM itens_pedido ip
+         LEFT JOIN produtos pr ON pr.id = ip.produto_id
+        WHERE ip.pedido_id IN (${marcas})
+        ORDER BY ip.id`
+    ).all(...ids) as Array<{ pedido_id: number }>;
+
+    const itensPorPedido = new Map<number, Array<{ pedido_id: number }>>();
+    for (const item of itens) {
+      const lista = itensPorPedido.get(item.pedido_id);
+      if (lista) lista.push(item);
+      else itensPorPedido.set(item.pedido_id, [item]);
     }
+
+    /* GROUP BY em vez de um COUNT por pedido: pedido sem mensagem não aparece
+       no resultado, e é por isso que o `?? 0` embaixo existe. */
+    const naoLidas = await db.prepare(
+      `SELECT pedido_id, COUNT(*) AS n FROM mensagens_pedido
+        WHERE pedido_id IN (${marcas}) AND remetente = 'cliente' AND lida = 0
+        GROUP BY pedido_id`
+    ).all(...ids) as Array<{ pedido_id: number; n: number }>;
+
+    const naoLidasPorPedido = new Map<number, number>();
+    for (const linha of naoLidas) naoLidasPorPedido.set(linha.pedido_id, Number(linha.n) || 0);
+
+    for (const p of pedidos) {
+      p.itens = itensPorPedido.get(p.id) ?? [];
+      p.mensagens_nao_lidas = naoLidasPorPedido.get(p.id) ?? 0;
+    }
+
     res.json({ pedidos });
   } catch (e) { next(e); }
 });
