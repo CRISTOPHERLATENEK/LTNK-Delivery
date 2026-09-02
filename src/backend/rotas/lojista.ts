@@ -37,8 +37,8 @@ import {
 } from '../sefaz';
 import { criptografar, descriptografar } from '../cripto';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
-import { consultarEmpresa, formatarCnpj } from '../maxxgestao-cliente';
-import { buscarMercadorias, mapaDeCategorias, idsDaSecao, LETRAS_VARREDURA } from '../maxxgestao-catalogo';
+import { consultarEmpresa, formatarCnpj, chamarMaxxGestao } from '../maxxgestao-cliente';
+import { buscarMercadorias, mapaDeCategorias, idsDaSecao, precosDaTabela, LETRAS_VARREDURA } from '../maxxgestao-catalogo';
 import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, type ItemDoCatalogo } from '../maxxgestao-importar';
 import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
 import { emitirPedidoNoErp } from '../maxxgestao-emitir';
@@ -3786,9 +3786,18 @@ router.post('/erp/importar', async (req, res, next) => {
      */
     let existentes = new Set<number>();
     let mapas: Awaited<ReturnType<typeof mapaDeCategorias>>;
+    let precos = new Map<number, number>();
     try {
       existentes = await idsDaSecao(token, 1);
       mapas = await mapaDeCategorias(token);
+      /*
+       * O PREÇO VEM DA TABELA PADRÃO DA EMPRESA, lida nas configurações — não
+       * de constante nossa: cada empresa aponta a sua, e escrever "1" no código
+       * daria o preço da tabela errada em quem usa outra.
+       */
+      const cfg = await chamarMaxxGestao(token, '/api/empresa/configuracoes/v1') as Record<string, unknown> | null;
+      const idTabela = Number(cfg?.idTabelaPrecoPadrao ?? 0);
+      if (idTabela > 0) precos = await precosDaTabela(token, idTabela);
       for (let k = 0; k < pedidas.length; k++) {
         /* Cobertura fechada: o resto das letras não traria nada. */
         if (existentes.size > 0 && porVariacao.size >= existentes.size) break;
@@ -3796,7 +3805,12 @@ router.post('/erp/importar', async (req, res, next) => {
         for (const item of await buscarMercadorias(token, pedidas[k], mapas)) {
           /* Dedup por variação: a mesma mercadoria aparece em várias letras, e
              importá-la duas vezes criaria produto duplicado no cardápio. */
-          if (!porVariacao.has(item.produto.variacao)) porVariacao.set(item.produto.variacao, item);
+          if (!porVariacao.has(item.produto.variacao)) {
+            porVariacao.set(item.produto.variacao, {
+              ...item,
+              precoCentavos: precos.get(item.produto.variacao),
+            });
+          }
         }
       }
     } catch (e) {
@@ -3857,6 +3871,7 @@ router.post('/erp/importar', async (req, res, next) => {
       + `${gravado.criados} criados, ${gravado.atualizados} atualizados, `
       + `${gravado.pausados} pausados em ${Date.now() - comecou}ms`
       + ` | ${porVariacao.size} de ${existentes.size || '?'} no ERP`
+      + ` | ${precos.size} preços na tabela`
       + (terminou ? '' : ` — faltam ${restantes.length} letra(s)`),
     );
 

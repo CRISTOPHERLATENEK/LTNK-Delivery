@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import {
-  planejarImportacao, planoVazio, resumoDoPlano,
+  planejarImportacao, planoVazio, resumoDoPlano, PRECO_MARCADOR,
   type ItemDoCatalogo, type ProdutoNosso,
 } from './maxxgestao-importar';
 import { produtoDoErp, segundosEstimados, todasAsPaginas, categoriaDoProduto, LETRAS_VARREDURA } from './maxxgestao-catalogo';
@@ -17,13 +17,19 @@ const doErp = (variacao: number, descricao: string, extra: Partial<ItemDoCatalog
 });
 
 const nosso = (id: number, nome: string, extra: Partial<ProdutoNosso> = {}): ProdutoNosso => ({
-  id, nome, descricao: '', categoria: 'Lanches', variacaoErp: id, disponivel: true, ...extra,
+  id, nome, descricao: '', categoria: 'Lanches', variacaoErp: id, disponivel: true,
+  /* Por padrão já precificado: o caso do marcador é escrito explicitamente nos
+     testes que tratam dele, para não passar sem alguém ver. */
+  precoCentavos: 1500, ...extra,
 });
 
 describe('produto novo entra pausado e sem preço de verdade', () => {
   it('o que não existe aqui vai para criar', () => {
     const p = planejarImportacao([doErp(10, 'X-Bacon')], []);
-    expect(p.criar).toEqual([{ variacao: 10, nome: 'X-Bacon', descricao: '', categoria: 'Lanches', codigoBarras: '' }]);
+    expect(p.criar).toEqual([{
+      variacao: 10, nome: 'X-Bacon', descricao: '', categoria: 'Lanches',
+      codigoBarras: '', precoCentavos: PRECO_MARCADOR,
+    }]);
   });
 
   it('o resumo avisa do preço junto do sucesso', () => {
@@ -40,28 +46,52 @@ describe('produto novo entra pausado e sem preço de verdade', () => {
 });
 
 describe('nunca mexe no preço', () => {
-  it('o plano não tem campo de preço em lugar nenhum', () => {
+  it('NÃO sobrescreve preço que gente definiu', () => {
     /*
-     * A REGRA MAIS IMPORTANTE DO ARQUIVO. O preço mora no delivery; o ERP nem
-     * devolve preço de venda. Se uma reimportação pudesse escrever preço, ela
+     * A REGRA MAIS IMPORTANTE DO ARQUIVO. Preço de delivery costuma ser
+     * diferente do balcão; se a reimportação pudesse escrever por cima, ela
      * desfaria o trabalho de quem precificou o cardápio inteiro — e ninguém
      * relacionaria as duas coisas.
      */
     const p = planejarImportacao(
-      [doErp(10, 'X-Bacon'), doErp(11, 'Açaí')],
-      [nosso(11, 'Açaí velho')],
+      [{ ...doErp(11, 'Açaí'), precoCentavos: 900 }],
+      [nosso(11, 'Açaí', { precoCentavos: 1500 })],
     );
-    const tudo = JSON.stringify(p);
-    expect(tudo).not.toMatch(/preco|price|valor/i);
-    for (const c of [...p.criar, ...p.atualizar]) {
-      expect(Object.keys(c)).not.toContain('preco_centavos');
-    }
+    expect(p.atualizar).toEqual([]);
+    expect(p.semMudanca).toBe(1);
   });
 
-  it('a fonte não menciona preço fora dos comentários', () => {
-    const fonte = fs.readFileSync(path.join(__dirname, 'maxxgestao-importar.ts'), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    expect(fonte).not.toMatch(/preco_centavos/);
+  it('preenche o preço quando o nosso ainda é o marcador', () => {
+    /* É o que conserta os 1.116 produtos que já entraram a R$ 0,01 — sem fechar
+       a porta para quem precificou. */
+    const p = planejarImportacao(
+      [{ ...doErp(11, 'Açaí'), precoCentavos: 900 }],
+      [nosso(11, 'Açaí', { precoCentavos: PRECO_MARCADOR })],
+    );
+    expect(p.atualizar).toEqual([{ id: 11, precoCentavos: 900 }]);
+  });
+
+  it('marcador continuando marcador não gera update', () => {
+    /* ERP sem preço para o produto: nada a escrever, e um UPDATE que grava 1 em
+       cima de 1 é ruído no "o que mexeram ontem?". */
+    const p = planejarImportacao(
+      [doErp(11, 'Açaí')],
+      [nosso(11, 'Açaí', { precoCentavos: PRECO_MARCADOR })],
+    );
+    expect(p.atualizar).toEqual([]);
+  });
+
+  it('preço zero ou negativo do ERP não vira preço', () => {
+    /* Preço zero não é preço: fica no marcador, que grita "me preencha". */
+    for (const bruto of [0, -100]) {
+      const p = planejarImportacao(
+        [{ ...doErp(11, 'Açaí'), precoCentavos: bruto }],
+        [nosso(11, 'Açaí', { precoCentavos: PRECO_MARCADOR })],
+      );
+      expect(p.atualizar, String(bruto)).toEqual([]);
+    }
+    expect(planejarImportacao([{ ...doErp(10, 'Novo'), precoCentavos: 0 }], [])
+      .criar[0].precoCentavos).toBe(PRECO_MARCADOR);
   });
 });
 
@@ -270,5 +300,43 @@ describe('a varredura por letra', () => {
        pedir mais só esconderia o número real de páginas. */
     expect(segundosEstimados(1108)).toBe(0);
     expect(segundosEstimados(100 * 21)).toBe(3);
+  });
+});
+
+describe('o encanamento do preço até o banco', () => {
+  /*
+   * A camada de gravação não tem teste de unidade (precisa de MySQL), então a
+   * ligação entre o plano e o SQL fica coberta por leitura da fonte. Não é
+   * elegante, mas pega o caso real: sabotei o `deps` removendo a escrita do
+   * preço e TODOS os testes continuaram passando — o plano estava certo e o
+   * banco ignorava, que é a pior combinação, porque a tela diria "atualizado".
+   */
+  const fonte = fs.readFileSync(path.join(__dirname, 'maxxgestao-importar-deps.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('o INSERT grava o preço que veio no plano, não um literal', () => {
+    /* `VALUES (?, ?, ?, ?, 1, ...)` era a versão antiga: todo produto nascia a
+       um centavo, mesmo com preço no ERP. */
+    expect(fonte).toContain('p.precoCentavos');
+    expect(fonte).not.toMatch(/VALUES \(\?, \?, \?, \?, 1,/);
+  });
+
+  it('o UPDATE grava o preço quando o plano manda', () => {
+    expect(fonte).toContain("sets.push('preco_centavos = ?')");
+    expect(fonte).toContain('a.precoCentavos !== undefined');
+  });
+
+  it('o produto continua nascendo PAUSADO, mesmo com preço', () => {
+    /*
+     * Publicar 1.100 produtos na loja de alguém porque uma importação rodou
+     * seria decidir pelo lojista o que ele vende — e ele descobriria pelo
+     * cliente pedindo.
+     */
+    expect(fonte).toMatch(/disponivel, disponivel_pdv[\s\S]{0,120}0, 0,/);
+  });
+
+  it('o produto lido do banco traz o preço, senão a regra do marcador não funciona', () => {
+    expect(fonte).toContain('preco_centavos');
+    expect(fonte).toContain('precoCentavos: Number(l.preco_centavos');
   });
 });

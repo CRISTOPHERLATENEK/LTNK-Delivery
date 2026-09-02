@@ -8,9 +8,11 @@
  * TRÊS COISAS QUE ESTE MÓDULO NUNCA FAZ, e cada uma custou dinheiro em algum
  * lugar antes de virar regra:
  *
- * 1. NUNCA MEXE NO PREÇO. O preço mora no delivery, por decisão do dono do
- *    projeto — o ERP nem devolve preço de venda. Reimportar não pode desfazer o
- *    trabalho de quem precificou o cardápio.
+ * 1. NUNCA SOBRESCREVE PREÇO DE VERDADE. O preço do ERP entra na CRIAÇÃO, e
+ *    numa atualização só quando o nosso ainda é o marcador de R$ 0,01 — ou
+ *    seja, quando ninguém precificou ainda. Reimportar não pode desfazer o
+ *    trabalho de quem ajustou o preço de delivery, que costuma ser diferente do
+ *    balcão.
  * 2. NUNCA APAGA. Produto que saiu do catálogo do ERP é PAUSADO, não excluído:
  *    excluir levaria embora o histórico de pedidos que aponta para ele.
  * 3. NUNCA PUBLICA SOZINHO. Produto novo entra pausado, com o marcador de
@@ -29,17 +31,42 @@ export interface ProdutoNosso {
   /** O vínculo com o ERP. Zero = produto que nasceu aqui. */
   variacaoErp: number;
   disponivel: boolean;
+  /** Em centavos. `PRECO_MARCADOR` significa "ninguém precificou ainda". */
+  precoCentavos: number;
 }
+
+/**
+ * O PREÇO QUE GRITA "ME PREENCHA".
+ *
+ * O CHECK da coluna exige `preco_centavos > 0`, então zero não entra. Um
+ * centavo é visivelmente errado de propósito: qualquer valor plausível passaria
+ * batido e o produto seria vendido por ele.
+ *
+ * Também é o SINAL de que ninguém precificou — é o que permite a importação
+ * preencher o preço depois sem risco de pisar em cima de decisão de gente.
+ */
+export const PRECO_MARCADOR = 1;
 
 /** Produto do ERP junto da categoria em que ele aparece no catálogo. */
 export interface ItemDoCatalogo {
   produto: ProdutoErp;
   categoria: string;
+  /** Em centavos, da tabela de preço do ERP. Ausente = ele não tem preço. */
+  precoCentavos?: number;
 }
 
 export interface PlanoImportacao {
-  criar: Array<{ variacao: number; nome: string; descricao: string; categoria: string; codigoBarras: string }>;
-  atualizar: Array<{ id: number; nome?: string; descricao?: string; categoria?: string }>;
+  criar: Array<{
+    variacao: number; nome: string; descricao: string; categoria: string;
+    codigoBarras: string;
+    /** Do ERP; `PRECO_MARCADOR` quando ele não tem preço para este produto. */
+    precoCentavos: number;
+  }>;
+  atualizar: Array<{
+    id: number; nome?: string; descricao?: string; categoria?: string;
+    /** Só vem preenchido quando o nosso preço ainda é o marcador. */
+    precoCentavos?: number;
+  }>;
   /** Estavam vinculados e saíram do catálogo do ERP: pausar, nunca apagar. */
   pausar: number[];
   /** Já iguais. Contados só para a tela poder dizer "nada mudou". */
@@ -94,6 +121,9 @@ export function planejarImportacao(
         descricao: produto.descricaoAdicional,
         categoria: item.categoria,
         codigoBarras: produto.codigoBarras,
+        /* Sem preço no ERP, nasce no marcador — não em zero, que o banco
+           recusa, nem num valor inventado, que seria vendido. */
+        precoCentavos: item.precoCentavos && item.precoCentavos > 0 ? item.precoCentavos : PRECO_MARCADOR,
       });
       continue;
     }
@@ -106,8 +136,21 @@ export function planejarImportacao(
      * ter resposta. O `semMudanca` existe para a tela poder dizer "nada mudou"
      * em vez de "137 produtos atualizados" depois de não fazer nada.
      */
-    const campos: { id: number; nome?: string; descricao?: string; categoria?: string } = { id: nosso.id };
+    const campos: PlanoImportacao['atualizar'][number] = { id: nosso.id };
     let mudou = false;
+
+    /*
+     * PREÇO SÓ POR CIMA DO MARCADOR.
+     *
+     * É o que conserta os produtos que já entraram a R$ 0,01 sem fechar a porta
+     * para quem precificou: se o nosso preço não é mais o marcador, alguém
+     * decidiu, e decisão de gente não é sobrescrita por importação.
+     */
+    if (nosso.precoCentavos === PRECO_MARCADOR
+        && item.precoCentavos && item.precoCentavos > PRECO_MARCADOR) {
+      campos.precoCentavos = item.precoCentavos;
+      mudou = true;
+    }
     if (produto.descricao !== nosso.nome) { campos.nome = produto.descricao; mudou = true; }
     if (produto.descricaoAdicional !== nosso.descricao) { campos.descricao = produto.descricaoAdicional; mudou = true; }
     if (item.categoria && item.categoria !== nosso.categoria) { campos.categoria = item.categoria; mudou = true; }

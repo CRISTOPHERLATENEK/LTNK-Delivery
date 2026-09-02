@@ -260,6 +260,38 @@ export async function idsDaSecao(
   return ids;
 }
 
+/**
+ * OS PREÇOS DE UMA TABELA — `GET /api/tabela-preco/{id}/mercadorias/v1`.
+ *
+ * Eu havia afirmado que não existia leitura de preço de venda, e estava errado:
+ * olhei só `/api/mercadoria-tabela-preco/v1`, que é PUT, e generalizei. O
+ * produto (52 campos) realmente não traz preço — ele mora na tabela, e a tabela
+ * tem endpoint de leitura próprio.
+ *
+ * Devolve centavos, não reais: dinheiro em ponto flutuante é como se perde um
+ * centavo por item sem ninguém notar.
+ */
+export async function precosDaTabela(
+  token: string,
+  idTabela: number,
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<Map<number, number>> {
+  const brutos = await todasAsPaginas<Record<string, unknown>>(async p =>
+    pagina(await chamarMaxxGestao(
+      token, `/api/tabela-preco/${idTabela}/mercadorias/v1?page=${p}&limit=100`, opcoes)));
+  const precos = new Map<number, number>();
+  for (const b of brutos) {
+    const variacao = Number(b.codigoMercadoriaVariacao ?? 0);
+    const reais = Number(b.valPreco ?? 0);
+    /* Preço zero ou negativo não é preço: fica de fora e o produto cai no
+       marcador de 1 centavo, que é visivelmente errado e pede atenção. */
+    if (variacao > 0 && Number.isFinite(reais) && reais > 0) {
+      precos.set(variacao, Math.round(reais * 100));
+    }
+  }
+  return precos;
+}
+
 /** A categoria do cardápio: subgrupo, depois grupo, depois nada. */
 export function categoriaDoProduto(
   bruto: Record<string, unknown>,

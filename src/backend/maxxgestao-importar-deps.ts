@@ -19,11 +19,12 @@ import type { PlanoImportacao, ProdutoNosso } from './maxxgestao-importar';
  */
 export async function produtosDaLoja(lojaId: number): Promise<ProdutoNosso[]> {
   const linhas = await db.prepare(
-    `SELECT id, nome, descricao, categoria, maxxgestao_variacao_id, disponivel
+    `SELECT id, nome, descricao, categoria, maxxgestao_variacao_id, disponivel,
+            preco_centavos
        FROM produtos WHERE loja_id = ? AND excluido = 0`
   ).all(lojaId) as Array<{
     id: number; nome: string; descricao: string | null; categoria: string | null;
-    maxxgestao_variacao_id: number; disponivel: number;
+    maxxgestao_variacao_id: number; disponivel: number; preco_centavos: number;
   }>;
   return linhas.map(l => ({
     id: l.id,
@@ -32,6 +33,7 @@ export async function produtosDaLoja(lojaId: number): Promise<ProdutoNosso[]> {
     categoria: l.categoria ?? '',
     variacaoErp: Number(l.maxxgestao_variacao_id ?? 0),
     disponivel: !!l.disponivel,
+    precoCentavos: Number(l.preco_centavos ?? 0),
   }));
 }
 
@@ -48,37 +50,39 @@ export async function aplicarPlano(lojaId: number, plano: PlanoImportacao): Prom
 
   for (const p of plano.criar) {
     /*
-     * NASCE PAUSADO E A R$ 0,01.
+     * NASCE PAUSADO, com o preço que o ERP tiver.
      *
-     * O CHECK da coluna exige `preco_centavos > 0`, então zero não entra. Um
-     * centavo é visivelmente errado de propósito: produto a R$ 0,01 e pausado
-     * grita "me preencha", e qualquer valor plausível passaria batido — e seria
-     * vendido por esse valor.
+     * Sem preço lá, entra no marcador de R$ 0,01 — visivelmente errado de
+     * propósito: qualquer valor plausível passaria batido e o produto seria
+     * vendido por ele.
      *
-     * `disponivel_pdv` também zero: publicar no balcão um produto sem preço
-     * definido é o mesmo erro pela outra porta.
+     * PAUSADO MESMO COM PREÇO, e `disponivel_pdv` também zero. Publicar 1.100
+     * produtos na loja de alguém porque uma importação rodou seria decidir pelo
+     * lojista o que ele vende — e ele descobriria pelo cliente pedindo.
      */
     await db.prepare(
       `INSERT INTO produtos (loja_id, nome, descricao, categoria, preco_centavos,
                              codigo_barras, maxxgestao_variacao_id,
                              disponivel, disponivel_pdv, criado_em)
-       VALUES (?, ?, ?, ?, 1, ?, ?, 0, 0, ?)`
-    ).run(lojaId, p.nome, p.descricao, p.categoria, p.codigoBarras, p.variacao, agora);
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`
+    ).run(lojaId, p.nome, p.descricao, p.categoria, p.precoCentavos,
+          p.codigoBarras, p.variacao, agora);
     criados++;
   }
 
   let atualizados = 0;
   for (const a of plano.atualizar) {
     /*
-     * O UPDATE MONTA SÓ O QUE VEIO, e NÃO tem coluna de preço nem por acidente.
-     * Um `preco_centavos = ?` aqui, mesmo com valor "certo", desfaria o
-     * trabalho de quem precificou o cardápio na próxima importação.
+     * O UPDATE MONTA SÓ O QUE VEIO. O preço aparece aqui apenas quando o
+     * planejador o incluiu — e ele só inclui por cima do marcador de R$ 0,01,
+     * nunca por cima de preço que gente definiu.
      */
     const sets: string[] = [];
     const vals: unknown[] = [];
     if (a.nome !== undefined) { sets.push('nome = ?'); vals.push(a.nome); }
     if (a.descricao !== undefined) { sets.push('descricao = ?'); vals.push(a.descricao); }
     if (a.categoria !== undefined) { sets.push('categoria = ?'); vals.push(a.categoria); }
+    if (a.precoCentavos !== undefined) { sets.push('preco_centavos = ?'); vals.push(a.precoCentavos); }
     if (!sets.length) continue;
     vals.push(a.id, lojaId);
     await db.prepare(`UPDATE produtos SET ${sets.join(', ')} WHERE id = ? AND loja_id = ?`).run(...vals);
