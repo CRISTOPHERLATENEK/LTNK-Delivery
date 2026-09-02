@@ -1103,6 +1103,10 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['pedidos', 'maxxgestao_documento_id', 'maxxgestao_documento_id INT NOT NULL DEFAULT 0'],
     ['pedidos', 'maxxgestao_emitido_em',   "maxxgestao_emitido_em VARCHAR(32) NOT NULL DEFAULT ''"],
+    /* A chave de 44 dígitos da NFC-e emitida pelo ERP. Sem ela o pedido fica
+       com um número de documento que só existe dentro do Maxx Gestão, e quem
+       precisa achar a nota depois não tem por onde começar. */
+    ['pedidos', 'maxxgestao_chave',        "maxxgestao_chave VARCHAR(44) NOT NULL DEFAULT ''"],
 
     /*
      * ─── iFood ───

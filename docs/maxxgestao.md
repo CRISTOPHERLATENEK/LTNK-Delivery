@@ -249,7 +249,7 @@ portal deles: **Natureza de Operação → 1 → formas de pagamento permitidas*
 mínimo para o delivery funcionar: Dinheiro (1), Cartão de Credito (5), Cartão de
 Debito (6) e PIX - MANUAL (15).
 
-## Fase 3 — emitir a nota (implementada)
+## Fase 3 — emitir a nota (implementada e verificada até o bloqueio)
 
 `emitirPedidoNoErp(pedidoId)` faz o caminho: `POST /documento` como `PV` →
 `transformar` → `emitir`.
@@ -293,3 +293,28 @@ alteração em todos os pontos de chamada.
 - **Produtos importados e precificados**, para o `idMercadoriaVariacao` existir
   em cada item.
 - **Frete**: hoje fica fora da nota.
+
+### Verificação de 02/09/2026
+
+`emitirPedidoNoErp(101)` rodado contra o pedido real, com a loja em
+`nfce_emissor = erp`. Resultado — e é o resultado certo:
+
+```
+[erp] pedido 101 NÃO emitido: a forma de pagamento "cartao_online" não está
+ligada à natureza de operação no ERP; estes produtos não vieram do Maxx Gestão
+e não podem ir na nota: produto teste
+```
+
+Os dois impedimentos reportados juntos, nenhum documento criado, nenhum número
+de sequência fiscal queimado. Falta, para a primeira nota sair:
+
+1. **No portal do Maxx Gestão:** ligar as formas de pagamento à natureza de
+   operação (Dinheiro 1, Cartão de Credito 5, Cartão de Debito 6, PIX - MANUAL
+   15). Hoje `/natureza-operacao/1/pagamentos/v1` volta vazio.
+2. **Aqui:** um pedido cujos itens tenham vindo do ERP — os importados estão
+   pausados, então é publicar um com preço e pedir por ele.
+
+Depois de emitir, a **chave de 44 dígitos** é lida do XML
+(`GET /api/documento/{id}/xml/v1`) e gravada em `pedidos.maxxgestao_chave`.
+Falha nessa leitura NÃO desfaz a emissão: a nota já está autorizada, e tratar
+isso como erro faria a próxima tentativa querer emitir de novo o que já saiu.

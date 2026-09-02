@@ -117,10 +117,28 @@ export function idDoDocumento(resposta: unknown): number {
   return 0;
 }
 
+/**
+ * A CHAVE DA NFC-E, TIRADA DO XML.
+ *
+ * Quarenta e quatro dígitos. Sem guardá-la, o pedido fica com um "documento
+ * 312" que só existe dentro do ERP: quem precisa achar a nota — o contador, o
+ * cliente que pediu, a conferência do mês — não tem por onde começar.
+ *
+ * Dois formatos porque a NFC-e traz a chave nos dois lugares: no atributo
+ * `Id="NFe4126..."` da infNFe e, quando é o protocolo, dentro de `<chNFe>`.
+ */
+export function chaveDoXml(xml: string): string {
+  const porTag = /<chNFe>\s*(\d{44})\s*<\/chNFe>/.exec(xml);
+  if (porTag) return porTag[1];
+  const porId = /Id="NFe(\d{44})"/.exec(xml);
+  return porId ? porId[1] : '';
+}
+
 export interface ResultadoEmissao {
   emitiu: boolean;
   documento?: number;
   motivo?: string;
+  chave?: string;
 }
 
 /**
@@ -265,6 +283,29 @@ export async function emitirPedidoNoErp(
   }
 
   await db.prepare('UPDATE pedidos SET maxxgestao_emitido_em = ? WHERE id = ?').run(agoraUTC(), pedidoId);
-  console.log(`[erp] pedido ${pedidoId}: NFC-e emitida no documento ${documento} em ${Date.now() - comecou}ms`);
-  return { emitiu: true, documento };
+
+  /*
+   * A CHAVE VEM DEPOIS, e falhar aqui NÃO desfaz a emissão.
+   *
+   * A nota já existe e já está autorizada; não ter conseguido ler o XML é
+   * inconveniente, não erro fiscal. Tratar isso como falha faria a próxima
+   * tentativa querer emitir de novo uma nota que já saiu.
+   */
+  let chave = '';
+  try {
+    const xml = await chamarMaxxGestao(token, `/api/documento/${documento}/xml/v1`, opcoes);
+    chave = chaveDoXml(typeof xml === 'string' ? xml : JSON.stringify(xml ?? ''));
+    if (chave) {
+      await db.prepare('UPDATE pedidos SET maxxgestao_chave = ? WHERE id = ?').run(chave, pedidoId);
+    }
+  } catch (e) {
+    console.log(`[erp] pedido ${pedidoId}: nota emitida, mas não consegui ler a chave: ${(e as Error).message}`);
+  }
+
+  console.log(
+    `[erp] pedido ${pedidoId}: NFC-e emitida no documento ${documento}`
+    + (chave ? ` (chave ${chave})` : ' (chave não lida)')
+    + ` em ${Date.now() - comecou}ms`,
+  );
+  return { emitiu: true, documento, chave };
 }

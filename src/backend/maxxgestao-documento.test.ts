@@ -5,7 +5,7 @@ import {
   montarDocumento, valorDoErp, diferencaDoTotal,
   type DadosDoPedido, type ConfigDocumento,
 } from './maxxgestao-documento';
-import { acharPagamento, idDoDocumento } from './maxxgestao-emitir';
+import { acharPagamento, idDoDocumento, chaveDoXml } from './maxxgestao-emitir';
 
 const config: ConfigDocumento = {
   idNaturezaOperacao: 1,
@@ -263,5 +263,45 @@ describe('o funil da nota', () => {
     const transformar = f.indexOf('/transformar/v1');
     expect(marca).toBeGreaterThan(0);
     expect(transformar).toBeGreaterThan(marca);
+  });
+});
+
+describe('a chave da NFC-e no XML', () => {
+  /*
+   * Sem guardar a chave, o pedido fica com um "documento 312" que só existe
+   * dentro do ERP: quem precisa achar a nota depois — o contador, o cliente que
+   * pediu, a conferência do mês — não tem por onde começar.
+   */
+  const DA_NOTA = '4'.repeat(44);
+  const DO_PROTOCOLO = '9'.repeat(44);
+
+  it('acha no atributo Id da infNFe', () => {
+    expect(chaveDoXml(`<infNFe Id="NFe${DA_NOTA}" versao="4.00">`)).toBe(DA_NOTA);
+  });
+
+  it('acha na tag chNFe do protocolo', () => {
+    expect(chaveDoXml(`<protNFe><infProt><chNFe>${DO_PROTOCOLO}</chNFe></infProt></protNFe>`)).toBe(DO_PROTOCOLO);
+  });
+
+  it('a tag do protocolo tem prioridade', () => {
+    /* Um XML com nota e protocolo juntos traz as duas; a do protocolo é a que
+       voltou autorizada pela SEFAZ. */
+    expect(chaveDoXml(`<infNFe Id="NFe${DA_NOTA}"><chNFe>${DO_PROTOCOLO}</chNFe>`)).toBe(DO_PROTOCOLO);
+  });
+
+  it('sem chave devolve vazio, não lixo', () => {
+    /* Devolver pedaço de string faria o pedido guardar uma chave inválida — e
+       chave inválida é pior que ausente, porque parece resposta. */
+    expect(chaveDoXml('<xml>sem chave</xml>')).toBe('');
+    expect(chaveDoXml('')).toBe('');
+    /*
+     * 43 dígitos não é chave, NOS DOIS CAMINHOS. A primeira versão deste teste
+     * só cobria a tag; sabotei o atributo `Id` para aceitar `\d+` e ela
+     * continuou passando, ou seja, um `Id="NFe123"` viraria chave de 3 dígitos
+     * gravada no pedido.
+     */
+    expect(chaveDoXml(`<chNFe>${'1'.repeat(43)}</chNFe>`)).toBe('');
+    expect(chaveDoXml(`<infNFe Id="NFe${'1'.repeat(43)}">`)).toBe('');
+    expect(chaveDoXml('<infNFe Id="NFe123">')).toBe('');
   });
 });
