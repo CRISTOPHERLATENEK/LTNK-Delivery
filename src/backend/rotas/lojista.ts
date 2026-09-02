@@ -61,7 +61,7 @@ import { sugerirFreteCentavos, explicarSugestao } from '../sugestao-frete';
 import { somarVendas, montarResumo, diferencaDeCaixa, classificarDiferenca, somarMovimentos, tempoAberto, sangriaCabeNoCaixa } from '../caixa';
 import { resolverPeriodo, rotuloPeriodo, periodoAnterior, variacaoPercentual, type NomePeriodo } from '../periodo';
 import { classificarCurvaAbc, resumirClassesAbc } from '../curva-abc';
-import { GrupoOpcao, Loja, OpcaoItem, Produto, StatusPedido } from '../../tipos/modelos';
+import { GrupoOpcao, Loja, OpcaoItem, Pedido, Produto, StatusPedido } from '../../tipos/modelos';
 
 /**
  * Slugs que colidem com rotas fixas do frontend (App.tsx) — a URL da loja é
@@ -2264,6 +2264,75 @@ router.delete('/opcoes/:id', async (req, res, next) => {
 });
 
 // ----- Pedidos do lojista --------------------------------------------------
+
+/**
+ * O HISTÓRICO DE PEDIDOS — os que já terminaram.
+ *
+ * A aba existia no painel e chamava esta rota, que NUNCA FOI ESCRITA: a tela
+ * mostrava "Não encontramos isso" (404) para o lojista que quisesse ver o que
+ * já vendeu. Chamada sem servidor não dá erro de compilação em lugar nenhum;
+ * só aparece clicando.
+ *
+ * TERMINADO = `entregue`, `cancelado` ou `recusado`. O que está em andamento é
+ * a outra aba, e um pedido não pode aparecer nas duas: quem procura "o que
+ * aconteceu ontem" não quer o que ainda está na cozinha.
+ *
+ * EM LOTE, três consultas. A rota de pedidos ativos ainda faz uma consulta de
+ * itens por pedido (e outra de mensagens), o que com 200 pedidos são 400 idas ao
+ * banco. Aqui não: os itens de todos os pedidos vêm de uma vez e são agrupados
+ * em memória, como na lista de produtos.
+ */
+router.get('/pedidos-historico', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+
+    /*
+     * TETO DE 200, e é o mesmo da aba de ativos. Sem teto, uma loja com dois
+     * anos de vendas manda dezenas de MB para o navegador e a tela morre —
+     * justamente a tela que a pessoa abriu para "dar uma olhada".
+     */
+    const limite = 200;
+
+    const pedidos = await db.prepare(
+      `SELECT p.*, u.nome AS cliente_nome, u.telefone AS cliente_telefone
+         FROM pedidos p LEFT JOIN usuarios u ON u.id = p.cliente_id
+        WHERE p.loja_id = ? AND ${filtroOrigemDelivery()}
+          AND p.status IN ('entregue', 'cancelado', 'recusado')
+        ORDER BY p.id DESC LIMIT ${limite}`
+    ).all(loja.id) as Array<Pedido & { itens?: unknown[] }>;
+
+    if (!pedidos.length) return res.json({ pedidos: [] });
+
+    /*
+     * `IN (?, ?, ...)` com os ids que já estão na mão — não uma subconsulta
+     * repetindo o filtro. São no máximo 200 números, cabe folgado no pacote, e
+     * evita o banco resolver duas vezes o mesmo recorte.
+     */
+    const ids = pedidos.map(p => p.id);
+    const marcas = ids.map(() => '?').join(', ');
+
+    const itens = await db.prepare(
+      `SELECT ip.*, pr.categoria AS categoria
+         FROM itens_pedido ip
+         LEFT JOIN produtos pr ON pr.id = ip.produto_id
+        WHERE ip.pedido_id IN (${marcas})
+        ORDER BY ip.id`
+    ).all(...ids) as Array<{ pedido_id: number }>;
+
+    const porPedido = new Map<number, Array<{ pedido_id: number }>>();
+    for (const item of itens) {
+      const lista = porPedido.get(item.pedido_id);
+      if (lista) lista.push(item);
+      else porPedido.set(item.pedido_id, [item]);
+    }
+
+    /* `?? []` e não undefined: pedido sem item existe (cancelado antes de
+       fechar) e a tela espera um array. */
+    for (const p of pedidos) p.itens = porPedido.get(p.id) ?? [];
+
+    res.json({ pedidos });
+  } catch (e) { next(e); }
+});
 
 router.get('/pedidos', async (req, res, next) => {
   try {
