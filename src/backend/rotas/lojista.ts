@@ -3776,10 +3776,22 @@ router.post('/erp/importar', async (req, res, next) => {
 
     const porVariacao = new Map<number, ItemDoCatalogo>();
     const restantes: string[] = [];
+    /*
+     * A LISTA DE IDS VEM PRIMEIRO, e paga por si.
+     *
+     * Ela diz exatamente quantas mercadorias existem lá, então a varredura para
+     * na hora em que a cobertura fecha — sem ela, a última letra é sempre um
+     * minuto de espera para não trazer nada. E é a mesma lista que decide o que
+     * pausar no fim: uma leitura, dois usos.
+     */
+    let existentes = new Set<number>();
     let mapas: Awaited<ReturnType<typeof mapaDeCategorias>>;
     try {
+      existentes = await idsDaSecao(token, 1);
       mapas = await mapaDeCategorias(token);
       for (let k = 0; k < pedidas.length; k++) {
+        /* Cobertura fechada: o resto das letras não traria nada. */
+        if (existentes.size > 0 && porVariacao.size >= existentes.size) break;
         if (Date.now() - comecou > ORCAMENTO_MS) { restantes.push(...pedidas.slice(k)); break; }
         for (const item of await buscarMercadorias(token, pedidas[k], mapas)) {
           /* Dedup por variação: a mesma mercadoria aparece em várias letras, e
@@ -3788,9 +3800,16 @@ router.post('/erp/importar', async (req, res, next) => {
         }
       }
     } catch (e) {
-      /* Falha de leitura não escreve nada: importação pela metade é pior que
-         nenhuma, porque ninguém sabe qual metade entrou. */
-      const erro = e as { message?: string };
+      /*
+       * Falha de leitura não escreve nada: importação pela metade é pior que
+       * nenhuma, porque ninguém sabe qual metade entrou.
+       *
+       * E O MOTIVO VAI PARA O LOG. A primeira versão só devolvia 400 com a
+       * mensagem no corpo — e quando a tela não mostrou o toast, não havia onde
+       * descobrir o que tinha acontecido.
+       */
+      const erro = e as { message?: string; httpStatus?: number };
+      console.log(`[erp] loja ${loja.id}: falha ao ler o cardápio (${erro.httpStatus ?? '-'}): ${erro.message}`);
       return res.status(400).json({ erro: erro.message || 'Não consegui ler o cardápio do Maxx Gestão.' });
     }
 
@@ -3806,8 +3825,7 @@ router.post('/erp/importar', async (req, res, next) => {
     const plano = planejarImportacaoErp(doErp, nossos, { pausarAusentes: false });
     let faltando = 0;
     if (terminou) {
-      try {
-        const existentes = await idsDaSecao(token, 1);
+      {
         if (existentes.size > 0) {
           for (const p of nossos) {
             if (p.variacaoErp > 0 && !existentes.has(p.variacaoErp) && p.disponivel) plano.pausar.push(p.id);
@@ -3826,10 +3844,9 @@ router.post('/erp/importar', async (req, res, next) => {
           ]);
           faltando = [...existentes].filter(id => !vinculados.has(id)).length;
         }
-      } catch {
-        /* Sem a lista completa, não pausa nada — e isso é o lado seguro:
-           produto a mais no cardápio se resolve na mão, cardápio pausado por
-           engano some do ar para o cliente. */
+        /* Sem a lista completa (leitura falhou), não pausa nada — e isso é o
+           lado seguro: produto a mais no cardápio se resolve na mão, cardápio
+           pausado por engano some do ar para o cliente. */
       }
     }
 
@@ -3839,6 +3856,7 @@ router.post('/erp/importar', async (req, res, next) => {
       `[erp] loja ${loja.id}: ${doErp.length} lidos em ${pedidas.length - restantes.length} letra(s), `
       + `${gravado.criados} criados, ${gravado.atualizados} atualizados, `
       + `${gravado.pausados} pausados em ${Date.now() - comecou}ms`
+      + ` | ${porVariacao.size} de ${existentes.size || '?'} no ERP`
       + (terminou ? '' : ` — faltam ${restantes.length} letra(s)`),
     );
 
