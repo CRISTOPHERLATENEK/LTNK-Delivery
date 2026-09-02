@@ -1,7 +1,7 @@
 /**
  * Gestão de produtos do lojista — CRUD com upload de imagem, subcategoria e grupos de opções.
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Ajuda } from '@/components/ui/ajuda';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Image as ImageIcon, Layers, Minus, Pencil, Plus, Rows3, Rows4, Search, Square, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
@@ -671,6 +671,21 @@ export function ProdutosLoja() {
     return acc;
   }, {});
 
+  /*
+   * A CONTAGEM POR CATEGORIA vem de TODOS os produtos, não dos filtrados: o
+   * número no chip precisa dizer quanto existe naquela categoria, não quanto
+   * sobrou da busca atual. Com o filtrado, escolher uma categoria fazia todas
+   * as outras marcarem zero.
+   */
+  const contagemPorCategoria = useMemo(() => {
+    const conta: Record<string, number> = {};
+    for (const p of todos) {
+      const cat = p.categoria || 'Geral';
+      conta[cat] = (conta[cat] ?? 0) + 1;
+    }
+    return conta;
+  }, [todos]);
+
   const disponiveis = todos.filter(ehVendido).length;
 
   /*
@@ -880,33 +895,13 @@ export function ProdutosLoja() {
             />
           </div>
 
-          {/*
-            CHIP ATIVO EM PRETO, não na cor da marca. Com o laranja, o filtro
-            selecionado disputava atenção com o botão "Novo produto" — dois elementos
-            laranja na mesma dobra, e nenhum lendo como "o principal". Preto marca a
-            seleção sem competir. (`bg-foreground` inverte no tema escuro.)
-          */}
           {categoriasExistentes.length > 1 && (
-            <div className="flex flex-wrap gap-2">
-              {['', ...categoriasExistentes].map(cat => {
-                const ativo = filtroCategoria === cat;
-                return (
-                  <button
-                    key={cat || '__todas'}
-                    type="button"
-                    onClick={() => setFiltroCategoria(cat)}
-                    className={cn(
-                      'h-[38px] rounded-full px-4 text-[13.5px] font-semibold transition-colors',
-                      ativo
-                        ? 'bg-foreground text-background'
-                        : 'border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
-                    )}
-                  >
-                    {cat || 'Todas'}
-                  </button>
-                );
-              })}
-            </div>
+            <FiltroCategorias
+              categorias={categoriasExistentes}
+              contagem={contagemPorCategoria}
+              valor={filtroCategoria}
+              aoEscolher={setFiltroCategoria}
+            />
           )}
         </div>
 
@@ -4601,6 +4596,210 @@ function GruposEditor({ produto }: { produto: Produto }) {
               </CardContent>
             </Card>
           )}
+    </div>
+  );
+}
+
+/* ─────────────────── filtro de categorias ─────────────────── */
+
+/**
+ * UMA LINHA DE CHIPS E UM PAINEL BUSCÁVEL.
+ *
+ * Com 40 categorias os chips ocupavam cinco linhas — 200px antes do primeiro
+ * produto aparecer — e achar uma exigia varrer a lista inteira com o olho.
+ * Agora: as seis primeiras na linha, o resto atrás de um painel com campo de
+ * busca, onde três letras acham qualquer uma.
+ *
+ * A CATEGORIA ATIVA ENTRA NA LINHA mesmo fora das seis primeiras. Sem isso, o
+ * lojista filtra por SORVETES, o chip não aparece, e a tela mostra um cardápio
+ * incompleto sem dizer por quê — o pior tipo de estado invisível.
+ */
+function FiltroCategorias({ categorias, contagem, valor, aoEscolher }: {
+  categorias: string[];
+  /** Quantos itens em cada categoria — o número que decide se vale abrir. */
+  contagem: Record<string, number>;
+  valor: string;
+  aoEscolher: (cat: string) => void;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [busca, setBusca] = useState('');
+  const caixa = useRef<HTMLDivElement | null>(null);
+
+  const VISIVEIS = 6;
+
+  /*
+   * As seis primeiras MAIS a ativa, sem repetir. `slice` antes de decidir:
+   * quando a ativa já está entre elas, a linha não muda de tamanho.
+   */
+  const naLinha = useMemo(() => {
+    const primeiras = categorias.slice(0, VISIVEIS);
+    return valor && !primeiras.includes(valor) ? [...primeiras, valor] : primeiras;
+  }, [categorias, valor]);
+
+  const restantes = categorias.length - naLinha.length;
+
+  const filtradas = useMemo(() => {
+    const t = busca.trim().toLowerCase();
+    if (!t) return categorias;
+    return categorias.filter(c => c.toLowerCase().includes(t));
+  }, [categorias, busca]);
+
+  /*
+   * FECHA NO CLIQUE FORA E NO ESC. Um painel que só fecha escolhendo obriga a
+   * escolher algo para sair — e a saída óbvia (clicar na lista atrás) fica
+   * bloqueada pelo próprio painel.
+   */
+  useEffect(() => {
+    if (!aberto) return;
+    const fora = (e: MouseEvent) => {
+      if (caixa.current && !caixa.current.contains(e.target as Node)) setAberto(false);
+    };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setAberto(false); };
+    document.addEventListener('mousedown', fora);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', fora);
+      document.removeEventListener('keydown', esc);
+    };
+  }, [aberto]);
+
+  function escolher(cat: string) {
+    aoEscolher(cat);
+    setAberto(false);
+    setBusca('');
+  }
+
+  const totalNaTela = valor ? (contagem[valor] ?? 0) : 0;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-start gap-2">
+        {/*
+          A LINHA ROLA NO CELULAR em vez de quebrar: com `flex-wrap` no telefone
+          as seis viram três linhas e o problema volta menor.
+        */}
+        <div className="-mx-1 flex flex-1 gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {['', ...naLinha].map(cat => {
+            const ativo = valor === cat;
+            return (
+              <button
+                key={cat || '__todas'}
+                type="button"
+                onClick={() => aoEscolher(cat)}
+                className={cn(
+                  'flex h-[34px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13.5px] font-semibold transition-colors',
+                  /* CHIP ATIVO EM PRETO, não na cor da marca: com laranja, o
+                     filtro disputava atenção com "Novo produto" na mesma dobra. */
+                  ativo
+                    ? 'bg-foreground text-background'
+                    : 'border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+                )}
+              >
+                {cat || 'Todas'}
+                {cat && (
+                  <span className={cn('text-[11.5px] tabular-nums',
+                    ativo ? 'text-background/60' : 'text-muted-foreground/70')}>
+                    {contagem[cat] ?? 0}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+
+          {restantes > 0 && (
+            <button
+              type="button"
+              onClick={() => setAberto(a => !a)}
+              className="flex h-[34px] shrink-0 items-center whitespace-nowrap rounded-full border border-dashed border-border px-3.5 text-[13.5px] font-semibold text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
+            >
+              Mais {restantes} categoria{restantes > 1 ? 's' : ''}
+            </button>
+          )}
+        </div>
+
+        {/* O botão da direita mostra SEMPRE o filtro atual — é o único lugar da
+            tela onde "Todas as categorias" x "SORVETES" fica explícito. */}
+        <div className="relative shrink-0" ref={caixa}>
+          <button
+            type="button"
+            onClick={() => setAberto(a => !a)}
+            aria-expanded={aberto}
+            className={cn(
+              'flex h-[34px] max-w-[200px] items-center gap-1.5 whitespace-nowrap rounded-lg border bg-card px-3 text-[13px] font-semibold transition-colors',
+              valor ? 'border-foreground text-foreground' : 'border-border text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <span className="truncate">{valor || 'Todas as categorias'}</span>
+            <ChevronDown className={cn('size-4 shrink-0 transition-transform', aberto && 'rotate-180')} />
+          </button>
+
+          {aberto && (
+            <div className="absolute right-0 z-30 mt-1.5 w-[320px] rounded-[13px] border border-border bg-card p-1.5 shadow-[0_24px_50px_-20px_rgba(28,25,23,0.35)]">
+              <div className="p-1">
+                <Input
+                  autoFocus
+                  value={busca}
+                  onChange={e => setBusca(e.target.value)}
+                  placeholder="Filtrar categorias"
+                  className="h-9 text-[13.5px]"
+                />
+              </div>
+
+              <div className="max-h-[300px] overflow-y-auto py-1">
+                {filtradas.length === 0 ? (
+                  <p className="px-3 py-4 text-center text-[12.5px] text-muted-foreground">
+                    Nenhuma categoria com esse nome.
+                  </p>
+                ) : filtradas.map(cat => {
+                  const ativo = valor === cat;
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => escolher(cat)}
+                      className={cn(
+                        'flex h-[34px] w-full items-center gap-2 rounded-md px-2.5 text-left text-[13.5px] transition-colors',
+                        ativo ? 'bg-primary/[0.07] font-bold' : 'hover:bg-accent',
+                      )}
+                    >
+                      {/* Slot fixo de 14px para o check: sem ele, o nome
+                          escorrega dois pixels ao trocar de categoria. */}
+                      <span className="flex w-3.5 shrink-0 justify-center">
+                        {ativo && <Check className="size-3.5 text-primary" />}
+                      </span>
+                      <span className="min-w-0 flex-1 truncate">{cat}</span>
+                      <span className="shrink-0 text-[12px] tabular-nums text-muted-foreground">
+                        {contagem[cat] ?? 0}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="flex items-center justify-between border-t border-border px-2.5 pt-2 pb-1">
+                <span className="text-[12px] text-muted-foreground">
+                  {categorias.length} categorias
+                </span>
+                <button
+                  type="button"
+                  onClick={() => escolher('')}
+                  className="text-[12.5px] font-semibold text-muted-foreground hover:text-foreground"
+                >
+                  Ver todas
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Uma linha dizendo o que está na tela: com filtro ativo, a contagem é a
+          resposta para "por que o cardápio está menor". */}
+      <p className="text-[12.5px] text-muted-foreground">
+        {valor
+          ? `${totalNaTela} ${totalNaTela === 1 ? 'item' : 'itens'} em ${valor}`
+          : `Mostrando as ${categorias.length} categorias`}
+      </p>
     </div>
   );
 }
