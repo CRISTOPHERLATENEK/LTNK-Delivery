@@ -3686,12 +3686,58 @@ async function tokenMaxxGestaoDaLoja(lojaId: number): Promise<string | null> {
   try { return descriptografar(row.maxxgestao_token) || null; } catch { return null; }
 }
 
-/** Estado do ERP da loja. O token sai MASCARADO. */
+/**
+ * Estado do ERP da loja. O token sai MASCARADO.
+ *
+ * DEVOLVE O EMISSOR TAMBÉM, e isso é conserto de bug: a tela lia o emissor pela
+ * resposta de `/tef` e mostrava "não está emitindo" com o banco em `erp`. Uma
+ * integração ler o estado dela na resposta de outra é acoplamento que não se
+ * justifica — aqui é a fonte, e é uma só.
+ */
 router.get('/erp', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const token = await tokenMaxxGestaoDaLoja(loja.id);
-    res.json({ token: mascarar(token), configurado: !!token });
+    const linha = await db.prepare('SELECT nfce_emissor FROM lojas WHERE id = ?')
+      .get(loja.id) as { nfce_emissor: string | null } | undefined;
+    res.json({
+      token: mascarar(token),
+      configurado: !!token,
+      /* Valor estranho no banco cai em 'sistema': o padrão seguro é o servidor
+         emitir. Nota a mais se corrige; nota a menos é multa. */
+      emitindo: String(linha?.nfce_emissor ?? 'sistema') === 'erp',
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * LIGA E DESLIGA A EMISSÃO PELO ERP.
+ *
+ * Endpoint próprio em vez de um campo no `PUT /tef`: quem liga a emissão do ERP
+ * não está mexendo em maquininha, e o caminho ter que passar por lá foi o que
+ * deixou a tela discordando do banco.
+ */
+router.put('/erp/emissor', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const ligar = req.body?.ligado === true;
+
+    if (ligar) {
+      /*
+       * SEM TOKEN NÃO LIGA. Não é formalidade: sem credencial nada chega no
+       * ERP, e isso não dá tela de erro — dá uma fila de vendas sem nota que
+       * ninguém percebe até o contador perguntar.
+       */
+      const token = await tokenMaxxGestaoDaLoja(loja.id);
+      if (!token) {
+        return res.status(400).json({ erro: 'Salve o token do Maxx Gestão antes de ligar a emissão.' });
+      }
+    }
+
+    await db.prepare('UPDATE lojas SET nfce_emissor = ? WHERE id = ?')
+      .run(ligar ? 'erp' : 'sistema', loja.id);
+    console.log(`[erp] loja ${loja.id}: emissor da NFC-e agora é ${ligar ? 'o Maxx Gestão' : 'este sistema'}`);
+    res.json({ emitindo: ligar });
   } catch (e) { next(e); }
 });
 

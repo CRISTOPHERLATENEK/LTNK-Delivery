@@ -2222,6 +2222,20 @@ export function PainelTef({ estado, aoMudar }: {
             ))}
           </div>
 
+          {/*
+            QUANDO O ERP É O EMISSOR, nenhuma das duas opções acima está
+            marcada — e tela sem nada marcado parece defeito. Dizer de quem é a
+            emissão evita a conclusão errada e o clique que a desfaria sem
+            querer.
+          */}
+          {emissor === 'erp' && (
+            <p className="mt-2 rounded-xl border border-border bg-muted/30 p-3.5 text-[12.5px] leading-relaxed text-muted-foreground">
+              Hoje quem emite é <b className="text-foreground">o Maxx Gestão</b> —
+              configurado em Integrações. Escolher aqui passa a emissão de volta
+              para este sistema ou para a maquininha.
+            </p>
+          )}
+
           {emissor === 'maquininha' && (
             <div className="mt-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-4">
               <p className="text-[13px] font-bold text-amber-700 dark:text-amber-500">

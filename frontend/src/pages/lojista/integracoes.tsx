@@ -29,7 +29,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { agenteAtivo, impressoraAgente } from '@/lib/agente';
-import { PainelMaxxGestao } from './painel-maxxgestao';
+import { PainelMaxxGestao, statusErp, type EstadoErp } from './painel-maxxgestao';
 import { CardIntegracao, ModalIntegracao, LogoIntegracao, Linha, Sanfona } from './integracoes-ui';
 import { WhatsAppLoja } from './whatsapp';
 import { PainelTef } from './loja-config';
@@ -117,6 +117,7 @@ export function IntegracoesLoja() {
    * Um resumo obrigaria a tela a buscar de novo o que já veio.
    */
   const [tef, setTef] = useState<EstadoTefCompleto | null>(null);
+  const [erp, setErp] = useState<EstadoErp | null>(null);
   const [zapMetodo, setZapMetodo] = useState('nenhum');
   const [agente, setAgente] = useState<{ ligado: boolean; impressora: string } | null>(null);
 
@@ -132,6 +133,7 @@ export function IntegracoesLoja() {
      * lojista não conseguir mexer nas outras.
      */
     api<EstadoTefCompleto>('GET', '/api/lojista/tef').then(setTef).catch(() => {});
+    api<EstadoErp>('GET', '/api/lojista/erp').then(setErp).catch(() => {});
     api<{ metodo_ativo: string }>('GET', '/api/lojista/whatsapp')
       .then(r => setZapMetodo(r.metodo_ativo || 'nenhum')).catch(() => {});
     agenteAtivo()
@@ -236,7 +238,7 @@ export function IntegracoesLoja() {
     <LogoIntegracao nome="Impressão" ativa={ativa} icone={<Printer className="size-[19px]" />} />
   );
   const logoErp = (ativa: boolean) => (
-    <LogoIntegracao nome="Maxx Gestão" ativa={ativa} icone={<Receipt className="size-[19px]" />} />
+    <LogoIntegracao src="/integracoes/maxxgestao.png" nome="Maxx Gestão" ativa={ativa} />
   );
 
   const ifoodOk = !!ifood?.configurado && !!ifood.merchant_id;
@@ -253,28 +255,10 @@ export function IntegracoesLoja() {
     : tef.configurado ? 'Conectada'
     : tef.pendencias.length ? `Falta ${tef.pendencias[0]}`
     : 'Falta configurar';
-  /* O emissor mora em `/tef` porque é uma configuração só, com três valores —
-     duas telas gravando o mesmo campo é melhor que dois campos discordando. */
-  const erpEmitindo = tef?.nfce_emissor === 'erp';
-
-  async function mudarEmissor(novo: 'sistema' | 'erp') {
-    /*
-     * O ERRO TEM QUE APARECER. Sem este `catch`, uma recusa do servidor (token
-     * faltando, por exemplo) virava promessa rejeitada em silêncio: o
-     * interruptor não mexia, nada era dito, e a conclusão de quem clicou é que
-     * o botão está quebrado.
-     */
-    try {
-      setTef(await api<EstadoTefCompleto>('PUT', '/api/lojista/tef', { nfce_emissor: novo }));
-      mostrar({
-        tipo: 'sucesso',
-        titulo: novo === 'erp' ? 'O Maxx Gestão passou a emitir a NFC-e' : 'A emissão voltou para este sistema',
-      });
-    } catch (err) {
-      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
-      throw err;
-    }
-  }
+  /* O estado do ERP vem da rota DELE, não da resposta do TEF. Ler o emissor na
+     resposta de outra integração foi o que deixou a tela mostrando "não está
+     emitindo" com o banco em `erp`. */
+  const erpEmitindo = !!erp?.emitindo;
 
   const zapOk = zapMetodo !== 'nenhum';
   const agenteOk = !!agente?.ligado;
@@ -311,7 +295,7 @@ export function IntegracoesLoja() {
         <CardIntegracao
           logo={logoErp(erpEmitindo)} nome="Maxx Gestão"
           /* O status responde a pergunta que importa: quem emite a nota. */
-          status={!tef ? 'Carregando…' : erpEmitindo ? 'Emitindo a NFC-e' : 'Não está emitindo'}
+          status={statusErp(erp)}
           ligada={erpEmitindo} onAbrir={() => setAberta('erp')}
         />
         <CardIntegracao
@@ -609,12 +593,9 @@ export function IntegracoesLoja() {
       <ModalIntegracao
         aberta={aberta === 'erp'} aoFechar={() => setAberta(null)}
         logo={logoErp(erpEmitindo)} nome="Maxx Gestão"
-        status={erpEmitindo ? 'Emitindo a NFC-e' : 'Não está emitindo'}
+        status={statusErp(erp)}
       >
-        <PainelMaxxGestao
-          emissor={tef?.nfce_emissor ?? 'sistema'}
-          aoMudarEmissor={mudarEmissor}
-        />
+        <PainelMaxxGestao estado={erp} aoMudar={setErp} />
       </ModalIntegracao>
 
       {/* ─────────────────────── Impressão ─────────────────────── */}
