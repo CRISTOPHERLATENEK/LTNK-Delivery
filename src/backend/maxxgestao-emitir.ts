@@ -59,6 +59,32 @@ export interface FormaPagamentoErp {
  * Unimaxx esta lista voltava VAZIA em 02/09/2026 — configuração pendente no
  * portal deles, e é isso que impede a emissão até ser resolvido.
  */
+/**
+ * TODAS as formas de pagamento da empresa — `GET /api/pagamento/v1`.
+ *
+ * É a reserva de `formasDaNatureza`, que na conta conferida volta VAZIA. E
+ * funciona: o documento aceitou `idPagamento: 1` (Dinheiro) mesmo sem a forma
+ * estar ligada à natureza, então exigir a ligação era exigência nossa, não do
+ * ERP.
+ */
+export async function formasDaEmpresa(
+  token: string,
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<FormaPagamentoErp[]> {
+  const brutos = await todasAsPaginas<Record<string, unknown>>(async p => {
+    const d = await chamarMaxxGestao(token, `/api/pagamento/v1?page=${p}&limit=100`, opcoes) as Record<string, unknown> | null;
+    const o = (d && typeof d === 'object' ? d : {}) as Record<string, unknown>;
+    return {
+      page: Number(o.page ?? 1), limit: Number(o.limit ?? 0), total: Number(o.total ?? 0),
+      totalPages: Number(o.totalPages ?? 1), hasNext: !!o.hasNext,
+      items: Array.isArray(o.items) ? (o.items as Record<string, unknown>[]) : [],
+    };
+  });
+  return brutos
+    .map(f => ({ id: Number(f.codigo ?? 0), nome: String(f.descricao ?? '').trim() }))
+    .filter(f => f.id > 0 && f.nome);
+}
+
 export async function formasDaNatureza(
   token: string,
   idNatureza: number,
@@ -89,10 +115,24 @@ export async function formasDaNatureza(
  * aparece numa fiscalização.
  */
 const APELIDOS: Record<string, string[]> = {
-  pix: ['pix'],
-  cartao_online: ['cartao', 'cartão', 'credito', 'crédito', 'cartao de credito', 'cartão de crédito'],
-  cartao_entrega: ['cartao', 'cartão', 'credito', 'crédito', 'debito', 'débito'],
+  /*
+   * A ORDEM É PREFERÊNCIA, não sinônimo. A conta da Unimaxx tem quatro formas
+   * de Pix — "PIX - MANUAL", "Pix - InfoPago", "Pixei - PIX" — e as três
+   * últimas são integrações de gateway. Dinheiro que entrou pelo NOSSO app é
+   * recebimento manual do ponto de vista do ERP.
+   */
+  pix: ['pix - manual', 'pix manual', 'pix', 'pix - infopago', 'pixei - pix'],
+  cartao_online: ['cartao de credito', 'cartão de crédito', 'credito', 'crédito', 'cartao', 'cartão'],
   dinheiro: ['dinheiro', 'especie', 'espécie'],
+  /*
+   * `cartao_entrega` NÃO ENTRA, de propósito.
+   *
+   * O cliente escolheu "cartão na entrega" e ninguém registrou se passou
+   * crédito ou débito. A conta tem as duas formas separadas, e escolher uma
+   * seria o mesmo palpite que `tipo-pagamento-nfce.ts` dá hoje ao declarar todo
+   * cartão como crédito — só que agora o palpite entraria no financeiro de
+   * verdade. Sem forma, o documento vai sem pagamento e quem sabe informa lá.
+   */
 };
 
 const semAcento = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
@@ -107,14 +147,22 @@ const semAcento = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').trim
 export function acharPagamento(formas: FormaPagamentoErp[], formaDoPedido: string): number {
   const apelidos = (APELIDOS[formaDoPedido] ?? []).map(semAcento);
   if (!apelidos.length) return 0;
-  /* Igualdade exata primeiro; só depois "contém". Sem isso, "CARTAO DEBITO"
-     poderia ganhar de "CARTAO" numa loja que tem os dois. */
-  for (const busca of [
-    (n: string) => apelidos.includes(n),
-    (n: string) => apelidos.some(a => n.includes(a)),
-  ]) {
-    const achou = formas.find(f => busca(semAcento(f.nome)));
-    if (achou) return achou.id;
+
+  /*
+   * PERCORRE OS APELIDOS NA ORDEM, e cada um tenta exato antes de "contém".
+   *
+   * Fazer o contrário — varrer as formas e aceitar qualquer apelido — deixava a
+   * ordem da resposta da API decidir: "Pixei - PIX" ganharia de "PIX - MANUAL"
+   * só por vir antes na lista. E o exato antes do "contém" existe para "CARTAO
+   * DEBITO" não ganhar de "CARTAO DE CREDITO" numa conta que tem os dois.
+   */
+  for (const apelido of apelidos) {
+    const exato = formas.find(f => semAcento(f.nome) === apelido);
+    if (exato) return exato.id;
+  }
+  for (const apelido of apelidos) {
+    const contem = formas.find(f => semAcento(f.nome).includes(apelido));
+    if (contem) return contem.id;
   }
   return 0;
 }
@@ -276,12 +324,21 @@ export async function enviarPedidoAoErp(
    * cadastro que não é nosso.
    */
   try {
+    /*
+     * A NATUREZA PRIMEIRO, A EMPRESA DEPOIS. A lista da natureza é a mais
+     * específica; quando ela está vazia — e está, nesta conta — a lista geral
+     * resolve, e o ERP aceita: provado com `idPagamento: 1` num documento sem
+     * a forma ligada à natureza.
+     */
     idPagamento = acharPagamento(await formasDaNatureza(token, idNatureza, opcoes), dados.formaPagamento);
+    if (idPagamento <= 0) {
+      idPagamento = acharPagamento(await formasDaEmpresa(token, opcoes), dados.formaPagamento);
+    }
   } catch (e) {
     console.log(`[erp] pedido ${pedidoId}: não consegui ler as formas de pagamento (${(e as Error).message}) — vai sem`);
   }
   if (idPagamento <= 0) {
-    console.log(`[erp] pedido ${pedidoId}: a forma "${dados.formaPagamento}" não está ligada à natureza ${idNatureza} — documento vai sem forma de pagamento`);
+    console.log(`[erp] pedido ${pedidoId}: não achei forma de pagamento para "${dados.formaPagamento}" no ERP — documento vai sem`);
   }
 
   const { corpo, impedimentos } = montarDocumento(dados, {

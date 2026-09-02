@@ -171,20 +171,45 @@ export function montarDocumento(
     },
     mercadoriaLista,
     /*
-     * O PAGAMENTO SÓ VAI SE DER PARA RESOLVER.
+     * O PAGAMENTO VAI EM TRÊS LISTAS, e o ERP exige as três juntas.
      *
-     * Com a forma ligada à natureza no ERP, mandar é melhor: o documento chega
-     * completo. Sem ela, mandar `idPagamento: 0` seria inventar um cadastro que
-     * não existe — e o pedido tem que chegar lá de qualquer forma, porque a
-     * parte fiscal é resolvida no ERP.
+     * Descoberto na recusa: "Quando houver pagamento informado, deve existir
+     * pelo menos uma parcela". Ou seja, `pagamentoLista` sozinha não fecha — o
+     * financeiro do ERP quer a parcela (o que se deve) e o vínculo parcela ↔
+     * pagamento (o que foi recebido). Faz sentido: sem a parcela, o valor
+     * entraria como recebimento sem contrapartida.
+     *
+     * `idSequencia` e `idParcela` são a chave: um pagamento à vista é sequência
+     * 1, parcela 1, e é isso que os três blocos apontam entre si.
+     *
+     * `status: 'B'` (aceitos: P, B ou C) = baixada. O documento só é mandado
+     * quando o pedido fecha, então o dinheiro já entrou — deixar como pendente
+     * criaria uma conta a receber que ninguém vai receber, porque já foi paga.
      */
     ...(config.idPagamento > 0
       ? {
         pagamentoLista: [{
+          idSequencia: 1,
           idPagamento: config.idPagamento,
           valor: valorDoErp(somaItens),
           valAcrescimo: 0,
           valDesconto: 0,
+        }],
+        parcelaLista: [{
+          idSequencia: 1,
+          idParcela: 1,
+          valBase: valorDoErp(somaItens),
+          valParcela: valorDoErp(somaItens),
+          dtVencimento: config.dataHora.slice(0, 10),
+          status: 'B',
+        }],
+        parcelaPagamentoLista: [{
+          idSequencia: 1,
+          idParcela: 1,
+          idSequenciaPagamento: 1,
+          idPagamento: config.idPagamento,
+          dtPagamento: config.dataHora.slice(0, 10),
+          valPagamento: valorDoErp(somaItens),
         }],
       }
       : {}),

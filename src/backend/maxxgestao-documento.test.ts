@@ -71,7 +71,13 @@ describe('o corpo do documento', () => {
      * maior que a soma das mercadorias.
      */
     const { corpo } = montarDocumento(pedido({ totalCentavos: 3800 }), config);
-    expect(corpo?.pagamentoLista).toEqual([{ idPagamento: 3, valor: 30, valAcrescimo: 0, valDesconto: 0 }]);
+    expect(corpo?.pagamentoLista).toEqual([
+      { idSequencia: 1, idPagamento: 3, valor: 30, valAcrescimo: 0, valDesconto: 0 },
+    ]);
+    /* A parcela acompanha: pagamento e parcela em valores diferentes é
+       documento que não fecha. */
+    const parcela = (corpo?.parcelaLista as Array<Record<string, unknown>>)[0];
+    expect(parcela.valParcela).toBe(30);
   });
 
   it('retirada e entrega viram B e D — não R e E', () => {
@@ -130,9 +136,41 @@ describe('na dúvida, NÃO emite', () => {
     expect(m.corpo).not.toHaveProperty('pagamentoLista');
   });
 
-  it('com forma resolvida, o pagamento vai completo', () => {
+  it('com forma resolvida, vão as TRÊS listas do financeiro', () => {
+    /*
+     * O ERP recusa `pagamentoLista` sozinha: "Quando houver pagamento
+     * informado, deve existir pelo menos uma parcela". Ele quer a parcela (o
+     * que se deve) e o vínculo parcela ↔ pagamento (o que foi recebido) — sem a
+     * parcela, o valor entraria como recebimento sem contrapartida.
+     */
     const m = montarDocumento(pedido(), config);
-    expect(m.corpo?.pagamentoLista).toEqual([{ idPagamento: 3, valor: 30, valAcrescimo: 0, valDesconto: 0 }]);
+    expect(m.corpo?.pagamentoLista).toEqual([
+      { idSequencia: 1, idPagamento: 3, valor: 30, valAcrescimo: 0, valDesconto: 0 },
+    ]);
+    expect(m.corpo?.parcelaLista).toEqual([
+      { idSequencia: 1, idParcela: 1, valBase: 30, valParcela: 30, dtVencimento: '2026-09-02', status: 'B' },
+    ]);
+    expect(m.corpo?.parcelaPagamentoLista).toEqual([
+      { idSequencia: 1, idParcela: 1, idSequenciaPagamento: 1, idPagamento: 3, dtPagamento: '2026-09-02', valPagamento: 30 },
+    ]);
+  });
+
+  it('a parcela vai BAIXADA, não pendente', () => {
+    /*
+     * O documento só é mandado quando o pedido fecha, então o dinheiro já
+     * entrou. Pendente criaria uma conta a receber que ninguém vai receber —
+     * porque já foi paga. (Valores aceitos: P, B ou C.)
+     */
+    const parcela = (montarDocumento(pedido(), config).corpo?.parcelaLista as Array<Record<string, unknown>>)[0];
+    expect(parcela.status).toBe('B');
+  });
+
+  it('sem forma, nenhuma das três listas vai', () => {
+    /* Parcela sem pagamento seria conta a receber inventada. */
+    const m = montarDocumento(pedido(), { ...config, idPagamento: 0 });
+    expect(m.corpo).not.toHaveProperty('pagamentoLista');
+    expect(m.corpo).not.toHaveProperty('parcelaLista');
+    expect(m.corpo).not.toHaveProperty('parcelaPagamentoLista');
   });
 
   it('pedido sem itens impede', () => {
