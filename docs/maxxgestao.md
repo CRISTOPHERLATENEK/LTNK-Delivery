@@ -98,15 +98,47 @@ A direção é do ERP **para** o delivery, decisão do dono do projeto: assim o
 perfil tributário já vem vinculado ao produto e o `codigoMercadoriaVariacao` que
 o documento exige vem de graça — sem nenhum palpite fiscal nosso.
 
-**O endpoint é `GET /api/mercadoria/v1?page=N&limit=50`**, que devolve o produto
-INTEIRO (52 campos). Mil produtos = 20 requisições = um minuto.
+### `GET /api/mercadoria/v1` é BUSCA, não listagem
 
-> **Registro de um caminho errado que parece razoável.** A primeira versão usou
-> `mercadoria-catalogo → categorias → /{id}/mercadorias`. Aquele último devolve
-> só INTEIROS (`PublicaPagedResponseInt32`), obrigando um GET por produto: 137
-> produtos, 137 requisições, sete minutos — e uma importação em lotes puxada
-> pela tela só para caber no limite. A diferença entre os dois endpoints não
-> está na documentação.
+**Sem o parâmetro `filtro` ele devolve `total: 0`.** Não é "nenhum produto": é
+"nenhum resultado para busca vazia". Numa conta com **1.108 mercadorias**
+cadastradas, a nossa importação disse "nada para importar" — e o erro parecia
+estar no cadastro do cliente.
+
+Com filtro, devolve o produto INTEIRO (52 campos), **até 100 por página** (pedir
+500 volta 100). E uma letra sozinha cobre quase tudo — medido na conta real:
+
+| filtro | produtos |
+|---|---|
+| `a` | 1.034 de 1.108 |
+| `e` | 1.004 |
+| `o` | 989 |
+| `i` | 926 |
+| `r` | 839 |
+| vazio | **0** |
+
+Por isso a leitura é uma **varredura por vogais e dígitos** com deduplicação por
+`codigoMercadoriaVariacao` (a mesma mercadoria aparece em várias letras).
+`filtro=a` sozinho são 11 requisições.
+
+**A lista completa de ids** vem de `GET /api/mercadoria-secao/{id}/mercadorias/v1`
+— devolve os 1.108 como inteiros (`PublicaPagedResponseInt32`). Serve para UMA
+coisa: saber o que ainda existe lá, e portanto o que pode ser pausado aqui. Para
+os DADOS custaria uma requisição por produto: 1.108 a 20/min é quase uma hora.
+
+> **Duas voltas erradas registradas.** Primeiro escolhi o caminho por ids do
+> catálogo sem comparar com a listagem — caro. Depois "corrigi" para a listagem
+> plana sem testá-la com a conta cheia — e ela devolve zero sem `filtro`. As
+> duas escolhas pareciam razoáveis; a diferença só aparece medindo.
+
+**A importação vem em pedaços.** Cada `POST /api/lojista/erp/importar` gasta um
+orçamento de 25s, devolve o que fez e diz quais letras faltam (`restantes`,
+`terminou`); a tela chama de novo até terminar, com teto de voltas. Uma
+requisição só ficaria minutos aberta esperando o limitador.
+
+**Pausar só no fim, e só com a lista completa.** Durante a varredura, "não
+apareceu" significa "ainda não chegou a vez" — pausar aí tiraria do ar metade do
+cardápio a cada importação.
 
 **A categoria vem do subgrupo da mercadoria** (`/api/mercadoria-subgrupo/v1`),
 com o grupo como reserva. Não existe endpoint que ligue item a categoria de

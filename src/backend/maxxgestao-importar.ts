@@ -52,7 +52,18 @@ export const PLANO_VAZIO: PlanoImportacao = { criar: [], atualizar: [], pausar: 
 export function planejarImportacao(
   doErp: ItemDoCatalogo[],
   nossos: ProdutoNosso[],
+  opcoes: {
+    /**
+     * Pausar o que não apareceu? Só com a lista COMPLETA do ERP.
+     *
+     * A leitura é uma varredura por letra, em pedaços, para caber no limite de
+     * requisições. Num pedaço, "não apareceu" significa "ainda não chegou a
+     * vez" — pausar aí tiraria do ar metade do cardápio a cada importação.
+     */
+    pausarAusentes?: boolean;
+  } = {},
 ): PlanoImportacao {
+  const pausarAusentes = opcoes.pausarAusentes !== false;
   const plano: PlanoImportacao = { criar: [], atualizar: [], pausar: [], semMudanca: 0 };
 
   const porVariacao = new Map<number, ProdutoNosso>();
@@ -112,9 +123,11 @@ export function planejarImportacao(
    * delivery (`variacaoErp = 0`) não é da conta desta importação — pausá-lo
    * seria apagar do ar o cardápio que o lojista montou à mão.
    */
-  for (const nosso of nossos) {
-    if (nosso.variacaoErp > 0 && !vistos.has(nosso.variacaoErp) && nosso.disponivel) {
-      plano.pausar.push(nosso.id);
+  if (pausarAusentes) {
+    for (const nosso of nossos) {
+      if (nosso.variacaoErp > 0 && !vistos.has(nosso.variacaoErp) && nosso.disponivel) {
+        plano.pausar.push(nosso.id);
+      }
     }
   }
 

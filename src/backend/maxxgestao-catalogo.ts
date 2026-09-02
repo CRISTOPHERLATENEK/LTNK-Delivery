@@ -7,18 +7,22 @@
  * caminho contrário — cadastrar produto no ERP a partir do nosso — obrigaria
  * alguém a escolher NCM, CFOP e CSOSN no nosso cadastro, e errar isso é multa.
  *
- * O CAMINHO É `GET /api/mercadoria/v1`, PAGINADO — e isso importa.
+ * `GET /api/mercadoria/v1` É BUSCA, NÃO LISTAGEM — e essa é a pegadinha.
  *
- * A listagem devolve o produto INTEIRO (os 52 campos), 50 por página. Com o
- * limite de 20 requisições por minuto, um cardápio de mil itens sai em 20
- * páginas, ou seja num minuto.
+ * Sem o parâmetro `filtro` ele devolve `total: 0`. Não é "nenhum produto": é
+ * "nenhum resultado para busca vazia". Numa conta com 1.108 mercadorias
+ * cadastradas, a nossa primeira importação disse "nada para importar" — e o
+ * erro parecia estar no cadastro do cliente.
  *
- * O caminho pelo catálogo (`/mercadoria-catalogo/{id}/mercadorias/v1`) foi a
- * minha primeira escolha e era ruim: aquele endpoint devolve só INTEIROS
- * (`PublicaPagedResponseInt32`), obrigando um GET por produto — 137 produtos,
- * 137 requisições, sete minutos. Fica registrado porque a diferença entre os
- * dois não está na documentação, e a escolha errada parece razoável até alguém
- * comparar.
+ * COM filtro ele devolve o produto INTEIRO (52 campos), até 100 por página. E
+ * uma letra sozinha cobre quase tudo: na conta conferida, `filtro=a` traz 1.034
+ * dos 1.108 em 11 requisições. Por isso a leitura é uma VARREDURA por vogais e
+ * dígitos, com deduplicação — não um GET por produto.
+ *
+ * O caminho por ids (`/mercadoria-secao/{id}/mercadorias/v1`, que devolve os
+ * 1.108 como inteiros) continua servindo para UMA coisa: saber o que existe lá,
+ * e portanto o que sumiu daqui. Para os dados do produto ele custaria uma
+ * requisição por item — 1.108 a 20 por minuto é quase uma hora.
  *
  * A CATEGORIA vem do subgrupo (ou do grupo) da mercadoria, não das categorias
  * do catálogo: não existe endpoint que ligue item a categoria do catálogo — só
@@ -193,19 +197,30 @@ export async function mapaDeCategorias(
 }
 
 /**
- * TODAS as mercadorias da empresa, com os campos que interessam.
+ * As letras da varredura.
  *
- * `limit=50` e não 500: o limite deles é de requisições, não de bytes, mas
- * página gigante é o tipo de coisa que a API corta em silêncio e devolve
- * incompleta. Cinquenta é o que a própria doc usa nos exemplos.
+ * Vogais primeiro porque descrição de produto sem vogal praticamente não
+ * existe; os dígitos pegam nomes numéricos ("3 CORACOES"). A ordem importa: a
+ * primeira letra já traz a maior parte, então uma importação interrompida no
+ * meio ainda deixa o cardápio quase completo.
  */
-export async function listarMercadorias(
+export const LETRAS_VARREDURA = ['a', 'e', 'o', 'i', 'u', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+
+/**
+ * Busca mercadorias por um filtro, com todas as páginas.
+ *
+ * `limit=100` porque é o teto deles: pedir 500 devolve 100 e a página 1 de 11
+ * viraria 1 de 11 do mesmo jeito — só sem a gente saber.
+ */
+export async function buscarMercadorias(
   token: string,
+  filtro: string,
   mapas: { subgrupos: Map<number, string>; grupos: Map<number, string> },
   opcoes: OpcoesMaxxGestao = {},
 ): Promise<Array<{ produto: ProdutoErp; categoria: string }>> {
   const brutos = await todasAsPaginas<Record<string, unknown>>(async p =>
-    pagina(await chamarMaxxGestao(token, `/api/mercadoria/v1?page=${p}&limit=50`, opcoes)));
+    pagina(await chamarMaxxGestao(
+      token, `/api/mercadoria/v1?filtro=${encodeURIComponent(filtro)}&page=${p}&limit=100`, opcoes)));
   const fora: Array<{ produto: ProdutoErp; categoria: string }> = [];
   for (const b of brutos) {
     const produto = produtoDoErp(b);
@@ -214,6 +229,29 @@ export async function listarMercadorias(
     if (produto) fora.push({ produto, categoria: categoriaDoProduto(b, mapas) });
   }
   return fora;
+}
+
+/**
+ * TODOS os códigos de mercadoria que existem na empresa, pela seção.
+ *
+ * Só ids, e é o suficiente para o que ele serve: saber o que ainda existe lá, e
+ * portanto o que pode ser pausado aqui. Usar isto para trazer os DADOS custaria
+ * uma requisição por produto.
+ */
+export async function idsDaSecao(
+  token: string,
+  idSecao: number,
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<Set<number>> {
+  const brutos = await todasAsPaginas<unknown>(async p =>
+    pagina(await chamarMaxxGestao(
+      token, `/api/mercadoria-secao/${idSecao}/mercadorias/v1?page=${p}&limit=100`, opcoes)));
+  const ids = new Set<number>();
+  for (const b of brutos) {
+    const n = Number(b);
+    if (Number.isFinite(n) && n > 0) ids.add(n);
+  }
+  return ids;
 }
 
 /** A categoria do cardápio: subgrupo, depois grupo, depois nada. */
@@ -238,7 +276,7 @@ export function categoriaDoProduto(
  * começar — "137 itens, cerca de 7 minutos" — em vez de deixar a pessoa olhando
  * um spinner e concluindo que travou.
  */
-export function segundosEstimados(quantidadeDeProdutos: number, porPagina = 50, porMinuto = 20): number {
+export function segundosEstimados(quantidadeDeProdutos: number, porPagina = 100, porMinuto = 20): number {
   if (quantidadeDeProdutos <= 0) return 0;
   const paginas = Math.ceil(quantidadeDeProdutos / porPagina);
   /* As primeiras `porMinuto` requisições saem sem espera (o balde começa

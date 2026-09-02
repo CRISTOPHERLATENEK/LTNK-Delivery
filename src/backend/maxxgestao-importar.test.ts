@@ -5,7 +5,7 @@ import {
   planejarImportacao, planoVazio, resumoDoPlano,
   type ItemDoCatalogo, type ProdutoNosso,
 } from './maxxgestao-importar';
-import { produtoDoErp, segundosEstimados, todasAsPaginas, categoriaDoProduto } from './maxxgestao-catalogo';
+import { produtoDoErp, segundosEstimados, todasAsPaginas, categoriaDoProduto, LETRAS_VARREDURA } from './maxxgestao-catalogo';
 
 const doErp = (variacao: number, descricao: string, extra: Partial<ItemDoCatalogo['produto']> = {}): ItemDoCatalogo => ({
   categoria: 'Lanches',
@@ -217,10 +217,10 @@ describe('a paginação e o tempo', () => {
      */
     expect(segundosEstimados(0)).toBe(0);
     expect(segundosEstimados(137)).toBe(0);
-    /* Mil páginas de folga: só passa a esperar acima de 20 requisições, ou seja
-       acima de mil produtos. */
-    expect(segundosEstimados(50 * 20)).toBe(0);
-    expect(segundosEstimados(50 * 21)).toBe(3);
+    /* Cem por página: só passa a esperar acima de 20 requisições, ou seja acima
+       de dois mil produtos numa varredura. */
+    expect(segundosEstimados(100 * 20)).toBe(0);
+    expect(segundosEstimados(100 * 21)).toBe(3);
   });
 
   it('a categoria vem do subgrupo, e cai no grupo', () => {
@@ -230,5 +230,42 @@ describe('a paginação e o tempo', () => {
     expect(categoriaDoProduto({ idSubgrupo: 2, idGrupo: 6 }, mapas)).toBe('SALGADINHOS');
     expect(categoriaDoProduto({ idSubgrupo: 99, idGrupo: 6 }, mapas)).toBe('Restaurantes');
     expect(categoriaDoProduto({}, mapas)).toBe('');
+  });
+});
+
+describe('a varredura por letra', () => {
+  it('não pausa nada quando a lista está incompleta', () => {
+    /*
+     * A LEITURA VEM EM PEDAÇOS. Num pedaço, "não apareceu" significa "ainda não
+     * chegou a vez" — pausar aí tiraria do ar metade do cardápio a cada
+     * importação, e o lojista descobriria pelo cliente reclamando.
+     */
+    const p = planejarImportacao([], [nosso(11, 'Açaí')], { pausarAusentes: false });
+    expect(p.pausar).toEqual([]);
+  });
+
+  it('com a lista completa, pausa como antes', () => {
+    /* O padrão continua sendo pausar: quem chama em pedaços é que desliga. */
+    expect(planejarImportacao([], [nosso(11, 'Açaí')]).pausar).toEqual([11]);
+    expect(planejarImportacao([], [nosso(11, 'Açaí')], {}).pausar).toEqual([11]);
+  });
+
+  it('as letras começam pelas vogais', () => {
+    /*
+     * Descrição de produto sem vogal praticamente não existe, e a primeira letra
+     * já traz a maior parte: na conta conferida, `filtro=a` devolveu 1.034 dos
+     * 1.108. Assim uma importação interrompida no meio deixa o cardápio quase
+     * completo em vez de aleatório.
+     */
+    expect(LETRAS_VARREDURA.slice(0, 5)).toEqual(['a', 'e', 'o', 'i', 'u']);
+    /* Dígitos existem para nomes numéricos ("3 CORACOES"). */
+    expect(LETRAS_VARREDURA).toContain('3');
+  });
+
+  it('a estimativa conta páginas de 100, não produtos', () => {
+    /* A busca devolve até 100 por página — 500 é recusado e volta 100, então
+       pedir mais só esconderia o número real de páginas. */
+    expect(segundosEstimados(1108)).toBe(0);
+    expect(segundosEstimados(100 * 21)).toBe(3);
   });
 });

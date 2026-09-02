@@ -38,7 +38,7 @@ import {
 import { criptografar, descriptografar } from '../cripto';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
 import { consultarEmpresa, formatarCnpj } from '../maxxgestao-cliente';
-import { listarMercadorias, mapaDeCategorias } from '../maxxgestao-catalogo';
+import { buscarMercadorias, mapaDeCategorias, idsDaSecao, LETRAS_VARREDURA } from '../maxxgestao-catalogo';
 import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, type ItemDoCatalogo } from '../maxxgestao-importar';
 import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
 import { emitirPedidoNoErp } from '../maxxgestao-emitir';
@@ -3759,11 +3759,34 @@ router.post('/erp/importar', async (req, res, next) => {
     const token = await tokenMaxxGestaoDaLoja(loja.id);
     if (!token) return res.status(400).json({ erro: 'Cole o token do Maxx Gestão primeiro.' });
 
+    /*
+     * A VARREDURA VEM EM PEDAÇOS, e a tela pede o próximo.
+     *
+     * São 20 requisições por minuto por token, e uma letra custa até 11 páginas.
+     * Uma requisição HTTP nossa não pode ficar minutos aberta esperando o
+     * limitador — então cada chamada gasta um orçamento de tempo, devolve o que
+     * fez e diz quais letras faltam. A tela chama de novo até `terminou`.
+     */
+    const pedidas: string[] = Array.isArray(req.body?.letras) && req.body.letras.length
+      ? req.body.letras.map((l: unknown) => String(l)).filter((l: string) => l.length === 1)
+      : LETRAS_VARREDURA;
+
     const comecou = Date.now();
-    let doErp: ItemDoCatalogo[];
+    const ORCAMENTO_MS = 25_000;
+
+    const porVariacao = new Map<number, ItemDoCatalogo>();
+    const restantes: string[] = [];
+    let mapas: Awaited<ReturnType<typeof mapaDeCategorias>>;
     try {
-      const mapas = await mapaDeCategorias(token);
-      doErp = await listarMercadorias(token, mapas);
+      mapas = await mapaDeCategorias(token);
+      for (let k = 0; k < pedidas.length; k++) {
+        if (Date.now() - comecou > ORCAMENTO_MS) { restantes.push(...pedidas.slice(k)); break; }
+        for (const item of await buscarMercadorias(token, pedidas[k], mapas)) {
+          /* Dedup por variação: a mesma mercadoria aparece em várias letras, e
+             importá-la duas vezes criaria produto duplicado no cardápio. */
+          if (!porVariacao.has(item.produto.variacao)) porVariacao.set(item.produto.variacao, item);
+        }
+      }
     } catch (e) {
       /* Falha de leitura não escreve nada: importação pela metade é pior que
          nenhuma, porque ninguém sabe qual metade entrou. */
@@ -3771,21 +3794,51 @@ router.post('/erp/importar', async (req, res, next) => {
       return res.status(400).json({ erro: erro.message || 'Não consegui ler o cardápio do Maxx Gestão.' });
     }
 
+    const terminou = restantes.length === 0;
+    const doErp = [...porVariacao.values()];
     const nossos = await produtosDaLoja(loja.id);
-    const plano = planejarImportacaoErp(doErp, nossos);
+
+    /*
+     * PAUSAR SÓ NO FIM, e com a lista completa vinda da seção — que é barata
+     * porque devolve só ids. Pausar durante a varredura tiraria do ar o que
+     * ainda não chegou a ser lido.
+     */
+    let plano = planejarImportacaoErp(doErp, nossos, { pausarAusentes: false });
+    if (terminou) {
+      try {
+        const existentes = await idsDaSecao(token, 1);
+        if (existentes.size > 0) {
+          for (const p of nossos) {
+            if (p.variacaoErp > 0 && !existentes.has(p.variacaoErp) && p.disponivel) plano.pausar.push(p.id);
+          }
+        }
+      } catch {
+        /* Sem a lista completa, não pausa nada — e isso é o lado seguro:
+           produto a mais no cardápio se resolve na mão, cardápio pausado por
+           engano some do ar para o cliente. */
+      }
+    }
+
     const gravado = await aplicarPlano(loja.id, plano);
 
     console.log(
-      `[erp] loja ${loja.id}: ${doErp.length} do ERP, `
+      `[erp] loja ${loja.id}: ${doErp.length} lidos em ${pedidas.length - restantes.length} letra(s), `
       + `${gravado.criados} criados, ${gravado.atualizados} atualizados, `
-      + `${gravado.pausados} pausados em ${Date.now() - comecou}ms`,
+      + `${gravado.pausados} pausados em ${Date.now() - comecou}ms`
+      + (terminou ? '' : ` — faltam ${restantes.length} letra(s)`),
     );
 
     res.json({
       lidos: doErp.length,
       ...gravado,
       sem_mudanca: plano.semMudanca,
-      resumo: resumoDoPlanoErp(plano),
+      restantes,
+      terminou,
+      resumo: !terminou
+        ? `${gravado.criados + gravado.atualizados} produtos até agora — continuando…`
+        : doErp.length === 0
+          ? 'O Maxx Gestão não devolveu nenhum produto nesta empresa.'
+          : resumoDoPlanoErp(plano),
     });
   } catch (e) { next(e); }
 });

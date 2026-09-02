@@ -258,8 +258,22 @@ export function IntegracoesLoja() {
   const erpEmitindo = tef?.nfce_emissor === 'erp';
 
   async function mudarEmissor(novo: 'sistema' | 'erp') {
-    const r = await api<EstadoTefCompleto>('PUT', '/api/lojista/tef', { nfce_emissor: novo });
-    setTef(r);
+    /*
+     * O ERRO TEM QUE APARECER. Sem este `catch`, uma recusa do servidor (token
+     * faltando, por exemplo) virava promessa rejeitada em silêncio: o
+     * interruptor não mexia, nada era dito, e a conclusão de quem clicou é que
+     * o botão está quebrado.
+     */
+    try {
+      setTef(await api<EstadoTefCompleto>('PUT', '/api/lojista/tef', { nfce_emissor: novo }));
+      mostrar({
+        tipo: 'sucesso',
+        titulo: novo === 'erp' ? 'O Maxx Gestão passou a emitir a NFC-e' : 'A emissão voltou para este sistema',
+      });
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+      throw err;
+    }
   }
 
   const zapOk = zapMetodo !== 'nenhum';

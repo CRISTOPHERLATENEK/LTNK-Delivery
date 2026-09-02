@@ -56,18 +56,46 @@ export function PainelMaxxGestao({ emissor, aoMudarEmissor }: {
   const [importando, setImportando] = useState(false);
   const [resumo, setResumo] = useState('');
 
+  /**
+   * A IMPORTAÇÃO VEM EM PEDAÇOS, e a tela pede o próximo.
+   *
+   * O servidor varre o catálogo por letra e para quando gasta o orçamento de
+   * tempo, devolvendo quais letras faltam. Uma requisição só ficaria minutos
+   * aberta esperando o limite de 20 requisições por minuto do ERP.
+   *
+   * O laço tem TETO. Um `restantes` que nunca encurta — por bug nosso ou deles
+   * — viraria requisição infinita contra a API de um cliente.
+   */
   async function importar() {
     setImportando(true);
     setResumo('');
+    let letras: string[] | undefined;
+    let criadosTotal = 0;
     try {
-      const r = await api<{ resumo: string; criados: number }>('POST', '/api/lojista/erp/importar', {});
-      setResumo(r.resumo);
-      /*
-       * O toast diz o RESUMO, não "importado com sucesso": produto novo entra
-       * pausado e a R$ 0,01, e quem acabou de clicar é quem precisa saber disso
-       * agora — não depois, quando um cliente comprar por um centavo.
-       */
-      mostrar({ tipo: r.criados ? 'sucesso' : 'info', titulo: r.resumo });
+      for (let volta = 0; volta < 20; volta++) {
+        const r = await api<{
+          resumo: string; criados: number; restantes: string[]; terminou: boolean;
+        }>('POST', '/api/lojista/erp/importar', letras ? { letras } : {});
+        criadosTotal += r.criados;
+        setResumo(r.resumo);
+        if (r.terminou) {
+          /*
+           * O toast diz o RESUMO, não "importado com sucesso": produto novo
+           * entra pausado e a R$ 0,01, e quem clicou é quem precisa saber disso
+           * agora — não depois, quando um cliente comprar por um centavo.
+           */
+          mostrar({ tipo: criadosTotal ? 'sucesso' : 'info', titulo: r.resumo });
+          return;
+        }
+        /* Sem avanço não insiste: repetir a mesma lista de letras seria laço
+           infinito com cara de progresso. */
+        if (!r.restantes?.length || (letras && r.restantes.length >= letras.length)) {
+          mostrar({ tipo: 'erro', titulo: 'A importação parou de avançar. Tente de novo.' });
+          return;
+        }
+        letras = r.restantes;
+      }
+      mostrar({ tipo: 'erro', titulo: 'A importação passou do limite de tentativas.' });
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
