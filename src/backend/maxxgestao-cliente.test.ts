@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import {
   chamarMaxxGestao, consultarEmpresa, formatarCnpj, mensagemPorStatus,
   BASE_MAXXGESTAO, LIMITE_POR_MINUTO, ErroMaxxGestao,
+  limparLimitesMaxxGestao, reporFichas, baldeNovo, esperaEmMs,
 } from './maxxgestao-cliente';
 
 /** Um `fetch` que grava o que recebeu e devolve o que mandarem. */
@@ -193,5 +194,110 @@ describe('o servidor não emite junto com o ERP', () => {
     expect(i).toBeGreaterThan(0);
     const trecho = fonte.slice(Math.max(0, i - 400), i);
     expect(trecho).toContain("!v.startsWith('****')");
+  });
+});
+
+describe('o limite de 20 requisições por minuto', () => {
+  /*
+   * O limite é POR TOKEN. Emitir uma nota por pedido cabe folgado nos 20;
+   * espelhar catálogo, não. Sem limitador a primeira sincronização manda tudo
+   * de uma vez, toma 429 no meio, e sobra catálogo pela metade no ERP — pior
+   * que nenhum, porque ninguém sabe qual metade existe.
+   */
+  function relogio(inicio = 1_000_000) {
+    let t = inicio;
+    const dormidas: number[] = [];
+    return {
+      dormidas,
+      deps: {
+        agora: () => t,
+        /* Não espera de verdade: anota quanto teria esperado e adianta o
+           relógio. Teste que dorme 3 segundos por chamada ninguém roda. */
+        dormir: async (ms: number) => { dormidas.push(ms); t += ms; },
+      },
+    };
+  }
+
+  beforeEach(() => limparLimitesMaxxGestao());
+
+  it('as primeiras 20 saem sem esperar', async () => {
+    /* O teste de conexão do lojista não pode levar 3 segundos para dizer
+       "conectado" — daí balde de fichas, e não intervalo fixo. */
+    const r = relogio();
+    const { buscar } = espiao(200, EMPRESA);
+    for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
+      await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps });
+    }
+    expect(r.dormidas).toEqual([]);
+  });
+
+  it('a 21ª espera os 3 segundos da próxima ficha', async () => {
+    const r = relogio();
+    const { buscar } = espiao(200, EMPRESA);
+    for (let i = 0; i < LIMITE_POR_MINUTO + 1; i++) {
+      await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps });
+    }
+    expect(r.dormidas).toHaveLength(1);
+    /* 20 fichas por minuto = uma a cada 3000ms. */
+    expect(r.dormidas[0]).toBe(3000);
+  });
+
+  it('chamadas simultâneas NÃO furam a conta', async () => {
+    /*
+     * A serialização é o que faz o limitador valer. Sem a fila, 25 chamadas
+     * disparadas juntas leem o balde no mesmo instante, todas veem 20 fichas e
+     * todas passam — o limitador existiria só no papel.
+     */
+    const r = relogio();
+    const { buscar } = espiao(200, EMPRESA);
+    await Promise.all(
+      Array.from({ length: 25 }, () => chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps })),
+    );
+    expect(r.dormidas).toHaveLength(5);
+  });
+
+  it('esperar repõe fichas, e a rajada seguinte passa direto', async () => {
+    const r = relogio();
+    const { buscar } = espiao(200, EMPRESA);
+    for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
+      await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps });
+    }
+    /* Um minuto parado devolve o balde cheio. */
+    r.deps.agora = (() => { const t = 1_000_000 + 60_000; return () => t; })();
+    r.dormidas.length = 0;
+    for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
+      await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps });
+    }
+    expect(r.dormidas).toEqual([]);
+  });
+
+  it('a conta é por TOKEN, não global', async () => {
+    /* Uma loja sincronizando catálogo não pode atrasar a nota de outra. */
+    const r = relogio();
+    const { buscar } = espiao(200, EMPRESA);
+    for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
+      await chamarMaxxGestao('loja-a', '/x', { buscar, limite: r.deps });
+    }
+    r.dormidas.length = 0;
+    await chamarMaxxGestao('loja-b', '/x', { buscar, limite: r.deps });
+    expect(r.dormidas).toEqual([]);
+  });
+
+  it('uma falha não trava a fila das seguintes', async () => {
+    /* Erro de uma chamada é problema de quem a chamou. Deixar a exceção
+       derrubar a corrente pararia o token até o processo reiniciar. */
+    const r = relogio();
+    const quebrado = (async () => { throw new Error('caiu'); }) as unknown as typeof fetch;
+    await expect(chamarMaxxGestao('tok', '/x', { buscar: quebrado, limite: r.deps })).rejects.toThrow();
+    const { buscar } = espiao(200, EMPRESA);
+    await expect(chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps })).resolves.toBeTruthy();
+  });
+
+  it('o balde nunca passa da capacidade', () => {
+    /* Ficar parado uma hora não dá direito a 1200 chamadas de uma vez — isso
+       tomaria 429 na cara, que é justamente o que o limitador evita. */
+    const cheio = reporFichas(baldeNovo(0), 3_600_000);
+    expect(cheio.fichas).toBe(LIMITE_POR_MINUTO);
+    expect(esperaEmMs(cheio)).toBe(0);
   });
 });

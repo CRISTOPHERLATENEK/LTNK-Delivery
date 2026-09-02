@@ -18,6 +18,7 @@
  * simplifica (nada expira, nada de refresh) e obriga a tratá-lo como senha: é
  * gravado cifrado na linha da loja, igual ao do Mercado Pago.
  */
+import { createHash } from 'crypto';
 
 /** Único servidor da API. Homologação/produção é escolha do ERP, não do host. */
 export const BASE_MAXXGESTAO = 'https://api.meuerponline.com.br/publica';
@@ -29,11 +30,133 @@ export const BASE_MAXXGESTAO = 'https://api.meuerponline.com.br/publica';
  */
 export const LIMITE_POR_MINUTO = 20;
 
+/**
+ * ─────────────────── O LIMITE DE REQUISIÇÕES, DE VERDADE ───────────────────
+ *
+ * A doc deles: 20 requisições por token, reposição de 20 a cada minuto, fila de
+ * 10, e HTTP 429 ao estourar. O limite é POR TOKEN — não por IP, não por rota.
+ *
+ * ISTO NÃO É ZELO EXCESSIVO. Emitir uma nota por pedido cabe folgado nos 20;
+ * espelhar catálogo, não. Sem limitador, a primeira sincronização de mercadoria
+ * manda tudo de uma vez, toma 429 no meio, e o resultado é catálogo pela metade
+ * — metade dos produtos existindo no ERP e metade não, que é pior que nenhum,
+ * porque ninguém sabe qual metade.
+ *
+ * Balde de fichas, e não "uma chamada a cada 3 segundos": o balde deixa as
+ * primeiras 20 saírem na hora — o teste de conexão do lojista não pode esperar
+ * 3 segundos para dizer "conectado" — e só freia quando a rajada acaba.
+ */
+
+/** Estado do balde de um token. */
+export interface BaldeFichas {
+  fichas: number;
+  /** Quando as fichas foram recalculadas por último (ms). */
+  emMs: number;
+}
+
+/** Balde cheio. Começa cheio porque o minuto anterior não foi usado. */
+export function baldeNovo(agoraMs: number): BaldeFichas {
+  return { fichas: LIMITE_POR_MINUTO, emMs: agoraMs };
+}
+
+/**
+ * Repõe as fichas pelo tempo passado.
+ *
+ * Reposição CONTÍNUA (uma ficha a cada 3s), não em degrau de minuto: em degrau,
+ * quem estourasse às 10:00:59 esperaria 1 segundo e quem estourasse às 10:00:01
+ * esperaria 59 — mesma fila, esperas absurdamente diferentes.
+ */
+export function reporFichas(balde: BaldeFichas, agoraMs: number): BaldeFichas {
+  const decorrido = Math.max(0, agoraMs - balde.emMs);
+  const ganhas = (decorrido / 60_000) * LIMITE_POR_MINUTO;
+  return { fichas: Math.min(LIMITE_POR_MINUTO, balde.fichas + ganhas), emMs: agoraMs };
+}
+
+/** Quanto esperar até haver uma ficha. Zero quando já dá para chamar. */
+export function esperaEmMs(balde: BaldeFichas): number {
+  if (balde.fichas >= 1) return 0;
+  return Math.ceil(((1 - balde.fichas) / LIMITE_POR_MINUTO) * 60_000);
+}
+
+/*
+ * A CHAVE É O HASH DO TOKEN, não o token.
+ *
+ * O limite é por token, então a conta precisa ser por token — mas guardar o
+ * segredo como chave de um Map deixa ele legível em heap dump e em qualquer log
+ * que despeje a estrutura. O hash identifica igual e não revela nada.
+ */
+function chaveDoToken(token: string): string {
+  return createHash('sha256').update(token.trim()).digest('hex').slice(0, 16);
+}
+
+const baldes = new Map<string, BaldeFichas>();
+/** A fila de cada token: promessas encadeadas, uma chamada por vez. */
+const filas = new Map<string, Promise<unknown>>();
+
+/** Só para teste: esquece o que foi contado. */
+export function limparLimitesMaxxGestao(): void {
+  baldes.clear();
+  filas.clear();
+}
+
+export interface DepsLimite {
+  agora?: () => number;
+  dormir?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Roda `fn` respeitando o limite do token.
+ *
+ * SERIALIZA POR TOKEN, e é isso que faz a conta valer. Sem a fila, dez chamadas
+ * disparadas juntas leem o balde no mesmo instante, todas veem 20 fichas e
+ * todas passam — o limitador existiria só no papel.
+ *
+ * A fila é por token e não global: uma loja sincronizando catálogo não pode
+ * atrasar a nota de outra.
+ */
+export async function comLimiteMaxxGestao<T>(
+  token: string,
+  fn: () => Promise<T>,
+  deps: DepsLimite = {},
+): Promise<T> {
+  const agora = deps.agora ?? Date.now;
+  const dormir = deps.dormir ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
+  const chave = chaveDoToken(token);
+
+  const anterior = filas.get(chave) ?? Promise.resolve();
+  const minha = anterior.then(async () => {
+    let balde = reporFichas(baldes.get(chave) ?? baldeNovo(agora()), agora());
+    const espera = esperaEmMs(balde);
+    if (espera > 0) {
+      await dormir(espera);
+      balde = reporFichas(balde, agora());
+    }
+    baldes.set(chave, { fichas: Math.max(0, balde.fichas - 1), emMs: balde.emMs });
+    return fn();
+  });
+
+  /*
+   * NA FILA VAI A VERSÃO JÁ TRATADA. A falha de uma chamada não pode derrubar
+   * as seguintes — cada uma reporta o próprio erro a quem a chamou — e uma
+   * promessa rejeitada guardada aqui viraria "unhandled rejection" quando
+   * ninguém mais a observasse.
+   *
+   * Um `.catch` só: eu havia escrito dois (aqui e antes do `.then`), e
+   * sabotando um por vez o teste continuou passando — porque qualquer um deles
+   * sozinho já protege. Código que sobrevive à própria remoção não estava
+   * fazendo nada.
+   */
+  filas.set(chave, minha.catch(() => {}));
+  return minha;
+}
+
 export interface OpcoesMaxxGestao {
   /** Injetável para teste. */
   buscar?: typeof fetch;
   baseUrl?: string;
   timeoutMs?: number;
+  /** Relógio e espera injetáveis — o limitador é testado sem esperar de verdade. */
+  limite?: DepsLimite;
 }
 
 export class ErroMaxxGestao extends Error {
@@ -66,7 +189,9 @@ export async function chamarMaxxGestao(
 
   let resp: Response;
   try {
-    resp = await buscar(`${base}${caminho}`, {
+    /* Toda chamada passa pelo balde, inclusive a leitura do teste de conexão:
+       limite que vale só para algumas rotas não é limite, é sorte. */
+    resp = await comLimiteMaxxGestao(token, () => buscar(`${base}${caminho}`, {
       ...init,
       headers: {
         /* NÃO É `Bearer`. O prefixo é `Authentication`, como manda a doc deles —
@@ -76,7 +201,7 @@ export async function chamarMaxxGestao(
         ...(init.headers as Record<string, string> | undefined),
       },
       signal: controlador.signal,
-    });
+    }), opcoes.limite);
   } catch {
     /* Zero em `httpStatus` = INDEFINIDO. Para leitura dá para repetir à
        vontade; para escrita (criar documento) quem chama tem que consultar

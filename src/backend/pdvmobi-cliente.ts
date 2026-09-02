@@ -327,6 +327,7 @@ export function valorParaAmount(centavos: number): string {
 
 /** O corpo do `newItem`, no formato exato do exemplo oficial. */
 export function corpoDaCobranca(c: CobrancaPos): Record<string, unknown> {
+  const forma = c.idPagamento?.trim() ?? '';
   const extras: Record<string, string> = {};
   /* `Extras` só leva o que existe: mandar CPF vazio é declarar consumidor
      identificado sem identificar ninguém. */
@@ -337,18 +338,27 @@ export function corpoDaCobranca(c: CobrancaPos): Record<string, unknown> {
     NumSerialPOS: c.serialPos?.trim() ?? '',
     IDCobranca: c.idCobranca,
     /*
-     * A FORMA SÓ VAI SE ALGUÉM ESCOLHER. Antes ia `'1'` fixo, o valor do
-     * exemplo oficial — e `1` é DÉBITO, confirmado pelo suporte e pela própria
-     * comanda. Ou seja, todo pedido subia declarado como débito, inclusive os
-     * de dinheiro e os já pagos no app, e era por isso que a maquininha abria
-     * pedindo o cartão: nós é que mandávamos ela pedir.
+     * LIVRE = OS DOIS CAMPOS VAZIOS, e NENHUM campo removido do JSON.
      *
-     * Sem o campo, a escolha volta para quem está no aparelho — que é o fluxo
-     * que o suporte descreveu desde o começo.
+     * Palavras do suporte (Anderson Duarte, 02/09/2026): "quando é para ser
+     * LIVRE, precisa enviar o QTParcelas vazio e o IDPagamento vazio também. O
+     * ideal é não apagar/remover nenhum campo do JSON."
+     *
+     * Duas voltas erradas antes disso, e as duas custaram pedido:
+     *
+     * 1. `IDPagamento: '1'` fixo, do exemplo oficial — e `1` é DÉBITO. Todo
+     *    pedido subia declarado como débito, inclusive dinheiro e os já pagos.
+     * 2. REMOVER o campo. A comanda passou a mostrar "Livre", o que parecia
+     *    certo, mas o `QTParcelas: '1'` que ficou continuava dizendo "venda de
+     *    cartão em 1x" — e a maquininha abria a cobrança sozinha do mesmo jeito.
+     *
+     * Com forma escolhida, parcelas acompanha; sem forma, os dois vão vazios e
+     * quem está no aparelho escolhe — inclusive Faturado.
      */
-    ...(c.idPagamento?.trim() ? { IDPagamento: c.idPagamento.trim() } : {}),
-    /* Parcelas como texto, e nunca zero: "0 vezes" não existe em cartão. */
-    QTParcelas: String(Math.max(1, c.parcelas ?? 1)),
+    IDPagamento: forma,
+    /* Parcelas como texto e nunca zero quando há forma: "0 vezes" não existe
+       em cartão. Vazio só no LIVRE, junto com a forma vazia. */
+    QTParcelas: forma ? String(Math.max(1, c.parcelas ?? 1)) : '',
     Extras: extras,
     Amount: valorParaAmount(c.valorCentavos),
   };

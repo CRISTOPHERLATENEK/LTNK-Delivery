@@ -222,9 +222,11 @@ describe('corpoDaCobranca', () => {
     expect(corpoDaCobranca({ ...base, cpf: '111.111.111-11', nome: 'Teste' })).toEqual({
       NumSerialPOS: '',
       IDCobranca: 10222,
-      /* Sem IDPagamento: `'1'` é DÉBITO, e impor débito em todo pedido é o que
-         fazia a maquininha abrir pedindo cartão. A forma é escolha do operador. */
-      QTParcelas: '1',
+      /* LIVRE: forma e parcelas VAZIAS, e nenhum campo removido. `'1'` na forma
+         é Débito; `'1'` nas parcelas já diz "cartão em 1x" mesmo sem forma, e
+         era isso que fazia a maquininha abrir cobrando. */
+      IDPagamento: '',
+      QTParcelas: '',
       Extras: { CPF: '11111111111', Nome: 'Teste' },
       Amount: '0.10',
     });
@@ -236,10 +238,11 @@ describe('corpoDaCobranca', () => {
     expect(corpoDaCobranca({ ...base, cpf: '  ' }).Extras).toEqual({});
   });
 
-  it('parcelas nunca é zero', () => {
-    /* "0 vezes" não existe em cartão. */
-    expect(corpoDaCobranca({ ...base, parcelas: 0 }).QTParcelas).toBe('1');
-    expect(corpoDaCobranca({ ...base, parcelas: 3 }).QTParcelas).toBe('3');
+  it('parcelas nunca é zero quando há forma', () => {
+    /* "0 vezes" não existe em cartão. Sem forma o campo é vazio (LIVRE), então
+       o caso só faz sentido com forma escolhida. */
+    expect(corpoDaCobranca({ ...base, idPagamento: '2', parcelas: 0 }).QTParcelas).toBe('1');
+    expect(corpoDaCobranca({ ...base, idPagamento: '2', parcelas: 3 }).QTParcelas).toBe('3');
   });
 
   it('serial vazio quando não informado', () => {
@@ -395,18 +398,35 @@ describe('a forma de pagamento não é imposta pelo servidor', () => {
    * online subiam declarados como débito, e a maquininha abria pedindo o cartão
    * porque nós mandávamos ela pedir. A escolha é de quem está no aparelho.
    */
-  it('sem forma escolhida, o campo NÃO vai no corpo', () => {
-    expect(corpoDaCobranca({ idCobranca: 1, valorCentavos: 100 })).not.toHaveProperty('IDPagamento');
+  it('LIVRE manda os dois campos VAZIOS, sem remover nenhum', () => {
+    /*
+     * Palavras do suporte: "quando é para ser LIVRE, precisa enviar o
+     * QTParcelas vazio e o IDPagamento vazio também. O ideal é não
+     * apagar/remover nenhum campo do JSON."
+     *
+     * Remover o campo foi a minha segunda tentativa errada: a comanda passou a
+     * mostrar "Livre", mas o `QTParcelas: '1'` que ficou continuava dizendo
+     * "cartão em 1x" e a maquininha abria a cobrança sozinha do mesmo jeito.
+     */
+    const corpo = corpoDaCobranca({ idCobranca: 1, valorCentavos: 100 });
+    expect(corpo).toHaveProperty('IDPagamento');
+    expect(corpo).toHaveProperty('QTParcelas');
+    expect(corpo.IDPagamento).toBe('');
+    expect(corpo.QTParcelas).toBe('');
   });
 
   it('nunca cai no 1 sozinho', () => {
     for (const v of [undefined, '', '   ']) {
-      expect(corpoDaCobranca({ idCobranca: 1, valorCentavos: 100, idPagamento: v }).IDPagamento, String(v)).toBeUndefined();
+      const corpo = corpoDaCobranca({ idCobranca: 1, valorCentavos: 100, idPagamento: v });
+      expect(corpo.IDPagamento, String(v)).toBe('');
+      expect(corpo.QTParcelas, String(v)).toBe('');
     }
   });
 
-  it('quando alguém escolhe, vai o que foi escolhido', () => {
-    expect(corpoDaCobranca({ idCobranca: 1, valorCentavos: 100, idPagamento: '4' }).IDPagamento).toBe('4');
+  it('com forma escolhida, parcelas acompanha', () => {
+    const corpo = corpoDaCobranca({ idCobranca: 1, valorCentavos: 100, idPagamento: '4' });
+    expect(corpo.IDPagamento).toBe('4');
+    expect(corpo.QTParcelas).toBe('1');
   });
 
   it('e o fluxo do pedido não manda forma nenhuma', () => {
