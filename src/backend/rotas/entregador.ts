@@ -8,7 +8,7 @@ import { autenticar, exigirPerfil } from '../auth';
 import { agoraUTC, erroHttp } from '../util';
 import { registrarEvento } from '../notificacoes';
 import { enviarPush } from '../push';
-import { emitirNfcePedido } from './lojista';
+import { emitirNotaDoPedido } from './lojista';
 
 const router = Router();
 router.use(autenticar, exigirPerfil('entregador'));
@@ -317,7 +317,10 @@ router.post('/corridas/:id/entregar', async (req, res, next) => {
     }
     // Auto-emite a NFC-e da venda entregue (se a loja tiver NFC-e ativa + certificado).
     // Fire-and-forget: não bloqueia nem falha a confirmação de entrega.
-    emitirNfcePedido(Number(req.params.id)).catch(() => { /* nota fica registrada com o erro */ });
+    /* O funil decide QUEM emite (este servidor, o ERP, ou ninguém quando é a
+       maquininha). Chamar a emissão do servidor direto daqui foi o que fez cada
+       emissor novo virar uma alteração em todos os pontos de chamada. */
+    emitirNotaDoPedido(Number(req.params.id)).catch(() => { /* nota fica registrada com o erro */ });
     res.json({ ok: true, mensagem: 'Entrega confirmada. Obrigado!' });
   } catch (e) { next(e); }
 });

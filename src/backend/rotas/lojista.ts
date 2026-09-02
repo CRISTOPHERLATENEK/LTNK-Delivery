@@ -41,6 +41,7 @@ import { consultarEmpresa, formatarCnpj } from '../maxxgestao-cliente';
 import { listarMercadorias, mapaDeCategorias } from '../maxxgestao-catalogo';
 import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, type ItemDoCatalogo } from '../maxxgestao-importar';
 import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
+import { emitirPedidoNoErp } from '../maxxgestao-emitir';
 import { credenciaisDoAmbiente as credenciaisIfood } from '../ifood-cliente';
 import { lerCardapioIfood } from '../ifood-catalogo';
 import { planejarImportacao, type ProdutoImportado } from '../ifood-importar';
@@ -4385,6 +4386,43 @@ async function emitirVendaNfce(loja: any, venda: VendaNfce, pedidoId: number | n
  * (retorna null) se NFC-e inativa, sem certificado, ou já autorizada.
  * Deve ser chamada DENTRO do contexto de tenant (request).
  */
+/**
+ * O FUNIL DA NOTA: um lugar que decide QUEM emite.
+ *
+ * Antes, quem chamava a emissão chamava `emitirNfcePedido` direto — e cada novo
+ * emissor obrigaria a mexer em todos os pontos de chamada, que é como o pedido
+ * 88 saiu para entrega sem cobrança nenhuma (o comentário de lá afirmava ser o
+ * ponto único, e não era).
+ *
+ * `maquininha` não faz nada aqui de propósito: a nota sai quando alguém conclui
+ * a preconta no aparelho, e não há o que este servidor faça por ela.
+ */
+export async function emitirNotaDoPedido(pedidoId: number): Promise<void> {
+  const pedido = await db.prepare('SELECT loja_id FROM pedidos WHERE id = ?')
+    .get(pedidoId) as { loja_id: number } | undefined;
+  if (!pedido) return;
+  const loja = await db.prepare('SELECT nfce_emissor FROM lojas WHERE id = ?')
+    .get(pedido.loja_id) as { nfce_emissor: string | null } | undefined;
+
+  /* Valor estranho no banco cai em `sistema`: o padrão seguro é o servidor
+     emitir. Nota a mais se corrige; nota a menos é multa. */
+  const emissor = String(loja?.nfce_emissor ?? 'sistema');
+
+  if (emissor === 'erp') {
+    const r = await emitirPedidoNoErp(pedidoId);
+    /* `emitirPedidoNoErp` nunca lança e já registra o motivo no log — aqui só
+       não se engole o silêncio: pedido sem nota tem que aparecer. */
+    if (!r.emitiu && r.motivo !== 'já tem documento') {
+      console.log(`[erp] pedido ${pedidoId} ficou sem nota: ${r.motivo}`);
+    }
+    return;
+  }
+
+  if (emissor === 'maquininha') return;
+
+  await emitirNfcePedido(pedidoId);
+}
+
 export async function emitirNfcePedido(pedidoId: number): Promise<{ autorizada: boolean } | null> {
   try {
     const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as any;

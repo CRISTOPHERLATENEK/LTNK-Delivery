@@ -1072,6 +1072,16 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
        nunca existe e quando existe muda. Zero = produto que nasceu aqui, e a
        importação não mexe nele. */
     ['produtos', 'maxxgestao_variacao_id', 'maxxgestao_variacao_id INT NOT NULL DEFAULT 0'],
+    /*
+     * O DOCUMENTO DO PEDIDO NO MAXX GESTÃO.
+     *
+     * `POST /documento` não é idempotente do lado deles: chamar duas vezes cria
+     * dois documentos, cada um consumindo um número da sequência fiscal. Esta
+     * coluna é a trava — a criação só acontece com ela em zero, e o id é gravado
+     * assim que o documento existe, antes de transformar e emitir.
+     */
+    ['pedidos', 'maxxgestao_documento_id', 'maxxgestao_documento_id INT NOT NULL DEFAULT 0'],
+    ['pedidos', 'maxxgestao_emitido_em',   "maxxgestao_emitido_em VARCHAR(32) NOT NULL DEFAULT ''"],
 
     /*
      * ─── iFood ───

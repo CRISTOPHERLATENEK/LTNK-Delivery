@@ -144,12 +144,47 @@ balcão. Produto importado nasce a R$ 0,01 e pausado até alguém precificar.
 Se algum dia fizer diferença, cabe pedir ao suporte um endpoint de LEITURA da
 tabela de preço; hoje só existe o PUT.
 
-## O que falta (Fase 3)
+## Fase 3 — emitir a nota (implementada)
 
-Criar o documento do pedido: `POST /documento` como `PV` com
-`idExterno` = id do nosso pedido → `transformar` → `emitir` → guardar chave e
-XML. Depende de duas coisas fora do código:
+`emitirPedidoNoErp(pedidoId)` faz o caminho: `POST /documento` como `PV` →
+`transformar` → `emitir`.
 
-- as formas de pagamento ligadas na natureza de operação (hoje
-  `/natureza-operacao/1/pagamentos` volta vazio);
-- produtos importados e precificados, para o `idMercadoriaVariacao` existir.
+**A trava contra documento duplicado.** `POST /documento` não é idempotente do
+lado deles: duas chamadas criam dois documentos, cada um queimando um número da
+sequência fiscal. Por isso `pedidos.maxxgestao_documento_id` é gravado assim que
+o documento existe, ANTES de transformar e emitir — se um desses dois falhar, a
+próxima tentativa continua do mesmo documento em vez de criar outro. O
+`idExterno` (o id do nosso pedido, dentro do documento) é a segunda rede: se a
+resposta se perder e a marca não for gravada, ele permite achar o documento
+órfão pelo número do pedido em vez de criar às cegas.
+
+**Na dúvida, não emite.** Item sem `idMercadoriaVariacao`, forma de pagamento
+sem correspondente no ERP, pedido sem itens — cada um PARA a emissão e reporta
+o motivo (todos de uma vez, não o primeiro). Documento fiscal com palpite
+dentro é pior que nenhum: o primeiro se emite depois, o segundo se corrige com
+carta de correção ou cancelamento.
+
+**A forma de pagamento é resolvida por NOME**, com apelidos por forma nossa
+(pix, cartão, dinheiro), e devolve zero quando não acha. Por nome porque a lista
+é de cada cliente: o "3" da Unimaxx não é o "3" de outra loja.
+
+**O pagamento leva a soma dos ITENS, não o total do pedido.** A taxa de entrega
+não é mercadoria; se entrar no pagamento sem estar em item nenhum, o documento
+não fecha. A diferença é registrada no log — no dia em que ela for outra coisa
+(desconto não registrado, item somado errado), é por ali que se descobre. Frete
+na NFC-e tem campo próprio e ainda não está mapeado.
+
+**O funil:** `emitirNotaDoPedido(pedidoId)` decide quem emite — `sistema` chama
+`emitirNfcePedido`, `erp` chama `emitirPedidoNoErp`, `maquininha` não faz nada
+(a nota sai quando alguém conclui a preconta no aparelho). A rota do entregador
+chama o funil; chamar a emissão direto era o que fazia cada emissor novo virar
+alteração em todos os pontos de chamada.
+
+### O que ainda depende de fora do código
+
+- **As formas de pagamento ligadas à natureza de operação.** Hoje
+  `/natureza-operacao/1/pagamentos/v1` volta vazio, e sem isso toda emissão para
+  com "a forma de pagamento não está ligada à natureza de operação no ERP".
+- **Produtos importados e precificados**, para o `idMercadoriaVariacao` existir
+  em cada item.
+- **Frete**: hoje fica fora da nota.
