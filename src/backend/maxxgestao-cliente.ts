@@ -103,6 +103,14 @@ export function limparLimitesMaxxGestao(): void {
 export interface DepsLimite {
   agora?: () => number;
   dormir?: (ms: number) => Promise<void>;
+  /**
+   * Teto de espera. Acima dele, `LimiteMaxxGestao` em vez de dormir.
+   *
+   * Sem teto (o padrão) a espera acontece e a chamada sai — serve para script e
+   * job, que podem levar minutos. Dentro de uma rota HTTP tem que haver teto,
+   * senão o proxy corta em 60s e ninguém recebe nada.
+   */
+  esperaMaximaMs?: number;
 }
 
 /**
@@ -136,6 +144,10 @@ export async function comLimiteMaxxGestao<T>(
     let janela = limparJanela(janelas.get(chave) ?? [], agora());
     const espera = esperaEmMs(janela, agora());
     if (espera > 0) {
+      const teto = deps.esperaMaximaMs;
+      /* Espera maior que o teto não é dormida, é recado: quem chama devolve o
+         que fez e volta depois. */
+      if (typeof teto === 'number' && espera > teto) throw new LimiteMaxxGestao(espera);
       await dormir(espera);
       janela = limparJanela(janela, agora());
     }
@@ -161,12 +173,32 @@ export interface OpcoesMaxxGestao {
   timeoutMs?: number;
   /** Relógio e espera injetáveis — o limitador é testado sem esperar de verdade. */
   limite?: DepsLimite;
+  /** Atalho para `limite.esperaMaximaMs`, que é o que uma rota precisa. */
+  esperaMaximaMs?: number;
 }
 
 export class ErroMaxxGestao extends Error {
   constructor(mensagem: string, readonly httpStatus: number) {
     super(mensagem);
     this.name = 'ErroMaxxGestao';
+  }
+}
+
+/**
+ * "A VEZ SÓ CHEGA DAQUI A UM MINUTO" — e isso não é erro, é agenda.
+ *
+ * Existe porque ESPERAR DENTRO DE UMA REQUISIÇÃO HTTP NOSSA NÃO FUNCIONA: o
+ * proxy corta em 60 segundos e o navegador recebe 504. Aconteceu na importação
+ * de catálogo, cujo preâmbulo custa 27 chamadas — as 20 primeiras voam e a 21ª
+ * esperaria a janela virar.
+ *
+ * Então quem chama de dentro de uma rota passa `esperaMaximaMs` e trata isto:
+ * devolve o que já fez e diz ao navegador quanto esperar antes de pedir o resto.
+ */
+export class LimiteMaxxGestao extends Error {
+  constructor(readonly esperaMs: number) {
+    super(`O Maxx Gestão só aceita a próxima chamada em ${Math.ceil(esperaMs / 1000)}s.`);
+    this.name = 'LimiteMaxxGestao';
   }
 }
 
@@ -218,8 +250,11 @@ export async function chamarMaxxGestao(
       } finally {
         clearTimeout(timer);
       }
-    }, opcoes.limite);
-  } catch {
+    }, { ...opcoes.limite, esperaMaximaMs: opcoes.esperaMaximaMs ?? opcoes.limite?.esperaMaximaMs });
+  } catch (e) {
+    /* O recado do limitador passa INTEIRO: virar "não respondeu" faria a rota
+       tratar agenda como falha de rede e desistir da importação. */
+    if (e instanceof LimiteMaxxGestao) throw e;
     /* Zero em `httpStatus` = INDEFINIDO. Para leitura dá para repetir à
        vontade; para escrita (criar documento) quem chama tem que consultar
        antes de repetir, senão cria dois documentos para o mesmo pedido. */

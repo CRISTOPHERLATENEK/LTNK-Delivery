@@ -139,10 +139,23 @@ os DADOS custaria uma requisição por produto: 1.108 a 20/min é quase uma hora
 > plana sem testá-la com a conta cheia — e ela devolve zero sem `filtro`. As
 > duas escolhas pareciam razoáveis; a diferença só aparece medindo.
 
-**A importação vem em pedaços.** Cada `POST /api/lojista/erp/importar` gasta um
-orçamento de 25s, devolve o que fez e diz quais letras faltam (`restantes`,
-`terminou`); a tela chama de novo até terminar, com teto de voltas. Uma
-requisição só ficaria minutos aberta esperando o limitador.
+**A importação vem em pedaços, e o servidor NUNCA espera dentro da requisição.**
+
+O ERP aceita 20 chamadas por minuto e ENFILEIRA o excesso. O preâmbulo custa 27
+(12 de ids + 2 de categorias + 1 de configurações + 11 de preços + 1 do
+catálogo), então a 21ª esperava um minuto dentro da requisição HTTP — e o proxy
+corta em 60 segundos: o lojista via **504 Gateway Timeout** numa importação que
+estava funcionando.
+
+O conserto: `esperaMaximaMs` no limitador. Acima do teto (8s numa rota) ele
+lança `LimiteMaxxGestao` em vez de dormir, a rota devolve o que fez e diz
+`esperar_ms`, e **quem espera é a tela** — com os segundos correndo, porque um
+minuto parado sem texto é indistinguível de travamento.
+
+Para isso funcionar, o preâmbulo é gravado EM PEDAÇOS, cada um cabendo numa
+janela de 20: ids primeiro, depois preços e categorias, depois o catálogo. Sem
+gravar pedaço a pedaço, uma tentativa que morre no meio recomeça do zero e a
+importação nunca termina, porque o preâmbulo é maior que a janela.
 
 **Pausar só no fim, e só com a lista completa.** Durante a varredura, "não
 apareceu" significa "ainda não chegou a vez" — pausar aí tiraria do ar metade do

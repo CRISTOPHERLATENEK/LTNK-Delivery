@@ -4,7 +4,7 @@ import path from 'path';
 import {
   chamarMaxxGestao, consultarEmpresa, formatarCnpj, mensagemPorStatus,
   BASE_MAXXGESTAO, LIMITE_POR_MINUTO, ErroMaxxGestao,
-  limparLimitesMaxxGestao, esperaEmMs, limparJanela, JANELA_MS,
+  limparLimitesMaxxGestao, esperaEmMs, limparJanela, JANELA_MS, LimiteMaxxGestao,
 } from './maxxgestao-cliente';
 
 /** Um `fetch` que grava o que recebeu e devolve o que mandarem. */
@@ -363,5 +363,78 @@ describe('o timeout mede a chamada, não a fila', () => {
     await expect(
       chamarMaxxGestao('tok', '/x', { buscar, limite: deps, timeoutMs: 10 }),
     ).resolves.toBeTruthy();
+  });
+});
+
+describe('espera longa é recado, não dormida', () => {
+  /*
+   * O BUG QUE ISTO IMPEDE, e ele deu 504 no navegador: o preâmbulo da
+   * importação custa 27 chamadas e a janela é de 20. A 21ª esperava um minuto
+   * DENTRO da requisição HTTP, e o proxy corta em 60 segundos — o lojista via
+   * "Gateway Timeout" numa importação que estava funcionando.
+   *
+   * Com teto, o limitador recusa a espera e quem chama devolve o que fez com o
+   * tempo a aguardar. Quem espera passa a ser a tela, que pode dizer isso.
+   */
+  beforeEach(() => limparLimitesMaxxGestao());
+
+  function relogio(inicio = 2_000_000) {
+    let t = inicio;
+    return { deps: { agora: () => t, dormir: async (ms: number) => { t += ms; } } };
+  }
+
+  it('acima do teto lança LimiteMaxxGestao com o tempo que falta', async () => {
+    const r = relogio();
+    const { buscar } = espiao(200, EMPRESA);
+    for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
+      await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps });
+    }
+    await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps, esperaMaximaMs: 8_000 }).then(
+      () => { throw new Error('devia ter recusado'); },
+      (e: unknown) => {
+        expect(e).toBeInstanceOf(LimiteMaxxGestao);
+        expect((e as LimiteMaxxGestao).esperaMs).toBe(JANELA_MS);
+      },
+    );
+  });
+
+  it('abaixo do teto ainda dorme e a chamada sai', async () => {
+    /* Teto não é "nunca esperar": uma pausa de dois segundos numa requisição
+       HTTP é melhor que devolver "volte depois" para o navegador. */
+    const r = relogio();
+    const { buscar } = espiao(200, EMPRESA);
+    for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
+      await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps });
+    }
+    await expect(
+      chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps, esperaMaximaMs: 90_000 }),
+    ).resolves.toBeTruthy();
+  });
+
+  it('sem teto, espera o quanto precisar', async () => {
+    /* É o modo de script e job, que podem levar minutos — só rota HTTP tem
+       proxy cortando em 60s. */
+    const r = relogio();
+    const { buscar } = espiao(200, EMPRESA);
+    for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
+      await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps });
+    }
+    await expect(chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps })).resolves.toBeTruthy();
+  });
+
+  it('o recado NÃO é convertido em "não respondeu"', async () => {
+    /*
+     * Virar erro de rede faria a rota tratar agenda como falha e desistir da
+     * importação — devolvendo 400 para uma situação que só pedia um minuto.
+     */
+    const r = relogio();
+    const { buscar } = espiao(200, EMPRESA);
+    for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
+      await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps });
+    }
+    await chamarMaxxGestao('tok', '/x', { buscar, limite: r.deps, esperaMaximaMs: 1 }).catch((e: Error) => {
+      expect(e.message).not.toMatch(/não respondeu/i);
+      expect(e.name).toBe('LimiteMaxxGestao');
+    });
   });
 });

@@ -55,6 +55,8 @@ interface RespostaImportacao {
   terminou: boolean;
   exemplos: Exemplo[];
   resumo: string;
+  /** Quanto esperar antes do próximo lote, quando o ERP bateu o limite. */
+  esperar_ms?: number;
 }
 
 const emReais = (centavos: number) =>
@@ -162,9 +164,13 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
   /**
    * A IMPORTAÇÃO VEM EM LOTES, e a tela pede o próximo.
    *
-   * O ERP aceita 20 requisições por minuto; ler o cadastro custa 24 e cada
-   * letra da busca custa 11. O servidor gasta um orçamento de tempo por lote e
-   * diz o que falta — uma requisição só ficaria minutos aberta.
+   * O ERP aceita 20 requisições por minuto e ENFILEIRA o excesso, então o
+   * servidor nunca espera dentro de uma requisição: ele devolve o que fez e diz
+   * quanto aguardar (`esperar_ms`). Esperar do lado do servidor dava 504 —
+   * o proxy corta em 60 segundos.
+   *
+   * QUEM ESPERA É ESTA TELA, e é por isso que ela tem que dizer que está
+   * esperando: um minuto parado sem texto é indistinguível de travamento.
    *
    * O laço tem TETO: um `restantes` que nunca encurta, por bug nosso ou deles,
    * viraria requisição infinita contra a API de um cliente.
@@ -200,6 +206,19 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
           return;
         }
         letras = r.restantes;
+
+        /*
+         * A ESPERA COM CONTAGEM NA TELA. Sem os segundos correndo, um minuto
+         * parado é indistinguível de travado — e foi assim que a versão que
+         * esperava no servidor virou "não acontece nada".
+         */
+        const espera = Math.min(Math.max(r.esperar_ms ?? 0, 0), 70_000);
+        if (espera > 0) {
+          for (let resta = Math.ceil(espera / 1000); resta > 0; resta--) {
+            setAndamento(`Limite do Maxx Gestão: 20 chamadas por minuto. Continuando em ${resta}s…`);
+            await new Promise(r2 => { setTimeout(r2, 1000); });
+          }
+        }
       }
       mostrar({ tipo: 'erro', titulo: 'A importação passou do limite de tentativas.' });
     } catch (err) {

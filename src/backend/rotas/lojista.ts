@@ -37,7 +37,7 @@ import {
 } from '../sefaz';
 import { criptografar, descriptografar } from '../cripto';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
-import { consultarEmpresa, formatarCnpj, chamarMaxxGestao } from '../maxxgestao-cliente';
+import { consultarEmpresa, formatarCnpj, chamarMaxxGestao, LimiteMaxxGestao } from '../maxxgestao-cliente';
 import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarCatalogos, precosDaTabela, LETRAS_VARREDURA } from '../maxxgestao-catalogo';
 import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, peneirarPorCatalogo, type ItemDoCatalogo } from '../maxxgestao-importar';
 import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
@@ -3833,52 +3833,73 @@ router.post('/erp/importar', async (req, res, next) => {
     if (!token) return res.status(400).json({ erro: 'Cole o token do Maxx Gestão primeiro.' });
 
     /*
-     * A VARREDURA VEM EM LOTES, e a tela pede o próximo.
+     * NUNCA ESPERAR DENTRO DESTA REQUISIÇÃO.
      *
-     * São 20 requisições por minuto por token; o preâmbulo (ids, categorias,
-     * preços) custa 24 e uma letra custa 11. Uma requisição HTTP nossa não pode
-     * ficar minutos aberta esperando o limitador, então cada lote gasta um
-     * orçamento de tempo, devolve o que fez e diz o que falta.
+     * O ERP aceita 20 chamadas por minuto e ENFILEIRA o excesso; o preâmbulo
+     * custa 27. A primeira versão simplesmente esperava — e o proxy cortava em
+     * 60 segundos, entregando 504 ao navegador. Agora o limitador recusa espera
+     * acima do teto, a rota devolve o que fez e diz quanto o navegador precisa
+     * aguardar antes de pedir o resto.
+     *
+     * Oito segundos: cabe numa requisição HTTP com folga e evita devolver
+     * "espere" por uma pausa que passaria rápido.
      */
+    const ESPERA_MAXIMA_MS = 8_000;
+    const op = { esperaMaximaMs: ESPERA_MAXIMA_MS };
+
     const pedidas: string[] = Array.isArray(req.body?.letras) && req.body.letras.length
       ? req.body.letras.map((l: unknown) => String(l)).filter((l: string) => l.length === 1)
       : LETRAS_VARREDURA;
 
-    /*
-     * O CATÁLOGO ESCOLHIDO, se houver. Zero = a empresa inteira.
-     *
-     * Uma loja de delivery quer "RESTAURANTE", não as 1.108 mercadorias da
-     * empresa — e o catálogo é a única coisa no ERP que separa isso.
-     */
     const catalogoPedido = Number(req.body?.catalogo ?? 0) || 0;
-
     const comecou = Date.now();
-    const ORCAMENTO_MS = 25_000;
+
+    /** Resposta de "ainda não acabou", com ou sem espera pedida. */
+    const continuar = (resumo: string, esperarMs: number, restantes: string[]) => res.json({
+      lidos: 0, criados: 0, atualizados: 0, pausados: 0, sem_mudanca: 0,
+      restantes, terminou: false, faltando: 0, exemplos: [],
+      esperar_ms: esperarMs, resumo,
+    });
 
     /*
-     * O PREÂMBULO É LIDO UMA VEZ E GUARDADO NO BANCO.
+     * O PREÂMBULO VEM EM PEDAÇOS, cada um cabendo numa janela de 20.
      *
-     * Relê-lo a cada lote consumia a janela inteira antes de varrer qualquer
-     * letra — a importação rodava minutos e importava zero, exatamente como o
-     * log mostrou ("0 lidos em 0 letra(s) ... 1065 preços na tabela"). O cache
-     * vai no banco, não em memória, porque o PM2 tem três instâncias e o lote
-     * seguinte cai em outra.
+     * Ids (12 chamadas), depois categorias + configurações + preços (14), e o
+     * catálogo (1). Guardar cada pedaço assim que ele fecha é o que garante
+     * PROGRESSO: sem isso, uma tentativa que morre no meio recomeça do zero e a
+     * importação nunca termina, porque o preâmbulo é maior que a janela.
      */
     let guardado = await lerPreambulo(loja.id);
-    /* Catálogo diferente do guardado invalida o rascunho: peneirar o lote 2 por
-       outro catálogo misturaria dois cardápios. */
     if (guardado && (guardado.catalogo ?? 0) !== catalogoPedido) guardado = null;
-    if (!guardado) {
+
+    if (!guardado || !guardado.ids.length) {
       try {
-        const ids = await idsDaSecao(token, 1);
-        const mapas = await mapaDeCategorias(token);
-        const cfg = await chamarMaxxGestao(token, '/api/empresa/configuracoes/v1') as Record<string, unknown> | null;
-        const idTabela = Number(cfg?.idTabelaPrecoPadrao ?? 0);
-        const precos = idTabela > 0 ? await precosDaTabela(token, idTabela) : new Map<number, number>();
-        const doCatalogo = catalogoPedido > 0 ? await idsDoCatalogo(token, catalogoPedido) : new Set<number>();
+        const ids = await idsDaSecao(token, 1, op);
         guardado = {
-          ids: [...ids],
-          catalogo: catalogoPedido,
+          ids: [...ids], catalogo: catalogoPedido, idsCatalogo: [],
+          precos: [], subgrupos: [], grupos: [],
+        };
+        await gravarPreambulo(loja.id, guardado);
+      } catch (e) {
+        if (e instanceof LimiteMaxxGestao) {
+          return continuar('Aguardando o limite do Maxx Gestão…', e.esperaMs, pedidas);
+        }
+        const erro = e as { message?: string; httpStatus?: number };
+        console.log(`[erp] loja ${loja.id}: falha lendo os codigos (${erro.httpStatus ?? '-'}): ${erro.message}`);
+        return res.status(400).json({ erro: erro.message || 'Não consegui ler o cadastro do Maxx Gestão.' });
+      }
+      return continuar(`Cadastro lido: ${guardado.ids.length} produtos no ERP. Buscando preços…`, 0, pedidas);
+    }
+
+    if (!guardado.precos.length && !guardado.subgrupos.length) {
+      try {
+        const mapas = await mapaDeCategorias(token, op);
+        const cfg = await chamarMaxxGestao(token, '/api/empresa/configuracoes/v1', op) as Record<string, unknown> | null;
+        const idTabela = Number(cfg?.idTabelaPrecoPadrao ?? 0);
+        const precos = idTabela > 0 ? await precosDaTabela(token, idTabela, op) : new Map<number, number>();
+        const doCatalogo = catalogoPedido > 0 ? await idsDoCatalogo(token, catalogoPedido, op) : new Set<number>();
+        guardado = {
+          ...guardado,
           idsCatalogo: [...doCatalogo],
           precos: [...precos.entries()],
           subgrupos: [...mapas.subgrupos.entries()],
@@ -3886,41 +3907,32 @@ router.post('/erp/importar', async (req, res, next) => {
         };
         await gravarPreambulo(loja.id, guardado);
       } catch (e) {
+        if (e instanceof LimiteMaxxGestao) {
+          return continuar('Aguardando o limite do Maxx Gestão…', e.esperaMs, pedidas);
+        }
         const erro = e as { message?: string; httpStatus?: number };
-        console.log(`[erp] loja ${loja.id}: falha no preambulo (${erro.httpStatus ?? '-'}): ${erro.message}`);
+        console.log(`[erp] loja ${loja.id}: falha lendo precos/categorias (${erro.httpStatus ?? '-'}): ${erro.message}`);
         return res.status(400).json({ erro: erro.message || 'Não consegui ler o cadastro do Maxx Gestão.' });
       }
-      /*
-       * O PREÂMBULO SOZINHO JÁ GASTOU A JANELA. Devolver agora, com as letras
-       * intactas, é melhor que esperar um minuto dentro desta requisição: a
-       * tela pede o próximo lote e o preâmbulo já está guardado.
-       */
-      if (Date.now() - comecou > ORCAMENTO_MS) {
-        console.log(`[erp] loja ${loja.id}: preambulo lido (${guardado.ids.length} ids, ${guardado.precos.length} precos) em ${Date.now() - comecou}ms`);
-        return res.json({
-          lidos: 0, criados: 0, atualizados: 0, pausados: 0, sem_mudanca: 0,
-          restantes: pedidas, terminou: false, faltando: 0, exemplos: [],
-          resumo: catalogoPedido > 0
-            ? `Cadastro lido: ${(guardado.idsCatalogo ?? []).length} produtos no catálogo. Trazendo…`
-            : `Cadastro lido: ${guardado.ids.length} produtos e ${guardado.precos.length} preços. Trazendo o cardápio…`,
-        });
-      }
+      return continuar(
+        `${guardado.precos.length} preços lidos. Trazendo os produtos…`,
+        0, pedidas,
+      );
     }
 
     const { ids: existentes, precos, mapas } = abrirPreambulo(guardado);
     const idsCatalogo = new Set<number>(guardado.idsCatalogo ?? []);
     /* Com catálogo escolhido, a meta de cobertura é o catálogo — não a empresa:
-       esperar 1.118 numa importação de 820 varreria letras para sempre. */
+       esperar 1.118 numa importação de 39 varreria letras para sempre. */
     const meta = catalogoPedido > 0 ? idsCatalogo.size : existentes.size;
 
     const porVariacao = new Map<number, ItemDoCatalogo>();
     const restantes: string[] = [];
-    try {
-      for (let k = 0; k < pedidas.length; k++) {
-        /* Cobertura fechada: o resto das letras não traria nada. */
-        if (meta > 0 && porVariacao.size >= meta) break;
-        if (Date.now() - comecou > ORCAMENTO_MS) { restantes.push(...pedidas.slice(k)); break; }
-        for (const item of await buscarMercadorias(token, pedidas[k], mapas)) {
+    let esperar = 0;
+    for (let k = 0; k < pedidas.length; k++) {
+      if (meta > 0 && porVariacao.size >= meta) break;
+      try {
+        for (const item of await buscarMercadorias(token, pedidas[k], mapas, op)) {
           /* Dedup por variação: a mesma mercadoria aparece em várias letras, e
              importá-la duas vezes criaria produto duplicado no cardápio. */
           if (!porVariacao.has(item.produto.variacao)) {
@@ -3930,17 +3942,19 @@ router.post('/erp/importar', async (req, res, next) => {
             });
           }
         }
+      } catch (e) {
+        if (e instanceof LimiteMaxxGestao) {
+          /* A letra fica para a próxima rodada INTEIRA: metade das páginas de
+             uma letra não é resultado, e gravar isso deixaria o cardápio pela
+             metade sem ninguém saber qual metade. */
+          esperar = e.esperaMs;
+          restantes.push(...pedidas.slice(k));
+          break;
+        }
+        const erro = e as { message?: string; httpStatus?: number };
+        console.log(`[erp] loja ${loja.id}: falha ao ler o cardapio (${erro.httpStatus ?? '-'}): ${erro.message}`);
+        return res.status(400).json({ erro: erro.message || 'Não consegui ler o cardápio do Maxx Gestão.' });
       }
-    } catch (e) {
-      /*
-       * Falha de leitura não escreve nada: importação pela metade é pior que
-       * nenhuma, porque ninguém sabe qual metade entrou. E o motivo vai para o
-       * log — devolver só 400 com a mensagem no corpo deixou uma investigação
-       * sem pista quando a tela não mostrou o toast.
-       */
-      const erro = e as { message?: string; httpStatus?: number };
-      console.log(`[erp] loja ${loja.id}: falha ao ler o cardapio (${erro.httpStatus ?? '-'}): ${erro.message}`);
-      return res.status(400).json({ erro: erro.message || 'Não consegui ler o cardápio do Maxx Gestão.' });
     }
 
     const terminou = restantes.length === 0;
@@ -3954,11 +3968,9 @@ router.post('/erp/importar', async (req, res, next) => {
     const plano = planejarImportacaoErp(doErp, nossos, { pausarAusentes: false });
     let faltando = 0;
     /*
-     * COM CATÁLOGO ESCOLHIDO, NÃO PAUSA NADA.
-     *
-     * Produto de outro catálogo, importado antes, apareceria como "ausente" e
-     * seria pausado — a importação de um cardápio tiraria o outro do ar. Pausar
-     * só faz sentido quando a lista de referência é a empresa inteira.
+     * COM CATÁLOGO ESCOLHIDO, NÃO PAUSA NADA. Produto de outro catálogo,
+     * importado antes, apareceria como "ausente" e seria pausado — a importação
+     * de um cardápio tiraria o outro do ar.
      */
     if (terminou && catalogoPedido === 0 && existentes.size > 0) {
       for (const p of nossos) {
@@ -3978,11 +3990,9 @@ router.post('/erp/importar', async (req, res, next) => {
     }
 
     /*
-     * OS EXEMPLOS SÃO A PROVA.
-     *
-     * "1.111 atualizados" é um número que ninguém confere. Três produtos com
-     * nome, preço antes e preço depois são verificáveis: dá para abrir o ERP e
-     * comparar. Sem isso, "puxou" é palavra minha.
+     * OS EXEMPLOS SÃO A PROVA. "1.111 atualizados" é um número que ninguém
+     * confere; três produtos com nome e preço antes → depois dá para abrir o ERP
+     * e comparar.
      */
     const antesPorId = new Map(nossos.map(p => [p.id, p]));
     const exemplos = [
@@ -4001,9 +4011,8 @@ router.post('/erp/importar', async (req, res, next) => {
       `[erp] loja ${loja.id}: ${doErp.length} lidos em ${pedidas.length - restantes.length} letra(s), `
       + `${gravado.criados} criados, ${gravado.atualizados} atualizados, `
       + `${gravado.pausados} pausados em ${Date.now() - comecou}ms`
-      + ` | ${porVariacao.size} de ${existentes.size || '?'} no ERP`
-      + ` | ${precos.size} precos na tabela`
-      + (terminou ? '' : ` — faltam ${restantes.length} letra(s)`),
+      + ` | meta ${meta || '?'}${catalogoPedido ? ` (catálogo ${catalogoPedido})` : ''}`
+      + (terminou ? '' : ` — faltam ${restantes.length} letra(s), esperar ${Math.round(esperar / 1000)}s`),
     );
 
     res.json({
@@ -4014,10 +4023,11 @@ router.post('/erp/importar', async (req, res, next) => {
       terminou,
       faltando,
       exemplos,
+      esperar_ms: esperar,
       resumo: !terminou
-        ? `${gravado.criados + gravado.atualizados} produtos até agora — continuando…`
+        ? `${gravado.criados + gravado.atualizados} produtos até agora — aguardando o limite do Maxx Gestão…`
         : doErp.length === 0
-          ? 'O Maxx Gestão não devolveu nenhum produto nesta empresa.'
+          ? 'O Maxx Gestão não devolveu nenhum produto nesta seleção.'
           : faltando > 0
             ? `${resumoDoPlanoErp(plano)} Faltaram ${faltando} produto(s) que a busca não alcançou — traga de novo para pegá-los.`
             : resumoDoPlanoErp(plano),
