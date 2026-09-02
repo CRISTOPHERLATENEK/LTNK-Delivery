@@ -283,12 +283,43 @@ uma é o código da NFC-e:
 É por isso que emitir pelo ERP acaba com o "todo cartão é crédito por palpite"
 de `tipo-pagamento-nfce.ts`: a forma certa existe e carrega o `tPag` certo.
 
-**MAS `/api/natureza-operacao/1/pagamentos/v1` volta vazio.** Nenhuma das 15
-está ligada à natureza de operação, e sem isso a emissão para com "a forma de
-pagamento não está ligada à natureza de operação no ERP". É configuração no
-portal deles: **Natureza de Operação → 1 → formas de pagamento permitidas**. O
-mínimo para o delivery funcionar: Dinheiro (1), Cartão de Credito (5), Cartão de
-Debito (6) e PIX - MANUAL (15).
+### O que vai no documento, por forma de pagamento
+
+| forma no delivery | forma no ERP | por quê |
+|---|---|---|
+| dinheiro | Dinheiro (1) | sabemos exatamente |
+| pix | **PIX - MANUAL** (15) | as outras três formas de Pix da conta são gateways; dinheiro que entrou pelo nosso app é recebimento manual do ponto de vista do ERP |
+| cartão online | Cartão de Credito (5) | o app só cobra crédito |
+| **cartão na entrega** | **nenhuma** | ninguém registrou se foi crédito ou débito |
+
+**`cartao_entrega` vai SEM forma de pagamento, por decisão do dono do projeto:**
+"vai ser o pagamento que for pago lá, sem assumir nada de adivinhar". A conta
+tem crédito e débito como formas separadas; escolher uma seria o mesmo palpite
+que `tipo-pagamento-nfce.ts` dá ao declarar todo cartão como crédito — só que
+entrando no financeiro de verdade em vez de só na nota.
+
+`/api/natureza-operacao/1/pagamentos/v1` volta vazio nesta conta, e isso **não é
+impedimento**: testado, o documento aceita `idPagamento: 1` sem a forma estar
+ligada à natureza. A busca tenta a natureza (mais específica) e cai na lista da
+empresa (`GET /api/pagamento/v1`).
+
+### O financeiro exige TRÊS listas juntas
+
+`pagamentoLista` sozinha é recusada: *"Quando houver pagamento informado, deve
+existir pelo menos uma parcela"*. O documento leva:
+
+- **`pagamentoLista`** — o que entrou (`idSequencia`, `idPagamento`, `valor`);
+- **`parcelaLista`** — o que se devia (`idSequencia`, `idParcela`, `valBase`,
+  `valParcela`, `dtVencimento`, `status`);
+- **`parcelaPagamentoLista`** — o vínculo entre as duas.
+
+Sem a parcela, o valor entraria como recebimento sem contrapartida. `idSequencia
+1` / `idParcela 1` é o à vista, e é por esses dois números que os três blocos se
+apontam.
+
+**`status: 'B'`** (aceitos: P, B, C) = baixada. O documento só sobe quando o
+pedido fecha, então o dinheiro já entrou; pendente criaria uma conta a receber
+que ninguém vai receber.
 
 ## Fase 3 — emitir a nota (implementada e verificada até o bloqueio)
 
