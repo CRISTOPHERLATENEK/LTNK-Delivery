@@ -45,6 +45,85 @@ import {
   montarDocumento, diferencaDoTotal,
   type DadosDoPedido, type ItemPedido,
 } from './maxxgestao-documento';
+import {
+  acharPessoaPorCpf, criarPessoa, corpoDaPessoa, municipioDoCliente,
+  type ClienteParaErp,
+} from './maxxgestao-pessoa';
+
+/**
+ * O CLIENTE DO PEDIDO, ESPELHADO NO ERP. Zero quando não deu.
+ *
+ * Ordem: o que já está guardado → achar pelo CPF → criar. Guardar é o que
+ * impede uma duplicata do mesmo cliente por pedido no cadastro do lojista.
+ *
+ * NUNCA LANÇA. Quem chama cai no consumidor final padrão: documento sem o
+ * cliente ainda é o pedido registrado, e não enviar por causa de um cadastro
+ * perderia a venda no ERP.
+ */
+async function pessoaDoCliente(
+  token: string,
+  clienteId: number,
+  empresa: { municipio: string; uf: string; idIbgeMunicipio: number },
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<number> {
+  if (!clienteId) return 0;
+
+  const u = await db.prepare(
+    `SELECT nome, email, telefone, COALESCE(cpf, '') AS cpf,
+            COALESCE(maxxgestao_pessoa_id, 0) AS pessoa
+       FROM usuarios WHERE id = ?`
+  ).get(clienteId) as {
+    nome: string; email: string; telefone: string; cpf: string; pessoa: number;
+  } | undefined;
+  if (!u) return 0;
+
+  if (Number(u.pessoa) > 0) return Number(u.pessoa);
+
+  const endereco = await db.prepare(
+    `SELECT rua, numero, complemento, bairro, cidade, uf, cep
+       FROM enderecos WHERE usuario_id = ? ORDER BY id DESC LIMIT 1`
+  ).get(clienteId) as {
+    rua: string; numero: string; complemento: string; bairro: string;
+    cidade: string; uf: string; cep: string;
+  } | undefined;
+
+  const cliente: ClienteParaErp = {
+    nome: u.nome ?? '',
+    cpf: u.cpf ?? '',
+    telefone: u.telefone ?? '',
+    email: u.email ?? '',
+    endereco: endereco ? {
+      rua: endereco.rua ?? '', numero: endereco.numero ?? '',
+      complemento: endereco.complemento ?? '', bairro: endereco.bairro ?? '',
+      cidade: endereco.cidade ?? '', uf: endereco.uf ?? '', cep: endereco.cep ?? '',
+    } : undefined,
+  };
+
+  try {
+    const achada = await acharPessoaPorCpf(token, cliente.cpf, opcoes);
+    if (achada > 0) {
+      await db.prepare('UPDATE usuarios SET maxxgestao_pessoa_id = ? WHERE id = ?').run(achada, clienteId);
+      return achada;
+    }
+
+    const municipio = municipioDoCliente(cliente.endereco?.cidade ?? '', cliente.endereco?.uf ?? '', empresa);
+    if (cliente.endereco && municipio === 0) {
+      /* Cidade fora da do lojista: a pessoa vai sem endereço, porque endereço
+         com município errado é pior que endereço ausente. Ver `municipioDoCliente`. */
+      console.log(`[erp] cliente ${clienteId}: cidade "${cliente.endereco.cidade}/${cliente.endereco.uf}" não é a da empresa — pessoa criada sem endereço`);
+    }
+
+    const nova = await criarPessoa(token, corpoDaPessoa(cliente, municipio), opcoes);
+    if (nova > 0) {
+      await db.prepare('UPDATE usuarios SET maxxgestao_pessoa_id = ? WHERE id = ?').run(nova, clienteId);
+      console.log(`[erp] cliente ${clienteId} (${cliente.nome}) espelhado no ERP como pessoa ${nova}`);
+    }
+    return nova;
+  } catch (e) {
+    console.log(`[erp] cliente ${clienteId}: não consegui espelhar no ERP (${(e as Error).message}) — vai como consumidor final`);
+    return 0;
+  }
+}
 
 /** Uma forma de pagamento da natureza de operação, no ERP. */
 export interface FormaPagamentoErp {
@@ -227,12 +306,12 @@ export async function enviarPedidoAoErp(
   opcoes: OpcoesMaxxGestao = {},
 ): Promise<ResultadoEmissao> {
   const pedido = await db.prepare(
-    `SELECT id, loja_id, total_centavos, forma_pagamento, tipo_entrega,
+    `SELECT id, loja_id, cliente_id, total_centavos, forma_pagamento, tipo_entrega,
             maxxgestao_documento_id
        FROM pedidos WHERE id = ?`
   ).get(pedidoId) as {
-    id: number; loja_id: number; total_centavos: number; forma_pagamento: string;
-    tipo_entrega: string; maxxgestao_documento_id: number;
+    id: number; loja_id: number; cliente_id: number; total_centavos: number;
+    forma_pagamento: string; tipo_entrega: string; maxxgestao_documento_id: number;
   } | undefined;
   if (!pedido) return { emitiu: false, motivo: 'pedido não encontrado' };
 
@@ -292,6 +371,21 @@ export async function enviarPedidoAoErp(
   try {
     const cfg = await chamarMaxxGestao(token, '/api/empresa/configuracoes/v1', opcoes) as Record<string, unknown> | null;
     idPessoa = Number(cfg?.idPessoaPadrao ?? 0);
+
+    /*
+     * O CLIENTE NO LUGAR DO CONSUMIDOR FINAL.
+     *
+     * `idPessoaPadrao` fica como reserva: sem o cliente identificado, a NFC-e de
+     * entrega é rejeitada pela SEFAZ ("sem a identificacao do destinatario"),
+     * mas o pedido registrado no ERP ainda vale mais que pedido nenhum.
+     */
+    const empresa = await chamarMaxxGestao(token, '/api/empresa/v1', opcoes) as Record<string, unknown> | null;
+    const doCliente = await pessoaDoCliente(token, Number(pedido.cliente_id) || 0, {
+      municipio: String(empresa?.municipio ?? ''),
+      uf: String(empresa?.uf ?? ''),
+      idIbgeMunicipio: Number(empresa?.idIbgeMunicipio ?? 0),
+    }, opcoes);
+    if (doCliente > 0) idPessoa = doCliente;
     /* Natureza 1 = "VENDA DE MERCADORIA DENTRO DO ESTADO" (CFOP 5102) na conta
        conferida. Fica aqui como padrão até virar configuração por loja. */
     idNatureza = 1;

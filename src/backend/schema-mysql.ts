@@ -1092,6 +1092,11 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
        porque não muda e uma leitura por pedido custaria uma requisição a mais
        contra o limite de 20 por minuto. */
     ['lojas', 'maxxgestao_id_usuario', 'maxxgestao_id_usuario INT NOT NULL DEFAULT 0'],
+    /* O cliente como Pessoa no Maxx Gestão. Guardado para ACHAR ANTES DE
+       CRIAR: sem isso, cada pedido criaria uma duplicata do mesmo cliente no
+       cadastro do lojista, e ele descobriria pelo cadastro inchado em vez de um
+       erro. Zero = ainda não foi espelhado. */
+    ['usuarios', 'maxxgestao_pessoa_id', 'maxxgestao_pessoa_id INT NOT NULL DEFAULT 0'],
     /* O vínculo do produto com a mercadoria do Maxx Gestão. É este número que o
        documento fiscal exige em `mercadoriaLista[].idMercadoriaVariacao`, então
        é ele que guardamos — e não o código de barras, que em restaurante quase
