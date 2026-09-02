@@ -10,7 +10,7 @@ import {
   Bell, TrendingUp, ShoppingBag,
   Clock, ArrowRight, Users, Printer, ChefHat, CheckCircle2,
   XCircle, Package, Bike, Box, UtensilsCrossed, Settings, BarChart3, Ticket, Star, Eye,
-  Store, ChevronRight, MessagesSquare, ShieldAlert } from 'lucide-react';
+  Store, ChevronRight, MessagesSquare, ShieldAlert, Check } from 'lucide-react';
 import { detalheItem } from '@/lib/item-pedido';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -402,6 +402,25 @@ function CardPedidoDash({
   const [carregando, setCarregando] = useState(false);
   const [chatAberto, setChatAberto] = useState(false);
 
+  /**
+   * A LOJA FECHA A ENTREGA QUE ELA MESMA FEZ.
+   *
+   * Passa pelas duas transições no servidor (`em_entrega` e depois `entregue`),
+   * como se um entregador tivesse levado — a linha do tempo precisa mostrar a
+   * saída e a cobrança na maquininha acontece em `em_entrega`.
+   */
+  async function concluir() {
+    setCarregando(true);
+    try {
+      await api('POST', `/api/lojista/pedidos/${p.id}/concluir`, {});
+      aoAtualizar();
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally {
+      setCarregando(false);
+    }
+  }
+
   async function acao(tipo: 'aceitar' | 'recusar' | 'preparar' | 'pronto', motivo?: string) {
     setCarregando(true);
     try {
@@ -508,10 +527,26 @@ function CardPedidoDash({
                 <Bike className="size-3.5" /> Atribuir entregador
               </Button>
             )}
+            {/*
+              A LOJA FECHA A ENTREGA QUE ELA MESMA FEZ. Sem isto, quem entrega
+              com a própria equipe fica com o pedido preso em "aguardando
+              entregador" — e é na chegada a `entregue` que a nota é emitida.
+              Pedido que não fecha é venda sem nota.
+            */}
+            <Button size="sm" variant="outline" disabled={carregando} onClick={() => void concluir()}>
+              <Check className="size-3.5" /> Já entreguei
+            </Button>
           </>
         );
       case 'em_entrega':
-        return <Badge variant="info">Saiu para entrega 🛵</Badge>;
+        return (
+          <>
+            <Badge variant="info">Saiu para entrega 🛵</Badge>
+            <Button size="sm" variant="outline" disabled={carregando} onClick={() => void concluir()}>
+              <Check className="size-3.5" /> Já entreguei
+            </Button>
+          </>
+        );
       default:
         return null;
     }

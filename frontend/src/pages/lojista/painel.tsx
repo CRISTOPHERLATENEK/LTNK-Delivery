@@ -1132,6 +1132,27 @@ function CardPedidoLojista({ pedido, aoAtualizar, agora }: {
 
   const isPendente = pedido.status === 'pendente';
 
+  /**
+   * A LOJA FECHA A ENTREGA QUE ELA MESMA FEZ.
+   *
+   * O fluxo oficial vai `pronto → em_entrega → entregue` e só o app do
+   * entregador dava esses passos. Quem entrega com a própria equipe ficava com o
+   * pedido preso em "aguardando entregador" para sempre — e não é cosmético: é
+   * na chegada a `entregue` que a nota é emitida. Pedido que não fecha é venda
+   * sem nota.
+   */
+  async function concluir() {
+    setCarregando(true);
+    try {
+      await api('POST', `/api/lojista/pedidos/${pedido.id}/concluir`, {});
+      aoAtualizar();
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally {
+      setCarregando(false);
+    }
+  }
+
   async function acao(tipo: 'aceitar' | 'recusar' | 'preparar' | 'pronto', motivo?: string) {
     setCarregando(true);
     try {
@@ -1213,9 +1234,27 @@ function CardPedidoLojista({ pedido, aoAtualizar, agora }: {
           </Button>
         );
       case 'pronto':
-        return <Badge variant="info">Aguardando entregador</Badge>;
+        return (
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="info">Aguardando entregador</Badge>
+            {/* "Já entreguei" e não "Concluir": o botão descreve o que a pessoa
+                fez, não o que o sistema faz com o registro. */}
+            <Button variant="outline" className="w-full sm:w-auto" loading={carregando} loadingText="Fechando…"
+              onClick={() => void concluir()}>
+              <Check className="size-4" /> Já entreguei
+            </Button>
+          </div>
+        );
       case 'em_entrega':
-        return <Badge variant="info">Saiu para entrega 🛵</Badge>;
+        return (
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="info">Saiu para entrega 🛵</Badge>
+            <Button variant="outline" className="w-full sm:w-auto" loading={carregando} loadingText="Fechando…"
+              onClick={() => void concluir()}>
+              <Check className="size-4" /> Já entreguei
+            </Button>
+          </div>
+        );
       default:
         return null;
     }

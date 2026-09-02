@@ -61,7 +61,7 @@ import { sugerirFreteCentavos, explicarSugestao } from '../sugestao-frete';
 import { somarVendas, montarResumo, diferencaDeCaixa, classificarDiferenca, somarMovimentos, tempoAberto, sangriaCabeNoCaixa } from '../caixa';
 import { resolverPeriodo, rotuloPeriodo, periodoAnterior, variacaoPercentual, type NomePeriodo } from '../periodo';
 import { classificarCurvaAbc, resumirClassesAbc } from '../curva-abc';
-import { GrupoOpcao, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
+import { GrupoOpcao, Loja, OpcaoItem, Produto, StatusPedido } from '../../tipos/modelos';
 
 /**
  * Slugs que colidem com rotas fixas do frontend (App.tsx) — a URL da loja é
@@ -2970,6 +2970,59 @@ router.put('/entregadores/cadastro/:id', async (req, res, next) => {
         .run(await bcrypt.hash(senha, 10), entregador.id);
     }
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+/**
+ * A LOJA FECHA A ENTREGA QUE ELA MESMA FEZ.
+ *
+ * O fluxo oficial é `pronto → em_entrega → entregue`, e só o app do entregador
+ * dava esses dois passos. Quem entrega com a própria equipe — ou o próprio
+ * dono, de moto — ficava com o pedido preso em "pronto · aguardando
+ * entregador" para sempre: o pedido 103 foi entregue de verdade e continuou
+ * assim na tela.
+ *
+ * E não é só cosmético: é na chegada a `entregue` que a nota é emitida (ou que
+ * o documento vai para o ERP). Pedido que não fecha é venda sem nota.
+ *
+ * PASSA PELAS DUAS TRANSIÇÕES, não grava 'entregue' direto. A linha do tempo
+ * precisa mostrar a saída, o lançamento na maquininha acontece em
+ * `em_entrega`, e pular etapa aqui criaria um segundo caminho com regras
+ * próprias — que é exatamente como o pedido 88 saiu sem cobrança.
+ */
+router.post('/pedidos/:id/concluir', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const pedido = await db.prepare(
+      'SELECT id, status, tipo_entrega FROM pedidos WHERE id = ? AND loja_id = ?'
+    ).get(inteiroPositivo(req.params.id), loja.id) as
+      { id: number; status: StatusPedido; tipo_entrega: string } | undefined;
+    if (!pedido) throw erroHttp(404, 'Pedido não encontrado.');
+
+    if (pedido.status === 'entregue') return res.json({ ok: true, status: 'entregue' });
+
+    if (pedido.status !== 'pronto' && pedido.status !== 'em_entrega') {
+      throw erroHttp(409, 'Só é possível concluir um pedido que já está pronto.');
+    }
+
+    /* De `pronto`, passa por `em_entrega` primeiro — é onde a cobrança sobe
+       para a maquininha, quando a loja usa uma. */
+    if (pedido.status === 'pronto') {
+      await transicionarStatus(pedido.id, 'em_entrega');
+    }
+    const atualizado = await transicionarStatus(pedido.id, 'entregue');
+
+    /*
+     * A NOTA SAI AQUI, pelo mesmo funil do app do entregador.
+     *
+     * `emitirNotaDoPedido` decide quem emite (este sistema, o ERP, ou ninguém
+     * quando é a maquininha). Chamar a emissão de um jeito diferente aqui seria
+     * o segundo caminho com regras próprias que este código já pagou para
+     * aprender a não ter.
+     */
+    emitirNotaDoPedido(pedido.id).catch(() => { /* a nota fica registrada com o erro */ });
+
+    res.json({ ok: true, status: atualizado?.status ?? 'entregue' });
   } catch (e) { next(e); }
 });
 
