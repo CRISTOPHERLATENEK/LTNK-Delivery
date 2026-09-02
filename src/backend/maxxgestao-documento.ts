@@ -47,6 +47,16 @@ export interface ConfigDocumento {
   /** Consumidor final padrão da empresa (`idPessoaPadrao` das configurações). */
   idPessoa: number;
   /**
+   * O USUÁRIO DO ERP QUE ASSINA O DOCUMENTO. Obrigatório: sem ele a criação é
+   * recusada com "idUsuario deve ser maior que zero".
+   *
+   * E não dá para pedir ao lojista: `GET /api/usuario/v1` devolve e-mail e
+   * `codigoExterno`, NÃO o id — mandar o código externo (4000) volta "Usuario
+   * 4000 nao encontrado para a organizacao do token". O valor é descoberto
+   * lendo um documento que já existe no ERP; ver `maxxgestao-emitir`.
+   */
+  idUsuario: number;
+  /**
    * A forma de pagamento no ERP, quando dá para resolver. Zero = manda sem.
    *
    * NÃO IMPEDE MAIS. Enquanto nós emitíamos a nota, forma errada seria `tPag`
@@ -55,7 +65,15 @@ export interface ConfigDocumento {
    * pedido sem chegar lá — que é o oposto do que se quer.
    */
   idPagamento: number;
-  /** Momento do documento, em ISO. Injetável para o teste não depender do relógio. */
+  /**
+   * Momento do documento, em HORÁRIO DE BRASÍLIA — não UTC.
+   *
+   * Os documentos do ERP vêm em hora local ("2026-09-02T11:12:22.521", sem
+   * fuso), então mandar UTC coloca o pedido três horas no futuro: um pedido das
+   * 18h aparece às 21h no Gestão, e no fim do dia cai no dia seguinte.
+   *
+   * Injetável para o teste não depender do relógio.
+   */
   dataHora: string;
 }
 
@@ -89,6 +107,7 @@ export function montarDocumento(
   if (!pedido.itens.length) impedimentos.push('o pedido não tem itens');
   if (config.idNaturezaOperacao <= 0) impedimentos.push('a natureza de operação não está configurada');
   if (config.idPessoa <= 0) impedimentos.push('o consumidor final padrão do ERP não foi encontrado');
+  if (config.idUsuario <= 0) impedimentos.push('não consegui descobrir o usuário do ERP que assina o documento');
 
   const semVinculo = pedido.itens.filter(i => !(i.variacaoErp > 0));
   if (semVinculo.length) {
@@ -131,6 +150,7 @@ export function montarDocumento(
   const corpo: Record<string, unknown> = {
     documento: {
       idNaturezaOperacao: config.idNaturezaOperacao,
+      idUsuario: config.idUsuario,
       /* `PV` = pedido de venda. `modelo` só aceita PA, PV, OC ou CN — modelo
          fiscal é o que o `transformar` faz depois, não o que se pede aqui. */
       modelo: 'PV',
@@ -143,7 +163,11 @@ export function montarDocumento(
     pessoa: { idPessoa: config.idPessoa },
     pedido: {
       idExterno: String(pedido.id),
-      tipoEntrega: pedido.tipoEntrega === 'retirada' ? 'R' : 'E',
+      /*
+       * D OU B, e não E/R como eu supus: o ERP recusa com "tipoEntrega
+       * invalido. Valores aceitos: D ou B". D de delivery, B de balcão.
+       */
+      tipoEntrega: pedido.tipoEntrega === 'retirada' ? 'B' : 'D',
     },
     mercadoriaLista,
     /*

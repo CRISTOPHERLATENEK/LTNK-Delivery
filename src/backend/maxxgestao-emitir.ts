@@ -23,6 +23,21 @@
  */
 import db from './db-mysql';
 import { agoraUTC } from './util';
+
+/**
+ * AGORA EM HORÁRIO DE BRASÍLIA, no formato que o ERP usa: sem fuso, sem `Z`.
+ *
+ * `toISOString()` sempre devolve UTC com `Z` no fim; cortar o `Z` de um valor
+ * UTC seria mentir sobre o fuso em vez de converter. Aqui o instante é
+ * deslocado ANTES de formatar, e o `Z` sai — o que resta é hora local de
+ * verdade, do jeito que os documentos deles vêm.
+ *
+ * Offset fixo de -3h, como em `dataBrasilia`: o Brasil não tem horário de verão
+ * desde 2019, e se voltar, os dois lugares mudam junto.
+ */
+export function agoraBrasiliaIso(agoraMs: number = Date.now()): string {
+  return new Date(agoraMs - 3 * 60 * 60 * 1000).toISOString().replace('Z', '');
+}
 import { descriptografar } from './cripto';
 import { chamarMaxxGestao, ErroMaxxGestao, type OpcoesMaxxGestao } from './maxxgestao-cliente';
 import { todasAsPaginas } from './maxxgestao-catalogo';
@@ -121,6 +136,29 @@ export function idDoDocumento(resposta: unknown): number {
   return 0;
 }
 
+/**
+ * DESCOBRIR O `idUsuario` LENDO UM DOCUMENTO QUE JÁ EXISTE.
+ *
+ * O documento exige `idUsuario`, e não há como perguntar: a lista de usuários
+ * da API devolve e-mail e `codigoExterno`, mas NÃO o id — mandar o código
+ * externo volta "Usuario 4000 nao encontrado para a organizacao do token". Nem
+ * o lojista conseguiria informar um número que a API dele não mostra.
+ *
+ * Então o valor vem do próprio ERP: o documento mais recente traz o `idUsuario`
+ * de quem opera aquela empresa. É dado deles, não palpite nosso — e foi assim
+ * que o primeiro documento do delivery entrou (id 5470 na conta da Unimaxx).
+ */
+export async function descobrirIdUsuario(
+  token: string,
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<number> {
+  const d = await chamarMaxxGestao(token, '/api/documento/v1?page=1&limit=1', opcoes) as
+    { items?: Array<{ idUsuario?: unknown }> } | null;
+  const bruto = d?.items?.[0]?.idUsuario;
+  const n = Number(bruto ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 export interface ResultadoEmissao {
   /** O documento foi criado no ERP? A NOTA é emitida lá, por gente. */
   emitiu: boolean;
@@ -158,8 +196,11 @@ export async function enviarPedidoAoErp(
   }
 
   const loja = await db.prepare(
-    'SELECT nfce_emissor, maxxgestao_token FROM lojas WHERE id = ?'
-  ).get(pedido.loja_id) as { nfce_emissor: string | null; maxxgestao_token: string | null } | undefined;
+    'SELECT nfce_emissor, maxxgestao_token, maxxgestao_id_usuario FROM lojas WHERE id = ?'
+  ).get(pedido.loja_id) as {
+    nfce_emissor: string | null; maxxgestao_token: string | null;
+    maxxgestao_id_usuario: number | null;
+  } | undefined;
 
   if (String(loja?.nfce_emissor ?? 'sistema') !== 'erp') {
     return { emitiu: false, motivo: 'esta loja não emite pelo Maxx Gestão' };
@@ -199,12 +240,28 @@ export async function enviarPedidoAoErp(
   let idNatureza = 0;
   let idPessoa = 0;
   let idPagamento = 0;
+  let idUsuario = 0;
   try {
     const cfg = await chamarMaxxGestao(token, '/api/empresa/configuracoes/v1', opcoes) as Record<string, unknown> | null;
     idPessoa = Number(cfg?.idPessoaPadrao ?? 0);
     /* Natureza 1 = "VENDA DE MERCADORIA DENTRO DO ESTADO" (CFOP 5102) na conta
        conferida. Fica aqui como padrão até virar configuração por loja. */
     idNatureza = 1;
+
+    /*
+     * O USUÁRIO É GUARDADO NA LOJA depois de descoberto. Uma leitura por
+     * pedido seria uma requisição a mais em cada venda, contra um limite de 20
+     * por minuto — e o valor não muda.
+     */
+    idUsuario = Number(loja?.maxxgestao_id_usuario ?? 0);
+    if (idUsuario <= 0) {
+      idUsuario = await descobrirIdUsuario(token, opcoes);
+      if (idUsuario > 0) {
+        await db.prepare('UPDATE lojas SET maxxgestao_id_usuario = ? WHERE id = ?')
+          .run(idUsuario, pedido.loja_id);
+        console.log(`[erp] loja ${pedido.loja_id}: idUsuario do ERP descoberto: ${idUsuario}`);
+      }
+    }
   } catch (e) {
     const erro = e as ErroMaxxGestao;
     return { emitiu: false, motivo: `não consegui ler a configuração do ERP: ${erro.message}` };
@@ -230,8 +287,12 @@ export async function enviarPedidoAoErp(
   const { corpo, impedimentos } = montarDocumento(dados, {
     idNaturezaOperacao: idNatureza,
     idPessoa,
+    idUsuario,
     idPagamento,
-    dataHora: agoraUTC(),
+    /* HORA DE BRASÍLIA. Os documentos do ERP vêm sem fuso, em hora local:
+       mandar UTC joga o pedido três horas para frente e, à noite, para o dia
+       seguinte. */
+    dataHora: agoraBrasiliaIso(),
   });
 
   if (!corpo) {

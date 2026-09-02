@@ -5,11 +5,12 @@ import {
   montarDocumento, valorDoErp, diferencaDoTotal,
   type DadosDoPedido, type ConfigDocumento,
 } from './maxxgestao-documento';
-import { acharPagamento, idDoDocumento } from './maxxgestao-emitir';
+import { acharPagamento, idDoDocumento, agoraBrasiliaIso } from './maxxgestao-emitir';
 
 const config: ConfigDocumento = {
   idNaturezaOperacao: 1,
   idPessoa: 5,
+  idUsuario: 5470,
   idPagamento: 3,
   dataHora: '2026-09-02T13:00:00',
 };
@@ -29,6 +30,7 @@ describe('o corpo do documento', () => {
     expect(impedimentos).toEqual([]);
     expect(corpo?.documento).toEqual({
       idNaturezaOperacao: 1,
+      idUsuario: 5470,
       /* `modelo` só aceita PA, PV, OC ou CN — modelo fiscal é o que o
          `transformar` faz depois, não o que se pede na criação. */
       modelo: 'PV',
@@ -72,9 +74,25 @@ describe('o corpo do documento', () => {
     expect(corpo?.pagamentoLista).toEqual([{ idPagamento: 3, valor: 30, valAcrescimo: 0, valDesconto: 0 }]);
   });
 
-  it('retirada e entrega viram R e E', () => {
-    expect((montarDocumento(pedido({ tipoEntrega: 'retirada' }), config).corpo?.pedido as Record<string, unknown>).tipoEntrega).toBe('R');
-    expect((montarDocumento(pedido(), config).corpo?.pedido as Record<string, unknown>).tipoEntrega).toBe('E');
+  it('retirada e entrega viram B e D — não R e E', () => {
+    /*
+     * O ERP recusa com "tipoEntrega invalido. Valores aceitos: D ou B". R e E
+     * era suposição minha, e ela custou uma recusa: D de delivery, B de balcão.
+     */
+    expect((montarDocumento(pedido({ tipoEntrega: 'retirada' }), config).corpo?.pedido as Record<string, unknown>).tipoEntrega).toBe('B');
+    expect((montarDocumento(pedido(), config).corpo?.pedido as Record<string, unknown>).tipoEntrega).toBe('D');
+  });
+
+  it('sem o usuário do ERP, não monta', () => {
+    /*
+     * O ERP recusa com "idUsuario deve ser maior que zero", e não dá para
+     * perguntar ao lojista: a lista de usuários da API não devolve o id (só
+     * e-mail e código externo). O valor é descoberto lendo um documento que já
+     * existe lá.
+     */
+    const m = montarDocumento(pedido(), { ...config, idUsuario: 0 });
+    expect(m.corpo).toBeNull();
+    expect(m.impedimentos.join(' ')).toMatch(/usuário do ERP/i);
   });
 });
 
@@ -285,5 +303,35 @@ describe('o funil da nota', () => {
     const f = fonte('maxxgestao-emitir.ts');
     expect(f).not.toContain('/transformar/v1');
     expect(f).not.toContain('/emitir/v1');
+  });
+});
+
+describe('a hora que vai no documento é de Brasília', () => {
+  /*
+   * Os documentos do ERP vêm SEM FUSO, em hora local
+   * ("2026-09-02T11:12:22.521"). Mandar UTC coloca o pedido três horas no
+   * futuro: um pedido das 18h aparece às 21h no Gestão e, depois das 21h, cai
+   * no dia seguinte — o relatório do dia fecha errado.
+   */
+  it('desloca 3 horas e tira o Z', () => {
+    /* 2026-09-02T18:35:00Z é 15:35 em Brasília. */
+    expect(agoraBrasiliaIso(Date.parse('2026-09-02T18:35:00.000Z'))).toBe('2026-09-02T15:35:00.000');
+  });
+
+  it('vira o dia para trás quando é de madrugada em UTC', () => {
+    /* 01:00Z do dia 3 é 22:00 do dia 2 no Brasil — e é justo esse caso que
+       faria a venda cair no dia errado no relatório do ERP. */
+    expect(agoraBrasiliaIso(Date.parse('2026-09-03T01:00:00.000Z'))).toBe('2026-09-02T22:00:00.000');
+  });
+
+  it('não sobra Z nenhum: Z num valor local é mentira de fuso', () => {
+    expect(agoraBrasiliaIso(Date.now())).not.toContain('Z');
+  });
+
+  it('o envio usa a hora de Brasília, não agoraUTC', () => {
+    const fonte = fs.readFileSync(path.join(__dirname, 'maxxgestao-emitir.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(fonte).toContain('dataHora: agoraBrasiliaIso()');
+    expect(fonte).not.toContain('dataHora: agoraUTC()');
   });
 });

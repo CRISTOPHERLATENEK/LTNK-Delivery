@@ -1087,6 +1087,11 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
        Pago: quem tem ele emite nota fiscal no CNPJ de alguém. Não expira — nasce
        no painel do ERP e vale até ser trocado lá. */
     ['lojas', 'maxxgestao_token',        'maxxgestao_token TEXT'],
+    /* O usuário do ERP que assina o documento. Descoberto lendo um documento
+       que já existe lá (a API não expõe o id na lista de usuários) e guardado,
+       porque não muda e uma leitura por pedido custaria uma requisição a mais
+       contra o limite de 20 por minuto. */
+    ['lojas', 'maxxgestao_id_usuario', 'maxxgestao_id_usuario INT NOT NULL DEFAULT 0'],
     /* O vínculo do produto com a mercadoria do Maxx Gestão. É este número que o
        documento fiscal exige em `mercadoriaLista[].idMercadoriaVariacao`, então
        é ele que guardamos — e não o código de barras, que em restaurante quase
