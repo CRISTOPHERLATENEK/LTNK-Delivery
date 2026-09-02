@@ -409,6 +409,8 @@ function CardPedidoDash({
    * como se um entregador tivesse levado — a linha do tempo precisa mostrar a
    * saída e a cobrança na maquininha acontece em `em_entrega`.
    */
+  const retirada = p.tipo_entrega === 'retirada';
+
   async function concluir() {
     setCarregando(true);
     try {
@@ -518,11 +520,18 @@ function CardPedidoDash({
             <Package className="size-3.5" /> Marcar como pronto
           </Button>
         );
+      /*
+       * RETIRADA NÃO ESPERA ENTREGADOR — o cliente vem buscar. O badge dizia
+       * "Aguardando entregador" e o botão de atribuir aparecia: os dois
+       * mentiam sobre quem a loja está esperando.
+       */
       case 'pronto':
         return (
           <>
-            <Badge variant="info">Aguardando entregador</Badge>
-            {entregadores.length > 0 && (
+            <Badge variant="info">
+              {retirada ? 'Pronto — aguardando o cliente' : 'Aguardando entregador'}
+            </Badge>
+            {!retirada && entregadores.length > 0 && (
               <Button size="sm" variant="outline" onClick={() => setAtribuindo(a => !a)}>
                 <Bike className="size-3.5" /> Atribuir entregador
               </Button>
@@ -534,16 +543,16 @@ function CardPedidoDash({
               Pedido que não fecha é venda sem nota.
             */}
             <Button size="sm" variant="outline" disabled={carregando} onClick={() => void concluir()}>
-              <Check className="size-3.5" /> Já entreguei
+              <Check className="size-3.5" /> {retirada ? 'Cliente retirou' : 'Já entreguei'}
             </Button>
           </>
         );
       case 'em_entrega':
         return (
           <>
-            <Badge variant="info">Saiu para entrega 🛵</Badge>
+            <Badge variant="info">{retirada ? 'Aguardando o cliente' : 'Saiu para entrega 🛵'}</Badge>
             <Button size="sm" variant="outline" disabled={carregando} onClick={() => void concluir()}>
-              <Check className="size-3.5" /> Já entreguei
+              <Check className="size-3.5" /> {retirada ? 'Cliente retirou' : 'Já entreguei'}
             </Button>
           </>
         );

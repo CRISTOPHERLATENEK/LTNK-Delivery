@@ -1141,6 +1141,8 @@ function CardPedidoLojista({ pedido, aoAtualizar, agora }: {
    * na chegada a `entregue` que a nota é emitida. Pedido que não fecha é venda
    * sem nota.
    */
+  const retirada = pedido.tipo_entrega === 'retirada';
+
   async function concluir() {
     setCarregando(true);
     try {
@@ -1233,25 +1235,34 @@ function CardPedidoLojista({ pedido, aoAtualizar, agora }: {
             <Package className="size-4" /> Marcar como pronto
           </Button>
         );
+      /*
+       * RETIRADA NÃO ESPERA ENTREGADOR — o cliente vem buscar.
+       *
+       * O badge dizia "Aguardando entregador" em pedido de retirada, ou seja
+       * mentia sobre quem a loja está esperando: alguém olharia a fila de
+       * entregadores por um pedido que só precisa do cliente aparecer. Mesma
+       * coisa no botão: "Já entreguei" é o que se faz numa entrega, "Cliente
+       * retirou" é o que se faz no balcão.
+       */
       case 'pronto':
         return (
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="info">Aguardando entregador</Badge>
-            {/* "Já entreguei" e não "Concluir": o botão descreve o que a pessoa
-                fez, não o que o sistema faz com o registro. */}
+            <Badge variant="info">
+              {retirada ? 'Pronto — aguardando o cliente' : 'Aguardando entregador'}
+            </Badge>
             <Button variant="outline" className="w-full sm:w-auto" loading={carregando} loadingText="Fechando…"
               onClick={() => void concluir()}>
-              <Check className="size-4" /> Já entreguei
+              <Check className="size-4" /> {retirada ? 'Cliente retirou' : 'Já entreguei'}
             </Button>
           </div>
         );
       case 'em_entrega':
         return (
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="info">Saiu para entrega 🛵</Badge>
+            <Badge variant="info">{retirada ? 'Aguardando o cliente' : 'Saiu para entrega 🛵'}</Badge>
             <Button variant="outline" className="w-full sm:w-auto" loading={carregando} loadingText="Fechando…"
               onClick={() => void concluir()}>
-              <Check className="size-4" /> Já entreguei
+              <Check className="size-4" /> {retirada ? 'Cliente retirou' : 'Já entreguei'}
             </Button>
           </div>
         );
