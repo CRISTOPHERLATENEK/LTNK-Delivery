@@ -169,20 +169,62 @@ E uma específica daqui: **produto que nasceu no delivery
 (`maxxgestao_variacao_id = 0`) não é tocado.** Sem essa condição, a primeira
 importação pausaria o cardápio inteiro que o lojista montou à mão.
 
-### O buraco: PREÇO DE VENDA
+### O preço vem de `GET /api/tabela-preco/{id}/mercadorias/v1`
 
-**Nenhum endpoint de leitura devolve preço de venda.** `PublicaMercadoriaResponse`
-(52 campos) não tem; `mercadoria-custo` só tem `valCusto` e `valCustoMedio`; e
-`/api/mercadoria-tabela-preco/v1` é **PUT apenas** — dá para gravar preço, não
-para ler.
+**Correção de uma conclusão errada minha.** Eu havia escrito aqui que não existia
+leitura de preço de venda — porque olhei só `/api/mercadoria-tabela-preco/v1`,
+que é PUT, e generalizei. O produto (52 campos) de fato não traz preço: ele mora
+na TABELA, e a tabela tem endpoint de leitura próprio.
 
-**Decidido: o preço mora no delivery.** O ERP manda descrição, NCM e perfil
-tributário; quem define quanto custa no app é o lojista — o que combina com o
-delivery ser o canal de venda, já que preço de delivery costuma ser diferente do
-balcão. Produto importado nasce a R$ 0,01 e pausado até alguém precificar.
+```
+{"codigoMercadoriaVariacao":1,"valPreco":6.900000,...}   → 1.075 preços
+```
 
-Se algum dia fizer diferença, cabe pedir ao suporte um endpoint de LEITURA da
-tabela de preço; hoje só existe o PUT.
+A tabela usada é a `idTabelaPrecoPadrao` das configurações da empresa (1 =
+"Preço Varejo" na Unimaxx), lida em tempo de importação — fixar `1` no código
+daria o preço da tabela errada em quem usa outra.
+
+**A regra do preço, assimétrica de propósito:**
+
+| situação | o que acontece |
+|---|---|
+| produto novo, ERP tem preço | nasce com o preço do ERP |
+| produto novo, ERP sem preço | nasce no marcador de **R$ 0,01** |
+| já existe e o nosso preço é o marcador | preenche com o do ERP |
+| já existe e alguém precificou | **não toca** |
+
+O marcador de um centavo é visivelmente errado de propósito (qualquer valor
+plausível passaria batido e o produto seria vendido por ele) e é também o SINAL
+de "ninguém precificou ainda" — é ele que permite preencher depois sem pisar em
+decisão de gente. Preço de delivery costuma ser diferente do balcão.
+
+**Produto importado nasce PAUSADO mesmo com preço.** Publicar 1.100 produtos na
+loja de alguém porque uma importação rodou seria decidir pelo lojista o que ele
+vende, e ele descobriria pelo cliente pedindo.
+
+### As formas de pagamento: `idTipo` É o `tPag`
+
+`GET /api/pagamento/v1` — 15 formas na conta da Unimaxx, e o `idTipo` de cada
+uma é o código da NFC-e:
+
+| código | forma | `idTipo` = `tPag` |
+|---|---|---|
+| 1 | Dinheiro | 01 |
+| 5 | Cartão de Credito | 03 |
+| 6 | Cartão de Debito | 04 |
+| 15 | PIX - MANUAL | 17 |
+| 13 / 14 | TEF - CRÉDITO / DÉBITO | 03 / 04 |
+| 4 | Bonificação | 99 |
+
+É por isso que emitir pelo ERP acaba com o "todo cartão é crédito por palpite"
+de `tipo-pagamento-nfce.ts`: a forma certa existe e carrega o `tPag` certo.
+
+**MAS `/api/natureza-operacao/1/pagamentos/v1` volta vazio.** Nenhuma das 15
+está ligada à natureza de operação, e sem isso a emissão para com "a forma de
+pagamento não está ligada à natureza de operação no ERP". É configuração no
+portal deles: **Natureza de Operação → 1 → formas de pagamento permitidas**. O
+mínimo para o delivery funcionar: Dinheiro (1), Cartão de Credito (5), Cartão de
+Debito (6) e PIX - MANUAL (15).
 
 ## Fase 3 — emitir a nota (implementada)
 
