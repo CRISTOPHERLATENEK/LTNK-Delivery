@@ -29,6 +29,29 @@ interface EmpresaErp {
   regime: string;
 }
 
+/** Um produto que mudou, para a tela poder PROVAR o que fez. */
+interface Exemplo {
+  nome: string;
+  /** Preço anterior em centavos; nulo quando o produto é novo. */
+  de: number | null;
+  para: number;
+}
+
+interface RespostaImportacao {
+  lidos: number;
+  criados: number;
+  atualizados: number;
+  pausados: number;
+  restantes: string[];
+  terminou: boolean;
+  faltando: number;
+  exemplos: Exemplo[];
+  resumo: string;
+}
+
+const emReais = (centavos: number) =>
+  (centavos / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
 export function PainelMaxxGestao({ emissor, aoMudarEmissor }: {
   /** Quem emite a NFC-e hoje. Vem de `/api/lojista/tef`, fonte única. */
   emissor: 'sistema' | 'maquininha' | 'erp';
@@ -39,6 +62,11 @@ export function PainelMaxxGestao({ emissor, aoMudarEmissor }: {
   const [configurado, setConfigurado] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [empresa, setEmpresa] = useState<EmpresaErp | null>(null);
+
+  const [importando, setImportando] = useState(false);
+  const [andamento, setAndamento] = useState('');
+  const [conta, setConta] = useState<{ criados: number; atualizados: number; pausados: number } | null>(null);
+  const [exemplos, setExemplos] = useState<Exemplo[]>([]);
 
   /*
    * O campo nasce com a MÁSCARA que veio do servidor, não vazio. Vazio
@@ -52,56 +80,6 @@ export function PainelMaxxGestao({ emissor, aoMudarEmissor }: {
       .catch(() => { /* a tela não cai por causa disso */ });
     return () => { vivo = false; };
   }, []);
-
-  const [importando, setImportando] = useState(false);
-  const [resumo, setResumo] = useState('');
-
-  /**
-   * A IMPORTAÇÃO VEM EM PEDAÇOS, e a tela pede o próximo.
-   *
-   * O servidor varre o catálogo por letra e para quando gasta o orçamento de
-   * tempo, devolvendo quais letras faltam. Uma requisição só ficaria minutos
-   * aberta esperando o limite de 20 requisições por minuto do ERP.
-   *
-   * O laço tem TETO. Um `restantes` que nunca encurta — por bug nosso ou deles
-   * — viraria requisição infinita contra a API de um cliente.
-   */
-  async function importar() {
-    setImportando(true);
-    setResumo('');
-    let letras: string[] | undefined;
-    let criadosTotal = 0;
-    try {
-      for (let volta = 0; volta < 20; volta++) {
-        const r = await api<{
-          resumo: string; criados: number; restantes: string[]; terminou: boolean;
-        }>('POST', '/api/lojista/erp/importar', letras ? { letras } : {});
-        criadosTotal += r.criados;
-        setResumo(r.resumo);
-        if (r.terminou) {
-          /*
-           * O toast diz o RESUMO, não "importado com sucesso": produto novo
-           * entra pausado e a R$ 0,01, e quem clicou é quem precisa saber disso
-           * agora — não depois, quando um cliente comprar por um centavo.
-           */
-          mostrar({ tipo: criadosTotal ? 'sucesso' : 'info', titulo: r.resumo });
-          return;
-        }
-        /* Sem avanço não insiste: repetir a mesma lista de letras seria laço
-           infinito com cara de progresso. */
-        if (!r.restantes?.length || (letras && r.restantes.length >= letras.length)) {
-          mostrar({ tipo: 'erro', titulo: 'A importação parou de avançar. Tente de novo.' });
-          return;
-        }
-        letras = r.restantes;
-      }
-      mostrar({ tipo: 'erro', titulo: 'A importação passou do limite de tentativas.' });
-    } catch (err) {
-      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
-    } finally {
-      setImportando(false);
-    }
-  }
 
   async function salvarETestar() {
     setEnviando(true);
@@ -124,6 +102,63 @@ export function PainelMaxxGestao({ emissor, aoMudarEmissor }: {
     }
   }
 
+  /**
+   * A IMPORTAÇÃO VEM EM LOTES, e a tela pede o próximo.
+   *
+   * O ERP aceita 20 requisições por minuto; ler o cadastro custa 24 e cada
+   * letra da busca custa 11. O servidor gasta um orçamento de tempo por lote e
+   * diz o que falta — uma requisição só ficaria minutos aberta.
+   *
+   * O laço tem TETO: um `restantes` que nunca encurta, por bug nosso ou deles,
+   * viraria requisição infinita contra a API de um cliente.
+   */
+  async function importar() {
+    setImportando(true);
+    setAndamento('Lendo o cadastro do Maxx Gestão…');
+    setConta(null);
+    setExemplos([]);
+    let letras: string[] | undefined;
+    const soma = { criados: 0, atualizados: 0, pausados: 0 };
+    try {
+      for (let volta = 0; volta < 20; volta++) {
+        const r = await api<RespostaImportacao>(
+          'POST', '/api/lojista/erp/importar', letras ? { letras } : {},
+        );
+        soma.criados += r.criados;
+        soma.atualizados += r.atualizados;
+        soma.pausados += r.pausados;
+        setConta({ ...soma });
+        if (r.exemplos?.length) setExemplos(r.exemplos);
+        setAndamento(r.resumo);
+
+        if (r.terminou) {
+          /*
+           * O toast diz o RESUMO, não "importado com sucesso": produto novo
+           * entra PAUSADO, e quem clicou é quem precisa saber disso agora — não
+           * depois, quando faltar produto na loja.
+           */
+          mostrar({ tipo: soma.criados || soma.atualizados ? 'sucesso' : 'info', titulo: r.resumo });
+          return;
+        }
+
+        /* Sem avanço não insiste: repetir a mesma lista de letras seria laço
+           infinito com cara de progresso. */
+        if (!r.restantes?.length) {
+          mostrar({ tipo: 'erro', titulo: 'A importação parou de avançar. Tente de novo.' });
+          return;
+        }
+        letras = r.restantes;
+      }
+      mostrar({ tipo: 'erro', titulo: 'A importação passou do limite de tentativas.' });
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setImportando(false);
+    }
+  }
+
+  const ligado = emissor === 'erp';
+
   return (
     <div className="space-y-5">
       <div>
@@ -134,8 +169,11 @@ export function PainelMaxxGestao({ emissor, aoMudarEmissor }: {
         </p>
       </div>
 
-      <div>
-        <p className="text-[13px] font-bold">Token da API</p>
+      {/* ─────────────── 1. conexão ─────────────── */}
+      <section>
+        <p className="text-[13px] font-bold">
+          <span className="mr-1.5 text-muted-foreground">1.</span>Token da API
+        </p>
         <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">
           Nasce no painel do Maxx Gestão e não expira. Guardado criptografado —
           trate como senha: quem tem ele emite nota no seu CNPJ.
@@ -149,69 +187,42 @@ export function PainelMaxxGestao({ emissor, aoMudarEmissor }: {
             disabled={enviando}
           />
           <Button type="button" variant="outline" disabled={enviando || !token.trim()} onClick={() => void salvarETestar()}>
-            Salvar e testar
+            {enviando ? 'Testando…' : 'Salvar e testar'}
           </Button>
         </div>
-      </div>
 
-      {/*
-        MOSTRA A RAZÃO SOCIAL, não um visto verde. Ver o próprio CNPJ é o que
-        prova que o token é da conta certa — token da conta errada só apareceria
-        na primeira nota emitida no CNPJ de outra empresa.
-      */}
-      {empresa && (
-        <div className="rounded-xl bg-muted/50 p-3.5 text-[12.5px] leading-relaxed">
-          <p className="font-bold text-foreground">{empresa.razao_social}</p>
-          <p className="text-muted-foreground">
-            CNPJ {empresa.cnpj} · {empresa.local} · {empresa.regime}
-          </p>
-          <p className="mt-1 text-muted-foreground">
-            Confira se é a sua empresa antes de deixar o Maxx Gestão emitir.
-          </p>
-        </div>
-      )}
+        {/*
+          MOSTRA A RAZÃO SOCIAL, não um visto verde. Ver o próprio CNPJ é o que
+          prova que o token é da conta certa — token da conta errada só
+          apareceria na primeira nota emitida no CNPJ de outra empresa.
+        */}
+        {empresa && (
+          <div className="mt-2 rounded-xl border border-border bg-muted/40 p-3.5 text-[12.5px] leading-relaxed">
+            <p className="font-bold text-foreground">{empresa.razao_social}</p>
+            <p className="text-muted-foreground">CNPJ {empresa.cnpj} · {empresa.local} · {empresa.regime}</p>
+            <p className="mt-1 text-muted-foreground">
+              Confira se é a sua empresa antes de deixar o Maxx Gestão emitir.
+            </p>
+          </div>
+        )}
+      </section>
 
-      {/*
-        O INTERRUPTOR VEM DEPOIS DO TESTE, na ordem em que a coisa acontece: sem
-        token o servidor recusa ligar, e recusar depois do clique ensina menos
-        que a ordem da tela ensinar sozinha.
-      */}
-      <button
-        type="button"
-        disabled={enviando || (!configurado && emissor !== 'erp')}
-        aria-pressed={emissor === 'erp'}
-        onClick={() => void aoMudarEmissor(emissor === 'erp' ? 'sistema' : 'erp')}
-        className="flex w-full items-center justify-between gap-4 rounded-xl border border-border p-4 text-left disabled:opacity-60"
-      >
-        <span className="min-w-0">
-          <span className="block text-sm font-bold">O Maxx Gestão emite a NFC-e</span>
-          <span className="mt-0.5 block text-[12.5px] leading-relaxed text-muted-foreground">
-            {emissor === 'erp'
-              ? 'Este sistema não emite mais. O botão de emitir de um pedido continua, para o dia em que o ERP estiver fora do ar.'
-              : configurado
-                ? 'Ligando, este sistema para de emitir e a nota passa a sair do ERP.'
-                : 'Salve e teste o token primeiro.'}
-          </span>
-        </span>
-        <span className={cn('relative h-6 w-11 shrink-0 rounded-full transition-colors',
-          emissor === 'erp' ? 'bg-primary' : 'bg-muted-foreground/30')}>
-          <span className={cn('absolute top-0.5 size-5 rounded-full bg-white shadow transition-all',
-            emissor === 'erp' ? 'left-[22px]' : 'left-0.5')} />
-        </span>
-      </button>
-
-      {/*
-        TRAZER O CARDÁPIO fica JUNTO do emissor, e não noutra tela, porque as
-        duas coisas dependem do mesmo token e a segunda depende da primeira: o
-        documento fiscal exige o produto vinculado ao ERP.
-      */}
-      <div className="rounded-xl border border-border p-4">
-        <p className="text-[13px] font-bold">Trazer o cardápio do Maxx Gestão</p>
-        <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted-foreground">
-          Traz nome, descrição, categoria e código de barras — e o vínculo fiscal
-          de cada produto, que é o que a nota exige. <b>O preço não vem</b>: o ERP
-          não devolve preço de venda, então quem define é você.
+      {/* ─────────────── 2. cardápio ─────────────── */}
+      <section>
+        <p className="text-[13px] font-bold">
+          <span className="mr-1.5 text-muted-foreground">2.</span>Trazer o cardápio
         </p>
+        <p className="mt-0.5 max-w-[620px] text-[12.5px] leading-relaxed text-muted-foreground">
+          Traz nome, descrição, categoria, código de barras, <b>preço</b> e o
+          vínculo fiscal de cada produto. Os produtos entram <b>pausados</b> —
+          publicar 1.100 itens na sua loja porque uma importação rodou não é
+          decisão nossa.
+        </p>
+        <p className="mt-1.5 max-w-[620px] text-[12px] leading-relaxed text-muted-foreground">
+          Se você já ajustou o preço de algum produto aqui, ele <b>não</b> é
+          sobrescrito. O preço do ERP entra só onde ninguém definiu ainda.
+        </p>
+
         <Button
           type="button"
           variant="outline"
@@ -221,23 +232,113 @@ export function PainelMaxxGestao({ emissor, aoMudarEmissor }: {
         >
           {importando ? 'Trazendo…' : 'Trazer o cardápio'}
         </Button>
-
-        {resumo && (
-          <p className="mt-2 rounded-lg bg-muted/50 p-3 text-[12.5px] leading-relaxed">{resumo}</p>
+        {!configurado && (
+          <p className="mt-1.5 text-[12px] text-muted-foreground">Salve e teste o token primeiro.</p>
         )}
-      </div>
 
-      {/*
-        DOIS EMISSORES NÃO CONVIVEM. Se a maquininha estiver marcada como
-        emissora e o ERP for ligado, quem vale é o último clique — dizer isso
-        aqui evita a descoberta pelo caminho caro, que é a nota duplicada.
-      */}
-      {emissor === 'maquininha' && (
-        <p className="rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-3.5 text-[12.5px] leading-relaxed text-muted-foreground">
-          Hoje quem emite é <b className="text-foreground">a maquininha</b>. Ligar
-          aqui passa a emissão para o Maxx Gestão — a maquininha volta a só cobrar.
+        {/*
+          O ANDAMENTO É NECESSÁRIO, não enfeite: a importação leva minutos por
+          causa do limite do ERP, e sem texto mudando a conclusão de quem espera
+          é que travou. Foi o que aconteceu.
+        */}
+        {(importando || andamento) && (
+          <div className="mt-2.5 rounded-xl border border-border p-3.5">
+            <p className="text-[12.5px] leading-relaxed">{andamento}</p>
+            {conta && (conta.criados || conta.atualizados || conta.pausados) ? (
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-muted-foreground">
+                <span><b className="text-foreground">{conta.criados}</b> novos</span>
+                <span><b className="text-foreground">{conta.atualizados}</b> atualizados</span>
+                <span><b className="text-foreground">{conta.pausados}</b> pausados</span>
+              </div>
+            ) : null}
+
+            {/*
+              OS EXEMPLOS SÃO A PROVA. "1.111 atualizados" é um número que
+              ninguém confere; três produtos com preço antes e depois dá para
+              abrir o ERP e comparar.
+            */}
+            {exemplos.length > 0 && (
+              <div className="mt-2.5 border-t border-border pt-2.5">
+                <p className="text-[12px] font-bold text-muted-foreground">O que mudou, por exemplo:</p>
+                <ul className="mt-1 space-y-0.5">
+                  {exemplos.map((e, i) => (
+                    <li key={i} className="flex flex-wrap items-baseline gap-x-2 text-[12.5px]">
+                      <span className="font-medium">{e.nome}</span>
+                      <span className="text-muted-foreground">
+                        {e.de === null
+                          ? <>novo · {emReais(e.para)}</>
+                          : <>{emReais(e.de)} → <b className="text-foreground">{emReais(e.para)}</b></>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* ─────────────── 3. emissão ─────────────── */}
+      <section>
+        <p className="text-[13px] font-bold">
+          <span className="mr-1.5 text-muted-foreground">3.</span>Quem emite a nota
         </p>
-      )}
+        {/*
+          O INTERRUPTOR VEM DEPOIS, na ordem em que a coisa acontece: sem token
+          o servidor recusa ligar, e recusar depois do clique ensina menos que a
+          ordem da tela ensinar sozinha.
+        */}
+        <button
+          type="button"
+          disabled={enviando || (!configurado && !ligado)}
+          aria-pressed={ligado}
+          onClick={() => void aoMudarEmissor(ligado ? 'sistema' : 'erp')}
+          className={cn(
+            'mt-2 flex w-full items-center justify-between gap-4 rounded-xl border p-4 text-left disabled:opacity-60',
+            ligado ? 'border-primary bg-primary/[0.06]' : 'border-border',
+          )}
+        >
+          <span className="min-w-0">
+            <span className="block text-sm font-bold">O Maxx Gestão emite a NFC-e</span>
+            <span className="mt-0.5 block text-[12.5px] leading-relaxed text-muted-foreground">
+              {ligado
+                ? 'Este sistema não emite mais. O botão de emitir de um pedido continua, para o dia em que o ERP estiver fora do ar.'
+                : configurado
+                  ? 'Ligando, este sistema para de emitir e a nota passa a sair do ERP.'
+                  : 'Salve e teste o token primeiro.'}
+            </span>
+          </span>
+          <span className={cn('relative h-6 w-11 shrink-0 rounded-full transition-colors',
+            ligado ? 'bg-primary' : 'bg-muted-foreground/30')}>
+            <span className={cn('absolute top-0.5 size-5 rounded-full bg-white shadow transition-all',
+              ligado ? 'left-[22px]' : 'left-0.5')} />
+          </span>
+        </button>
+
+        {/*
+          O QUE AINDA FALTA NO ERP, dito aqui e não descoberto na primeira venda:
+          sem forma de pagamento ligada à natureza de operação, a emissão para.
+        */}
+        {ligado && (
+          <p className="mt-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-3.5 text-[12.5px] leading-relaxed text-muted-foreground">
+            <b className="text-foreground">Confira no Maxx Gestão:</b> as formas de
+            pagamento precisam estar ligadas à <b>natureza de operação</b> usada na
+            venda. Sem isso a nota não sai, e o motivo aparece no pedido.
+          </p>
+        )}
+
+        {/*
+          DOIS EMISSORES NÃO CONVIVEM. Se a maquininha estiver marcada como
+          emissora e o ERP for ligado, quem vale é o último clique — dizer isso
+          aqui evita a descoberta pelo caminho caro, que é a nota duplicada.
+        */}
+        {emissor === 'maquininha' && (
+          <p className="mt-2 rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-3.5 text-[12.5px] leading-relaxed text-muted-foreground">
+            Hoje quem emite é <b className="text-foreground">a maquininha</b>. Ligar
+            aqui passa a emissão para o Maxx Gestão — a maquininha volta a só cobrar.
+          </p>
+        )}
+      </section>
     </div>
   );
 }

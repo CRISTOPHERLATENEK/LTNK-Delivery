@@ -41,6 +41,7 @@ import { consultarEmpresa, formatarCnpj, chamarMaxxGestao } from '../maxxgestao-
 import { buscarMercadorias, mapaDeCategorias, idsDaSecao, precosDaTabela, LETRAS_VARREDURA } from '../maxxgestao-catalogo';
 import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, type ItemDoCatalogo } from '../maxxgestao-importar';
 import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
+import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '../maxxgestao-preambulo';
 import { emitirPedidoNoErp } from '../maxxgestao-emitir';
 import { credenciaisDoAmbiente as credenciaisIfood } from '../ifood-cliente';
 import { lerCardapioIfood } from '../ifood-catalogo';
@@ -3760,12 +3761,12 @@ router.post('/erp/importar', async (req, res, next) => {
     if (!token) return res.status(400).json({ erro: 'Cole o token do Maxx Gestão primeiro.' });
 
     /*
-     * A VARREDURA VEM EM PEDAÇOS, e a tela pede o próximo.
+     * A VARREDURA VEM EM LOTES, e a tela pede o próximo.
      *
-     * São 20 requisições por minuto por token, e uma letra custa até 11 páginas.
-     * Uma requisição HTTP nossa não pode ficar minutos aberta esperando o
-     * limitador — então cada chamada gasta um orçamento de tempo, devolve o que
-     * fez e diz quais letras faltam. A tela chama de novo até `terminou`.
+     * São 20 requisições por minuto por token; o preâmbulo (ids, categorias,
+     * preços) custa 24 e uma letra custa 11. Uma requisição HTTP nossa não pode
+     * ficar minutos aberta esperando o limitador, então cada lote gasta um
+     * orçamento de tempo, devolve o que fez e diz o que falta.
      */
     const pedidas: string[] = Array.isArray(req.body?.letras) && req.body.letras.length
       ? req.body.letras.map((l: unknown) => String(l)).filter((l: string) => l.length === 1)
@@ -3774,30 +3775,55 @@ router.post('/erp/importar', async (req, res, next) => {
     const comecou = Date.now();
     const ORCAMENTO_MS = 25_000;
 
+    /*
+     * O PREÂMBULO É LIDO UMA VEZ E GUARDADO NO BANCO.
+     *
+     * Relê-lo a cada lote consumia a janela inteira antes de varrer qualquer
+     * letra — a importação rodava minutos e importava zero, exatamente como o
+     * log mostrou ("0 lidos em 0 letra(s) ... 1065 preços na tabela"). O cache
+     * vai no banco, não em memória, porque o PM2 tem três instâncias e o lote
+     * seguinte cai em outra.
+     */
+    let guardado = await lerPreambulo(loja.id);
+    if (!guardado) {
+      try {
+        const ids = await idsDaSecao(token, 1);
+        const mapas = await mapaDeCategorias(token);
+        const cfg = await chamarMaxxGestao(token, '/api/empresa/configuracoes/v1') as Record<string, unknown> | null;
+        const idTabela = Number(cfg?.idTabelaPrecoPadrao ?? 0);
+        const precos = idTabela > 0 ? await precosDaTabela(token, idTabela) : new Map<number, number>();
+        guardado = {
+          ids: [...ids],
+          precos: [...precos.entries()],
+          subgrupos: [...mapas.subgrupos.entries()],
+          grupos: [...mapas.grupos.entries()],
+        };
+        await gravarPreambulo(loja.id, guardado);
+      } catch (e) {
+        const erro = e as { message?: string; httpStatus?: number };
+        console.log(`[erp] loja ${loja.id}: falha no preambulo (${erro.httpStatus ?? '-'}): ${erro.message}`);
+        return res.status(400).json({ erro: erro.message || 'Não consegui ler o cadastro do Maxx Gestão.' });
+      }
+      /*
+       * O PREÂMBULO SOZINHO JÁ GASTOU A JANELA. Devolver agora, com as letras
+       * intactas, é melhor que esperar um minuto dentro desta requisição: a
+       * tela pede o próximo lote e o preâmbulo já está guardado.
+       */
+      if (Date.now() - comecou > ORCAMENTO_MS) {
+        console.log(`[erp] loja ${loja.id}: preambulo lido (${guardado.ids.length} ids, ${guardado.precos.length} precos) em ${Date.now() - comecou}ms`);
+        return res.json({
+          lidos: 0, criados: 0, atualizados: 0, pausados: 0, sem_mudanca: 0,
+          restantes: pedidas, terminou: false, faltando: 0, exemplos: [],
+          resumo: `Cadastro lido: ${guardado.ids.length} produtos e ${guardado.precos.length} preços. Trazendo o cardápio…`,
+        });
+      }
+    }
+
+    const { ids: existentes, precos, mapas } = abrirPreambulo(guardado);
+
     const porVariacao = new Map<number, ItemDoCatalogo>();
     const restantes: string[] = [];
-    /*
-     * A LISTA DE IDS VEM PRIMEIRO, e paga por si.
-     *
-     * Ela diz exatamente quantas mercadorias existem lá, então a varredura para
-     * na hora em que a cobertura fecha — sem ela, a última letra é sempre um
-     * minuto de espera para não trazer nada. E é a mesma lista que decide o que
-     * pausar no fim: uma leitura, dois usos.
-     */
-    let existentes = new Set<number>();
-    let mapas: Awaited<ReturnType<typeof mapaDeCategorias>>;
-    let precos = new Map<number, number>();
     try {
-      existentes = await idsDaSecao(token, 1);
-      mapas = await mapaDeCategorias(token);
-      /*
-       * O PREÇO VEM DA TABELA PADRÃO DA EMPRESA, lida nas configurações — não
-       * de constante nossa: cada empresa aponta a sua, e escrever "1" no código
-       * daria o preço da tabela errada em quem usa outra.
-       */
-      const cfg = await chamarMaxxGestao(token, '/api/empresa/configuracoes/v1') as Record<string, unknown> | null;
-      const idTabela = Number(cfg?.idTabelaPrecoPadrao ?? 0);
-      if (idTabela > 0) precos = await precosDaTabela(token, idTabela);
       for (let k = 0; k < pedidas.length; k++) {
         /* Cobertura fechada: o resto das letras não traria nada. */
         if (existentes.size > 0 && porVariacao.size >= existentes.size) break;
@@ -3816,14 +3842,12 @@ router.post('/erp/importar', async (req, res, next) => {
     } catch (e) {
       /*
        * Falha de leitura não escreve nada: importação pela metade é pior que
-       * nenhuma, porque ninguém sabe qual metade entrou.
-       *
-       * E O MOTIVO VAI PARA O LOG. A primeira versão só devolvia 400 com a
-       * mensagem no corpo — e quando a tela não mostrou o toast, não havia onde
-       * descobrir o que tinha acontecido.
+       * nenhuma, porque ninguém sabe qual metade entrou. E o motivo vai para o
+       * log — devolver só 400 com a mensagem no corpo deixou uma investigação
+       * sem pista quando a tela não mostrou o toast.
        */
       const erro = e as { message?: string; httpStatus?: number };
-      console.log(`[erp] loja ${loja.id}: falha ao ler o cardápio (${erro.httpStatus ?? '-'}): ${erro.message}`);
+      console.log(`[erp] loja ${loja.id}: falha ao ler o cardapio (${erro.httpStatus ?? '-'}): ${erro.message}`);
       return res.status(400).json({ erro: erro.message || 'Não consegui ler o cardápio do Maxx Gestão.' });
     }
 
@@ -3831,47 +3855,47 @@ router.post('/erp/importar', async (req, res, next) => {
     const doErp = [...porVariacao.values()];
     const nossos = await produtosDaLoja(loja.id);
 
-    /*
-     * PAUSAR SÓ NO FIM, e com a lista completa vinda da seção — que é barata
-     * porque devolve só ids. Pausar durante a varredura tiraria do ar o que
-     * ainda não chegou a ser lido.
-     */
+    /* Pausar só no fim: durante a varredura, "não apareceu" quer dizer "ainda
+       não chegou a vez", e pausar aí tiraria metade do cardápio do ar. */
     const plano = planejarImportacaoErp(doErp, nossos, { pausarAusentes: false });
     let faltando = 0;
-    if (terminou) {
-      {
-        if (existentes.size > 0) {
-          for (const p of nossos) {
-            if (p.variacaoErp > 0 && !existentes.has(p.variacaoErp) && p.disponivel) plano.pausar.push(p.id);
-          }
-          /*
-           * O QUE A VARREDURA NÃO ALCANÇOU.
-           *
-           * A busca por letra cobre o catálogo inteiro nas contas medidas, mas
-           * "cobre nas contas medidas" não é "cobre sempre". Comparar com a
-           * lista de ids — que é completa e barata — transforma um buraco
-           * silencioso num número na tela.
-           */
-          const vinculados = new Set<number>([
-            ...nossos.filter(p => p.variacaoErp > 0).map(p => p.variacaoErp),
-            ...plano.criar.map(c => c.variacao),
-          ]);
-          faltando = [...existentes].filter(id => !vinculados.has(id)).length;
-        }
-        /* Sem a lista completa (leitura falhou), não pausa nada — e isso é o
-           lado seguro: produto a mais no cardápio se resolve na mão, cardápio
-           pausado por engano some do ar para o cliente. */
+    if (terminou && existentes.size > 0) {
+      for (const p of nossos) {
+        if (p.variacaoErp > 0 && !existentes.has(p.variacaoErp) && p.disponivel) plano.pausar.push(p.id);
       }
+      const vinculados = new Set<number>([
+        ...nossos.filter(p => p.variacaoErp > 0).map(p => p.variacaoErp),
+        ...plano.criar.map(c => c.variacao),
+      ]);
+      faltando = [...existentes].filter(id => !vinculados.has(id)).length;
     }
 
+    /*
+     * OS EXEMPLOS SÃO A PROVA.
+     *
+     * "1.111 atualizados" é um número que ninguém confere. Três produtos com
+     * nome, preço antes e preço depois são verificáveis: dá para abrir o ERP e
+     * comparar. Sem isso, "puxou" é palavra minha.
+     */
+    const antesPorId = new Map(nossos.map(p => [p.id, p]));
+    const exemplos = [
+      ...plano.atualizar.filter(a => a.precoCentavos !== undefined).slice(0, 3).map(a => ({
+        nome: antesPorId.get(a.id)?.nome ?? '',
+        de: antesPorId.get(a.id)?.precoCentavos ?? null,
+        para: a.precoCentavos as number,
+      })),
+      ...plano.criar.slice(0, 3).map(c => ({ nome: c.nome, de: null as number | null, para: c.precoCentavos })),
+    ].slice(0, 5);
+
     const gravado = await aplicarPlano(loja.id, plano);
+    if (terminou) await apagarPreambulo(loja.id);
 
     console.log(
       `[erp] loja ${loja.id}: ${doErp.length} lidos em ${pedidas.length - restantes.length} letra(s), `
       + `${gravado.criados} criados, ${gravado.atualizados} atualizados, `
       + `${gravado.pausados} pausados em ${Date.now() - comecou}ms`
       + ` | ${porVariacao.size} de ${existentes.size || '?'} no ERP`
-      + ` | ${precos.size} preços na tabela`
+      + ` | ${precos.size} precos na tabela`
       + (terminou ? '' : ` — faltam ${restantes.length} letra(s)`),
     );
 
@@ -3882,6 +3906,7 @@ router.post('/erp/importar', async (req, res, next) => {
       restantes,
       terminou,
       faltando,
+      exemplos,
       resumo: !terminou
         ? `${gravado.criados + gravado.atualizados} produtos até agora — continuando…`
         : doErp.length === 0

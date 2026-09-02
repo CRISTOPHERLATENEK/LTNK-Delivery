@@ -652,6 +652,27 @@ const TABELAS: string[] = [
  * A linha nasce sozinha quando o lojista usa uma subcategoria nova; o UNIQUE
  * deixa o INSERT ser cego (`INSERT IGNORE`) em vez de exigir consulta antes.
  */
+`CREATE TABLE IF NOT EXISTS maxxgestao_cache (
+  /*
+   * O PREÂMBULO DA IMPORTAÇÃO, GUARDADO ENTRE OS LOTES.
+   *
+   * Ler ids da seção, categorias e tabela de preço custa 24 requisições — mais
+   * que a janela inteira de 20 por minuto do ERP. Sem guardar, cada lote gastava
+   * um minuto no preâmbulo e sobrava zero orçamento para varrer letra: a
+   * importação ficava rodando sem nunca importar nada.
+   *
+   * NO BANCO E NÃO EM MEMÓRIA porque o PM2 roda três instâncias: o lote 2 cai
+   * numa instância diferente do lote 1, e um cache em memória seria sempre
+   * frio justamente na hora de servir.
+   *
+   * Não é dado de negócio, é rascunho com prazo — quem lê descarta o que passou
+   * do tempo. Uma linha por loja, sobrescrita.
+   */
+  loja_id INT NOT NULL PRIMARY KEY,
+  dados MEDIUMTEXT NOT NULL,
+  atualizado_em VARCHAR(32) NOT NULL DEFAULT ''
+)`,
+
 `CREATE TABLE IF NOT EXISTS ifood_eventos_vistos (
   /*
    * O QUE JÁ FOI PROCESSADO — a defesa contra pedido duplicado.
