@@ -184,31 +184,42 @@ export async function chamarMaxxGestao(
 
   if (!token.trim()) throw new ErroMaxxGestao('Token do Maxx Gestão não configurado.', 0);
 
-  const controlador = new AbortController();
-  const timer = setTimeout(() => controlador.abort(), opcoes.timeoutMs ?? 20_000);
-
   let resp: Response;
   try {
-    /* Toda chamada passa pelo balde, inclusive a leitura do teste de conexão:
-       limite que vale só para algumas rotas não é limite, é sorte. */
-    resp = await comLimiteMaxxGestao(token, () => buscar(`${base}${caminho}`, {
-      ...init,
-      headers: {
-        /* NÃO É `Bearer`. O prefixo é `Authentication`, como manda a doc deles —
-           com Bearer a resposta é 401 e a mensagem não explica o motivo. */
-        'Authorization': `Authentication ${token.trim()}`,
-        'Content-Type': 'application/json',
-        ...(init.headers as Record<string, string> | undefined),
-      },
-      signal: controlador.signal,
-    }), opcoes.limite);
+    /*
+     * Toda chamada passa pelo balde, inclusive a leitura do teste de conexão:
+     * limite que vale só para algumas rotas não é limite, é sorte.
+     *
+     * O CRONÔMETRO COMEÇA DENTRO, depois da vez na fila — e isso não é detalhe.
+     * Na primeira versão ele começava antes, então a espera do NOSSO limitador
+     * contava como demora do servidor deles: a segunda letra de uma varredura
+     * morria com "não respondeu" enquanto o ERP estava perfeito. Timeout tem
+     * que medir a chamada, nunca a fila.
+     */
+    resp = await comLimiteMaxxGestao(token, async () => {
+      const controlador = new AbortController();
+      const timer = setTimeout(() => controlador.abort(), opcoes.timeoutMs ?? 20_000);
+      try {
+        return await buscar(`${base}${caminho}`, {
+          ...init,
+          headers: {
+            /* NÃO É `Bearer`. O prefixo é `Authentication`, como manda a doc
+               deles — com Bearer a resposta é 401 e a mensagem não explica. */
+            'Authorization': `Authentication ${token.trim()}`,
+            'Content-Type': 'application/json',
+            ...(init.headers as Record<string, string> | undefined),
+          },
+          signal: controlador.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    }, opcoes.limite);
   } catch {
     /* Zero em `httpStatus` = INDEFINIDO. Para leitura dá para repetir à
        vontade; para escrita (criar documento) quem chama tem que consultar
        antes de repetir, senão cria dois documentos para o mesmo pedido. */
     throw new ErroMaxxGestao('O Maxx Gestão não respondeu.', 0);
-  } finally {
-    clearTimeout(timer);
   }
 
   const texto = await resp.text().catch(() => '');

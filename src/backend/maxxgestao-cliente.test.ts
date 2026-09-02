@@ -301,3 +301,46 @@ describe('o limite de 20 requisições por minuto', () => {
     expect(esperaEmMs(cheio)).toBe(0);
   });
 });
+
+describe('o timeout mede a chamada, não a fila', () => {
+  /*
+   * O BUG QUE ISTO IMPEDE, e ele aconteceu em produção: o cronômetro começava
+   * ANTES da vez na fila do limitador, então a espera do NOSSO balde contava
+   * como demora do servidor deles. Numa varredura de catálogo, a segunda letra
+   * morria com "O Maxx Gestão não respondeu" enquanto o ERP estava perfeito.
+   *
+   * A ESPERA AQUI É REAL, de propósito. A primeira versão deste teste usava
+   * relógio falso — e passava com o bug reintroduzido, porque um `dormir` que
+   * só adianta um contador não deixa o `setTimeout` de verdade disparar. Para
+   * medir cronômetro é preciso deixar o tempo passar.
+   */
+  beforeEach(() => limparLimitesMaxxGestao());
+
+  it('com o balde vazio, a chamada seguinte AINDA funciona', async () => {
+    const deps = {
+      /* Relógio real; só a duração da espera é encurtada, para o teste não
+         levar três segundos. */
+      dormir: () => new Promise<void>(r => { setTimeout(r, 40); }),
+    };
+    /*
+     * O FAKE RESPEITA O `signal`, como o `fetch` de verdade. Sem isso o teste
+     * não mede nada: um fake que ignora o aborto resolve com sucesso mesmo
+     * depois de o cronômetro ter disparado — foi assim que a segunda versão
+     * deste teste passou com o bug reintroduzido.
+     */
+    const buscar = (async (_url: string, init: RequestInit) => {
+      if (init.signal?.aborted) throw new Error('abortado');
+      return new Response(JSON.stringify(EMPRESA), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    for (let i = 0; i < LIMITE_POR_MINUTO; i++) {
+      await chamarMaxxGestao('tok', '/x', { buscar, limite: deps });
+    }
+
+    /* A 21ª espera na fila. Com `timeoutMs` de 10ms, a versão antiga abortava
+       durante a espera; agora o cronômetro só começa quando a vez chega. */
+    await expect(
+      chamarMaxxGestao('tok', '/x', { buscar, limite: deps, timeoutMs: 10 }),
+    ).resolves.toBeTruthy();
+  });
+});
