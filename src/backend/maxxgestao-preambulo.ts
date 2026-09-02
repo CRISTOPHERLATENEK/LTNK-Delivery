@@ -23,6 +23,14 @@ export const VALIDADE_MS = 10 * 60_000;
 export interface Preambulo {
   /** Códigos de mercadoria que existem no ERP — decide o que pausar. */
   ids: number[];
+  /**
+   * O catálogo escolhido e os ids dele, quando a importação é de um só.
+   *
+   * Guardado junto porque o lote seguinte precisa peneirar pelo MESMO catálogo:
+   * trocar de catálogo no meio da varredura misturaria dois cardápios.
+   */
+  catalogo?: number;
+  idsCatalogo?: number[];
   /** `codigoMercadoriaVariacao` → preço em centavos. */
   precos: Array<[number, number]>;
   subgrupos: Array<[number, string]>;
@@ -46,6 +54,10 @@ export async function lerPreambulo(lojaId: number, agoraMs = Date.now()): Promis
     if (!Array.isArray(d.ids) || !Array.isArray(d.precos)) return null;
     return {
       ids: d.ids,
+      /* O catálogo tem que voltar: sem ele, o lote seguinte acharia que a
+         importação é da empresa inteira e traria produto de outro cardápio. */
+      catalogo: Number(d.catalogo ?? 0) || 0,
+      idsCatalogo: Array.isArray(d.idsCatalogo) ? d.idsCatalogo : [],
       precos: d.precos,
       subgrupos: Array.isArray(d.subgrupos) ? d.subgrupos : [],
       grupos: Array.isArray(d.grupos) ? d.grupos : [],

@@ -40,6 +40,13 @@ interface Exemplo {
   para: number;
 }
 
+interface CatalogoErp {
+  codigo: number;
+  descricao: string;
+  ativo: boolean;
+  itens: number;
+}
+
 interface RespostaImportacao {
   criados: number;
   atualizados: number;
@@ -71,6 +78,8 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
   const [ligando, setLigando] = useState(false);
   const [empresa, setEmpresa] = useState<EmpresaErp | null>(null);
 
+  const [catalogos, setCatalogos] = useState<CatalogoErp[] | null>(null);
+  const [catalogo, setCatalogo] = useState(0);
   const [importando, setImportando] = useState(false);
   const [andamento, setAndamento] = useState('');
   const [conta, setConta] = useState<{ criados: number; atualizados: number; pausados: number } | null>(null);
@@ -84,6 +93,23 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
   useEffect(() => {
     if (estado && !editado) setToken(estado.token || '');
   }, [estado, editado]);
+
+  /*
+   * OS CATÁLOGOS SÓ SÃO BUSCADOS QUANDO O MODAL ABRE COM TOKEN.
+   *
+   * A lista custa uma requisição por catálogo (para vir a contagem), e a
+   * contagem é o que permite escolher: entre "Catalogo" e "RESTAURANTE" sem
+   * número, é adivinhação. Buscar isso no carregamento da tela de Integrações
+   * gastaria a janela do ERP de quem só passou por ali.
+   */
+  useEffect(() => {
+    if (!estado?.configurado || catalogos) return;
+    let vivo = true;
+    api<{ catalogos: CatalogoErp[] }>('GET', '/api/lojista/erp/catalogos')
+      .then(r => { if (vivo) setCatalogos(r.catalogos); })
+      .catch(() => { if (vivo) setCatalogos([]); });
+    return () => { vivo = false; };
+  }, [estado?.configurado, catalogos]);
 
   async function salvarETestar() {
     setEnviando(true);
@@ -153,7 +179,8 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
     try {
       for (let volta = 0; volta < 20; volta++) {
         const r = await api<RespostaImportacao>(
-          'POST', '/api/lojista/erp/importar', letras ? { letras } : {},
+          'POST', '/api/lojista/erp/importar',
+          { ...(letras ? { letras } : {}), ...(catalogo ? { catalogo } : {}) },
         );
         soma.criados += r.criados;
         soma.atualizados += r.atualizados;
@@ -242,6 +269,29 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
           </Button>
         }
       >
+        {/*
+          A ESCOLHA DO CATÁLOGO vem ANTES do botão na leitura da tela, porque é
+          decisão: uma loja de delivery quer "RESTAURANTE", não as 1.108
+          mercadorias da empresa. Com um catálogo escolhido nada é pausado —
+          produto de outro cardápio apareceria como ausente e sairia do ar.
+        */}
+        {catalogos && catalogos.length > 0 && (
+          <div className="mt-2">
+            <select
+              value={catalogo}
+              onChange={e => setCatalogo(Number(e.target.value))}
+              disabled={importando}
+              className="h-[34px] w-full max-w-[340px] rounded-lg border border-border bg-background px-2 text-[13px]"
+            >
+              <option value={0}>Todos os produtos da empresa</option>
+              {catalogos.filter(c => c.ativo).map(c => (
+                <option key={c.codigo} value={c.codigo}>
+                  {c.descricao}{c.itens ? ` — ${c.itens} itens` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         {/*
           O ANDAMENTO É NECESSÁRIO, não enfeite: a importação leva minutos por
           causa do limite do ERP, e sem texto mudando a conclusão de quem espera

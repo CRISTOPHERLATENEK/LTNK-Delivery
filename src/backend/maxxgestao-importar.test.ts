@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import {
-  planejarImportacao, planoVazio, resumoDoPlano, PRECO_MARCADOR,
+  planejarImportacao, planoVazio, resumoDoPlano, PRECO_MARCADOR, peneirarPorCatalogo,
   type ItemDoCatalogo, type ProdutoNosso,
 } from './maxxgestao-importar';
 import { produtoDoErp, segundosEstimados, todasAsPaginas, categoriaDoProduto, LETRAS_VARREDURA } from './maxxgestao-catalogo';
@@ -338,5 +338,56 @@ describe('o encanamento do preço até o banco', () => {
   it('o produto lido do banco traz o preço, senão a regra do marcador não funciona', () => {
     expect(fonte).toContain('preco_centavos');
     expect(fonte).toContain('precoCentavos: Number(l.preco_centavos');
+  });
+});
+
+describe('a peneira do catálogo', () => {
+  /*
+   * A varredura por letra traz a empresa INTEIRA (1.108 mercadorias na conta
+   * real); o catálogo diz quais entram. Peneirar aqui e não na leitura porque
+   * ler por catálogo custaria uma requisição por produto — 820 itens a 20 por
+   * minuto é quarenta minutos.
+   */
+  const tres = [doErp(1, 'Coca'), doErp(2, 'Gás P13'), doErp(3, 'X-Bacon')];
+
+  it('deixa passar só quem está no catálogo', () => {
+    const so = peneirarPorCatalogo(tres, new Set([1, 3]));
+    expect(so.map(i => i.produto.descricao)).toEqual(['Coca', 'X-Bacon']);
+  });
+
+  it('conjunto vazio devolve tudo', () => {
+    /* "Catálogo sem itens" e "não filtrar" são situações diferentes; quem chama
+       só passa o conjunto quando escolheu um catálogo de verdade. */
+    expect(peneirarPorCatalogo(tres, new Set()).length).toBe(3);
+  });
+
+  it('catálogo com id que não existe aqui não inventa produto', () => {
+    expect(peneirarPorCatalogo(tres, new Set([99]))).toEqual([]);
+  });
+
+  it('a rota NÃO pausa quando um catálogo foi escolhido', () => {
+    /*
+     * Produto de outro catálogo, importado antes, apareceria como "ausente" e
+     * seria pausado: importar um cardápio tiraria o outro do ar. Pausar só faz
+     * sentido quando a referência é a empresa inteira.
+     */
+    const fonte = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(fonte).toContain('terminou && catalogoPedido === 0 && existentes.size > 0');
+  });
+
+  it('a meta de cobertura é o catálogo, não a empresa', () => {
+    /* Esperar 1.118 numa importação de 820 varreria letra atrás de letra para
+       sempre, cada uma custando um minuto. */
+    const fonte = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(fonte).toContain('catalogoPedido > 0 ? idsCatalogo.size : existentes.size');
+  });
+
+  it('trocar de catálogo invalida o rascunho guardado', () => {
+    /* Peneirar o lote 2 por outro catálogo misturaria dois cardápios. */
+    const fonte = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(fonte).toContain('(guardado.catalogo ?? 0) !== catalogoPedido');
   });
 });

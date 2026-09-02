@@ -38,8 +38,8 @@ import {
 import { criptografar, descriptografar } from '../cripto';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
 import { consultarEmpresa, formatarCnpj, chamarMaxxGestao } from '../maxxgestao-cliente';
-import { buscarMercadorias, mapaDeCategorias, idsDaSecao, precosDaTabela, LETRAS_VARREDURA } from '../maxxgestao-catalogo';
-import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, type ItemDoCatalogo } from '../maxxgestao-importar';
+import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarCatalogos, precosDaTabela, LETRAS_VARREDURA } from '../maxxgestao-catalogo';
+import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, peneirarPorCatalogo, type ItemDoCatalogo } from '../maxxgestao-importar';
 import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
 import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '../maxxgestao-preambulo';
 import { emitirPedidoNoErp } from '../maxxgestao-emitir';
@@ -3800,6 +3800,32 @@ router.post('/erp/testar', async (req, res, next) => {
  * disto ia ser em lotes puxados pela tela, porque eu havia escolhido o endpoint
  * do catálogo, que devolve só ids e obriga um GET por produto.
  */
+/**
+ * OS CATÁLOGOS DO ERP, para o lojista escolher o que trazer.
+ *
+ * Traz a CONTAGEM de cada um, e isso custa uma requisição por catálogo: sem o
+ * número, escolher entre "Catalogo" e "RESTAURANTE" é adivinhação. Oito
+ * catálogos cabem folgado na janela do minuto.
+ */
+router.get('/erp/catalogos', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const token = await tokenMaxxGestaoDaLoja(loja.id);
+    if (!token) return res.status(400).json({ erro: 'Cole o token do Maxx Gestão primeiro.' });
+
+    const catalogos = await listarCatalogos(token);
+    const fora: Array<{ codigo: number; descricao: string; ativo: boolean; itens: number }> = [];
+    for (const c of catalogos) {
+      let itens = 0;
+      /* Contagem que falha não derruba a lista: sem o número o catálogo ainda
+         pode ser escolhido, e um erro aqui não é motivo para esconder tudo. */
+      try { itens = (await idsDoCatalogo(token, c.codigo)).size; } catch { itens = 0; }
+      fora.push({ codigo: c.codigo, descricao: c.descricao, ativo: c.ativo, itens });
+    }
+    res.json({ catalogos: fora });
+  } catch (e) { next(e); }
+});
+
 router.post('/erp/importar', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
@@ -3818,6 +3844,14 @@ router.post('/erp/importar', async (req, res, next) => {
       ? req.body.letras.map((l: unknown) => String(l)).filter((l: string) => l.length === 1)
       : LETRAS_VARREDURA;
 
+    /*
+     * O CATÁLOGO ESCOLHIDO, se houver. Zero = a empresa inteira.
+     *
+     * Uma loja de delivery quer "RESTAURANTE", não as 1.108 mercadorias da
+     * empresa — e o catálogo é a única coisa no ERP que separa isso.
+     */
+    const catalogoPedido = Number(req.body?.catalogo ?? 0) || 0;
+
     const comecou = Date.now();
     const ORCAMENTO_MS = 25_000;
 
@@ -3831,6 +3865,9 @@ router.post('/erp/importar', async (req, res, next) => {
      * seguinte cai em outra.
      */
     let guardado = await lerPreambulo(loja.id);
+    /* Catálogo diferente do guardado invalida o rascunho: peneirar o lote 2 por
+       outro catálogo misturaria dois cardápios. */
+    if (guardado && (guardado.catalogo ?? 0) !== catalogoPedido) guardado = null;
     if (!guardado) {
       try {
         const ids = await idsDaSecao(token, 1);
@@ -3838,8 +3875,11 @@ router.post('/erp/importar', async (req, res, next) => {
         const cfg = await chamarMaxxGestao(token, '/api/empresa/configuracoes/v1') as Record<string, unknown> | null;
         const idTabela = Number(cfg?.idTabelaPrecoPadrao ?? 0);
         const precos = idTabela > 0 ? await precosDaTabela(token, idTabela) : new Map<number, number>();
+        const doCatalogo = catalogoPedido > 0 ? await idsDoCatalogo(token, catalogoPedido) : new Set<number>();
         guardado = {
           ids: [...ids],
+          catalogo: catalogoPedido,
+          idsCatalogo: [...doCatalogo],
           precos: [...precos.entries()],
           subgrupos: [...mapas.subgrupos.entries()],
           grupos: [...mapas.grupos.entries()],
@@ -3860,19 +3900,25 @@ router.post('/erp/importar', async (req, res, next) => {
         return res.json({
           lidos: 0, criados: 0, atualizados: 0, pausados: 0, sem_mudanca: 0,
           restantes: pedidas, terminou: false, faltando: 0, exemplos: [],
-          resumo: `Cadastro lido: ${guardado.ids.length} produtos e ${guardado.precos.length} preços. Trazendo o cardápio…`,
+          resumo: catalogoPedido > 0
+            ? `Cadastro lido: ${(guardado.idsCatalogo ?? []).length} produtos no catálogo. Trazendo…`
+            : `Cadastro lido: ${guardado.ids.length} produtos e ${guardado.precos.length} preços. Trazendo o cardápio…`,
         });
       }
     }
 
     const { ids: existentes, precos, mapas } = abrirPreambulo(guardado);
+    const idsCatalogo = new Set<number>(guardado.idsCatalogo ?? []);
+    /* Com catálogo escolhido, a meta de cobertura é o catálogo — não a empresa:
+       esperar 1.118 numa importação de 820 varreria letras para sempre. */
+    const meta = catalogoPedido > 0 ? idsCatalogo.size : existentes.size;
 
     const porVariacao = new Map<number, ItemDoCatalogo>();
     const restantes: string[] = [];
     try {
       for (let k = 0; k < pedidas.length; k++) {
         /* Cobertura fechada: o resto das letras não traria nada. */
-        if (existentes.size > 0 && porVariacao.size >= existentes.size) break;
+        if (meta > 0 && porVariacao.size >= meta) break;
         if (Date.now() - comecou > ORCAMENTO_MS) { restantes.push(...pedidas.slice(k)); break; }
         for (const item of await buscarMercadorias(token, pedidas[k], mapas)) {
           /* Dedup por variação: a mesma mercadoria aparece em várias letras, e
@@ -3898,14 +3944,23 @@ router.post('/erp/importar', async (req, res, next) => {
     }
 
     const terminou = restantes.length === 0;
-    const doErp = [...porVariacao.values()];
+    /* A peneira é aqui: a varredura trouxe a empresa inteira, o catálogo diz
+       quem entra. */
+    const doErp = peneirarPorCatalogo([...porVariacao.values()], idsCatalogo);
     const nossos = await produtosDaLoja(loja.id);
 
     /* Pausar só no fim: durante a varredura, "não apareceu" quer dizer "ainda
        não chegou a vez", e pausar aí tiraria metade do cardápio do ar. */
     const plano = planejarImportacaoErp(doErp, nossos, { pausarAusentes: false });
     let faltando = 0;
-    if (terminou && existentes.size > 0) {
+    /*
+     * COM CATÁLOGO ESCOLHIDO, NÃO PAUSA NADA.
+     *
+     * Produto de outro catálogo, importado antes, apareceria como "ausente" e
+     * seria pausado — a importação de um cardápio tiraria o outro do ar. Pausar
+     * só faz sentido quando a lista de referência é a empresa inteira.
+     */
+    if (terminou && catalogoPedido === 0 && existentes.size > 0) {
       for (const p of nossos) {
         if (p.variacaoErp > 0 && !existentes.has(p.variacaoErp) && p.disponivel) plano.pausar.push(p.id);
       }
@@ -3914,6 +3969,12 @@ router.post('/erp/importar', async (req, res, next) => {
         ...plano.criar.map(c => c.variacao),
       ]);
       faltando = [...existentes].filter(id => !vinculados.has(id)).length;
+    } else if (terminou && catalogoPedido > 0) {
+      const vinculados = new Set<number>([
+        ...nossos.filter(p => p.variacaoErp > 0).map(p => p.variacaoErp),
+        ...plano.criar.map(c => c.variacao),
+      ]);
+      faltando = [...idsCatalogo].filter(id => !vinculados.has(id)).length;
     }
 
     /*

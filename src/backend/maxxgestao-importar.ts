@@ -177,6 +177,25 @@ export function planejarImportacao(
   return plano;
 }
 
+/**
+ * PENEIRA PELO CATÁLOGO.
+ *
+ * A varredura por letra traz a empresa inteira; o catálogo diz quais daqueles
+ * produtos entram. Feito aqui, e não na leitura, porque ler por catálogo
+ * custaria uma requisição por produto.
+ *
+ * Conjunto vazio devolve tudo: "catálogo sem itens" e "não filtrar" são
+ * situações diferentes, e quem chama só passa o conjunto quando escolheu um
+ * catálogo de verdade.
+ */
+export function peneirarPorCatalogo(
+  itens: ItemDoCatalogo[],
+  idsDoCatalogo: Set<number>,
+): ItemDoCatalogo[] {
+  if (idsDoCatalogo.size === 0) return itens;
+  return itens.filter(i => idsDoCatalogo.has(i.produto.variacao));
+}
+
 /** O plano não faz nada? Para a tela não dizer "importado" sem ter importado. */
 export function planoVazio(p: PlanoImportacao): boolean {
   return p.criar.length === 0 && p.atualizar.length === 0 && p.pausar.length === 0;

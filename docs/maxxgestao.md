@@ -202,6 +202,29 @@ decisão de gente. Preço de delivery costuma ser diferente do balcão.
 loja de alguém porque uma importação rodou seria decidir pelo lojista o que ele
 vende, e ele descobriria pelo cliente pedindo.
 
+### Importar só um catálogo
+
+`GET /api/mercadoria-catalogo/v1` lista os catálogos; na conta da Unimaxx são 8
+(Catalogo 820 itens, REVENDA DE GAS 3, padaria e restaurante, Lachonete,
+RESTAURANTE, NV, Saude, e BUFFET KG inativo).
+
+`GET /api/mercadoria-catalogo/{id}/mercadorias/v1` devolve os **ids** do
+catálogo. Isso serve para PENEIRAR, não para ler: a varredura por letra já traz
+os produtos inteiros, e buscar por id custaria uma requisição por produto — 820
+itens a 20 por minuto é quarenta minutos.
+
+Duas regras que a peneira obriga:
+
+- **A meta de cobertura passa a ser o catálogo**, não a empresa. Esperar 1.118
+  numa importação de 820 varreria letra atrás de letra para sempre, cada uma
+  custando um minuto.
+- **Com catálogo escolhido, nada é pausado.** Produto de outro catálogo,
+  importado antes, apareceria como "ausente" e sairia do ar — importar um
+  cardápio tiraria o outro.
+
+O catálogo escolhido é guardado junto do preâmbulo: trocar de catálogo no meio
+da varredura misturaria dois cardápios, então trocar invalida o rascunho.
+
 ### As formas de pagamento: `idTipo` É o `tPag`
 
 `GET /api/pagamento/v1` — 15 formas na conta da Unimaxx, e o `idTipo` de cada

@@ -238,6 +238,34 @@ export async function buscarMercadorias(
 }
 
 /**
+ * OS IDS DE UM CATÁLOGO — `GET /api/mercadoria-catalogo/{id}/mercadorias/v1`.
+ *
+ * Só ids (`PublicaPagedResponseInt32`), e é o suficiente: a varredura por letra
+ * já traz os produtos inteiros, então o catálogo serve para PENEIRAR — importar
+ * "RESTAURANTE" em vez das 1.108 mercadorias da empresa.
+ *
+ * Usar este endpoint para buscar os DADOS custaria uma requisição por produto:
+ * 820 itens a 20 por minuto é quarenta minutos.
+ */
+export async function idsDoCatalogo(
+  token: string,
+  idCatalogo: number,
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<Set<number>> {
+  const brutos = await todasAsPaginas<unknown>(async p =>
+    pagina(await chamarMaxxGestao(
+      token, `/api/mercadoria-catalogo/${idCatalogo}/mercadorias/v1?page=${p}&limit=100`, opcoes)));
+  const ids = new Set<number>();
+  for (const b of brutos) {
+    const n = Number(b);
+    /* Repetido acontece quando o produto está em mais de uma categoria do mesmo
+       catálogo. */
+    if (Number.isFinite(n) && n > 0) ids.add(n);
+  }
+  return ids;
+}
+
+/**
  * TODOS os códigos de mercadoria que existem na empresa, pela seção.
  *
  * Só ids, e é o suficiente para o que ele serve: saber o que ainda existe lá, e
