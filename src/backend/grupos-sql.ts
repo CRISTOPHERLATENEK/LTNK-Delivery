@@ -50,6 +50,45 @@ export const SQL_GRUPOS_DO_PRODUTO =
     WHERE pg.produto_id = ? ORDER BY pg.ordem, g.id`;
 
 /**
+ * OS GRUPOS DE TODOS OS PRODUTOS DE UMA LOJA, DE UMA VEZ.
+ *
+ * Existe porque `SQL_GRUPOS_DO_PRODUTO` dentro de um laço é N+1, e com cardápio
+ * grande isso deixa de ser teoria: 1.152 produtos custavam 1.198 consultas e
+ * 1,5 segundo só para montar a lista do painel — mais do que tudo o resto da
+ * tela somado.
+ *
+ * `ORDER BY pg.produto_id` primeiro para quem lê poder agrupar varrendo uma
+ * vez; a ordem interna (`pg.ordem, g.id`) é a mesma da consulta de um produto,
+ * e tem que continuar sendo: é ela que define a sequência em que o cliente
+ * monta o pedido.
+ *
+ * O JOIN com `produtos` em vez de `g.loja_id` não é preciosismo — é o que
+ * garante o MESMO recorte da consulta individual: os grupos ligados aos
+ * produtos daquela loja, e não os grupos que a loja possui.
+ */
+export const SQL_GRUPOS_DA_LOJA =
+  `SELECT ${COLUNAS_GRUPO} FROM ${JOIN_GRUPOS}
+     JOIN produtos p ON p.id = pg.produto_id
+    WHERE p.loja_id = ? AND p.excluido = 0
+    ORDER BY pg.produto_id, pg.ordem, g.id`;
+
+/**
+ * AS OPÇÕES de todos esses grupos, também de uma vez.
+ *
+ * `IN (subconsulta)` e não uma lista montada em JavaScript: lista de mil ids
+ * viraria uma query de dezenas de KB, e o MySQL tem limite de tamanho de
+ * pacote. A subconsulta faz o mesmo recorte sem carregar id nenhum para cá.
+ */
+export const SQL_OPCOES_DA_LOJA =
+  `SELECT o.* FROM opcoes_itens o
+    WHERE o.grupo_id IN (
+      SELECT pg.grupo_id FROM produto_grupos pg
+        JOIN produtos p ON p.id = pg.produto_id
+       WHERE p.loja_id = ? AND p.excluido = 0
+    )
+    ORDER BY o.ordem, o.id`;
+
+/**
  * A MESMA COISA, MAIS "EM QUANTOS PRODUTOS ESTE GRUPO ESTÁ".
  *
  * Só o painel do lojista usa. `usos` é o número que decide o texto de toda ação
