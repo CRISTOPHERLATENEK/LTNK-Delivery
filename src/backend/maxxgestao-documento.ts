@@ -8,7 +8,7 @@
  *
  * O QUE MANDAMOS É O PEDIDO, NÃO A NOTA.
  *
- * Uma chamada: `POST /documento` com `modelo: 'PV'` (pedido de venda) e os
+ * Uma chamada: `POST /documento` com `modelo: 'PA'` (Pedido de Venda) e os
  * itens. `transformar` e `emitir` existem na API e chegaram a ser chamados
  * aqui, mas quem conclui a parte fiscal é o ERP — decisão do dono do projeto,
  * e a certa: natureza de operação, forma de pagamento e tributação são
@@ -151,9 +151,20 @@ export function montarDocumento(
     documento: {
       idNaturezaOperacao: config.idNaturezaOperacao,
       idUsuario: config.idUsuario,
-      /* `PV` = pedido de venda. `modelo` só aceita PA, PV, OC ou CN — modelo
-         fiscal é o que o `transformar` faz depois, não o que se pede aqui. */
-      modelo: 'PV',
+      /*
+       * `PA` = PEDIDO DE VENDA, e o valor foi lido do ERP, não deduzido.
+       *
+       * `modelo` aceita PA, PV, OC ou CN, e a documentação não diz o que cada
+       * um significa. Criei um documento de cada e li o `modeloDescricao` de
+       * volta:
+       *
+       *   PA → Pedido de Venda      PV → Pré-Venda
+       *   OC → Orçamento            CN → Condicional
+       *
+       * Estava indo `PV`, e os primeiros pedidos apareceram no Gestão como
+       * "Pré-Venda" — que é outro documento na operação de quem usa o ERP.
+       */
+      modelo: 'PA',
       dataHora: config.dataHora,
       /* A IDEMPOTÊNCIA. Gravamos o id do nosso pedido para poder perguntar "já
          mandei este?" antes de mandar de novo — sem isso, uma retentativa gera

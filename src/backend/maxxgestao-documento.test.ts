@@ -25,15 +25,15 @@ const pedido = (extra: Partial<DadosDoPedido> = {}): DadosDoPedido => ({
 });
 
 describe('o corpo do documento', () => {
-  it('monta com modelo PV, natureza, pessoa padrão e o id do pedido', () => {
+  it('monta como PEDIDO DE VENDA (PA), não pré-venda', () => {
     const { corpo, impedimentos } = montarDocumento(pedido(), config);
     expect(impedimentos).toEqual([]);
     expect(corpo?.documento).toEqual({
       idNaturezaOperacao: 1,
       idUsuario: 5470,
-      /* `modelo` só aceita PA, PV, OC ou CN — modelo fiscal é o que o
-         `transformar` faz depois, não o que se pede na criação. */
-      modelo: 'PV',
+      /* `PA` = Pedido de Venda, lido do ERP: criei um documento de cada valor
+         aceito (PA, PV, OC, CN) e conferi o `modeloDescricao` de volta. */
+      modelo: 'PA',
       dataHora: '2026-09-02T13:00:00',
       idExterno: '101',
     });
@@ -371,5 +371,27 @@ describe('a hora que vai no documento é de Brasília', () => {
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     expect(fonte).toContain('dataHora: agoraBrasiliaIso()');
     expect(fonte).not.toContain('dataHora: agoraUTC()');
+  });
+});
+
+describe('o modelo do documento', () => {
+  /*
+   * PA = Pedido de Venda. Estava indo PV, e os primeiros pedidos apareceram no
+   * Gestão como "Pré-Venda" — outro documento na operação de quem usa o ERP.
+   *
+   * Os quatro valores foram lidos do próprio ERP, criando um documento de cada
+   * e conferindo o `modeloDescricao`: PA Pedido de Venda, PV Pré-Venda, OC
+   * Orçamento, CN Condicional. A documentação só lista as siglas.
+   */
+  it('é PA, e nunca PV', () => {
+    const doc = montarDocumento(pedido(), config).corpo?.documento as Record<string, unknown>;
+    expect(doc.modelo).toBe('PA');
+  });
+
+  it('a fonte não manda outro modelo por engano', () => {
+    const fonte = fs.readFileSync(path.join(__dirname, 'maxxgestao-documento.ts'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(fonte).toContain("modelo: 'PA'");
+    expect(fonte).not.toContain("modelo: 'PV'");
   });
 });

@@ -71,8 +71,19 @@ Não existe `/api/mercadoria-tipo/v1` (foi chute meu; 404). De onde vem o
 
 ## Emitir a nota: três passos
 
-1. `POST /api/documento/v1` — cria. `modelo` aceita só **PA, PV, OC, CN** (não
-   fiscais); usamos `PV` (pedido de venda).
+1. `POST /api/documento/v1` — cria. `modelo` aceita só **PA, PV, OC, CN**, e a
+   documentação não diz o que cada sigla é. Criei um documento de cada e li o
+   `modeloDescricao` de volta:
+
+   | valor | o ERP chama de |
+   |---|---|
+   | **PA** | **Pedido de Venda** ← é o que usamos |
+   | PV | Pré-Venda |
+   | OC | Orçamento |
+   | CN | Condicional |
+
+   Ia `PV`, e os primeiros pedidos apareceram no Gestão como "Pré-Venda" —
+   outro documento na operação de quem usa o ERP.
 2. `POST /api/documento/{id}/transformar/v1` — "Transforma um documento para
    modelo fiscal".
 3. `POST /api/documento/{id}/emitir/v1` — emite. Sem corpo, só o id na rota.
