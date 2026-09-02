@@ -250,16 +250,19 @@ describe('a varredura por letra', () => {
     expect(planejarImportacao([], [nosso(11, 'Açaí')], {}).pausar).toEqual([11]);
   });
 
-  it('as letras começam pelas vogais', () => {
+  it('são poucas letras, e começam por a', () => {
     /*
-     * Descrição de produto sem vogal praticamente não existe, e a primeira letra
-     * já traz a maior parte: na conta conferida, `filtro=a` devolveu 1.034 dos
-     * 1.108. Assim uma importação interrompida no meio deixa o cardápio quase
-     * completo em vez de aleatório.
+     * O NÚMERO VEIO DE MEDIÇÃO, não de intuição. Na conta real (1.108
+     * mercadorias): `a` traz 1.044, e `a` + `e` dão 1.111 únicos — o catálogo
+     * inteiro. A terceira é folga.
+     *
+     * E cada letra a mais custa UM MINUTO, porque só cabem 20 requisições por
+     * minuto e uma letra gasta 11. A versão anterior tinha quinze letras:
+     * quinze minutos para não trazer nada além do que duas já trazem.
      */
-    expect(LETRAS_VARREDURA.slice(0, 5)).toEqual(['a', 'e', 'o', 'i', 'u']);
-    /* Dígitos existem para nomes numéricos ("3 CORACOES"). */
-    expect(LETRAS_VARREDURA).toContain('3');
+    expect(LETRAS_VARREDURA[0]).toBe('a');
+    expect(LETRAS_VARREDURA).toContain('e');
+    expect(LETRAS_VARREDURA.length).toBeLessThanOrEqual(4);
   });
 
   it('a estimativa conta páginas de 100, não produtos', () => {

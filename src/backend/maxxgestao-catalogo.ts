@@ -199,12 +199,18 @@ export async function mapaDeCategorias(
 /**
  * As letras da varredura.
  *
- * Vogais primeiro porque descrição de produto sem vogal praticamente não
- * existe; os dígitos pegam nomes numéricos ("3 CORACOES"). A ordem importa: a
- * primeira letra já traz a maior parte, então uma importação interrompida no
- * meio ainda deixa o cardápio quase completo.
+ * TRÊS LETRAS, E O NÚMERO VEIO DE MEDIÇÃO. Na conta real (1.108 mercadorias):
+ * `a` traz 1.044 e `a` + `e` juntas dão 1.111 únicos — ou seja, o catálogo
+ * inteiro. A terceira é folga para contas com nomes atípicos.
+ *
+ * Cada letra a mais custa UM MINUTO de espera, porque só cabem 20 requisições
+ * por minuto e uma letra gasta 11. A lista original tinha quinze letras: quinze
+ * minutos para não trazer nada além do que duas já trazem.
+ *
+ * A ordem importa: a primeira letra já traz a maior parte, então uma importação
+ * interrompida no meio deixa o cardápio quase completo em vez de aleatório.
  */
-export const LETRAS_VARREDURA = ['a', 'e', 'o', 'i', 'u', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
+export const LETRAS_VARREDURA = ['a', 'e', 'o'];
 
 /**
  * Busca mercadorias por um filtro, com todas as páginas.

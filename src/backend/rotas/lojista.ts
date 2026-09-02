@@ -3803,7 +3803,8 @@ router.post('/erp/importar', async (req, res, next) => {
      * porque devolve só ids. Pausar durante a varredura tiraria do ar o que
      * ainda não chegou a ser lido.
      */
-    let plano = planejarImportacaoErp(doErp, nossos, { pausarAusentes: false });
+    const plano = planejarImportacaoErp(doErp, nossos, { pausarAusentes: false });
+    let faltando = 0;
     if (terminou) {
       try {
         const existentes = await idsDaSecao(token, 1);
@@ -3811,6 +3812,19 @@ router.post('/erp/importar', async (req, res, next) => {
           for (const p of nossos) {
             if (p.variacaoErp > 0 && !existentes.has(p.variacaoErp) && p.disponivel) plano.pausar.push(p.id);
           }
+          /*
+           * O QUE A VARREDURA NÃO ALCANÇOU.
+           *
+           * A busca por letra cobre o catálogo inteiro nas contas medidas, mas
+           * "cobre nas contas medidas" não é "cobre sempre". Comparar com a
+           * lista de ids — que é completa e barata — transforma um buraco
+           * silencioso num número na tela.
+           */
+          const vinculados = new Set<number>([
+            ...nossos.filter(p => p.variacaoErp > 0).map(p => p.variacaoErp),
+            ...plano.criar.map(c => c.variacao),
+          ]);
+          faltando = [...existentes].filter(id => !vinculados.has(id)).length;
         }
       } catch {
         /* Sem a lista completa, não pausa nada — e isso é o lado seguro:
@@ -3834,11 +3848,14 @@ router.post('/erp/importar', async (req, res, next) => {
       sem_mudanca: plano.semMudanca,
       restantes,
       terminou,
+      faltando,
       resumo: !terminou
         ? `${gravado.criados + gravado.atualizados} produtos até agora — continuando…`
         : doErp.length === 0
           ? 'O Maxx Gestão não devolveu nenhum produto nesta empresa.'
-          : resumoDoPlanoErp(plano),
+          : faltando > 0
+            ? `${resumoDoPlanoErp(plano)} Faltaram ${faltando} produto(s) que a busca não alcançou — traga de novo para pegá-los.`
+            : resumoDoPlanoErp(plano),
     });
   } catch (e) { next(e); }
 });
