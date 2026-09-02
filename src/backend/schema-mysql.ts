@@ -1066,6 +1066,12 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
        Pago: quem tem ele emite nota fiscal no CNPJ de alguém. Não expira — nasce
        no painel do ERP e vale até ser trocado lá. */
     ['lojas', 'maxxgestao_token',        'maxxgestao_token TEXT'],
+    /* O vínculo do produto com a mercadoria do Maxx Gestão. É este número que o
+       documento fiscal exige em `mercadoriaLista[].idMercadoriaVariacao`, então
+       é ele que guardamos — e não o código de barras, que em restaurante quase
+       nunca existe e quando existe muda. Zero = produto que nasceu aqui, e a
+       importação não mexe nele. */
+    ['produtos', 'maxxgestao_variacao_id', 'maxxgestao_variacao_id INT NOT NULL DEFAULT 0'],
 
     /*
      * ─── iFood ───
