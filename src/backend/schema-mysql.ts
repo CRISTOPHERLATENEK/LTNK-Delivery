@@ -671,7 +671,7 @@ const TABELAS: string[] = [
   loja_id INT NOT NULL PRIMARY KEY,
   dados MEDIUMTEXT NOT NULL,
   atualizado_em VARCHAR(32) NOT NULL DEFAULT ''
-)`,
+) ${SUFIXO_TABELA}`,
 
 `CREATE TABLE IF NOT EXISTS ifood_eventos_vistos (
   /*
