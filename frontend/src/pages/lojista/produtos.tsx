@@ -1654,6 +1654,15 @@ export function ProdutosLoja() {
           key={cat}
           categoria={cat}
           subs={porCategoria[cat] ?? {}}
+          /*
+           * CARDÁPIO GRANDE NASCE RECOLHIDO — e "grande" é medido, não achado:
+           * acima de 150 itens na tela, abrir tudo monta cards demais e a
+           * página trava depois de carregar (o backend responde em 90ms).
+           *
+           * Com busca ou filtro ativo, NÃO recolhe: quem filtrou quer ver o
+           * resultado, e o resultado é pequeno por definição.
+           */
+          iniciarRecolhida={!termo && !filtroCategoria && filtrados.length > 150}
           arrasto={podeOrdenar ? {
             arrastando: arrastandoCat === iCat,
             ativo: arrastandoCat !== null,
@@ -1861,7 +1870,8 @@ function SeletorChips({
 /* ─────────────────── seção de uma categoria ─────────────────── */
 function CategoriaSection({
   categoria, subs, onEditar, onExcluir, onAlternarDisponivel, onDuplicar,
-  modoSelecao, selecionados, onToggleSelecao, densidade, onAdicionar, arrasto,
+  modoSelecao, selecionados, onToggleSelecao, densidade, onAdicionar,
+  iniciarRecolhida, arrasto,
 }: {
   categoria: string;
   subs: Record<string, Produto[]>;
@@ -1874,6 +1884,15 @@ function CategoriaSection({
   onToggleSelecao: (id: number) => void;
   densidade: Densidade;
   onAdicionar: (categoria: string) => void;
+  /**
+   * Cardápio grande: a seção nasce RECOLHIDA.
+   *
+   * Com 1.152 produtos em 40 categorias, abrir todas monta 1.152 cards de uma
+   * vez — cada um com badges, imagem, interruptor e alça de arrastar. O backend
+   * responde em 90ms e a tela travava depois, montando DOM. Recolhido, a mesma
+   * tela monta 40 cabeçalhos.
+   */
+  iniciarRecolhida?: boolean;
   /** Ausente quando há busca/filtro: a lista na tela não é o cardápio inteiro. */
   arrasto?: {
     arrastando: boolean;
@@ -1887,8 +1906,19 @@ function CategoriaSection({
     onMoverProduto: (id: number, posicao: number) => Promise<void>;
   };
 }) {
-  const [aberta, setAberta] = useState(true);
+  const [aberta, setAberta] = useState(!iniciarRecolhida);
   const total = Object.values(subs).flat().length;
+
+  /*
+   * TETO POR FAIXA, com "mostrar todos".
+   *
+   * Recolher categorias não basta: uma delas sozinha tem 800 itens nesta base
+   * (a genérica), e abri-la montaria 800 cards. Sessenta é o que enche umas
+   * quantas telas de rolagem — quem procura um item específico usa a busca, que
+   * filtra antes de chegar aqui.
+   */
+  const TETO = 60;
+  const [semTeto, setSemTeto] = useState<Set<string>>(new Set());
 
   /*
    * A FAIXA SEM NOME NÃO ENTRA NA ORDENAÇÃO.
@@ -2078,13 +2108,29 @@ function CategoriaSection({
                 sobrou do antigo alternador de densidade, que antes trocava a altura da
                 linha e não faz sentido numa grade.
               */}
+              {/* O aviso do teto vem ANTES da grade quando ele está ativo: dizer
+                  "mostrando 60 de 800" depois de 60 cards é dizer no fim da
+                  rolagem, quando a pessoa já concluiu que o resto não existe. */}
+              {!semTeto.has(sub) && itensNaTela.length > TETO && (
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-[12.5px] text-muted-foreground">
+                  <span>Mostrando {TETO} de {itensNaTela.length}.</span>
+                  <button
+                    type="button"
+                    onClick={() => setSemTeto(s => new Set(s).add(sub))}
+                    className="font-semibold text-foreground underline decoration-dotted"
+                  >
+                    Mostrar todos
+                  </button>
+                  <span>ou use a busca.</span>
+                </div>
+              )}
               <div
                 className="grid gap-4"
                 style={{
                   gridTemplateColumns: `repeat(auto-fill, minmax(${densidade === 'compacta' ? 340 : 440}px, 1fr))`,
                 }}
               >
-                {itensNaTela.map((p, j) => (
+                {(semTeto.has(sub) ? itensNaTela : itensNaTela.slice(0, TETO)).map((p, j) => (
                   <div
                     key={p.id}
                     onDragOver={e => { if (arrProd?.sub === sub) e.preventDefault(); }}
