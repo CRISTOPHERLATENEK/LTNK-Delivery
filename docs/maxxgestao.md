@@ -518,3 +518,44 @@ venda que o faturamento do lojista não reconhece.
 
 A troca vale para os PRÓXIMOS pedidos. Documento já criado não muda de modelo —
 alterar os que estão lá seria mexer em documento que alguém pode ter faturado.
+
+### Ler documentos de volta (conferido em 03/09/2026)
+
+`GET /api/documento/{id}/v1` **não existe** — devolve 404. A leitura é pela
+lista paginada:
+
+```
+GET /api/documento/v1?page=53
+→ { page, limit: 50, total, totalPages, hasNext, items: [...] }
+```
+
+O id do documento no `items[]` é **`codigo`**, não `id`. Naquele momento a conta
+tinha `total: 2632` em 53 páginas.
+
+E os documentos de lá carregam campos que os nossos não têm:
+
+```
+codigo, idEmpresa, idCaixa, idCaixaAbertura, idUsuario, idUsuarioAbertura,
+nomeUsuario, idPessoa, dataHora, dataHoraMovimento, numero, serie,
+modelo, modeloDescricao, tipoMovimento, tipoMovimentoDescricao
+```
+
+Um exemplo real (documento 2746): `modelo: 'FC'` (Fechamento de Caixa),
+`idCaixa: 79`, `idUsuario: 6850` (suporte.jean). Ou seja, **existe `modelo`
+além dos quatro** que o `POST` aceita, e a operação do ERP gira em torno de
+**caixa**.
+
+### Hipótese ainda NÃO provada: por que o pedido pode não aparecer no PDV
+
+Duas diferenças entre o nosso documento e um do PDV, e nenhuma delas é o
+modelo:
+
+1. **Ele nasce em Rascunho.** O `POST` não manda `status`, e o ERP deixa em `R`.
+   Rascunho não é pedido liberado. O único lugar onde mexemos nisso é
+   `fecharDocumentoNoErp`, que marca `E` quando a nota saiu do delivery.
+2. **Ele nasce sem caixa.** Mandamos `idUsuario` e nenhum `idCaixa`. Um PDV
+   trabalha dentro de um caixa aberto, e é plausível que a fila dele seja "os
+   documentos do meu caixa".
+
+Nenhuma das duas está confirmada — não abri o MeuChef. Provar exige olhar a tela
+dele, ou perguntar ao suporte se a fila do PDV filtra por status e por caixa.
