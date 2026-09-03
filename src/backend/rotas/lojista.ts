@@ -2,7 +2,7 @@
  * Módulo do LOJISTA: cadastro/configuração da loja, CRUD completo de
  * produtos com grupos de opções, painel de pedidos e relatórios.
  */
-import { Router, Request } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import bcrypt from 'bcrypt';
 import multer from 'multer';
@@ -2426,6 +2426,39 @@ const PAGAMENTO_BALCAO: Record<string, 'pix' | 'dinheiro' | 'cartao_entrega'> = 
  * banco (nunca confia no cliente), aplica desconto e grava como um pedido
  * `origem='balcao'` já `entregue` — assim entra no faturamento/relatórios.
  */
+/*
+ * O MÓDULO DE VENDAS É LIBERADO PELA PLATAFORMA, LOJA POR LOJA.
+ *
+ * A tela de Vendas é uma só (PDV Balcão, Mesas, Caixa) mas se apoia em quatro
+ * prefixos de rota. A guarda é registrada nos quatro, ANTES de qualquer um
+ * deles — `router.use` não alcança rota já registrada, e uma guarda que protege
+ * metade das rotas é pior que nenhuma, porque parece que protege.
+ *
+ * `/comandas-historico` entra separado de propósito: o Express casa `use` por
+ * SEGMENTO de caminho, então `/comandas` não o cobre.
+ *
+ * A aba Delivery daquela tela NÃO está aqui — ela é emissão de NFC-e, e quem a
+ * governa é `fiscal_liberado`. São duas contratações diferentes: vender no
+ * balcão e emitir nota são coisas separadas, e uma loja pode ter uma sem a
+ * outra.
+ */
+async function exigirModuloVendas(req: Request, res: Response, next: NextFunction) {
+  try {
+    const loja = await minhaLoja(req) as any;
+    if (Number(loja?.vendas_liberado ?? 0) !== 1) {
+      /* 403 e não 404: a rota existe, o módulo é que não está contratado. E a
+         mensagem diz com quem resolver, senão o lojista procura no próprio
+         painel um botão que não é dele. */
+      throw erroHttp(403, 'O módulo de vendas (PDV, mesas e caixa) não está liberado para esta loja. Fale com o suporte.');
+    }
+    next();
+  } catch (e) { next(e); }
+}
+
+for (const prefixo of ['/balcao', '/mesas', '/comandas', '/comandas-historico', '/caixa']) {
+  router.use(prefixo, exigirModuloVendas);
+}
+
 router.post('/balcao', async (req, res, next) => {
   // Fora do try porque o tratamento de chave duplicada (no catch) precisa saber de
   // qual loja é a venda — buscar de novo lá seria outra consulta que pode falhar.

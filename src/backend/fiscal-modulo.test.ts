@@ -75,18 +75,38 @@ describe('a plataforma libera o fiscal loja por loja', () => {
     expect(lojista.slice(i, i + 700)).toContain('!loja.fiscal_liberado');
   });
 
+  /*
+   * A ROTA VIROU GENÉRICA quando apareceu o SEGUNDO módulo (vendas).
+   *
+   * Era `PUT /lojas/:id/fiscal/liberado`. Uma rota por módulo duplicaria também
+   * a chance de uma delas esquecer o `exigirSuperAdmin` — que é a única coisa
+   * separando "a plataforma decide" de "qualquer admin decide".
+   */
   it('só o super admin liga e desliga', () => {
     /*
      * A asserção olha a LINHA DE REGISTRO, não uma janela em volta dela.
-     * Testado antes com `slice(i, i + 700)`, o teste passava mesmo depois de
-     * eu tirar o `exigirSuperAdmin` da rota: o `exigirSuperAdmin` da rota
-     * SEGUINTE caía dentro da janela e satisfazia a busca.
+     * Testado antes com `slice(i, i + 700)`, o teste passava mesmo depois de eu
+     * tirar o `exigirSuperAdmin` da rota: o da rota SEGUINTE caía na janela e
+     * satisfazia a busca.
      */
-    const linha = admin.split('\n').find(l => l.includes("router.put('/lojas/:id/fiscal/liberado'"));
+    const linha = admin.split('\n').find(l => l.includes("router.put('/lojas/:id/modulo/:modulo'"));
     expect(linha).toBeDefined();
     expect(linha).toContain('exigirSuperAdmin');
-    const i = admin.indexOf("router.put('/lojas/:id/fiscal/liberado'");
-    expect(admin.slice(i, i + 700)).toContain('UPDATE lojas SET fiscal_liberado = ?');
+  });
+
+  it('o nome do módulo NÃO vai da requisição para o SQL', () => {
+    /*
+     * `req.params.modulo` monta um nome de coluna. Sem a lista fechada, seria
+     * injeção de identificador — e nenhum `?` protege nome de coluna.
+     */
+    const i = admin.indexOf('const COLUNA_DO_MODULO');
+    expect(i).toBeGreaterThan(0);
+    const mapa = admin.slice(i, admin.indexOf('};', i));
+    expect(mapa).toContain("vendas: 'vendas_liberado'");
+    expect(mapa).toContain("fiscal: 'fiscal_liberado'");
+    const rota = admin.slice(admin.indexOf("router.put('/lojas/:id/modulo/:modulo'"), admin.indexOf("router.put('/lojas/:id/modulo/:modulo'") + 900);
+    expect(rota).toContain('COLUNA_DO_MODULO[String(req.params.modulo)]');
+    expect(rota).toMatch(/if \(!coluna\)/);
   });
 
   it('a rota é SEPARADA do formulário do emitente', () => {
@@ -94,14 +114,26 @@ describe('a plataforma libera o fiscal loja por loja', () => {
      * O `PUT .../fiscal` exige o cadastro fiscal válido, e o cliente que a
      * gente mais precisa poder desligar é o de cadastro pela metade.
      */
-    expect(admin).toContain("router.put('/lojas/:id/fiscal/liberado'");
     const form = admin.indexOf("router.put('/lojas/:id/fiscal'");
     expect(admin.slice(form, form + 1500)).not.toContain('fiscal_liberado');
   });
 
+  it('UM interruptor por módulo, não dois pro mesmo campo', () => {
+    /*
+     * O bloco fiscal do admin tinha o seu próprio interruptor antes de existir
+     * "Módulos contratados". Dois controles para o mesmo campo fazem a pessoa
+     * mexer num e conferir no outro.
+     */
+    const tela = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'frontend', 'src', 'pages', 'admin', 'lojas.tsx'), 'utf8');
+    expect(tela).not.toContain('/fiscal/liberado');
+    expect((tela.match(/modulo\/\$\{chave\}/g) ?? []).length).toBe(1);
+  });
+
   it('bloquear NÃO apaga certificado, CSC nem numeração', () => {
-    /* Mudança de plano não pode destruir documento fiscal. */
-    const i = admin.indexOf("router.put('/lojas/:id/fiscal/liberado'");
+    /* Mudança de plano não pode destruir documento fiscal — nem, agora que a
+       rota é genérica, o histórico de vendas de quem perder o módulo de PDV. */
+    const i = admin.indexOf("router.put('/lojas/:id/modulo/:modulo'");
     const t = admin.slice(i, i + 900);
     expect(t).not.toMatch(/nfce_csc|nfce_cert|DELETE|unlink|proximo_numero/);
   });
@@ -126,7 +158,6 @@ describe('a plataforma libera o fiscal loja por loja', () => {
   it('o interruptor do admin diz o que acontece antes de bloquear', () => {
     const tela = fs.readFileSync(
       path.join(__dirname, '..', '..', 'frontend', 'src', 'pages', 'admin', 'lojas.tsx'), 'utf8');
-    expect(tela).toContain('/fiscal/liberado');
     /* Confirmação só ao BLOQUEAR (`!novo`): perguntar para liberar seria um
        clique a mais numa ação que não quebra nada. */
     expect(tela).toContain('if (!novo && !window.confirm(');
@@ -195,5 +226,80 @@ describe('bloquear o fiscal NÃO encosta no Maxx Gestão', () => {
     const trecho = painel.slice(i, i + 400);
     expect(trecho).toContain("i.id !== 'fiscal'");
     expect(trecho).not.toContain('integracoes');
+  });
+});
+
+describe('a plataforma libera o módulo de VENDAS loja por loja', () => {
+  /*
+   * A tela de Vendas é uma só (PDV Balcão, Mesas, Caixa) e se apoia em quatro
+   * prefixos de rota. Esconder o menu não protege nada: as rotas respondem a
+   * quem chamar direto.
+   */
+  it('a coluna existe e nasce DESLIGADA', () => {
+    /* Nascer 1 daria a toda loja de delivery um PDV que ela não contratou. */
+    expect(schema).toContain("['lojas', 'vendas_liberado', 'vendas_liberado TINYINT NOT NULL DEFAULT 0']");
+  });
+
+  it('o backfill liga para quem JÁ operava, e roda uma vez só', () => {
+    /*
+     * O critério é ter DEIXADO RASTRO: venda de balcão, caixa, ou mesa. Sem o
+     * backfill, o deploy tiraria o caixa do ar de quem está operando; sem a
+     * marca, um bloqueio feito de propósito voltaria no deploy seguinte.
+     */
+    const i = schema.indexOf('mig_vendas_liberado');
+    expect(i).toBeGreaterThan(0);
+    const t = schema.slice(i - 200, i + 1100);
+    expect(t).toMatch(/UPDATE lojas l SET vendas_liberado = 1/);
+    expect(t).toMatch(/origem = 'balcao'/);
+    expect(t).toMatch(/FROM caixas/);
+    expect(t).toMatch(/FROM mesas/);
+    expect(t).toMatch(/INSERT INTO configuracoes/);
+  });
+
+  it('a guarda cobre os QUATRO prefixos, mais o histórico de comandas', () => {
+    /*
+     * `/comandas-historico` entra separado porque o Express casa `use` por
+     * SEGMENTO: `/comandas` não o cobre. Sem ele, o histórico de vendas de uma
+     * loja bloqueada seguiria aberto.
+     */
+    const i = lojista.indexOf('async function exigirModuloVendas');
+    expect(i).toBeGreaterThan(0);
+    expect(lojista.slice(i, i + 800)).toContain('vendas_liberado');
+    expect(lojista.slice(i, i + 800)).toContain('erroHttp(403');
+    const lista = lojista.slice(lojista.indexOf('for (const prefixo of'), lojista.indexOf('for (const prefixo of') + 300);
+    for (const p of ['/balcao', '/mesas', '/comandas', '/comandas-historico', '/caixa']) {
+      expect(lista).toContain(`'${p}'`);
+    }
+  });
+
+  it('a guarda vem ANTES da primeira rota do módulo', () => {
+    /* Depois dela, o Express não a aplicaria às já registradas — e ela passaria
+       a proteger metade das rotas, silenciosamente. */
+    const guarda = lojista.indexOf('for (const prefixo of');
+    const primeira = lojista.search(/router[.](get|post|put|delete)[(]'[/](balcao|mesas|comandas|caixa)/);
+    expect(guarda).toBeGreaterThan(0);
+    expect(guarda).toBeLessThan(primeira);
+  });
+
+  it('o Delivery daquela tela NÃO é governado por este módulo', () => {
+    /*
+     * A aba Delivery é emissão de NFC-e, e quem manda nela é `fiscal_liberado`.
+     * São duas contratações: vender no balcão e emitir nota são coisas
+     * separadas, e uma loja pode ter uma sem a outra.
+     */
+    const lista = lojista.slice(lojista.indexOf('for (const prefixo of'), lojista.indexOf('for (const prefixo of') + 300);
+    expect(lista).not.toContain('/nfce');
+  });
+
+  it('a tela some do menu E a rota deixa de existir', () => {
+    /*
+     * Só tirar do menu deixaria `/lojista/vendas` digitado na barra de
+     * endereços abrir a tela, com cada botão dela devolvendo 403.
+     */
+    const painel = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'frontend', 'src', 'pages', 'lojista', 'painel.tsx'), 'utf8');
+    expect(painel).toContain("vendas_liberado ?? 0) === 1");
+    expect(painel).toContain("i.area !== 'vendas' || temVendas");
+    expect(painel).toContain('{temVendas && <Route path="vendas"');
   });
 });

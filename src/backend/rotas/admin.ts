@@ -1219,27 +1219,52 @@ router.get('/lojas/:id/fiscal', exigirSuperAdmin, async (req, res, next) => {
 });
 
 /**
- * LIBERA OU BLOQUEIA O MÓDULO FISCAL desta loja. Só a plataforma.
+ * LIBERA OU BLOQUEIA UM MÓDULO desta loja. Só a plataforma.
  *
- * Rota SEPARADA do `PUT .../fiscal` de propósito: aquele salva o formulário
- * inteiro e exige os dados do emitente válidos. Bloquear um cliente não pode
- * depender de o cadastro fiscal dele estar completo — é justamente o cliente
- * com cadastro pela metade que a gente mais precisa poder desligar.
+ * Uma rota para os dois (`vendas` e `fiscal`) em vez de uma por módulo: são a
+ * mesma decisão sobre coisas diferentes, e duplicar a rota duplicaria também a
+ * chance de uma delas esquecer o `exigirSuperAdmin` — que é a única coisa
+ * separando "a plataforma decide" de "qualquer admin decide".
  *
- * Bloquear NÃO apaga nada: certificado, CSC e numeração ficam onde estão. Quem
- * volta a contratar volta de onde parou, e as notas já emitidas continuam
- * consultáveis pelo próprio XML — apagar seria destruir documento fiscal por
- * causa de uma mudança de plano.
+ * NÃO CONFUNDIR com `modulos`/`modulos_cliente`: aquilo é catálogo comercial
+ * POR TENANT, com preço, e alimenta as faturas. Isto é chave de acesso POR
+ * LOJA. Um cobra, o outro libera.
+ *
+ * Rota separada do `PUT .../fiscal` de propósito: aquele salva o formulário do
+ * emitente inteiro e exige os dados válidos, e o cliente que a gente mais
+ * precisa poder desligar é justamente o de cadastro pela metade.
+ *
+ * Bloquear NÃO APAGA NADA: certificado, CSC, numeração, histórico de vendas e
+ * caixas ficam onde estão. Quem voltar a contratar volta de onde parou.
  */
-router.put('/lojas/:id/fiscal/liberado', exigirSuperAdmin, async (req, res, next) => {
+const COLUNA_DO_MODULO: Record<string, string> = {
+  vendas: 'vendas_liberado',
+  fiscal: 'fiscal_liberado',
+};
+
+router.put('/lojas/:id/modulo/:modulo', exigirSuperAdmin, async (req, res, next) => {
   try {
+    /* Lista FECHADA: `req.params.modulo` monta um NOME DE COLUNA, e nenhum `?`
+       protege identificador. Sem o mapa, seria injeção. */
+    const coluna = COLUNA_DO_MODULO[String(req.params.modulo)];
+    if (!coluna) throw erroHttp(400, 'Módulo desconhecido.');
     const loja = await db.prepare('SELECT id, nome FROM lojas WHERE id = ?')
       .get(req.params.id) as { id: number; nome: string } | undefined;
     if (!loja) throw erroHttp(404, 'Loja não encontrada.');
     const liberado = req.body?.liberado === true ? 1 : 0;
-    await db.prepare('UPDATE lojas SET fiscal_liberado = ? WHERE id = ?').run(liberado, loja.id);
-    console.log(`[fiscal] loja ${loja.id} (${loja.nome}): módulo fiscal ${liberado ? 'LIBERADO' : 'BLOQUEADO'}`);
-    res.json({ liberado });
+    await db.prepare(`UPDATE lojas SET ${coluna} = ? WHERE id = ?`).run(liberado, loja.id);
+    console.log(`[modulo] loja ${loja.id} (${loja.nome}): ${req.params.modulo} ${liberado ? 'LIBERADO' : 'BLOQUEADO'}`);
+    res.json({ modulo: req.params.modulo, liberado });
+  } catch (e) { next(e); }
+});
+
+/** Estado dos módulos desta loja, para a tela do admin montar os interruptores. */
+router.get('/lojas/:id/modulos', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    const l = await db.prepare('SELECT vendas_liberado, fiscal_liberado FROM lojas WHERE id = ?')
+      .get(req.params.id) as { vendas_liberado: number; fiscal_liberado: number } | undefined;
+    if (!l) throw erroHttp(404, 'Loja não encontrada.');
+    res.json({ vendas: l.vendas_liberado ? 1 : 0, fiscal: l.fiscal_liberado ? 1 : 0 });
   } catch (e) { next(e); }
 });
 

@@ -1115,6 +1115,19 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['lojas', 'fiscal_liberado', 'fiscal_liberado TINYINT NOT NULL DEFAULT 0'],
     /*
+     * O MÓDULO DE VENDAS (PDV Balcão, Mesas, Caixa) desta loja.
+     *
+     * Mesma ideia do `fiscal_liberado`, e pelo mesmo motivo: é contratação, não
+     * preferência do lojista. Sem ele a aba Vendas some do painel e as rotas de
+     * balcão, mesa, comanda e caixa recusam.
+     *
+     * Nasce 0 e a migração liga para quem JÁ operava (tem venda de balcão,
+     * caixa ou mesa cadastrada). Nascer 1 daria a toda loja de delivery um PDV
+     * que ela não contratou; ligar em massa seria pior ainda — tiraria do ar o
+     * caixa de quem está operando.
+     */
+    ['lojas', 'vendas_liberado', 'vendas_liberado TINYINT NOT NULL DEFAULT 0'],
+    /*
      * O MODELO do documento que o pedido vira no Maxx Gestão.
      *
      * `PA` (Pedido de Venda) é o padrão e o que está em produção. `PV`
@@ -1465,6 +1478,33 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
    * Roda uma vez, marcada em `schema_marcos`. Sem a marca, um lojista que
    * DESLIGASSE o fiscal de propósito o veria voltar no próximo deploy.
    */
+  /*
+   * BACKFILL do módulo de vendas: quem já operava continua operando.
+   *
+   * O critério é ter DEIXADO RASTRO — venda de balcão, caixa aberto alguma vez,
+   * ou mesa cadastrada. Loja que nunca encostou no PDV não ganha uma aba que
+   * nunca usou.
+   */
+  try {
+    const [feito] = await pool.query(
+      "SELECT valor FROM configuracoes WHERE chave = 'mig_vendas_liberado' LIMIT 1",
+    ) as any;
+    if (feito.length === 0) {
+      const [r] = await pool.query(
+        `UPDATE lojas l SET vendas_liberado = 1
+          WHERE EXISTS (SELECT 1 FROM pedidos p WHERE p.loja_id = l.id AND p.origem = 'balcao')
+             OR EXISTS (SELECT 1 FROM caixas c WHERE c.loja_id = l.id)
+             OR EXISTS (SELECT 1 FROM mesas m WHERE m.loja_id = l.id)`,
+      ) as any;
+      await pool.query(
+        "INSERT INTO configuracoes (chave, valor) VALUES ('mig_vendas_liberado', '1')",
+      );
+      console.log(`[schema] módulo de vendas liberado para ${r?.affectedRows ?? 0} loja(s) que já operavam.`);
+    }
+  } catch (e) {
+    console.warn('[schema] backfill de vendas_liberado não rodou:', (e as Error).message);
+  }
+
   try {
     const [feito] = await pool.query(
       "SELECT valor FROM configuracoes WHERE chave = 'mig_fiscal_liberado' LIMIT 1",

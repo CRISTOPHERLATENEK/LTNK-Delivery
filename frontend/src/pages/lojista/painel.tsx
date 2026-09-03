@@ -166,6 +166,16 @@ export function PainelLojista() {
     badge: pendentes > 0 ? <NavBadge valor={pendentes} /> : undefined,
   };
 
+  /*
+   * A ABA VENDAS SÓ EXISTE PARA QUEM TEM O MÓDULO.
+   *
+   * `vendas_liberado` é decisão da plataforma, no painel admin — diferente das
+   * `permissoes`, que são quais áreas cada FUNCIONÁRIO da loja pode abrir.
+   * Esconder aqui é cortesia; o bloqueio de verdade está nas guardas de
+   * `/balcao`, `/mesas`, `/comandas` e `/caixa` no servidor.
+   */
+  const temVendas = Number((lojaQ.data?.loja as any)?.vendas_liberado ?? 0) === 1;
+
   // Barra de baixo do CELULAR — mesma regra de permissão da sidebar.
   const itensNav = [
     { rota: '/lojista', icone: Home, rotulo: 'Início', fim: true, area: null },
@@ -173,14 +183,16 @@ export function PainelLojista() {
     { rota: '/lojista/vendas', icone: ShoppingCart, rotulo: 'Vendas', area: 'vendas' },
     { rota: '/lojista/produtos', icone: Box, rotulo: 'Produtos', area: 'produtos' },
     { rota: '/lojista/mais', icone: LayoutGrid, rotulo: 'Mais', area: null },
-  ].filter(i => !i.area || podeVer(i.area));
+  ].filter(i => (!i.area || podeVer(i.area)) && (i.area !== 'vendas' || temVendas));
 
   const gruposNav = [
     {
       itens: [
         { rota: '/lojista', icone: Home, rotulo: 'Início', fim: true },
         itemPedidos,
-        { rota: '/lojista/vendas', icone: ShoppingCart, rotulo: 'Vendas' },
+        ...(temVendas
+          ? [{ rota: '/lojista/vendas', icone: ShoppingCart, rotulo: 'Vendas' }]
+          : []),
         { rota: '/lojista/produtos', icone: Box, rotulo: 'Produtos' },
       ],
     },
@@ -244,7 +256,9 @@ export function PainelLojista() {
       <Routes>
         <Route index element={<DashboardLoja />} />
         <Route path="pedidos" element={<PedidosLoja />} />
-        <Route path="vendas" element={<VendasLoja />} />
+        {/* A rota some junto do menu: sem isso, `/lojista/vendas` digitado na
+            barra de endereços abriria a tela e cada botão dela daria 403. */}
+        {temVendas && <Route path="vendas" element={<VendasLoja />} />}
         <Route path="balcao" element={<BalcaoLoja />} />
         <Route path="mesas" element={<MesasLoja />} />
         <Route path="produtos" element={<ProdutosLoja />} />

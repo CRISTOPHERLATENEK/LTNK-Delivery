@@ -384,6 +384,7 @@ export function TelaLojas() {
                     {superAdmin && <ComissaoLojaEditor loja={l} onSalvo={() => consulta.refetch()} />}
                     {superAdmin && <DominioLojaEditor loja={l} onSalvo={() => consulta.refetch()} />}
                     {superAdmin && <WhatsAppPermissoesEditor loja={l} onSalvo={() => consulta.refetch()} />}
+                    {superAdmin && <ModulosDaLoja loja={l} />}
                     {superAdmin && <FiscalLojaAdmin loja={l} />}
                   </div>
                 </DrawerDetalhe>
@@ -674,6 +675,105 @@ const ORIGENS_ADMIN = [
   '6 – Est. sem similar nacional', '7 – Est. c/ similar nacional', '8 – Nacional por encomenda',
 ];
 
+/**
+ * OS MÓDULOS CONTRATADOS desta loja, num bloco só.
+ *
+ * Juntos e não espalhados pela gaveta porque a pergunta que se faz aqui é uma
+ * só — "o que este cliente tem?" — e respondê-la exigia abrir três seções.
+ */
+function ModulosDaLoja({ loja }: { loja: Loja }) {
+  const { mostrar } = useToast();
+  const [estado, setEstado] = useState<{ vendas: 0 | 1; fiscal: 0 | 1 } | null>(null);
+  const [salvando, setSalvando] = useState<string | null>(null);
+
+  useEffect(() => {
+    api<{ vendas: 0 | 1; fiscal: 0 | 1 }>('GET', comTenant(`/api/admin/lojas/${loja.id}/modulos`, loja))
+      .then(setEstado)
+      .catch(() => {});
+  }, [loja.id]);
+
+  const MODULOS = [
+    {
+      chave: 'vendas' as const,
+      titulo: 'Vendas (PDV, mesas e caixa)',
+      ligado: 'O lojista vê a aba Vendas: balcão, mesas e caixa.',
+      desligado: 'A aba Vendas não aparece no painel dele. O histórico fica guardado.',
+      aviso: 'A aba Vendas some do painel dele e o PDV, as mesas e o caixa param de funcionar.',
+    },
+    {
+      chave: 'fiscal' as const,
+      titulo: 'Fiscal (NFC-e)',
+      ligado: 'O lojista vê a aba Fiscal e pode emitir NFC-e.',
+      desligado: 'A aba Fiscal não aparece e nenhuma nota sai. O cadastro fica guardado.',
+      aviso: 'A aba Fiscal some do painel dele e a emissão para na hora. Certificado, CSC e numeração ficam guardados.',
+    },
+  ];
+
+  async function alternar(chave: 'vendas' | 'fiscal', aviso: string) {
+    if (!estado) return;
+    const novo = estado[chave] ? 0 : 1;
+    /*
+     * Só BLOQUEAR pergunta. Liberar não quebra nada e um "tem certeza?" ali
+     * seria só um clique a mais; bloquear tira uma tela de quem está usando.
+     */
+    if (!novo && !window.confirm(`Bloquear este módulo de ${loja.nome}?
+
+${aviso}`)) return;
+    setSalvando(chave);
+    try {
+      await api('PUT', comTenant(`/api/admin/lojas/${loja.id}/modulo/${chave}`, loja), { liberado: !!novo });
+      setEstado(e => (e ? { ...e, [chave]: novo as 0 | 1 } : e));
+      mostrar({ tipo: 'sucesso', titulo: novo ? 'Módulo liberado' : 'Módulo bloqueado' });
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setSalvando(null); }
+  }
+
+  if (!estado) return null;
+
+  return (
+    <div className="mt-3 border-t border-border pt-3">
+      <p className="mb-2 flex items-center gap-2 text-sm font-bold text-primary">
+        <Package className="size-4" /> Módulos contratados
+      </p>
+      <div className="space-y-2">
+        {MODULOS.map(m => {
+          const ligado = !!estado[m.chave];
+          return (
+            <div
+              key={m.chave}
+              className={cn('rounded-xl border p-3',
+                ligado ? 'border-primary/40 bg-primary/[0.04]' : 'border-amber-500/40 bg-amber-500/[0.06]')}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[13px] font-bold">{m.titulo}</p>
+                  <p className="mt-0.5 text-[11.5px] leading-relaxed text-muted-foreground">
+                    {ligado ? m.ligado : m.desligado}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void alternar(m.chave, m.aviso)}
+                  disabled={salvando === m.chave}
+                  role="switch"
+                  aria-checked={ligado}
+                  aria-label={`Liberar o módulo ${m.titulo}`}
+                  className={cn('relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50',
+                    ligado ? 'bg-primary' : 'bg-muted-foreground/30')}
+                >
+                  <span className={cn('absolute top-0.5 size-4 rounded-full bg-white shadow transition-all',
+                    ligado ? 'left-[18px]' : 'left-0.5')} />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function FiscalLojaAdmin({ loja }: { loja: Loja }) {
   const lojaId = loja.id;
   const { mostrar } = useToast();
@@ -783,32 +883,6 @@ function FiscalLojaAdmin({ loja }: { loja: Loja }) {
     });
   }
 
-  /*
-   * LIBERAR O MÓDULO GRAVA NA HORA, fora do formulário.
-   *
-   * O `PUT .../fiscal` salva o cadastro do emitente inteiro e exige os dados
-   * válidos — e o cliente que a gente mais precisa poder desligar é justamente
-   * o de cadastro pela metade. Por isso rota própria e um clique só.
-   */
-  const [mudandoLiberado, setMudandoLiberado] = useState(false);
-  async function alternarLiberado() {
-    if (!cfg) return;
-    const novo = cfg.liberado ? 0 : 1;
-    if (!novo && !window.confirm(
-      `Bloquear o módulo fiscal de ${loja.nome}?\n\n`
-      + `A aba Fiscal desaparece do painel dele e a emissão para na hora.\n`
-      + 'Certificado, CSC e numeração ficam guardados — liberando de novo, volta de onde parou.'
-    )) return;
-    setMudandoLiberado(true);
-    try {
-      await api('PUT', comTenant(`/api/admin/lojas/${lojaId}/fiscal/liberado`, loja), { liberado: !!novo });
-      campo('liberado', novo as 0 | 1);
-      mostrar({ tipo: 'sucesso', titulo: novo ? 'Módulo fiscal liberado' : 'Módulo fiscal bloqueado' });
-    } catch (e) {
-      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
-    } finally { setMudandoLiberado(false); }
-  }
-
   const validadeFmt = cert?.validade ? new Date(cert.validade).toLocaleDateString('pt-BR') : null;
   const venceProximo = cert?.validade ? (new Date(cert.validade).getTime() - Date.now()) < 30 * 864e5 : false;
 
@@ -828,36 +902,19 @@ function FiscalLojaAdmin({ loja }: { loja: Loja }) {
       {aberto && (
         <div className="mt-3 space-y-3">
           {/*
-            O INTERRUPTOR DO MÓDULO VEM ANTES DAS ABAS.
-            Ele decide se o resto desta tela vale alguma coisa para o cliente:
-            preencher emitente, CSC e produtos de uma loja sem o módulo é
-            trabalho que não vira nota nenhuma.
+            O ESTADO DO MÓDULO, sem interruptor.
+            O interruptor mora em "Módulos contratados", acima: dois controles
+            para o mesmo campo fariam a pessoa mexer num e conferir no outro.
+            Aqui basta o aviso de que preencher isto não vale de nada enquanto
+            o módulo estiver bloqueado.
           */}
-          {cfg && (
-            <div className={cn('rounded-xl border p-3', cfg.liberado ? 'border-primary/40 bg-primary/[0.04]' : 'border-amber-500/40 bg-amber-500/[0.06]')}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-[13px] font-bold">Módulo fiscal deste cliente</p>
-                  <p className="mt-0.5 text-[11.5px] leading-relaxed text-muted-foreground">
-                    {cfg.liberado
-                      ? 'Liberado: o lojista vê a aba Fiscal e pode emitir NFC-e.'
-                      : 'Bloqueado: a aba Fiscal não aparece no painel dele e nenhuma nota sai. O cadastro fica guardado.'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void alternarLiberado()}
-                  disabled={mudandoLiberado}
-                  role="switch"
-                  aria-checked={!!cfg.liberado}
-                  aria-label="Liberar o módulo fiscal deste cliente"
-                  className={cn('relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50',
-                    cfg.liberado ? 'bg-primary' : 'bg-muted-foreground/30')}
-                >
-                  <span className={cn('absolute top-0.5 size-4 rounded-full bg-white shadow transition-all',
-                    cfg.liberado ? 'left-[18px]' : 'left-0.5')} />
-                </button>
-              </div>
+          {cfg && !cfg.liberado && (
+            <div className="rounded-xl border border-amber-500/40 bg-amber-500/[0.06] p-3">
+              <p className="text-[12.5px] leading-relaxed text-amber-700 dark:text-amber-500">
+                <b>Módulo fiscal bloqueado.</b> O cadastro abaixo pode ser preenchido,
+                mas nenhuma nota sai e o lojista não vê a aba Fiscal. Libere em
+                "Módulos contratados", acima.
+              </p>
             </div>
           )}
 
