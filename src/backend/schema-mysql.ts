@@ -1114,6 +1114,16 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * emissão de quem tem nota autorizada em produção.
      */
     ['lojas', 'fiscal_liberado', 'fiscal_liberado TINYINT NOT NULL DEFAULT 0'],
+    /*
+     * O MODELO do documento que o pedido vira no Maxx Gestão.
+     *
+     * `PA` (Pedido de Venda) é o padrão e o que está em produção. `PV`
+     * (Pré-Venda) existe porque é o que o PDV da própria Maxx Gestão (MeuChef)
+     * normalmente puxa para finalizar no caixa — e qual modelo entra naquela
+     * fila é coisa de instalação, não de documentação. Fixo no código,
+     * descobrir exigia um deploy por tentativa.
+     */
+    ['lojas', 'maxxgestao_modelo', "maxxgestao_modelo VARCHAR(2) NOT NULL DEFAULT 'PA'"],
     /* O cliente como Pessoa no Maxx Gestão. Guardado para ACHAR ANTES DE
        CRIAR: sem isso, cada pedido criaria uma duplicata do mesmo cliente no
        cadastro do lojista, e ele descobriria pelo cadastro inchado em vez de um

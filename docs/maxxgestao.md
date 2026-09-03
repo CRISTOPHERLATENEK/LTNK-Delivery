@@ -485,3 +485,36 @@ E quando a nota sai DO DELIVERY (saída de emergência) com o pedido já no ERP,
 documento de lá é marcado `status: E` (Emitido) para ninguém faturar de novo.
 Isso NÃO informa a nota ao ERP: a numeração e o certificado são nossos, e a API
 pública não expõe campo para referenciar chave de nota externa.
+
+## O MeuChef é o PDV da própria Maxx Gestão
+
+Descoberto em 03/09/2026, no portal de downloads deles
+(`maxxgestao.com.br/Home/Modulo?Url=%2FAjudaSuporte%2FAbrirDownload`): a mesma
+casa distribui `MeuChef - PDV - Alimentação` (Windows e Android),
+`MeuChef - Autopesagem`, `MeuChef - Autopagamento`, `MeuRetail - PDV`,
+`MeuPedido - Autoatendimento`, e os utilitários `MeuDB - POS`, `MeuTEF`,
+`Minha Balança`, `Minha Impressora`.
+
+Ou seja: **não existe "integrar com o MeuChef"**. Ele lê do mesmo backend em que
+já gravamos. A API pública não tem endpoint de PDV, comanda, mesa ou fila de
+cozinha — são 25 endpoints de documento, mercadoria, tabela de preço, natureza
+de operação, pagamento e perfil tributário.
+
+O que decide se o pedido aparece no PDV é o **modelo do documento**, e nem a
+documentação nem a API dizem qual modelo entra na fila dele. `MeuDB - POS` nos
+utilitários sugere banco local com sincronização, então pode ser que o PDV só
+veja o que a sincronização traz — e ela pode filtrar por modelo ou status.
+
+Por isso o modelo virou configuração (`lojas.maxxgestao_modelo`) em vez de
+constante: descobrir isso com o valor fixo no código exigia um deploy por
+tentativa.
+
+- `PA` — Pedido de Venda. **O padrão**, e o que está em produção.
+- `PV` — Pré-Venda. O que um PDV normalmente puxa para finalizar no caixa.
+
+`OC` (Orçamento) e `CN` (Condicional) são aceitos pela API e ficaram **fora**:
+nenhum é venda fechada. Pedido pago no app entrando como orçamento viraria
+venda que o faturamento do lojista não reconhece.
+
+A troca vale para os PRÓXIMOS pedidos. Documento já criado não muda de modelo —
+alterar os que estão lá seria mexer em documento que alguém pode ter faturado.

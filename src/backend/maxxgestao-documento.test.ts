@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import {
-  montarDocumento, valorDoErp, diferencaDoTotal,
+  montarDocumento, valorDoErp, diferencaDoTotal, modeloValido, MODELOS_DOCUMENTO,
   type DadosDoPedido, type ConfigDocumento,
 } from './maxxgestao-documento';
 import { acharPagamento, idDoDocumento, agoraBrasiliaIso, chaveDaResposta } from './maxxgestao-emitir';
@@ -12,6 +12,7 @@ const config: ConfigDocumento = {
   idPessoa: 5,
   idUsuario: 5470,
   idPagamento: 3,
+  modelo: 'PA',
   dataHora: '2026-09-02T13:00:00',
 };
 
@@ -383,23 +384,80 @@ describe('a hora que vai no documento é de Brasília', () => {
 
 describe('o modelo do documento', () => {
   /*
-   * PA = Pedido de Venda. Estava indo PV, e os primeiros pedidos apareceram no
-   * Gestão como "Pré-Venda" — outro documento na operação de quem usa o ERP.
+   * O MODELO VIROU ESCOLHA DO LOJISTA, e três testes daqui mudaram de lado.
+   *
+   * Eles garantiam "é PA e NUNCA PV". Era a decisão certa naquele momento: o
+   * envio estava indo como PV, os pedidos apareceram no Gestão como
+   * "Pré-Venda", e isso era erro — o lojista pediu Pedido de Venda.
+   *
+   * O que mudou não foi a opinião: apareceu um segundo leitor do mesmo
+   * documento. O PDV da própria Maxx Gestão (MeuChef) puxa uma fila só, e qual
+   * modelo entra nela varia por instalação — nem a documentação nem a API
+   * dizem. Travar `PA` no código obrigava um deploy por tentativa para
+   * descobrir.
+   *
+   * O que continua garantido é o que importa: `PA` é o padrão, `OC` e `CN`
+   * nunca são possíveis, e valor estranho no banco não vira documento estranho.
    *
    * Os quatro valores foram lidos do próprio ERP, criando um documento de cada
    * e conferindo o `modeloDescricao`: PA Pedido de Venda, PV Pré-Venda, OC
    * Orçamento, CN Condicional. A documentação só lista as siglas.
    */
-  it('é PA, e nunca PV', () => {
-    const doc = montarDocumento(pedido(), config).corpo?.documento as Record<string, unknown>;
-    expect(doc.modelo).toBe('PA');
+  it('usa o modelo que a config manda', () => {
+    const doc = (m: 'PA' | 'PV') =>
+      (montarDocumento(pedido(), { ...config, modelo: m }).corpo?.documento as Record<string, unknown>).modelo;
+    expect(doc('PA')).toBe('PA');
+    expect(doc('PV')).toBe('PV');
   });
 
-  it('a fonte não manda outro modelo por engano', () => {
-    const fonte = fs.readFileSync(path.join(__dirname, 'maxxgestao-documento.ts'), 'utf8')
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    expect(fonte).toContain("modelo: 'PA'");
-    expect(fonte).not.toContain("modelo: 'PV'");
+  it('PA é o padrão, e valor estranho NÃO vira documento estranho', () => {
+    /*
+     * `modeloValido` é a peneira entre o banco e o corpo do documento. Sem
+     * ela, uma coluna com lixo (migração torta, edição no MySQL, valor de uma
+     * versão futura) subiria como modelo inexistente — e o ERP recusaria o
+     * pedido inteiro, sem ninguém entender por quê.
+     */
+    for (const lixo of [null, undefined, '', 'XX', 'OC', 'CN', 'pa ', 'oc']) {
+      expect(['PA', 'PV']).toContain(modeloValido(lixo));
+    }
+    expect(modeloValido(null)).toBe('PA');
+    expect(modeloValido('OC')).toBe('PA');
+    expect(modeloValido('CN')).toBe('PA');
+    /* Minúscula e espaço são digitação, não valor novo: aceita. */
+    expect(modeloValido('pv')).toBe('PV');
+    expect(modeloValido(' pa ')).toBe('PA');
+  });
+
+  it('só existem DOIS modelos, e nenhum deles é orçamento', () => {
+    /*
+     * A API aceita `OC` (Orçamento) e `CN` (Condicional). Ficaram fora porque
+     * nenhum dos dois é venda fechada: orçamento é proposta, condicional é
+     * mercadoria que pode voltar. Pedido pago no app entrando como um desses
+     * viraria venda que o faturamento do lojista não reconhece — e ele
+     * descobriria pelo caixa não fechando.
+     */
+    expect([...MODELOS_DOCUMENTO]).toEqual(['PA', 'PV']);
+  });
+
+  it('a rota recusa modelo inválido em vez de cair no padrão', () => {
+    /*
+     * Aqui é escolha explícita de gente. Gravar `PA` silenciosamente quando
+     * pediram outra coisa faria o lojista concluir que o ajuste não funciona.
+     * (No BANCO é o contrário: lá o padrão protege o envio.)
+     */
+    const rotas = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8');
+    const i = rotas.indexOf("router.put('/erp/modelo'");
+    expect(i).toBeGreaterThan(0);
+    const t = rotas.slice(i, i + 1200);
+    expect(t).toContain('MODELOS_DOCUMENTO');
+    expect(t).toMatch(/status\(400\)/);
+    expect(t).toContain('UPDATE lojas SET maxxgestao_modelo = ?');
+  });
+
+  it('o envio usa a coluna da loja, não uma constante', () => {
+    const emitir = fs.readFileSync(path.join(__dirname, 'maxxgestao-emitir.ts'), 'utf8');
+    expect(emitir).toContain('modelo: modeloValido(loja?.maxxgestao_modelo)');
+    expect(emitir).toContain('maxxgestao_modelo');
   });
 });
 

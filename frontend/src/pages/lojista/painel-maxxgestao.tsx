@@ -25,6 +25,14 @@ export interface EstadoErp {
   emitindo: boolean;
   /** A nota sai sozinha ao fechar o pedido. Nasce desligada. */
   auto_emitir: boolean;
+  /**
+   * O modelo do documento: `PA` (Pedido de Venda) ou `PV` (Pré-Venda).
+   *
+   * É o ajuste que decide se o pedido cai na fila que o PDV MeuChef puxa — e
+   * qual modelo entra nela varia por instalação, então quem descobre é o
+   * lojista, testando.
+   */
+  modelo: 'PA' | 'PV';
 }
 
 interface EmpresaErp {
@@ -268,6 +276,28 @@ Ligar assim mesmo?`,
     }
   }
 
+  /*
+   * TROCAR O MODELO grava na hora e vale só para os PRÓXIMOS pedidos.
+   *
+   * Documento já criado no ERP não muda de modelo por isso — mexer nos que já
+   * estão lá seria alterar documento que alguém pode ter faturado.
+   */
+  const [trocandoModelo, setTrocandoModelo] = useState(false);
+  async function trocarModelo(novo: 'PA' | 'PV') {
+    if (!estado || estado.modelo === novo) return;
+    setTrocandoModelo(true);
+    const antes = estado.modelo;
+    aoMudar({ ...estado, modelo: novo });
+    try {
+      await api<{ modelo: string }>('PUT', '/api/lojista/erp/modelo', { modelo: novo });
+    } catch (e) {
+      /* Volta ao que era: deixar a tela mostrando o novo faria o lojista
+         concluir que trocou, e os pedidos seguiriam subindo como antes. */
+      aoMudar({ ...estado, modelo: antes });
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setTrocandoModelo(false); }
+  }
+
   const configurado = !!estado?.configurado;
   const emitindo = !!estado?.emitindo;
 
@@ -456,6 +486,50 @@ Ligar assim mesmo?`,
             no pedido.
           </p>
         )}
+      </Linha>
+
+      {/* ─────────── o modelo do documento ─────────── */}
+      <Linha
+        titulo="Como o pedido entra no Maxx Gestão"
+        descricao={
+          estado?.modelo === 'PV'
+            ? 'Como Pré-Venda — é o que o PDV (MeuChef) costuma puxar para finalizar no caixa.'
+            : 'Como Pedido de Venda. Se o pedido não aparecer no seu PDV, experimente Pré-Venda.'
+        }
+        acao={
+          <div className="flex shrink-0 gap-1 rounded-xl border border-border bg-muted/40 p-1">
+            {([
+              { v: 'PA' as const, t: 'Pedido' },
+              { v: 'PV' as const, t: 'Pré-Venda' },
+            ]).map(o => (
+              <button
+                key={o.v}
+                type="button"
+                disabled={!configurado || trocandoModelo}
+                aria-pressed={estado?.modelo === o.v}
+                onClick={() => void trocarModelo(o.v)}
+                className={cn(
+                  'rounded-lg px-2.5 py-1 text-[12.5px] font-bold transition-colors disabled:opacity-50',
+                  estado?.modelo === o.v
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {o.t}
+              </button>
+            ))}
+          </div>
+        }
+      >
+        {/*
+          A FRASE QUE EVITA O TESTE ERRADO.
+          Sem ela, a pessoa troca o modelo, abre o PDV, não vê o pedido antigo
+          e conclui que a troca não funcionou.
+        */}
+        <p className="mt-2 text-[12.5px] leading-relaxed text-muted-foreground">
+          Vale para os <b>próximos</b> pedidos. Os documentos que já estão no
+          Maxx Gestão continuam como foram criados.
+        </p>
       </Linha>
 
       {/* ─────────── a explicação, fechada ─────────── */}

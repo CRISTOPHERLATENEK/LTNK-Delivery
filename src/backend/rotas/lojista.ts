@@ -43,6 +43,7 @@ import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoP
 import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
 import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '../maxxgestao-preambulo';
 import { enviarPedidoAoErp, fecharDocumentoNoErp } from '../maxxgestao-emitir';
+import { MODELOS_DOCUMENTO, modeloValido } from '../maxxgestao-documento';
 import { credenciaisDoAmbiente as credenciaisIfood } from '../ifood-cliente';
 import { lerCardapioIfood } from '../ifood-catalogo';
 import { planejarImportacao, type ProdutoImportado } from '../ifood-importar';
@@ -3894,8 +3895,11 @@ router.get('/erp', async (req, res, next) => {
     const loja = await minhaLoja(req);
     const token = await tokenMaxxGestaoDaLoja(loja.id);
     const linha = await db.prepare(
-      'SELECT nfce_emissor, maxxgestao_auto_emitir FROM lojas WHERE id = ?'
-    ).get(loja.id) as { nfce_emissor: string | null; maxxgestao_auto_emitir: number | null } | undefined;
+      'SELECT nfce_emissor, maxxgestao_auto_emitir, maxxgestao_modelo FROM lojas WHERE id = ?'
+    ).get(loja.id) as {
+      nfce_emissor: string | null; maxxgestao_auto_emitir: number | null;
+      maxxgestao_modelo: string | null;
+    } | undefined;
     res.json({
       token: mascarar(token),
       configurado: !!token,
@@ -3903,6 +3907,7 @@ router.get('/erp', async (req, res, next) => {
          emitir. Nota a mais se corrige; nota a menos é multa. */
       emitindo: String(linha?.nfce_emissor ?? 'sistema') === 'erp',
       auto_emitir: Number(linha?.maxxgestao_auto_emitir ?? 0) === 1,
+      modelo: modeloValido(linha?.maxxgestao_modelo),
     });
   } catch (e) { next(e); }
 });
@@ -4003,6 +4008,32 @@ router.post('/erp/testar', async (req, res, next) => {
  * irreversível. Juntar as duas num só interruptor faria a segunda passar de
  * carona.
  */
+/**
+ * O MODELO do documento no Maxx Gestão. `PA` (Pedido de Venda) ou `PV`
+ * (Pré-Venda).
+ *
+ * Existe para o lojista descobrir sozinho onde o pedido precisa cair: o PDV
+ * MeuChef puxa uma fila só, e qual modelo entra nela varia por instalação.
+ * Trocar aqui vale para os PRÓXIMOS pedidos — documento já criado no ERP não
+ * muda de modelo por isso, e mexer nos que já estão lá seria alterar
+ * documento que alguém pode já ter faturado.
+ */
+router.put('/erp/modelo', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const bruto = String(req.body?.modelo ?? '').trim().toUpperCase();
+    if (!(MODELOS_DOCUMENTO as readonly string[]).includes(bruto)) {
+      /* Recusa em vez de cair no padrão: aqui é escolha explícita de gente, e
+         gravar `PA` silenciosamente quando pediram outra coisa faria o lojista
+         concluir que o ajuste não funciona. */
+      return res.status(400).json({ erro: 'Modelo inválido. Use PA (Pedido de Venda) ou PV (Pré-Venda).' });
+    }
+    await db.prepare('UPDATE lojas SET maxxgestao_modelo = ? WHERE id = ?').run(bruto, loja.id);
+    console.log(`[erp] loja ${loja.id}: documento passa a subir como ${bruto}`);
+    res.json({ modelo: bruto });
+  } catch (e) { next(e); }
+});
+
 router.put('/erp/auto-emitir', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);

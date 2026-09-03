@@ -41,6 +41,28 @@ export interface DadosDoPedido {
   itens: ItemPedido[];
 }
 
+/**
+ * OS MODELOS QUE UM PEDIDO PODE SER — dois, não os quatro que a API aceita.
+ *
+ * `OC` (Orçamento) e `CN` (Condicional) também são aceitos pelo ERP e ficaram
+ * FORA de propósito: nenhum dos dois é uma venda fechada. Orçamento é proposta
+ * e condicional é mercadoria que pode voltar; um pedido pago no app entrando
+ * como qualquer um dos dois viraria uma venda que o faturamento do lojista não
+ * reconhece — e ele descobriria pelo caixa não fechando.
+ *
+ *   PA → Pedido de Venda (padrão)
+ *   PV → Pré-Venda: o que o PDV normalmente puxa para finalizar no caixa
+ */
+export const MODELOS_DOCUMENTO = ['PA', 'PV'] as const;
+export type ModeloDocumento = typeof MODELOS_DOCUMENTO[number];
+
+/** O modelo gravado, ou o padrão. Valor estranho no banco NÃO vira documento
+    estranho: cai em `PA`, que é o comportamento conhecido. */
+export function modeloValido(bruto: unknown): ModeloDocumento {
+  const v = String(bruto ?? '').trim().toUpperCase();
+  return (MODELOS_DOCUMENTO as readonly string[]).includes(v) ? v as ModeloDocumento : 'PA';
+}
+
 export interface ConfigDocumento {
   /** Natureza de operação (1 = VENDA DE MERCADORIA DENTRO DO ESTADO, CFOP 5102). */
   idNaturezaOperacao: number;
@@ -65,6 +87,15 @@ export interface ConfigDocumento {
    * pedido sem chegar lá — que é o oposto do que se quer.
    */
   idPagamento: number;
+  /**
+   * O MODELO DO DOCUMENTO, escolhido pelo lojista.
+   *
+   * Existe porque decide QUEM enxerga o pedido do outro lado, e a resposta não
+   * está na documentação nem no código: o MeuChef (o PDV da própria Maxx
+   * Gestão) puxa uma fila só, e qual modelo entra nela é coisa de instalação.
+   * Fixo no código, descobrir isso exigia um deploy por tentativa.
+   */
+  modelo: ModeloDocumento;
   /**
    * Momento do documento, em HORÁRIO DE BRASÍLIA — não UTC.
    *
@@ -163,8 +194,12 @@ export function montarDocumento(
        *
        * Estava indo `PV`, e os primeiros pedidos apareceram no Gestão como
        * "Pré-Venda" — que é outro documento na operação de quem usa o ERP.
+       *
+       * Hoje vem da configuração da loja: `PA` continua o padrão (é o que está
+       * em produção e o que você conferiu no Gestão), e `PV` existe para o
+       * pedido cair na fila do PDV, se for lá que ele precisa aparecer.
        */
-      modelo: 'PA',
+      modelo: config.modelo,
       dataHora: config.dataHora,
       /* A IDEMPOTÊNCIA. Gravamos o id do nosso pedido para poder perguntar "já
          mandei este?" antes de mandar de novo — sem isso, uma retentativa gera
