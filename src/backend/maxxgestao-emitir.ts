@@ -333,6 +333,70 @@ export async function fecharDocumentoNoErp(pedidoId: number, opcoes: OpcoesMaxxG
   }
 }
 
+/**
+ * A CHAVE DE 44 DÍGITOS numa resposta deles. Vazio quando não veio.
+ *
+ * O `transformar` devolve `chave: ""` — a chave só nasce no `emitir`, que é
+ * quando o número da sequência fiscal é consumido.
+ */
+export function chaveDaResposta(resposta: unknown): string {
+  const d = (resposta && typeof resposta === 'object' ? resposta : {}) as Record<string, unknown>;
+  const bruta = String(d.chave ?? d.chaveAcesso ?? '').replace(/\D/g, '');
+  return bruta.length === 44 ? bruta : '';
+}
+
+/**
+ * TRANSFORMAR EM NFC-E E EMITIR — os dois passos que fecham a nota no ERP.
+ *
+ * `transformar` com `modelo: '65'` (65 = NFC-e; 55 = NF-e) NÃO consome número:
+ * medido, ele devolve `numero: 0` e `chave: ""`. O número e a chave nascem no
+ * `emitir`, e é só esse passo que não tem volta.
+ *
+ * NUNCA LANÇA. O documento já existe no ERP — falhar aqui deixa um rascunho
+ * para o lojista faturar na mão, o que é recuperável. Propagar o erro faria a
+ * próxima tentativa querer CRIAR outro documento para a mesma venda.
+ */
+export async function emitirDocumentoNoErp(
+  token: string,
+  documento: number,
+  pedidoId: number,
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<{ emitiu: boolean; chave: string; motivo?: string }> {
+  try {
+    await chamarMaxxGestao(token, `/api/documento/${documento}/transformar/v1`, opcoes, {
+      method: 'POST',
+      body: JSON.stringify({ modelo: '65' }),
+    });
+  } catch (e) {
+    const motivo = (e as Error).message;
+    console.log(`[erp] pedido ${pedidoId}: documento ${documento} criado, mas transformar em NFC-e falhou: ${motivo}`);
+    return { emitiu: false, chave: '', motivo };
+  }
+
+  try {
+    const resp = await chamarMaxxGestao(token, `/api/documento/${documento}/emitir/v1`, opcoes, { method: 'POST' });
+    const chave = chaveDaResposta(resp);
+    if (chave) {
+      await db.prepare('UPDATE pedidos SET maxxgestao_chave = ? WHERE id = ?').run(chave, pedidoId);
+    }
+    console.log(
+      `[erp] pedido ${pedidoId}: NFC-e emitida no ERP (documento ${documento})`
+      + (chave ? ` — chave ${chave}` : ' — chave não veio na resposta'),
+    );
+    return { emitiu: true, chave };
+  } catch (e) {
+    /*
+     * A REJEIÇÃO DA SEFAZ CHEGA AQUI, e é o caso mais provável de falha: NFC-e
+     * de entrega sem CPF do destinatário é recusada. O documento fica
+     * transformado e não emitido — o lojista corrige o cadastro e emite na tela
+     * do ERP, sem perder a venda.
+     */
+    const motivo = (e as Error).message;
+    console.log(`[erp] pedido ${pedidoId}: documento ${documento} transformado, mas a emissão foi recusada: ${motivo}`);
+    return { emitiu: false, chave: '', motivo };
+  }
+}
+
 export interface ResultadoEmissao {
   /** O documento foi criado no ERP? A NOTA é emitida lá, por gente. */
   emitiu: boolean;
@@ -370,10 +434,11 @@ export async function enviarPedidoAoErp(
   }
 
   const loja = await db.prepare(
-    'SELECT nfce_emissor, maxxgestao_token, maxxgestao_id_usuario FROM lojas WHERE id = ?'
+    `SELECT nfce_emissor, maxxgestao_token, maxxgestao_id_usuario, maxxgestao_auto_emitir
+       FROM lojas WHERE id = ?`
   ).get(pedido.loja_id) as {
     nfce_emissor: string | null; maxxgestao_token: string | null;
-    maxxgestao_id_usuario: number | null;
+    maxxgestao_id_usuario: number | null; maxxgestao_auto_emitir: number | null;
   } | undefined;
 
   if (String(loja?.nfce_emissor ?? 'sistema') !== 'erp') {
@@ -537,6 +602,19 @@ export async function enviarPedidoAoErp(
     .run(documento, agoraUTC(), pedidoId);
 
   console.log(`[erp] pedido ${pedidoId}: enviado ao Maxx Gestão como documento ${documento} em ${Date.now() - comecou}ms`);
+
+  /*
+   * A EMISSÃO AUTOMÁTICA É OPCIONAL E DESLIGADA POR PADRÃO.
+   *
+   * Ligada, o gatilho da nota passa a ser o clique de "Já entreguei" — sem
+   * ninguém revisar o documento antes. Emitir não tem volta, então quem liga
+   * precisa ter decidido isso; e falhar aqui NÃO desfaz o envio: o documento
+   * fica no ERP para ser faturado na mão.
+   */
+  if (Number(loja?.maxxgestao_auto_emitir ?? 0) === 1) {
+    await emitirDocumentoNoErp(token, documento, pedidoId, opcoes);
+  }
+
   return { emitiu: true, documento };
 
 }

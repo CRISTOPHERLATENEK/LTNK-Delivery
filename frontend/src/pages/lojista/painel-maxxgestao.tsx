@@ -23,6 +23,8 @@ export interface EstadoErp {
   token: string | null;
   configurado: boolean;
   emitindo: boolean;
+  /** A nota sai sozinha ao fechar o pedido. Nasce desligada. */
+  auto_emitir: boolean;
 }
 
 interface EmpresaErp {
@@ -78,6 +80,7 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
   const [editado, setEditado] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [ligando, setLigando] = useState(false);
+  const [ligandoAuto, setLigandoAuto] = useState(false);
   const [empresa, setEmpresa] = useState<EmpresaErp | null>(null);
 
   const [catalogos, setCatalogos] = useState<CatalogoErp[] | null>(null);
@@ -158,6 +161,43 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
       setLigando(false);
+    }
+  }
+
+  /**
+   * A EMISSÃO AUTOMÁTICA PEDE CONFIRMAÇÃO PARA LIGAR — não para desligar.
+   *
+   * Ligar muda o gatilho da nota para o clique de "Já entreguei", sem ninguém
+   * revisar o documento antes, e emitir não tem volta. Desligar é sempre seguro,
+   * então perguntar ali seria atrito por simetria.
+   */
+  async function alternarAuto() {
+    if (!estado || ligandoAuto) return;
+    const novo = !estado.auto_emitir;
+    if (novo && !window.confirm(
+      /* Template literal com quebras de verdade: `confirm` mostra texto
+         corrido, e três frases em um parágrafo só ninguém lê. */
+      `A nota vai ser emitida automaticamente quando você fechar o pedido, sem revisão antes.
+
+Emitir NFC-e não tem volta: nota errada se desfaz com cancelamento.
+
+Ligar assim mesmo?`,
+    )) return;
+
+    const antes = estado;
+    aoMudar({ ...estado, auto_emitir: novo });
+    setLigandoAuto(true);
+    try {
+      await api<{ auto_emitir: boolean }>('PUT', '/api/lojista/erp/auto-emitir', { ligado: novo });
+      mostrar({
+        tipo: 'sucesso',
+        titulo: novo ? 'A NFC-e passa a sair sozinha ao fechar o pedido' : 'A emissão automática foi desligada',
+      });
+    } catch (err) {
+      aoMudar(antes);
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setLigandoAuto(false);
     }
   }
 
@@ -376,6 +416,47 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
           </button>
         }
       />
+
+      {/* ─────────── emissão automática ─────────── */}
+      <Linha
+        titulo="Emitir a nota automaticamente"
+        descricao={
+          !emitindo ? 'Disponível quando o Maxx Gestão for o emissor.'
+            : estado?.auto_emitir
+              ? 'A NFC-e sai quando você fecha o pedido — sem revisão antes.'
+              : 'Desligado — o pedido chega no ERP e você fatura lá.'
+        }
+        acao={
+          <button
+            type="button"
+            /* Inerte sem o ERP como emissor: o servidor recusa, e um interruptor
+               que aceita o clique para voltar atrás ensina menos que um que não
+               move. */
+            disabled={!emitindo || ligandoAuto}
+            aria-pressed={!!estado?.auto_emitir}
+            onClick={() => void alternarAuto()}
+            className={cn(
+              'relative h-6 w-11 shrink-0 rounded-full transition-colors',
+              !emitindo ? 'cursor-not-allowed bg-muted'
+                : estado?.auto_emitir ? 'bg-primary' : 'bg-muted-foreground/30',
+            )}
+          >
+            <span className={cn('absolute top-0.5 size-5 rounded-full bg-white shadow transition-all',
+              estado?.auto_emitir ? 'left-[22px]' : 'left-0.5')} />
+          </button>
+        }
+      >
+        {/* O AVISO SÓ APARECE LIGADO, e diz a consequência real em vez de
+            "atenção": quem já ligou sabe o que quis; quem lê isso pela primeira
+            vez precisa saber que o clique de entregar virou clique de emitir. */}
+        {emitindo && estado?.auto_emitir && (
+          <p className="mt-2 text-[12.5px] leading-relaxed text-muted-foreground">
+            NFC-e de <b>entrega</b> exige CPF do cliente — sem ele a SEFAZ recusa
+            e o documento fica no ERP para você faturar na mão. O motivo aparece
+            no pedido.
+          </p>
+        )}
+      </Linha>
 
       {/* ─────────── a explicação, fechada ─────────── */}
       <Sanfona titulo="Como funciona a emissão pelo ERP">

@@ -5,7 +5,7 @@ import {
   montarDocumento, valorDoErp, diferencaDoTotal,
   type DadosDoPedido, type ConfigDocumento,
 } from './maxxgestao-documento';
-import { acharPagamento, idDoDocumento, agoraBrasiliaIso } from './maxxgestao-emitir';
+import { acharPagamento, idDoDocumento, agoraBrasiliaIso, chaveDaResposta } from './maxxgestao-emitir';
 
 const config: ConfigDocumento = {
   idNaturezaOperacao: 1,
@@ -331,16 +331,23 @@ describe('o funil da nota', () => {
     expect(marca).toBeGreaterThan(criacao);
   });
 
-  it('NÃO transforma nem emite: isso é do ERP', () => {
+  it('não transforma nem emite SEM a loja ter ligado', () => {
     /*
-     * Decisão do dono do projeto, e a certa: natureza de operação, forma de
-     * pagamento e tributação são cadastro do ERP. Cada uma que tentássemos
-     * resolver daqui seria palpite sobre dado que não é nosso — e foi
-     * justamente a forma de pagamento que bloqueava o pedido de chegar lá.
+     * ESTE TESTE MUDOU DE LADO, e vale registrar por quê.
+     *
+     * Ele garantia que `transformar` e `emitir` NUNCA fossem chamados — era a
+     * decisão de então: "a parte fiscal a gente resolve lá". Depois veio o
+     * pedido oposto: emitir automático ao enviar. As duas coisas convivem
+     * porque a emissão passou a ser OPCIONAL e nasce desligada.
+     *
+     * O que continua garantido é o essencial: nada é emitido sem alguém ter
+     * ligado, e o padrão é o pedido chegar no ERP para ser faturado lá.
      */
     const f = fonte('maxxgestao-emitir.ts');
-    expect(f).not.toContain('/transformar/v1');
-    expect(f).not.toContain('/emitir/v1');
+    const iCondicao = f.indexOf('Number(loja?.maxxgestao_auto_emitir ?? 0) === 1');
+    const iChamada = f.indexOf('emitirDocumentoNoErp(token, documento, pedidoId');
+    expect(iCondicao).toBeGreaterThan(0);
+    expect(iChamada).toBeGreaterThan(iCondicao);
   });
 });
 
@@ -393,5 +400,79 @@ describe('o modelo do documento', () => {
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     expect(fonte).toContain("modelo: 'PA'");
     expect(fonte).not.toContain("modelo: 'PV'");
+  });
+});
+
+describe('a emissão automática no ERP', () => {
+  /*
+   * Dois passos: `transformar` (modelo 65 = NFC-e) e `emitir`. Medido na conta
+   * real: o transformar devolve `numero: 0` e `chave: ""` — ele NÃO consome
+   * número da sequência fiscal. O número e a chave nascem no emitir, e é só
+   * esse passo que não tem volta.
+   */
+  const semComentarios = (arq: string) => fs.readFileSync(path.join(__dirname, arq), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const emitir = semComentarios('maxxgestao-emitir.ts');
+
+  it('transforma para 65 (NFC-e), não 55', () => {
+    /* 55 é NF-e, documento de outra operação. */
+    expect(emitir).toContain("modelo: '65'");
+    expect(emitir).not.toContain("modelo: '55'");
+  });
+
+  it('transforma ANTES de emitir', () => {
+    const t = emitir.indexOf('/transformar/v1');
+    const e = emitir.indexOf('/emitir/v1');
+    expect(t).toBeGreaterThan(0);
+    expect(e).toBeGreaterThan(t);
+  });
+
+  it('nasce DESLIGADA no banco', () => {
+    /*
+     * O único campo desta integração que precisa nascer desligado: ligado, o
+     * gatilho da nota passa a ser o clique de "Já entreguei", sem revisão.
+     */
+    const schema = fs.readFileSync(path.join(__dirname, 'schema-mysql.ts'), 'utf8');
+    expect(schema).toContain("maxxgestao_auto_emitir TINYINT NOT NULL DEFAULT 0");
+  });
+
+  it('só roda quando a loja ligou', () => {
+    expect(emitir).toContain("Number(loja?.maxxgestao_auto_emitir ?? 0) === 1");
+  });
+
+  it('falha na emissão NÃO desfaz o envio do pedido', () => {
+    /*
+     * O documento já existe no ERP. Propagar o erro faria a próxima tentativa
+     * querer CRIAR outro documento para a mesma venda.
+     */
+    const i = emitir.indexOf('emitirDocumentoNoErp(token, documento, pedidoId, opcoes)');
+    expect(i).toBeGreaterThan(0);
+    const depois = emitir.slice(i, i + 120);
+    expect(depois).toContain('return { emitiu: true, documento }');
+  });
+
+  it('a chave só é aceita com 44 dígitos', () => {
+    /* Chave curta gravada no pedido é pior que chave ausente: parece resposta. */
+    expect(chaveDaResposta({ chave: '4'.repeat(44) })).toBe('4'.repeat(44));
+    expect(chaveDaResposta({ chave: '' })).toBe('');
+    expect(chaveDaResposta({ chave: '123' })).toBe('');
+    expect(chaveDaResposta(null)).toBe('');
+  });
+
+  it('desligar o emissor desliga a auto-emissão', () => {
+    /*
+     * Deixá-la ligada num emissor que não é o ERP guardaria uma bomba: bastaria
+     * religar o emissor meses depois e as notas sairiam sozinhas, sem ninguém
+     * ter pedido isso naquele momento.
+     */
+    const rotas = semComentarios(path.join('rotas', 'lojista.ts'));
+    expect(rotas).toContain("SET nfce_emissor = ?, maxxgestao_auto_emitir = 0");
+  });
+
+  it('não dá para ligar a auto-emissão sem o ERP como emissor', () => {
+    const rotas = semComentarios(path.join('rotas', 'lojista.ts'));
+    const i = rotas.indexOf("router.put('/erp/auto-emitir'");
+    expect(i).toBeGreaterThan(0);
+    expect(rotas.slice(i, i + 900)).toContain("!== 'erp'");
   });
 });

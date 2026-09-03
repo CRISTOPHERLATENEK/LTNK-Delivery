@@ -3893,14 +3893,16 @@ router.get('/erp', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const token = await tokenMaxxGestaoDaLoja(loja.id);
-    const linha = await db.prepare('SELECT nfce_emissor FROM lojas WHERE id = ?')
-      .get(loja.id) as { nfce_emissor: string | null } | undefined;
+    const linha = await db.prepare(
+      'SELECT nfce_emissor, maxxgestao_auto_emitir FROM lojas WHERE id = ?'
+    ).get(loja.id) as { nfce_emissor: string | null; maxxgestao_auto_emitir: number | null } | undefined;
     res.json({
       token: mascarar(token),
       configurado: !!token,
       /* Valor estranho no banco cai em 'sistema': o padrão seguro é o servidor
          emitir. Nota a mais se corrige; nota a menos é multa. */
       emitindo: String(linha?.nfce_emissor ?? 'sistema') === 'erp',
+      auto_emitir: Number(linha?.maxxgestao_auto_emitir ?? 0) === 1,
     });
   } catch (e) { next(e); }
 });
@@ -3929,8 +3931,19 @@ router.put('/erp/emissor', async (req, res, next) => {
       }
     }
 
-    await db.prepare('UPDATE lojas SET nfce_emissor = ? WHERE id = ?')
-      .run(ligar ? 'erp' : 'sistema', loja.id);
+    /*
+     * DESLIGAR O EMISSOR DESLIGA A AUTO-EMISSÃO TAMBÉM.
+     *
+     * Deixá-la ligada num emissor que não é o ERP guardaria uma bomba: bastaria
+     * religar o emissor meses depois e as notas passariam a sair sozinhas, sem
+     * ninguém ter pedido isso naquele momento.
+     */
+    if (ligar) {
+      await db.prepare('UPDATE lojas SET nfce_emissor = ? WHERE id = ?').run('erp', loja.id);
+    } else {
+      await db.prepare('UPDATE lojas SET nfce_emissor = ?, maxxgestao_auto_emitir = 0 WHERE id = ?')
+        .run('sistema', loja.id);
+    }
     console.log(`[erp] loja ${loja.id}: emissor da NFC-e agora é ${ligar ? 'o Maxx Gestão' : 'este sistema'}`);
     res.json({ emitindo: ligar });
   } catch (e) { next(e); }
@@ -3979,6 +3992,41 @@ router.post('/erp/testar', async (req, res, next) => {
       const erro = e as { message?: string };
       res.status(400).json({ ok: false, erro: erro.message || 'Não consegui falar com o Maxx Gestão.' });
     }
+  } catch (e) { next(e); }
+});
+
+/**
+ * LIGA E DESLIGA A EMISSÃO AUTOMÁTICA DA NOTA NO ERP.
+ *
+ * Endpoint separado do emissor porque são decisões diferentes: "o ERP é o
+ * emissor" é organização; "a nota sai sozinha ao fechar o pedido" é
+ * irreversível. Juntar as duas num só interruptor faria a segunda passar de
+ * carona.
+ */
+router.put('/erp/auto-emitir', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const ligar = req.body?.ligado === true;
+
+    if (ligar) {
+      /*
+       * SÓ COM O ERP COMO EMISSOR. Auto-emitir com a nota saindo daqui não
+       * significa nada — e ligado por engano ficaria armado para o dia em que
+       * alguém trocasse o emissor.
+       */
+      const linha = await db.prepare('SELECT nfce_emissor FROM lojas WHERE id = ?')
+        .get(loja.id) as { nfce_emissor: string | null } | undefined;
+      if (String(linha?.nfce_emissor ?? 'sistema') !== 'erp') {
+        return res.status(400).json({
+          erro: 'Ligue primeiro "O Maxx Gestão emite a NFC-e" — a emissão automática é dele.',
+        });
+      }
+    }
+
+    await db.prepare('UPDATE lojas SET maxxgestao_auto_emitir = ? WHERE id = ?')
+      .run(ligar ? 1 : 0, loja.id);
+    console.log(`[erp] loja ${loja.id}: emissão automática da NFC-e ${ligar ? 'LIGADA' : 'desligada'}`);
+    res.json({ auto_emitir: ligar });
   } catch (e) { next(e); }
 });
 

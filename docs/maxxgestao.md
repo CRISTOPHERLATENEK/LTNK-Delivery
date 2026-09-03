@@ -448,3 +448,40 @@ cancelamento.
 Agora a rota recusa com **409** dizendo QUEM emite, e a tela pergunta antes de
 repetir com `forcar: true`. A saída de emergência continua existindo; deixou de
 ser o caminho acidental.
+
+## Emitir a nota no ERP automaticamente (opcional, nasce desligada)
+
+`lojas.maxxgestao_auto_emitir`. Ligada, depois de criar o Pedido de Venda o
+envio segue com dois passos:
+
+```
+POST /api/documento/{id}/transformar/v1   { "modelo": "65" }   ← 65 NFC-e, 55 NF-e
+POST /api/documento/{id}/emitir/v1        sem corpo
+```
+
+**O `transformar` NÃO consome número.** Medido: devolve `numero: 0` e
+`chave: ""`. O número e a chave nascem no `emitir` — só esse passo é
+irreversível. É por isso que o teste do `transformar` pôde ser feito num
+documento descartável sem furar a sequência fiscal.
+
+Três guardas, cada uma com teste:
+
+- **Nasce desligada.** É o único campo desta integração assim: ligada, o gatilho
+  da nota passa a ser o clique de "Já entreguei", sem ninguém revisar o
+  documento.
+- **Só liga com o ERP como emissor** (`PUT /erp/auto-emitir` recusa com 400 caso
+  contrário), e **desligar o emissor desliga a auto-emissão**. Deixá-la armada
+  num emissor que não é o ERP guardaria uma bomba: religar o emissor meses
+  depois faria as notas saírem sozinhas sem ninguém ter pedido naquele momento.
+- **Falha na emissão não desfaz o envio.** O documento já existe lá; propagar o
+  erro faria a próxima tentativa CRIAR outro documento para a mesma venda. O
+  motivo vai para o log e o lojista fatura na tela do ERP.
+
+A rejeição mais provável é conhecida: **NFC-e de entrega sem CPF do
+destinatário**. O documento fica transformado e não emitido — corrige o cadastro
+e emite lá, sem perder a venda.
+
+E quando a nota sai DO DELIVERY (saída de emergência) com o pedido já no ERP, o
+documento de lá é marcado `status: E` (Emitido) para ninguém faturar de novo.
+Isso NÃO informa a nota ao ERP: a numeração e o certificado são nossos, e a API
+pública não expõe campo para referenciar chave de nota externa.

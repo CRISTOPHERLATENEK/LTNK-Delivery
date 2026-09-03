@@ -1092,6 +1092,15 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
        porque não muda e uma leitura por pedido custaria uma requisição a mais
        contra o limite de 20 por minuto. */
     ['lojas', 'maxxgestao_id_usuario', 'maxxgestao_id_usuario INT NOT NULL DEFAULT 0'],
+    /*
+     * Emitir a NFC-e no ERP automaticamente ao enviar o pedido?
+     *
+     * NASCE DESLIGADO, e é o único campo desta integração que precisa nascer
+     * assim: emitir não tem volta — nota errada se desfaz com cancelamento ou
+     * carta de correção. Ligado, o gatilho da emissão passa a ser o clique de
+     * "Já entreguei", sem ninguém revisar o documento antes.
+     */
+    ['lojas', 'maxxgestao_auto_emitir', 'maxxgestao_auto_emitir TINYINT NOT NULL DEFAULT 0'],
     /* O cliente como Pessoa no Maxx Gestão. Guardado para ACHAR ANTES DE
        CRIAR: sem isso, cada pedido criaria uma duplicata do mesmo cliente no
        cadastro do lojista, e ele descobriria pelo cadastro inchado em vez de um
