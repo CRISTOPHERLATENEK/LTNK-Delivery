@@ -507,6 +507,7 @@ type PedidoDeliveryNfce = {
   id: number; cliente_nome: string; total_centavos: number; forma_pagamento: string; criado_em: string;
   nota_id: number | null; nota_status: string | null; nota_numero: number | null;
   nota_cstat: string | null; nota_motivo: string | null;
+  maxxgestao_documento_id: number | null; tef_lancado_em: string | null;
 };
 
 function NfceDeliveryLoja() {
@@ -544,11 +545,24 @@ function NfceDeliveryLoja() {
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
         Vendas de delivery entregues. Emita a NFC-e de cada uma (a entrega já emite automático; aqui você reemite se precisar).
+        As que já subiram para outro emissor aparecem marcadas — a nota delas sai de lá.
       </p>
       {pedidos.length === 0 ? (
         <Card><CardContent className="p-8 text-center text-sm text-muted-foreground">Nenhuma venda de delivery entregue ainda.</CardContent></Card>
       ) : pedidos.map(p => {
         const autorizada = p.nota_status === 'autorizada';
+        /*
+         * VENDA QUE ESTÁ EM OUTRO EMISSOR NÃO MOSTRA O BOTÃO.
+         *
+         * O servidor recusa de qualquer jeito (409), mas deixar o botão ali
+         * convidando a criar a segunda nota da mesma venda é o erro que os
+         * pedidos 107, 108 e 109 já cometeram. Quem manda é o documento
+         * existir lá, não a configuração: balcão nunca sobe, e continua
+         * emitindo aqui.
+         */
+        const laFora = p.maxxgestao_documento_id
+          ? `Maxx Gestão nº ${p.maxxgestao_documento_id}`
+          : p.tef_lancado_em ? 'Na maquininha' : '';
         return (
           <Card key={p.id}>
             <CardContent className="p-3 flex items-center gap-3">
@@ -568,16 +582,22 @@ function NfceDeliveryLoja() {
                 )}
               </div>
               <span className="text-sm font-bold tabular-nums shrink-0">{brl(p.total_centavos)}</span>
-              <Button
-                size="sm"
-                variant={autorizada ? 'outline' : 'default'}
-                onClick={() => emitir(p.id)}
-                disabled={emitindo === p.id || autorizada}
-                className="shrink-0"
-              >
-                <FileText className="size-3.5" />
-                {autorizada ? 'Emitida' : emitindo === p.id ? 'Emitindo…' : 'Emitir NFC-e'}
-              </Button>
+              {laFora && !autorizada ? (
+                <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                  {laFora}
+                </span>
+              ) : (
+                <Button
+                  size="sm"
+                  variant={autorizada ? 'outline' : 'default'}
+                  onClick={() => emitir(p.id)}
+                  disabled={emitindo === p.id || autorizada}
+                  className="shrink-0"
+                >
+                  <FileText className="size-3.5" />
+                  {autorizada ? 'Emitida' : emitindo === p.id ? 'Emitindo…' : 'Emitir NFC-e'}
+                </Button>
+              )}
             </CardContent>
           </Card>
         );
@@ -1066,19 +1086,20 @@ function CardHistoricoPedido({ pedido }: { pedido: PedidoComItens }) {
   };
 
   /**
-   * EMITIR AQUI, quando alguém de fora é o emissor, PEDE CONFIRMAÇÃO.
+   * EMITIR AQUI NÃO TEM MAIS "EMITIR MESMO ASSIM".
    *
-   * O servidor recusa com 409 e explica quem emite; a tela então pergunta, e só
-   * repete com `forcar` se a pessoa confirmar. Antes o botão emitia direto: com
-   * a loja em "o Maxx Gestão emite", os pedidos 107, 108 e 109 ganharam nota
-   * daqui enquanto o mesmo pedido estava lá esperando faturamento. Duas notas
-   * para uma venda, e desfazer custa cancelamento.
+   * O servidor recusa (409) a venda que já é documento no Maxx Gestão ou já foi
+   * lançada na maquininha, e a recusa é FINAL: não existe confirmar por cima.
+   * A pergunta que existia aqui era a pior forma de decidir isso — segunda nota
+   * da mesma venda desfaz-se com cancelamento, e quem clica está no meio do
+   * atendimento. Se o envio ao emissor de fora falhar, não há documento lá e
+   * este botão emite normalmente; é essa a saída de emergência.
    */
-  async function emitirNfce(forcar = false) {
+  async function emitirNfce() {
     setEmitindo(true);
     try {
       const r = await api<{ autorizada: boolean; protocolo: string; motivo: string; numero: number }>(
-        'POST', `/api/lojista/nfce/emitir/${pedido.id}`, forcar ? { forcar: true } : {}
+        'POST', `/api/lojista/nfce/emitir/${pedido.id}`, {}
       );
       if (r.autorizada) {
         setNotaFeita(true);
@@ -1088,16 +1109,11 @@ function CardHistoricoPedido({ pedido }: { pedido: PedidoComItens }) {
       }
     } catch (e) {
       /*
-       * 409 aqui não é erro: é "tem certeza?". Mostrar como falha faria a
-       * pessoa concluir que o botão está quebrado e clicar de novo.
+       * 409 aqui não é falha do botão: é "essa nota sai em outro lugar". Como
+       * erro vermelho a pessoa conclui que quebrou e clica de novo.
        */
       if (e instanceof ApiError && e.status === 409) {
-        setEmitindo(false);
-        if (window.confirm(`${e.message}
-
-Emitir mesmo assim aqui?`)) {
-          void emitirNfce(true);
-        }
+        mostrar({ tipo: 'info', titulo: 'A nota desta venda sai em outro emissor', descricao: e.message });
         return;
       }
       if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });

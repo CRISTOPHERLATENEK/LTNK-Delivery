@@ -155,39 +155,86 @@ describe('o encanamento no envio do pedido', () => {
   });
 });
 
-describe('a emissão manual respeita quem é o emissor', () => {
+describe('a emissão manual olha a VENDA, não a configuração', () => {
   /*
-   * A ROTA MANUAL FICOU LIVRE DEMAIS, e custou: com a loja em
-   * `nfce_emissor = erp`, o botão "Emitir NFC-e" do card seguia aparecendo como
-   * ação normal e emitia. Os pedidos 107, 108 e 109 ganharam nota daqui
-   * (números 20, 21 e 22) enquanto o mesmo pedido estava no ERP como Pedido de
-   * Venda, esperando faturamento. Duas notas para uma venda, e desfazer custa
+   * DUAS FORMAS DE ERRAR, e a rota já errou as duas.
+   *
+   * Primeiro ela ficou livre demais: com a loja em `nfce_emissor = erp`, o
+   * botão "Emitir NFC-e" emitia como ação normal. Os pedidos 107, 108 e 109
+   * ganharam nota daqui (números 20, 21 e 22) com o mesmo pedido aberto no ERP
+   * esperando faturamento. Duas notas para uma venda, e desfazer custa
    * cancelamento.
    *
-   * A saída de emergência continua — agora exige `forcar`.
+   * Depois ficou grosseira: recusar por `nfce_emissor !== 'sistema'` pegava o
+   * BALCÃO, que nunca sobe pro ERP — a venda de balcão ficaria sem nota em
+   * lugar nenhum. E ainda liberava por `forcar` justamente a venda que ESTAVA
+   * lá.
+   *
+   * O sinal certo é o documento existir de fato: `maxxgestao_documento_id` ou
+   * `tef_lancado_em`. É também a saída de emergência de graça — envio que
+   * falhou não deixa documento, e o botão volta a emitir.
    */
   const fonte = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-
-  it('recusa com 409 quando o emissor é outro', () => {
+  const rota = () => {
     const i = fonte.indexOf("router.post('/nfce/emitir/:pedidoId'");
     expect(i).toBeGreaterThan(0);
-    const trecho = fonte.slice(i, i + 1600);
-    expect(trecho).toContain("emissor !== 'sistema'");
-    expect(trecho).toContain('erroHttp(409');
+    return fonte.slice(i, i + 2200);
+  };
+
+  it('recusa a venda que já é documento no Maxx Gestão', () => {
+    const t = rota();
+    expect(t).toMatch(/emissor === 'erp' && pedido\.maxxgestao_documento_id/);
+    expect(t).toContain('erroHttp(409');
   });
 
-  it('e `forcar` mantém a saída de emergência', () => {
-    /* Sem ela, o dia em que o ERP estiver fora do ar não tem como emitir. */
-    const i = fonte.indexOf("router.post('/nfce/emitir/:pedidoId'");
-    expect(fonte.slice(i, i + 1600)).toContain('req.body?.forcar !== true');
+  it('recusa a venda já lançada na maquininha', () => {
+    const t = rota();
+    expect(t).toMatch(/emissor === 'maquininha' && pedido\.tef_lancado_em/);
   });
 
-  it('a mensagem diz QUEM emite, não só que não pode', () => {
-    /* "Não permitido" manda a pessoa procurar o motivo; "quem emite é o Maxx
+  it('NÃO recusa pela configuração sozinha (o balcão ficaria sem nota)', () => {
+    /*
+     * Balcão e mesa emitem por esta mesma rota e nunca sobem pro ERP. Barrar
+     * por `emissor !== 'sistema'` deixaria a venda de balcão sem nota nenhuma
+     * numa loja configurada para o ERP.
+     */
+    expect(rota()).not.toContain("emissor !== 'sistema'");
+  });
+
+  it('não existe "emitir mesmo assim": a recusa é final', () => {
+    /*
+     * O `forcar` era uma pergunta feita no meio do atendimento sobre uma ação
+     * que se desfaz com cancelamento. A saída de emergência agora é o próprio
+     * critério: sem documento lá, emite.
+     */
+    expect(fonte).not.toContain('forcar');
+  });
+
+  it('a mensagem diz QUEM tem a nota, e qual documento', () => {
+    /* "Não permitido" manda procurar o motivo; "é o documento nº 2731 no Maxx
        Gestão" já é a resposta. */
-    const i = fonte.indexOf("router.post('/nfce/emitir/:pedidoId'");
-    expect(fonte.slice(i, i + 1600)).toMatch(/Maxx Gest|maquininha/);
+    const t = rota();
+    expect(t).toMatch(/Maxx Gest/);
+    expect(t).toContain('${pedido.maxxgestao_documento_id}');
+  });
+
+  it('a lista de vendas de delivery entrega o sinal para a tela', () => {
+    /* Sem estes campos no SELECT, a tela não sabe esconder o botão e a pessoa
+       descobre a regra clicando. */
+    const i = fonte.indexOf("router.get('/nfce/pedidos-delivery'");
+    expect(i).toBeGreaterThan(0);
+    const t = fonte.slice(i, i + 1200);
+    expect(t).toContain('p.maxxgestao_documento_id');
+    expect(t).toContain('p.tef_lancado_em');
+  });
+
+  it('a tela esconde o botão dessa venda em vez de deixá-lo recusando', () => {
+    const painel = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'frontend', 'src', 'pages', 'lojista', 'painel.tsx'), 'utf8');
+    expect(painel).toContain('const laFora = p.maxxgestao_documento_id');
+    expect(painel).toContain('{laFora && !autorizada ? (');
+    expect(painel.replace(/\/\*[\s\S]*?\*\//g, '')).not.toContain('window.confirm');
   });
 });
 

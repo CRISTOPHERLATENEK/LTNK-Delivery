@@ -4965,31 +4965,39 @@ router.post('/nfce/emitir/:pedidoId', async (req, res, next) => {
     const loja = await minhaLoja(req) as any;
     if (!loja.nfce_ativo) throw erroHttp(400, 'Ative a emissão de NFC-e na aba Fiscal.');
 
-    /*
-     * QUEM NÃO É O EMISSOR DESIGNADO SÓ EMITE COM INTENÇÃO EXPLÍCITA.
-     *
-     * Esta rota é a saída de emergência para o dia em que o emissor de fora
-     * estiver fora do ar — e ela ficou LIVRE demais: com a loja em
-     * `nfce_emissor = erp`, o botão "Emitir NFC-e" do card seguia aparecendo
-     * como ação normal e emitia sem dizer nada. Aconteceu: os pedidos 107, 108
-     * e 109 ganharam nota daqui (números 20, 21 e 22) enquanto o mesmo pedido
-     * estava no ERP como Pedido de Venda, esperando ser faturado lá. Duas notas
-     * para uma venda é o pior desfecho possível — e desfazer custa
-     * cancelamento.
-     *
-     * `forcar: true` mantém a saída de emergência, agora com quem clica sabendo
-     * o que está fazendo.
-     */
-    const emissor = String(loja.nfce_emissor ?? 'sistema');
-    if (emissor !== 'sistema' && req.body?.forcar !== true) {
-      const quem = emissor === 'erp' ? 'o Maxx Gestão' : 'a maquininha';
-      throw erroHttp(409, `Quem emite a NFC-e desta loja é ${quem}. `
-        + 'Emitir aqui criaria uma segunda nota para a mesma venda — confirme se é isso que você quer.');
-    }
-
     const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND loja_id = ?')
       .get(req.params.pedidoId, loja.id) as any;
     if (!pedido) throw erroHttp(404, 'Venda não encontrada.');
+
+    /*
+     * NÃO EMITE AQUI A VENDA QUE JÁ ESTÁ NA MÃO DE OUTRO EMISSOR.
+     *
+     * A regra olha a VENDA, não a configuração. Antes olhava só o ajuste
+     * (`nfce_emissor !== 'sistema'` pedia confirmação) e isso errava dos dois
+     * lados: recusava o balcão, que nunca sobe pro ERP e ficaria sem nota
+     * nenhuma; e liberava com um `confirmar` a venda que ESTAVA lá esperando
+     * faturamento. Aconteceu: pedidos 107, 108 e 109 ganharam nota daqui
+     * (números 20, 21 e 22) com o mesmo pedido aberto no ERP. Duas notas para
+     * uma venda é o pior desfecho, e desfazer custa cancelamento.
+     *
+     * O sinal certo é o documento existir de fato lá:
+     *   - `maxxgestao_documento_id`: o Pedido de Venda foi criado no ERP.
+     *   - `tef_lancado_em`: a preconta foi lançada na maquininha.
+     *
+     * Isso é a saída de emergência que o `forcar` tentava ser, só que sem
+     * ninguém precisar decidir no susto: se o envio ao emissor de fora
+     * FALHOU, não há documento, e o botão emite normalmente. Se chegou lá, a
+     * nota sai de lá — e nenhum clique aqui cria a segunda.
+     */
+    const emissor = String(loja.nfce_emissor ?? 'sistema');
+    if (emissor === 'erp' && pedido.maxxgestao_documento_id) {
+      throw erroHttp(409, `Esta venda já é o documento nº ${pedido.maxxgestao_documento_id} no Maxx Gestão — `
+        + 'a nota dela sai de lá. Emitir aqui criaria uma segunda nota para a mesma venda.');
+    }
+    if (emissor === 'maquininha' && pedido.tef_lancado_em) {
+      throw erroHttp(409, 'Esta venda já foi lançada na maquininha — a nota dela sai de lá. '
+        + 'Emitir aqui criaria uma segunda nota para a mesma venda.');
+    }
 
     const jaAutorizada = await db.prepare(
       "SELECT id, chave FROM notas_fiscais WHERE pedido_id = ? AND status = 'autorizada'"
@@ -5061,7 +5069,7 @@ router.get('/nfce/pedidos-delivery', async (req, res, next) => {
     const loja = await minhaLoja(req);
     const pedidos = await db.prepare(
       `SELECT p.id, u.nome AS cliente_nome, p.total_centavos, p.forma_pagamento,
-              p.criado_em,
+              p.criado_em, p.maxxgestao_documento_id, p.tef_lancado_em,
               nf.id AS nota_id, nf.status AS nota_status, nf.numero AS nota_numero,
               nf.chave AS nota_chave, nf.c_stat AS nota_cstat, nf.motivo AS nota_motivo,
               nf.protocolo AS nota_protocolo
