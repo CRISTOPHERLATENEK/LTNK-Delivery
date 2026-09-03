@@ -40,6 +40,18 @@ interface Loja {
   dominio_personalizado: string | null;
   whatsapp_permite_oficial: 0 | 1;
   whatsapp_permite_nao_oficial: 0 | 1;
+  /**
+   * Quem emite a nota desta loja, DERIVADO no servidor.
+   *
+   * Vem pronto porque a regra soma quatro ajustes; recalcular no navegador
+   * garantiria que as duas versões discordassem no primeiro emissor novo.
+   */
+  situacao_nota?: {
+    estado: 'erp' | 'maquininha' | 'proprio' | 'nenhum' | 'sem_credencial';
+    rotulo: string;
+    detalhe: string;
+    alerta: boolean;
+  };
   /** Presentes só quando a lista vem agregada de todos os clientes (painel master). */
   tenant_id?: number;
   tenant_nome?: string;
@@ -134,6 +146,14 @@ export function TelaLojas() {
   const todas = consulta.data ?? [];
   const pendentes = todas.filter(l => l.status_aprovacao === 'pendente').length;
 
+  /*
+   * VENDENDO SEM NOTA: o aviso do topo conta só LOJA APROVADA.
+   *
+   * Loja pendente ou suspensa não está vendendo, e incluí-la faria o número
+   * viver inflado — que é como um aviso permanente deixa de ser lido.
+   */
+  const semNota = todas.filter(l => l.status_aprovacao === 'aprovada' && l.situacao_nota?.alerta);
+
   const lojas = todas.filter(l => {
     const matchFiltro = filtro === 'todas' || l.status_aprovacao === filtro;
     const matchBusca = !busca ||
@@ -146,6 +166,38 @@ export function TelaLojas() {
   return (
     <AdminLayout titulo="Lojas">
       <div className="space-y-5 max-w-4xl mx-auto">
+        {/*
+          O AVISO VEM ANTES DA LISTA, e nomeia as lojas.
+          Um contador ("3 lojas sem nota") obrigaria a percorrer a lista
+          procurando os selos amarelos — trabalho que o aviso existe pra poupar.
+        */}
+        {semNota.length > 0 && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/[0.07] p-3">
+            <p className="text-[13px] font-bold text-amber-700 dark:text-amber-500">
+              {semNota.length === 1
+                ? '1 loja aprovada sem emissão de nota resolvida'
+                : `${semNota.length} lojas aprovadas sem emissão de nota resolvida`}
+            </p>
+            <ul className="mt-1.5 space-y-1">
+              {semNota.slice(0, 8).map(l => (
+                <li key={l.id} className="text-[12px] leading-relaxed text-muted-foreground">
+                  <button
+                    type="button"
+                    onClick={() => setSelecionada(l.id)}
+                    className="font-semibold text-foreground underline decoration-dotted underline-offset-2"
+                  >
+                    {l.nome}
+                  </button>
+                  {' — '}{l.situacao_nota?.detalhe}
+                </li>
+              ))}
+            </ul>
+            {semNota.length > 8 && (
+              <p className="mt-1 text-[11.5px] text-muted-foreground">e mais {semNota.length - 8}.</p>
+            )}
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
@@ -260,6 +312,20 @@ export function TelaLojas() {
                         <div className="text-xs text-muted-foreground mt-0.5 font-mono flex items-center gap-1">
                           <Globe className="size-3" />
                           {l.dominio_personalizado || `/${l.slug}`}
+                        </div>
+                      )}
+                      {/*
+                        QUEM EMITE A NOTA, no card e não só dentro da gaveta.
+                        O estado que interessa — vendendo sem nota — é o que
+                        ninguém vai clicar para descobrir.
+                      */}
+                      {l.situacao_nota && (
+                        <div className="mt-1.5 flex items-center gap-1.5" title={l.situacao_nota.detalhe}>
+                          <FileText className="size-3 text-muted-foreground" />
+                          <span className={cn('rounded-full px-2 py-0.5 text-[10.5px] font-bold',
+                            SELO_NOTA[l.situacao_nota.estado])}>
+                            {l.situacao_nota.rotulo}
+                          </span>
                         </div>
                       )}
                       <div className="text-xs text-primary font-semibold mt-1 flex items-center gap-1">
@@ -568,6 +634,21 @@ function Kpi({ icone: Icone, cor, valor, rotulo }: { icone: typeof Receipt; cor:
 }
 
 /* ───────────────── Configuração fiscal da loja (super admin) ───────────────── */
+
+/*
+ * A COR DIZ SE TERMINA EM NOTA, não qual emissor é.
+ *
+ * `proprio` é âmbar como quem não tem emissor nenhum, de propósito: a emissão
+ * deste sistema está incompleta, então apontar para ela também acaba em venda
+ * sem nota. Verde é só para o que realmente emite.
+ */
+const SELO_NOTA: Record<string, string> = {
+  erp: 'bg-green-500/15 text-green-600',
+  maquininha: 'bg-green-500/15 text-green-600',
+  proprio: 'bg-amber-500/15 text-amber-600',
+  sem_credencial: 'bg-amber-500/15 text-amber-600',
+  nenhum: 'bg-red-500/15 text-red-600',
+};
 
 interface FiscalCfg {
   ativo: 0 | 1; cnpj: string; ie: string; razao_social: string; nome_fantasia: string;

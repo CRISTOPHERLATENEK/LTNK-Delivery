@@ -8,6 +8,7 @@ import { contaDoMes, type ClienteNaConta } from '../conta-revendedor';
 import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-mysql';
 import bcrypt from 'bcrypt';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
+import { quemEmite } from '../quem-emite';
 import { dataValida, inicioUtcDaData, fimUtcDaData } from '../periodo';
 import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, inicioDoDiaBR, dataBrasilia, emailValido, cpfValido, cpfDigitos, telefoneDigitos, reaisParaCentavos, filtroOrigemDelivery } from '../util';
 import { criptografar, descriptografar } from '../cripto';
@@ -314,6 +315,27 @@ router.use('/usuarios', comTenantDaLoja);
  * abaixo). Fora desse caso, lista só as lojas do tenant atual — comportamento
  * de sempre, preservado pra admins operacionais dentro de um tenant.
  */
+/**
+ * A SITUAÇÃO DA NOTA de cada loja, para a lista do admin.
+ *
+ * Deriva no servidor e manda só o resultado: os ajustes que decidem isso são
+ * quatro, e reproduzir a regra no frontend garantiria que as duas versões
+ * discordassem no primeiro emissor novo. As credenciais entram como BOOLEANO —
+ * a tela nunca precisa do valor, nem cifrado.
+ */
+function situacaoDaNota(l: Record<string, unknown>) {
+  return quemEmite({
+    nfce_emissor: l.nfce_emissor as string | null,
+    fiscal_liberado: l.fiscal_liberado as number | null,
+    nfce_ativo: l.nfce_ativo as number | null,
+    tem_token_erp: !!l.maxxgestao_token,
+    /* Mesmo critério do envio de verdade (`fluxoPedido`): ligada E com as duas
+       credenciais. Ligada sem credencial não lança preconta nenhuma. */
+    smarttef_configurado: !!l.smarttef_ativo && !!String(l.smarttef_usuario ?? '').trim()
+      && !!l.smarttef_senha && !!l.smarttef_gateway_token,
+  });
+}
+
 router.get('/lojas', async (req, res, next) => {
   try {
     if (ehMaster(bancoTenantAtual()) && req.usuario?.super_admin) {
@@ -324,7 +346,10 @@ router.get('/lojas', async (req, res, next) => {
             `SELECT l.*, u.nome AS dono_nome, u.email AS dono_email
                FROM lojas l JOIN usuarios u ON u.id = l.usuario_id`
           ).all()) as Record<string, unknown>[];
-          return linhas.map(l => ({ ...l, tenant_id: t.id, tenant_nome: t.nome, tenant_slug: t.slug }));
+          return linhas.map(l => ({
+            ...l, tenant_id: t.id, tenant_nome: t.nome, tenant_slug: t.slug,
+            situacao_nota: situacaoDaNota(l),
+          }));
         } catch { return []; }
       }));
       const lojas = listas.flat().sort((a: any, b: any) =>
@@ -332,11 +357,12 @@ router.get('/lojas', async (req, res, next) => {
       res.json({ lojas });
       return;
     }
-    const lojas = await db.prepare(
+    const linhas = await db.prepare(
       `SELECT l.*, u.nome AS dono_nome, u.email AS dono_email
          FROM lojas l JOIN usuarios u ON u.id = l.usuario_id
         ORDER BY CASE l.status_aprovacao WHEN 'pendente' THEN 0 ELSE 1 END, l.id DESC`
-    ).all();
+    ).all() as Record<string, unknown>[];
+    const lojas = linhas.map(l => ({ ...l, situacao_nota: situacaoDaNota(l) }));
     res.json({ lojas });
   } catch (e) { next(e); }
 });
