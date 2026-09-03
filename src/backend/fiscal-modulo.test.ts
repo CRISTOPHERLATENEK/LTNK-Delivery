@@ -133,3 +133,67 @@ describe('a plataforma libera o fiscal loja por loja', () => {
     expect(tela).toMatch(/ficam guardados/);
   });
 });
+
+describe('bloquear o fiscal NÃO encosta no Maxx Gestão', () => {
+  /*
+   * SÃO DUAS CONTRATAÇÕES DIFERENTES.
+   *
+   * `fiscal_liberado` é o módulo de NFC-e DAQUI: nosso certificado, nossa
+   * numeração. O Maxx Gestão é integração — a nota sai de lá, com o
+   * certificado e a numeração deles. Um cliente pode perfeitamente não ter o
+   * nosso fiscal e mandar os pedidos para o ERP dele; é o caso comum, não a
+   * exceção.
+   *
+   * Sem estes testes, a próxima pessoa que quiser "trancar tudo que é fiscal"
+   * arrasta o `/erp` junto e derruba a venda no ERP de quem nunca usou nossa
+   * emissão.
+   */
+  it('a guarda tranca só o prefixo /nfce', () => {
+    const linha = lojista.split('\n').find(l => l.includes("router.use('/nfce'"));
+    expect(linha).toBeDefined();
+    expect(linha).not.toMatch(/'\/erp'/);
+  });
+
+  it('as rotas /erp ficam FORA do alcance da guarda', () => {
+    /*
+     * No Express, `router.use('/nfce')` já não alcançaria `/erp` pelo caminho.
+     * O que este teste protege é o descuido de mudar o prefixo para algo mais
+     * largo (ou registrar `/erp` depois de uma guarda futura).
+     */
+    const guarda = lojista.indexOf("router.use('/nfce'");
+    const rotasErp = [...lojista.matchAll(/router\.(get|post|put|delete)\('\/erp/g)];
+    expect(rotasErp.length).toBeGreaterThan(4);
+    for (const r of rotasErp) expect(r.index!).toBeLessThan(guarda);
+  });
+
+  it('o funil manda pro ERP ANTES de olhar o módulo fiscal', () => {
+    /*
+     * `fiscal_liberado` é checado dentro de `emitirNfcePedido`, e o ramo do ERP
+     * retorna antes de chegar lá. Se um dia a checagem subir para o topo do
+     * funil, o pedido do cliente sem o nosso fiscal para de subir para o ERP
+     * dele — e ninguém veria, porque nada dá erro: o pedido só não chega.
+     */
+    const i = lojista.indexOf('export async function emitirNotaDoPedido');
+    const funil = lojista.slice(i, lojista.indexOf('\n}', i));
+    expect(funil).not.toContain('fiscal_liberado');
+    const erp = funil.indexOf('enviarPedidoAoErp');
+    const nosso = funil.indexOf('emitirNfcePedido');
+    expect(erp).toBeGreaterThan(0);
+    expect(erp).toBeLessThan(nosso);
+  });
+
+  it('o envio ao ERP não exige o nosso módulo nem a nossa emissão ligada', () => {
+    const erp = fs.readFileSync(path.join(__dirname, 'maxxgestao-emitir.ts'), 'utf8');
+    expect(semComentarios(erp)).not.toMatch(/fiscal_liberado|nfce_ativo/);
+  });
+
+  it('a aba Integrações continua no menu do lojista bloqueado', () => {
+    /* O card do Maxx Gestão mora nela. Some a aba, some a integração. */
+    const painel = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'frontend', 'src', 'pages', 'lojista', 'painel.tsx'), 'utf8');
+    const i = painel.indexOf('const grupos = temFiscal');
+    const trecho = painel.slice(i, i + 400);
+    expect(trecho).toContain("i.id !== 'fiscal'");
+    expect(trecho).not.toContain('integracoes');
+  });
+});
