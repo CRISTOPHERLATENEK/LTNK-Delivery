@@ -190,3 +190,42 @@ describe('a emissão manual respeita quem é o emissor', () => {
     expect(fonte.slice(i, i + 1600)).toMatch(/Maxx Gest|maquininha/);
   });
 });
+
+describe('nota emitida aqui fecha o documento no ERP', () => {
+  /*
+   * O caso real: loja com o Maxx Gestão como emissor, pedido já subiu como
+   * Pedido de Venda, e alguém emitiu a NFC-e no delivery pela saída de
+   * emergência. O documento ficava em RASCUNHO esperando faturamento — e
+   * faturar de novo seria a segunda nota da mesma venda.
+   *
+   * `status: 'E'` = Emitido. As letras não estão na documentação; foram lidas
+   * dos documentos da própria conta.
+   */
+  const emitir = fs.readFileSync(path.join(__dirname, 'maxxgestao-emitir.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const rotas = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('marca como E (Emitido), não outra letra', () => {
+    expect(emitir).toContain("status: 'E'");
+  });
+
+  it('só age quando existe documento no ERP', () => {
+    /* Pedido que nunca subiu não tem o que fechar, e chamar a API à toa gasta
+       uma das 20 requisições do minuto. */
+    expect(emitir).toContain('if (!pedido || documento <= 0) return false;');
+  });
+
+  it('a rota chama depois de AUTORIZADA, e sem await', () => {
+    /*
+     * Sem autorização não há o que fechar. E sem `await` porque a nota já está
+     * autorizada: a resposta de quem clicou não pode esperar o ERP, e uma falha
+     * ali é linha de log, não erro.
+     */
+    const i = rotas.indexOf('fecharDocumentoNoErp(pedido.id)');
+    expect(i).toBeGreaterThan(0);
+    expect(rotas.slice(i - 60, i)).toContain('if (r.autorizada)');
+    expect(rotas.slice(i, i + 80)).toContain('.catch(');
+    expect(rotas.slice(i - 20, i)).not.toContain('await');
+  });
+});

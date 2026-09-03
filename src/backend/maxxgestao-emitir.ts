@@ -286,6 +286,53 @@ export async function descobrirIdUsuario(
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
+/**
+ * FECHA O DOCUMENTO NO ERP quando a nota saiu DAQUI.
+ *
+ * O caso real: a loja está com o Maxx Gestão como emissor, o pedido subiu como
+ * Pedido de Venda, e alguém emitiu a NFC-e no delivery pela saída de emergência.
+ * O documento ficava lá em RASCUNHO, esperando faturamento — e faturar de novo
+ * seria a segunda nota da mesma venda.
+ *
+ * `status: 'E'` = Emitido. As letras não estão na documentação; foram lidas dos
+ * documentos da própria conta (R = Rascunho, E = Emitido), e Pedido de Venda
+ * deles aparece como E quando concluído.
+ *
+ * O QUE ISTO NÃO FAZ: o ERP não passa a conhecer a nota. A numeração e o
+ * certificado da NFC-e emitida aqui são NOSSOS, e a API pública não tem campo
+ * para referenciar chave de nota externa (a aba "Chave/Referênciadas" da tela
+ * deles não está exposta). Do lado do ERP, o pedido fica concluído sem
+ * documento fiscal próprio — o que é decisão de contabilidade, não nossa.
+ *
+ * NUNCA LANÇA: a nota já está autorizada. Falhar aqui é inconveniente, não erro
+ * fiscal — e tratar como erro faria alguém tentar emitir de novo.
+ */
+export async function fecharDocumentoNoErp(pedidoId: number, opcoes: OpcoesMaxxGestao = {}): Promise<boolean> {
+  const pedido = await db.prepare(
+    'SELECT loja_id, maxxgestao_documento_id FROM pedidos WHERE id = ?'
+  ).get(pedidoId) as { loja_id: number; maxxgestao_documento_id: number } | undefined;
+  const documento = Number(pedido?.maxxgestao_documento_id ?? 0);
+  if (!pedido || documento <= 0) return false;
+
+  const loja = await db.prepare('SELECT maxxgestao_token FROM lojas WHERE id = ?')
+    .get(pedido.loja_id) as { maxxgestao_token: string | null } | undefined;
+  let token = '';
+  try { token = loja?.maxxgestao_token ? descriptografar(loja.maxxgestao_token) : ''; } catch { token = ''; }
+  if (!token) return false;
+
+  try {
+    await chamarMaxxGestao(token, `/api/documento/${documento}/status/v1`, opcoes, {
+      method: 'POST',
+      body: JSON.stringify({ status: 'E' }),
+    });
+    console.log(`[erp] pedido ${pedidoId}: documento ${documento} marcado como Emitido — a nota saiu do delivery`);
+    return true;
+  } catch (e) {
+    console.log(`[erp] pedido ${pedidoId}: nota emitida aqui, mas não consegui fechar o documento ${documento} no ERP: ${(e as Error).message}`);
+    return false;
+  }
+}
+
 export interface ResultadoEmissao {
   /** O documento foi criado no ERP? A NOTA é emitida lá, por gente. */
   emitiu: boolean;

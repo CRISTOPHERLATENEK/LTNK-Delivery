@@ -42,7 +42,7 @@ import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarC
 import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, peneirarPorCatalogo, type ItemDoCatalogo } from '../maxxgestao-importar';
 import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
 import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '../maxxgestao-preambulo';
-import { enviarPedidoAoErp } from '../maxxgestao-emitir';
+import { enviarPedidoAoErp, fecharDocumentoNoErp } from '../maxxgestao-emitir';
 import { credenciaisDoAmbiente as credenciaisIfood } from '../ifood-cliente';
 import { lerCardapioIfood } from '../ifood-catalogo';
 import { planejarImportacao, type ProdutoImportado } from '../ifood-importar';
@@ -4954,6 +4954,22 @@ router.post('/nfce/emitir/:pedidoId', async (req, res, next) => {
     const numero = await reservarNumero(loja.id);
     const venda = await vendaDoPedido(loja, pedido, numero);
     const r = await emitirVendaNfce(loja, venda, pedido.id);
+
+    /*
+     * NOTA SAIU DAQUI: FECHA O DOCUMENTO NO ERP.
+     *
+     * Só quando a NFC-e foi autorizada e o pedido já tem documento lá — o caso
+     * de quem usou a saída de emergência com o Maxx Gestão como emissor. Sem
+     * isto o documento fica em rascunho esperando faturamento, e faturar de
+     * novo seria a segunda nota da mesma venda.
+     *
+     * Sem `await`: a nota já está autorizada e a resposta não pode esperar o
+     * ERP. Falha aqui vira linha de log, não erro para quem clicou.
+     */
+    if (r.autorizada) {
+      fecharDocumentoNoErp(pedido.id).catch(() => { /* já registra no log */ });
+    }
+
     res.status(r.autorizada ? 201 : 422).json(r);
   } catch (e) { next(e); }
 });
