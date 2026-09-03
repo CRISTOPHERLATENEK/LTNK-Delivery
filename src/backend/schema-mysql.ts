@@ -1124,6 +1124,22 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * descobrir exigia um deploy por tentativa.
      */
     ['lojas', 'maxxgestao_modelo', "maxxgestao_modelo VARCHAR(2) NOT NULL DEFAULT 'PA'"],
+    /*
+     * O CAIXA do Maxx Gestão em que o pedido entra.
+     *
+     * Medido em 03/09/2026: todo documento nascido no PDV deles tem `idCaixa`
+     * preenchido (79, 21) e todos os nossos estavam em 0 — é por isso que o
+     * pedido não aparecia no MeuChef. O `POST /api/documento/v1` aceita o
+     * campo, conferido criando o documento 2749 e lendo de volta.
+     *
+     * ZERO = não manda o campo, que é o comportamento de antes. Não é
+     * "desligado por segurança": é que caixa errado é pior que caixa nenhum —
+     * o pedido entraria no fechamento de outro operador.
+     *
+     * A API pública NÃO expõe os caixas (`/api/caixa/v1` é 404), então o número
+     * vem do lojista, lido na tela do ERP.
+     */
+    ['lojas', 'maxxgestao_id_caixa', 'maxxgestao_id_caixa INT NOT NULL DEFAULT 0'],
     /* O cliente como Pessoa no Maxx Gestão. Guardado para ACHAR ANTES DE
        CRIAR: sem isso, cada pedido criaria uma duplicata do mesmo cliente no
        cadastro do lojista, e ele descobriria pelo cadastro inchado em vez de um

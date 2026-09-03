@@ -13,6 +13,7 @@ const config: ConfigDocumento = {
   idUsuario: 5470,
   idPagamento: 3,
   modelo: 'PA',
+  idCaixa: 0,
   dataHora: '2026-09-02T13:00:00',
 };
 
@@ -452,6 +453,60 @@ describe('o modelo do documento', () => {
     expect(t).toContain('MODELOS_DOCUMENTO');
     expect(t).toMatch(/status\(400\)/);
     expect(t).toContain('UPDATE lojas SET maxxgestao_modelo = ?');
+  });
+
+  /*
+   * O CAIXA — a peça que faltava para o pedido aparecer no PDV.
+   *
+   * MEDIDO em 03/09/2026, não deduzido: os dez documentos que os pedidos
+   * criaram estavam com `idCaixa: 0`, e todo documento nascido no MeuChef tem
+   * caixa (79, 21). Criei o documento 2749 mandando `idCaixa: 79` e li de
+   * volta: a API aceita.
+   */
+  it('manda idCaixa E idCaixaAbertura quando há caixa', () => {
+    /* Os dois juntos porque foi assim que o teste pegou, e é assim que os
+       documentos do PDV aparecem. Só um deixaria o documento meio dentro da
+       operação do caixa. */
+    const doc = montarDocumento(pedido(), { ...config, idCaixa: 79 })
+      .corpo?.documento as Record<string, unknown>;
+    expect(doc.idCaixa).toBe(79);
+    expect(doc.idCaixaAbertura).toBe(79);
+  });
+
+  it('SEM caixa, omite o campo em vez de mandar zero', () => {
+    /*
+     * Zero não é um caixa. Mandar `idCaixa: 0` explicitamente é afirmar um
+     * caixa inexistente ao ERP; omitir é dizer que não há. O comportamento de
+     * antes desta configuração era exatamente a omissão, e quem não configurar
+     * continua igual.
+     */
+    const doc = montarDocumento(pedido(), { ...config, idCaixa: 0 })
+      .corpo?.documento as Record<string, unknown>;
+    expect(doc).not.toHaveProperty('idCaixa');
+    expect(doc).not.toHaveProperty('idCaixaAbertura');
+  });
+
+  it('caixa negativo não vira campo', () => {
+    /* Valor estranho na coluna não pode virar documento estranho — mesma
+       lógica do modelo. */
+    const doc = montarDocumento(pedido(), { ...config, idCaixa: -5 })
+      .corpo?.documento as Record<string, unknown>;
+    expect(doc).not.toHaveProperty('idCaixa');
+  });
+
+  it('a rota do caixa recusa número negativo', () => {
+    const rotas = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8');
+    const i = rotas.indexOf("router.put('/erp/caixa'");
+    expect(i).toBeGreaterThan(0);
+    const t = rotas.slice(i, i + 900);
+    expect(t).toMatch(/n < 0/);
+    expect(t).toMatch(/status\(400\)/);
+    expect(t).toContain('UPDATE lojas SET maxxgestao_id_caixa = ?');
+  });
+
+  it('o envio lê o caixa da loja', () => {
+    const emitir = fs.readFileSync(path.join(__dirname, 'maxxgestao-emitir.ts'), 'utf8');
+    expect(emitir).toContain('idCaixa: Math.max(0, Number(loja?.maxxgestao_id_caixa ?? 0))');
   });
 
   it('o envio usa a coluna da loja, não uma constante', () => {

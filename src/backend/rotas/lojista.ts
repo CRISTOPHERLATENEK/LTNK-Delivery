@@ -3895,10 +3895,11 @@ router.get('/erp', async (req, res, next) => {
     const loja = await minhaLoja(req);
     const token = await tokenMaxxGestaoDaLoja(loja.id);
     const linha = await db.prepare(
-      'SELECT nfce_emissor, maxxgestao_auto_emitir, maxxgestao_modelo FROM lojas WHERE id = ?'
+      `SELECT nfce_emissor, maxxgestao_auto_emitir, maxxgestao_modelo, maxxgestao_id_caixa
+         FROM lojas WHERE id = ?`
     ).get(loja.id) as {
       nfce_emissor: string | null; maxxgestao_auto_emitir: number | null;
-      maxxgestao_modelo: string | null;
+      maxxgestao_modelo: string | null; maxxgestao_id_caixa: number | null;
     } | undefined;
     res.json({
       token: mascarar(token),
@@ -3908,6 +3909,7 @@ router.get('/erp', async (req, res, next) => {
       emitindo: String(linha?.nfce_emissor ?? 'sistema') === 'erp',
       auto_emitir: Number(linha?.maxxgestao_auto_emitir ?? 0) === 1,
       modelo: modeloValido(linha?.maxxgestao_modelo),
+      caixa: Math.max(0, Number(linha?.maxxgestao_id_caixa ?? 0)),
     });
   } catch (e) { next(e); }
 });
@@ -4018,6 +4020,27 @@ router.post('/erp/testar', async (req, res, next) => {
  * muda de modelo por isso, e mexer nos que já estão lá seria alterar
  * documento que alguém pode já ter faturado.
  */
+/**
+ * O CAIXA do Maxx Gestão em que o pedido entra. Zero = não manda.
+ *
+ * O número vem do lojista porque a API pública NÃO expõe os caixas
+ * (`/api/caixa/v1` responde 404) — ele lê na tela do ERP. Não dá para adivinhar
+ * a partir dos documentos de lá sem risco: o caixa mais recente pode ser o de
+ * outro operador, e o pedido cairia no fechamento errado.
+ */
+router.put('/erp/caixa', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const n = Math.trunc(Number(req.body?.caixa ?? 0));
+    if (!Number.isFinite(n) || n < 0) {
+      return res.status(400).json({ erro: 'Informe o número do caixa, ou 0 para não usar caixa.' });
+    }
+    await db.prepare('UPDATE lojas SET maxxgestao_id_caixa = ? WHERE id = ?').run(n, loja.id);
+    console.log(`[erp] loja ${loja.id}: pedidos passam a entrar ${n > 0 ? `no caixa ${n}` : 'sem caixa'}`);
+    res.json({ caixa: n });
+  } catch (e) { next(e); }
+});
+
 router.put('/erp/modelo', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);

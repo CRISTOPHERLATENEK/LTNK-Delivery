@@ -33,6 +33,13 @@ export interface EstadoErp {
    * lojista, testando.
    */
   modelo: 'PA' | 'PV';
+  /**
+   * O caixa do ERP em que o pedido entra. 0 = nenhum.
+   *
+   * Medido: todo documento do PDV deles tem caixa, e os nossos vinham com 0 —
+   * é por isso que o pedido não aparecia no MeuChef.
+   */
+  caixa: number;
 }
 
 interface EmpresaErp {
@@ -298,6 +305,37 @@ Ligar assim mesmo?`,
     } finally { setTrocandoModelo(false); }
   }
 
+  /*
+   * O CAIXA é digitado, não escolhido numa lista: a API pública não expõe os
+   * caixas (`/api/caixa/v1` é 404), então o número vem da tela do ERP.
+   *
+   * Guarda rascunho local enquanto a pessoa digita e só grava no "Salvar" —
+   * gravar a cada tecla mandaria o pedido para os caixas 7, 79 e 790 no
+   * caminho até o 79.
+   */
+  const [caixaTexto, setCaixaTexto] = useState('');
+  const [salvandoCaixa, setSalvandoCaixa] = useState(false);
+  useEffect(() => {
+    if (estado) setCaixaTexto(estado.caixa > 0 ? String(estado.caixa) : '');
+  }, [estado?.caixa]);
+
+  async function salvarCaixa() {
+    if (!estado) return;
+    const n = Number(caixaTexto.replace(/\D/g, '') || 0);
+    if (n === estado.caixa) return;
+    setSalvandoCaixa(true);
+    try {
+      await api<{ caixa: number }>('PUT', '/api/lojista/erp/caixa', { caixa: n });
+      aoMudar({ ...estado, caixa: n });
+      mostrar({
+        tipo: 'sucesso',
+        titulo: n > 0 ? `Pedidos vão entrar no caixa ${n}` : 'Pedidos vão sem caixa',
+      });
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setSalvandoCaixa(false); }
+  }
+
   const configurado = !!estado?.configurado;
   const emitindo = !!estado?.emitindo;
 
@@ -486,6 +524,44 @@ Ligar assim mesmo?`,
             no pedido.
           </p>
         )}
+      </Linha>
+
+      {/* ─────────── o caixa do PDV ─────────── */}
+      <Linha
+        titulo="Caixa do Maxx Gestão"
+        descricao={
+          estado && estado.caixa > 0
+            ? `Os pedidos entram no caixa ${estado.caixa} — é assim que eles aparecem no PDV (MeuChef).`
+            : 'Sem caixa, o pedido chega no Gestão mas não entra na fila do PDV (MeuChef).'
+        }
+        acao={
+          <div className="flex shrink-0 items-center gap-2">
+            <input
+              inputMode="numeric"
+              value={caixaTexto}
+              onChange={e => setCaixaTexto(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onKeyDown={e => { if (e.key === 'Enter') void salvarCaixa(); }}
+              placeholder="nº"
+              disabled={!configurado || salvandoCaixa}
+              aria-label="Número do caixa no Maxx Gestão"
+              className="h-9 w-20 rounded-lg border border-input bg-background px-2 text-center text-sm font-mono tabular-nums disabled:opacity-50"
+            />
+            <button
+              type="button"
+              disabled={!configurado || salvandoCaixa || Number(caixaTexto || 0) === (estado?.caixa ?? 0)}
+              onClick={() => void salvarCaixa()}
+              className="h-9 rounded-lg bg-primary px-3 text-[12.5px] font-bold text-primary-foreground disabled:opacity-50"
+            >
+              Salvar
+            </button>
+          </div>
+        }
+      >
+        <p className="mt-2 max-w-[54ch] text-[12.5px] leading-relaxed text-muted-foreground">
+          O número está na tela de caixa do Maxx Gestão. Deixe vazio para não usar
+          caixa. <b>Caixa errado é pior que nenhum</b>: o pedido entra no
+          fechamento de outro operador.
+        </p>
       </Linha>
 
       {/* ─────────── o modelo do documento ─────────── */}

@@ -435,10 +435,11 @@ export async function enviarPedidoAoErp(
 
   const loja = await db.prepare(
     `SELECT nfce_emissor, maxxgestao_token, maxxgestao_id_usuario, maxxgestao_auto_emitir,
-            maxxgestao_modelo
+            maxxgestao_modelo, maxxgestao_id_caixa
        FROM lojas WHERE id = ?`
   ).get(pedido.loja_id) as {
     nfce_emissor: string | null; maxxgestao_token: string | null; maxxgestao_modelo: string | null;
+    maxxgestao_id_caixa: number | null;
     maxxgestao_id_usuario: number | null; maxxgestao_auto_emitir: number | null;
   } | undefined;
 
@@ -557,6 +558,9 @@ export async function enviarPedidoAoErp(
        pedido cai na fila que o PDV MeuChef puxa. `modeloValido` protege o
        envio de um valor estranho no banco. */
     modelo: modeloValido(loja?.maxxgestao_modelo),
+    /* O caixa do ERP, quando o lojista informou. Sem ele o documento nasce
+       fora da operação do PDV e o MeuChef não o lista. */
+    idCaixa: Math.max(0, Number(loja?.maxxgestao_id_caixa ?? 0)),
     /* HORA DE BRASÍLIA. Os documentos do ERP vêm sem fuso, em hora local:
        mandar UTC joga o pedido três horas para frente e, à noite, para o dia
        seguinte. */

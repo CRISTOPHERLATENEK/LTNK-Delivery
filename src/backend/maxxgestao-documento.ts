@@ -97,6 +97,14 @@ export interface ConfigDocumento {
    */
   modelo: ModeloDocumento;
   /**
+   * O CAIXA do ERP, ou 0 para não mandar.
+   *
+   * É o que faz o documento pertencer à operação do PDV: medido, todo documento
+   * do MeuChef tem `idCaixa` e os nossos vinham com 0. Mandar 0 explicitamente
+   * seria pior que omitir — 0 não é um caixa.
+   */
+  idCaixa: number;
+  /**
    * Momento do documento, em HORÁRIO DE BRASÍLIA — não UTC.
    *
    * Os documentos do ERP vêm em hora local ("2026-09-02T11:12:22.521", sem
@@ -200,6 +208,17 @@ export function montarDocumento(
        * pedido cair na fila do PDV, se for lá que ele precisa aparecer.
        */
       modelo: config.modelo,
+      /*
+       * OS DOIS CAMPOS JUNTOS, e só quando há caixa.
+       *
+       * `idCaixaAbertura` acompanha o `idCaixa` porque foi assim que o teste
+       * pegou (documento 2749 voltou com os dois iguais), e é assim que os
+       * documentos do PDV aparecem. Mandar só um deixaria o documento meio
+       * dentro da operação do caixa.
+       */
+      ...(config.idCaixa > 0
+        ? { idCaixa: config.idCaixa, idCaixaAbertura: config.idCaixa }
+        : {}),
       dataHora: config.dataHora,
       /* A IDEMPOTÊNCIA. Gravamos o id do nosso pedido para poder perguntar "já
          mandei este?" antes de mandar de novo — sem isso, uma retentativa gera

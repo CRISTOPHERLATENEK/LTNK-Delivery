@@ -613,3 +613,34 @@ Os documentos 2742 e 2743 ficaram, portanto, `modelo: 65` (NFC-e) com
 E de passagem isso explica o `idExterno: '0'` do documento 2733: **o
 `transformar` apaga o `idExterno`**. Aquele documento foi transformado e depois
 emitido à mão na tela do ERP (`idUsuario: 6019`, Cris), com número 6 e série 21.
+
+### RESOLVIDO: o pedido entra no PDV pelo `idCaixa`
+
+Conferido criando o documento **2749** (Pedido de Venda, rascunho, descartável)
+com `idCaixa: 79` e lendo de volta:
+
+```
+{"doc":2749,"modelo":"PA","status":"R","idCaixa":79,"idCaixaAbertura":79}
+```
+
+**O `POST /api/documento/v1` aceita `idCaixa`**, mesmo sem constar na
+documentação. Os dois campos vão juntos (`idCaixa` e `idCaixaAbertura`), que foi
+como o teste pegou e é como os documentos do PDV aparecem.
+
+Virou `lojas.maxxgestao_id_caixa`, digitado pelo lojista no card do Maxx Gestão.
+Digitado, e não escolhido numa lista, porque **a API pública não expõe os
+caixas**: `/api/caixa/v1`, `/api/caixa-abertura/v1`, `/api/terminal/v1` e
+`/api/pdv/v1` respondem 404. `/api/usuario/v1` existe mas devolve e-mail e
+`codigoExterno`, nunca o `idUsuario` que o documento exige.
+
+**Zero omite o campo**, não manda zero: zero não é um caixa, e afirmar um caixa
+inexistente é diferente de dizer que não há. Quem não configurar continua com o
+comportamento de antes.
+
+Deduzir o caixa lendo o documento mais recente do ERP seria pior que perguntar:
+o mais recente pode ser o de outro operador, e o pedido cairia no fechamento
+errado.
+
+**A pergunta que fica em aberto** e que é operacional, não de código: um caixa é
+aberto por uma pessoa, num turno, e fecha. Se o pedido chega de madrugada com o
+caixa fechado, para onde ele vai? Só o suporte deles responde.
