@@ -559,3 +559,57 @@ modelo:
 
 Nenhuma das duas está confirmada — não abri o MeuChef. Provar exige olhar a tela
 dele, ou perguntar ao suporte se a fila do PDV filtra por status e por caixa.
+
+### MEDIDO em 03/09/2026: os nossos dez documentos, lado a lado com os do PDV
+
+A lista vem **decrescente** (mais novo primeiro), então os nossos estão na
+página 1. Lidos os dez documentos que os pedidos criaram:
+
+| | nossos | nascidos no PDV |
+|---|---|---|
+| `idCaixa` / `idCaixaAbertura` | **0** em todos os dez | 79, 21 — sempre preenchido |
+| `idUsuario` | 5470 = "UNIMAXX SOLUÇÕES EM TECNOLOGIA LTDA" (a **empresa**) | 6850 suporte.jean, 6019 Cris (**gente**) |
+| `status` | `R` Rascunho em todos | `E` Emitido |
+| `serie` | vazia (ou 21 depois do transformar) | 79, 21 |
+
+Ou seja: **a hipótese do caixa se confirmou**. Nenhum documento nosso pertence a
+caixa nenhum, e todo documento da operação do PDV pertence a um. O `idUsuario`
+reforça: assinamos como a pessoa jurídica, não como operador.
+
+O `POST /api/documento/v1` que usamos não manda `idCaixa` — e a API pública não
+documenta o campo. Se a fila do PDV é "os documentos do meu caixa aberto",
+mandar o modelo `PV` não resolve nada.
+
+E a lista mostrou **muito mais modelos do que os quatro** que a criação aceita:
+`AX` Abertura de Caixa, `FC` Fechamento de Caixa, `SF` Suprimento Fundo de
+Caixa, `RS` Retirada de Caixa, `AS` Ajuste Saldo, `OS` Ordem de Serviço,
+`55` NF-e, `65` NFC-e, `PP` (Indefinido). A operação do ERP é toda organizada
+em torno de caixa.
+
+### A rejeição real da NFC-e não é o CPF: é o INTERMEDIADOR
+
+Eu previa que o bloqueio seria "NFC-e de entrega sem CPF do destinatário". Não
+foi. Com a auto-emissão ligada, os pedidos 111 e 112 foram transformados e a
+SEFAZ recusou:
+
+```
+Rejeicao: Obrigatoria as informações do intermediador da transacao
+para operacao por site de terceiros
+```
+
+É o grupo `infIntermed` da NFC-e (`CNPJ` do intermediador e `idCadIntTran`,
+o identificador da loja na plataforma), exigido quando `indIntermed = 1` —
+venda feita em **site ou plataforma de terceiros**, que é exatamente o que o
+delivery é aos olhos do fisco.
+
+O que isso deixa claro sobre o desenho: a auto-emissão se comportou como devia.
+Transformou, tentou emitir, a SEFAZ recusou, o motivo foi para o log, o
+documento ficou lá e **a venda não se perdeu**. O que falta é dado fiscal, e ele
+é do lado do ERP — quem emite é ele.
+
+Os documentos 2742 e 2743 ficaram, portanto, `modelo: 65` (NFC-e) com
+`status: R` e `numero: 0`: transformados e não emitidos.
+
+E de passagem isso explica o `idExterno: '0'` do documento 2733: **o
+`transformar` apaga o `idExterno`**. Aquele documento foi transformado e depois
+emitido à mão na tela do ERP (`idUsuario: 6019`, Cris), com número 6 e série 21.
