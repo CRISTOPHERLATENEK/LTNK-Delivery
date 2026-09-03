@@ -644,3 +644,30 @@ errado.
 **A pergunta que fica em aberto** e que é operacional, não de código: um caixa é
 aberto por uma pessoa, num turno, e fecha. Se o pedido chega de madrugada com o
 caixa fechado, para onde ele vai? Só o suporte deles responde.
+
+### Status do documento: R, E, C — e a API NÃO VALIDA
+
+| status | descrição |
+|---|---|
+| `R` | Rascunho (é como o documento nasce) |
+| `E` | Emitido |
+| `C` | Cancelado |
+
+**`POST /api/documento/{id}/status/v1` aceita qualquer coisa.** Mandei
+`status: "Z"` e a resposta foi `"Status do documento alterado com sucesso"`,
+com o documento ficando em `Z` de verdade.
+
+Duas consequências:
+
+1. O truque que funcionou com o `tipoEntrega` (mandar valor inválido e ler
+   "valores aceitos: D ou B") **não funciona aqui**. Não há como descobrir os
+   status por recusa — os três acima vieram de observação.
+2. `fecharDocumentoNoErp` manda `'E'`. Se algum dia essa letra for digitada
+   errada, o ERP grava e responde sucesso. Não há rede de proteção do outro
+   lado; a nossa é o teste.
+
+### Não existe exclusão de documento na API
+
+`DELETE /api/documento/{id}/v1`, `DELETE /api/documento/v1/{id}` e
+`POST /api/documento/{id}/cancelar/v1` são todos 404. O mais próximo de apagar
+é `POST .../status/v1` com `C` — o documento continua na lista, cancelado.
