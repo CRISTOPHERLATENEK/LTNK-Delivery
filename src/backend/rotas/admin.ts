@@ -8,7 +8,10 @@ import { contaDoMes, type ClienteNaConta } from '../conta-revendedor';
 import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-mysql';
 import bcrypt from 'bcrypt';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
-import { quemEmite } from '../quem-emite';
+import {
+  quemEmite, soOsCamposDaTela,
+  CAMPOS_LOJA_LISTA as CAMPOS_LOJA_LISTA_NOMES, CAMPOS_SO_PARA_DERIVAR,
+} from '../quem-emite';
 import { dataValida, inicioUtcDaData, fimUtcDaData } from '../periodo';
 import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, inicioDoDiaBR, dataBrasilia, emailValido, cpfValido, cpfDigitos, telefoneDigitos, reaisParaCentavos, filtroOrigemDelivery } from '../util';
 import { criptografar, descriptografar } from '../cripto';
@@ -315,6 +318,11 @@ router.use('/usuarios', comTenantDaLoja);
  * abaixo). Fora desse caso, lista só as lojas do tenant atual — comportamento
  * de sempre, preservado pra admins operacionais dentro de um tenant.
  */
+/* As listas e a peneira moram em `quem-emite`, junto da decisão que elas
+   alimentam — e lá são testadas por comportamento, não por texto. */
+const CAMPOS_LOJA_LISTA = CAMPOS_LOJA_LISTA_NOMES.map(c => `l.${c}`).join(', ');
+const CAMPOS_DERIVAR = CAMPOS_SO_PARA_DERIVAR.map(c => `l.${c}`).join(', ');
+
 /**
  * A SITUAÇÃO DA NOTA de cada loja, para a lista do admin.
  *
@@ -343,11 +351,12 @@ router.get('/lojas', async (req, res, next) => {
       const listas = await Promise.all(tenants.map(async (t) => {
         try {
           const linhas = await comTenant(t.db_nome, async () => db.prepare(
-            `SELECT l.*, u.nome AS dono_nome, u.email AS dono_email
+            `SELECT ${CAMPOS_LOJA_LISTA}, ${CAMPOS_DERIVAR},
+                    u.nome AS dono_nome, u.email AS dono_email
                FROM lojas l JOIN usuarios u ON u.id = l.usuario_id`
           ).all()) as Record<string, unknown>[];
           return linhas.map(l => ({
-            ...l, tenant_id: t.id, tenant_nome: t.nome, tenant_slug: t.slug,
+            ...soOsCamposDaTela(l), tenant_id: t.id, tenant_nome: t.nome, tenant_slug: t.slug,
             situacao_nota: situacaoDaNota(l),
           }));
         } catch { return []; }
@@ -358,11 +367,12 @@ router.get('/lojas', async (req, res, next) => {
       return;
     }
     const linhas = await db.prepare(
-      `SELECT l.*, u.nome AS dono_nome, u.email AS dono_email
+      `SELECT ${CAMPOS_LOJA_LISTA}, ${CAMPOS_DERIVAR},
+              u.nome AS dono_nome, u.email AS dono_email
          FROM lojas l JOIN usuarios u ON u.id = l.usuario_id
         ORDER BY CASE l.status_aprovacao WHEN 'pendente' THEN 0 ELSE 1 END, l.id DESC`
     ).all() as Record<string, unknown>[];
-    const lojas = linhas.map(l => ({ ...l, situacao_nota: situacaoDaNota(l) }));
+    const lojas = linhas.map(l => ({ ...soOsCamposDaTela(l), situacao_nota: situacaoDaNota(l) }));
     res.json({ lojas });
   } catch (e) { next(e); }
 });

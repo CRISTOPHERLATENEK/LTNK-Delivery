@@ -8,7 +8,9 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { quemEmite } from './quem-emite';
+import {
+  quemEmite, soOsCamposDaTela, CAMPOS_LOJA_LISTA, CAMPOS_SO_PARA_DERIVAR,
+} from './quem-emite';
 
 describe('quemEmite', () => {
   it('ERP com token: emite, e sem alerta', () => {
@@ -165,5 +167,75 @@ describe('a rota do admin manda a situacao pronta', () => {
     const t = tela.slice(i, i + 400);
     expect(t).toMatch(/proprio: 'bg-amber/);
     expect(t).not.toMatch(/proprio: 'bg-green/);
+  });
+});
+
+describe('a lista de lojas nao vaza credencial nenhuma', () => {
+  /*
+   * O `SELECT l.*` mandava a linha inteira de `lojas` ao navegador — e nela
+   * moram as credenciais de todas as lojas. Cifradas, mas a rota exige apenas
+   * perfil `admin`, não super admin, e nenhuma tela usa nada disso.
+   *
+   * O teste que importa é de COMPORTAMENTO: monta uma linha com todos os
+   * segredos e confere que nenhum sobrevive à peneira. Um teste de fonte diria
+   * apenas que a lista está escrita — não que ela funciona.
+   */
+  const SEGREDOS = [
+    'mercadopago_token', 'mercadopago_token_teste', 'mercadopago_token_producao',
+    'nfce_csc', 'nfce_cert_senha', 'whatsapp_oficial_token', 'smarttef_token',
+    'smarttef_senha', 'smarttef_gateway_token', 'maxxgestao_token',
+    'mercadopago_webhook_secret',
+  ];
+
+  const linhaCompleta = () => {
+    const l: Record<string, unknown> = {};
+    for (const c of CAMPOS_LOJA_LISTA) l[c] = 'valor';
+    for (const c of CAMPOS_SO_PARA_DERIVAR) l[c] = 'insumo';
+    for (const c of SEGREDOS) l[c] = 'SEGREDO-CIFRADO';
+    l.dono_nome = 'Dono'; l.dono_email = 'dono@exemplo.com';
+    return l;
+  };
+
+  it('nenhum segredo sobrevive a peneira', () => {
+    const saida = soOsCamposDaTela(linhaCompleta());
+    for (const c of SEGREDOS) expect(saida).not.toHaveProperty(c);
+    expect(JSON.stringify(saida)).not.toContain('SEGREDO-CIFRADO');
+  });
+
+  it('o que entrou so pra derivar tambem nao sai', () => {
+    /* `maxxgestao_token` e `smarttef_senha` PRECISAM entrar no SELECT — a
+       situação da nota depende de existirem — e não podem sair na resposta. */
+    const saida = soOsCamposDaTela(linhaCompleta());
+    for (const c of CAMPOS_SO_PARA_DERIVAR) expect(saida).not.toHaveProperty(c);
+  });
+
+  it('COLUNA NOVA nao passa por padrao', () => {
+    /*
+     * A peneira é lista de PERMITIDOS. Se fosse de proibidos, a próxima
+     * credencial que alguém adicionasse em `lojas` vazaria sem ninguém mexer
+     * numa linha deste arquivo — que é exatamente como o `SELECT l.*` errava.
+     */
+    const l = { ...linhaCompleta(), credencial_do_futuro: 'ops' };
+    expect(soOsCamposDaTela(l)).not.toHaveProperty('credencial_do_futuro');
+  });
+
+  it('os campos que a tela usa continuam vindo', () => {
+    /* O risco do lado oposto: peneirar demais e a lista aparecer sem nome, sem
+       status, sem domínio. */
+    const saida = soOsCamposDaTela(linhaCompleta());
+    for (const c of ['id', 'nome', 'status_aprovacao', 'aberta', 'logo_url', 'usuario_id',
+                     'comissao_percentual', 'criado_em', 'slug', 'dominio_personalizado',
+                     'whatsapp_permite_oficial', 'whatsapp_permite_nao_oficial',
+                     'dono_nome', 'dono_email']) {
+      expect(saida).toHaveProperty(c);
+    }
+  });
+
+  it('a rota nao usa SELECT l.* e peneira nos DOIS caminhos', () => {
+    const admin = fs.readFileSync(path.join(__dirname, 'rotas', 'admin.ts'), 'utf8');
+    const i = admin.indexOf("router.get('/lojas'");
+    const rota = admin.slice(i, i + 2200);
+    expect(rota).not.toMatch(/SELECT l\.\*/);
+    expect((rota.match(/soOsCamposDaTela\(l\)/g) ?? []).length).toBe(2);
   });
 });

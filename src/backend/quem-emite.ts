@@ -109,3 +109,49 @@ export function quemEmite(loja: LojaFiscal): Situacao {
     alerta: true,
   };
 }
+
+/*
+ * OS CAMPOS QUE A LISTA DE LOJAS DO ADMIN DEVOLVE — explícitos, nunca `l.*`.
+ *
+ * `SELECT l.*` mandava a linha inteira de `lojas` ao navegador, e nela moram as
+ * credenciais de todas as lojas: `mercadopago_token*`, `nfce_csc`,
+ * `nfce_cert_senha`, `whatsapp_oficial_token`, `smarttef_token`,
+ * `smarttef_senha`, `smarttef_gateway_token`, `maxxgestao_token`. Cifradas, mas
+ * a rota exige apenas perfil `admin` — não super admin — e nenhuma tela usa
+ * nada disso.
+ *
+ * Vive aqui, e não na rota, para poder ser testado de verdade: a garantia que
+ * interessa é "passe uma linha com todos os segredos e nenhum sai", e isso é
+ * comportamento, não texto de código.
+ */
+export const CAMPOS_LOJA_LISTA = [
+  'id', 'nome', 'descricao', 'categoria', 'endereco', 'status_aprovacao', 'aberta',
+  'logo_url', 'usuario_id', 'comissao_percentual', 'criado_em', 'slug',
+  'dominio_personalizado', 'whatsapp_permite_oficial', 'whatsapp_permite_nao_oficial',
+] as const;
+
+/**
+ * Colunas que o SELECT precisa e a RESPOSTA não pode ter: só alimentam
+ * `quemEmite`, que devolve rótulo e booleano.
+ */
+export const CAMPOS_SO_PARA_DERIVAR = [
+  'nfce_emissor', 'fiscal_liberado', 'nfce_ativo', 'maxxgestao_token',
+  'smarttef_ativo', 'smarttef_usuario', 'smarttef_senha', 'smarttef_gateway_token',
+] as const;
+
+/**
+ * A resposta da lista: SÓ o que a tela declara usar.
+ *
+ * Lista de PERMITIDOS, não de proibidos. Uma lista de proibidos deixaria toda
+ * coluna futura passar por padrão — e é assim que a próxima credencial que
+ * alguém adicionar em `lojas` vaza sem ninguém mexer nesta linha.
+ */
+export function campoPermitido(nome: string): boolean {
+  return (CAMPOS_LOJA_LISTA as readonly string[]).includes(nome)
+    || nome === 'dono_nome' || nome === 'dono_email';
+}
+
+/** Peneira uma linha da lista de lojas, deixando só o que a tela usa. */
+export function soOsCamposDaTela(l: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(l).filter(([k]) => campoPermitido(k)));
+}
