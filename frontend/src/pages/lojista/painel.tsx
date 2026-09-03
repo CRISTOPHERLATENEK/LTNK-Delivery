@@ -346,7 +346,30 @@ function ConfiguracoesLoja() {
    * deixar a tela sem conteúdo nenhum.
    */
   const pedida = new URLSearchParams(useLocation().search).get('secao');
-  const inicial = GRUPOS_CONFIG.some(g => g.itens.some(i => i.id === pedida))
+
+  /*
+   * A ABA FISCAL SÓ EXISTE PARA QUEM TEM O MÓDULO.
+   *
+   * `fiscal_liberado` é decisão da plataforma, no painel admin. Esconder aqui é
+   * cortesia — o bloqueio de verdade está na guarda de `/nfce/*` no servidor.
+   * Sem esconder, o cliente sem o módulo abriria uma aba pedindo certificado
+   * A1 e receberia 403 em cada botão.
+   *
+   * Enquanto a config não chegou, a aba fica FORA: aparecer e desaparecer
+   * mexeria a lista debaixo do cursor de quem já clicou.
+   */
+  const lojaQ = useQuery({
+    queryKey: ['minha-loja-cfg'],
+    queryFn: () => api<{ loja: Record<string, unknown> }>('GET', '/api/lojista/loja'),
+    staleTime: 60_000,
+  });
+  const temFiscal = Number(lojaQ.data?.loja?.fiscal_liberado ?? 0) === 1;
+  const grupos = temFiscal
+    ? GRUPOS_CONFIG
+    : GRUPOS_CONFIG.map(g => ({ ...g, itens: g.itens.filter(i => i.id !== 'fiscal') }))
+        .filter(g => g.itens.length > 0);
+
+  const inicial = grupos.some(g => g.itens.some(i => i.id === pedida))
     ? (pedida as AbaConfig)
     : 'loja';
   const [aba, setAba] = useState<AbaConfig>(inicial);
@@ -358,7 +381,7 @@ function ConfiguracoesLoja() {
       {aba === 'entrega' && <ZonasEntrega />}
       {aba === 'entregadores' && <EntregadoresLoja />}
       {aba === 'pagamentos' && <PagamentosLoja />}
-      {aba === 'fiscal' && <FiscalLoja />}
+      {aba === 'fiscal' && temFiscal && <FiscalLoja />}
       {aba === 'integracoes' && <IntegracoesLoja />}
       {aba === 'impressao' && <ImpressaoLoja />}
       {aba === 'visual' && <VisualLoja />}
@@ -380,7 +403,7 @@ function ConfiguracoesLoja() {
           onChange={e => setAba(e.target.value as AbaConfig)}
           className="h-11 w-full rounded-xl border border-input bg-background px-3 text-sm font-semibold"
         >
-          {GRUPOS_CONFIG.map(g => (
+          {grupos.map(g => (
             <optgroup key={g.titulo} label={g.titulo}>
               {g.itens.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
             </optgroup>
@@ -390,7 +413,7 @@ function ConfiguracoesLoja() {
 
       {/* Desktop: navegação vertical agrupada, tudo visível de uma vez. */}
       <nav className="hidden lg:block" aria-label="Configurações">
-        {GRUPOS_CONFIG.map(g => (
+        {grupos.map(g => (
           <div key={g.titulo} className="mb-5">
             <div className="mb-1.5 px-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
               {g.titulo}

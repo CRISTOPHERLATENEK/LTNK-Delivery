@@ -1169,6 +1169,9 @@ router.get('/lojas/:id/fiscal', exigirSuperAdmin, async (req, res, next) => {
         cfop_padrao: loja.nfce_cfop_padrao || '5102',
         csosn_padrao: loja.nfce_csosn_padrao || '102',
         tem_csc: !!loja.nfce_csc,
+        /* Módulo contratado (decisão da plataforma) — separado de `ativo`, que
+           é o lojista dizendo "emita nas minhas vendas". */
+        liberado: loja.fiscal_liberado ? 1 : 0,
       },
       certificado: {
         instalado: temCert,
@@ -1176,6 +1179,31 @@ router.get('/lojas/:id/fiscal', exigirSuperAdmin, async (req, res, next) => {
         validade: loja.nfce_cert_validade || null,
       },
     });
+  } catch (e) { next(e); }
+});
+
+/**
+ * LIBERA OU BLOQUEIA O MÓDULO FISCAL desta loja. Só a plataforma.
+ *
+ * Rota SEPARADA do `PUT .../fiscal` de propósito: aquele salva o formulário
+ * inteiro e exige os dados do emitente válidos. Bloquear um cliente não pode
+ * depender de o cadastro fiscal dele estar completo — é justamente o cliente
+ * com cadastro pela metade que a gente mais precisa poder desligar.
+ *
+ * Bloquear NÃO apaga nada: certificado, CSC e numeração ficam onde estão. Quem
+ * volta a contratar volta de onde parou, e as notas já emitidas continuam
+ * consultáveis pelo próprio XML — apagar seria destruir documento fiscal por
+ * causa de uma mudança de plano.
+ */
+router.put('/lojas/:id/fiscal/liberado', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    const loja = await db.prepare('SELECT id, nome FROM lojas WHERE id = ?')
+      .get(req.params.id) as { id: number; nome: string } | undefined;
+    if (!loja) throw erroHttp(404, 'Loja não encontrada.');
+    const liberado = req.body?.liberado === true ? 1 : 0;
+    await db.prepare('UPDATE lojas SET fiscal_liberado = ? WHERE id = ?').run(liberado, loja.id);
+    console.log(`[fiscal] loja ${loja.id} (${loja.nome}): módulo fiscal ${liberado ? 'LIBERADO' : 'BLOQUEADO'}`);
+    res.json({ liberado });
   } catch (e) { next(e); }
 });
 

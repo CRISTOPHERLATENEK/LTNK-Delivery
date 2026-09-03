@@ -575,6 +575,9 @@ interface FiscalCfg {
   logradouro: string; numero: string; bairro: string; cep: string;
   csc_id: string; ambiente: number; serie: number; proximo_numero: number; tem_csc: boolean;
   ncm_padrao: string; cfop_padrao: string; csosn_padrao: string;
+  /* Módulo contratado (decisão da plataforma). Diferente de `ativo`, que é o
+     lojista dizendo "emita nas minhas vendas". */
+  liberado: 0 | 1;
 }
 interface FiscalCert { instalado: boolean; titular: string | null; validade: string | null; }
 interface ProdFiscal { id: number; nome: string; categoria: string; ncm: string; cfop: string; csosn: string; origem: string; unidade_comercial: string; cest: string; }
@@ -699,6 +702,32 @@ function FiscalLojaAdmin({ loja }: { loja: Loja }) {
     });
   }
 
+  /*
+   * LIBERAR O MÓDULO GRAVA NA HORA, fora do formulário.
+   *
+   * O `PUT .../fiscal` salva o cadastro do emitente inteiro e exige os dados
+   * válidos — e o cliente que a gente mais precisa poder desligar é justamente
+   * o de cadastro pela metade. Por isso rota própria e um clique só.
+   */
+  const [mudandoLiberado, setMudandoLiberado] = useState(false);
+  async function alternarLiberado() {
+    if (!cfg) return;
+    const novo = cfg.liberado ? 0 : 1;
+    if (!novo && !window.confirm(
+      `Bloquear o módulo fiscal de ${loja.nome}?\n\n`
+      + `A aba Fiscal desaparece do painel dele e a emissão para na hora.\n`
+      + 'Certificado, CSC e numeração ficam guardados — liberando de novo, volta de onde parou.'
+    )) return;
+    setMudandoLiberado(true);
+    try {
+      await api('PUT', comTenant(`/api/admin/lojas/${lojaId}/fiscal/liberado`, loja), { liberado: !!novo });
+      campo('liberado', novo as 0 | 1);
+      mostrar({ tipo: 'sucesso', titulo: novo ? 'Módulo fiscal liberado' : 'Módulo fiscal bloqueado' });
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setMudandoLiberado(false); }
+  }
+
   const validadeFmt = cert?.validade ? new Date(cert.validade).toLocaleDateString('pt-BR') : null;
   const venceProximo = cert?.validade ? (new Date(cert.validade).getTime() - Date.now()) < 30 * 864e5 : false;
 
@@ -717,6 +746,40 @@ function FiscalLojaAdmin({ loja }: { loja: Loja }) {
 
       {aberto && (
         <div className="mt-3 space-y-3">
+          {/*
+            O INTERRUPTOR DO MÓDULO VEM ANTES DAS ABAS.
+            Ele decide se o resto desta tela vale alguma coisa para o cliente:
+            preencher emitente, CSC e produtos de uma loja sem o módulo é
+            trabalho que não vira nota nenhuma.
+          */}
+          {cfg && (
+            <div className={cn('rounded-xl border p-3', cfg.liberado ? 'border-primary/40 bg-primary/[0.04]' : 'border-amber-500/40 bg-amber-500/[0.06]')}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[13px] font-bold">Módulo fiscal deste cliente</p>
+                  <p className="mt-0.5 text-[11.5px] leading-relaxed text-muted-foreground">
+                    {cfg.liberado
+                      ? 'Liberado: o lojista vê a aba Fiscal e pode emitir NFC-e.'
+                      : 'Bloqueado: a aba Fiscal não aparece no painel dele e nenhuma nota sai. O cadastro fica guardado.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void alternarLiberado()}
+                  disabled={mudandoLiberado}
+                  role="switch"
+                  aria-checked={!!cfg.liberado}
+                  aria-label="Liberar o módulo fiscal deste cliente"
+                  className={cn('relative h-5 w-9 shrink-0 rounded-full transition-colors disabled:opacity-50',
+                    cfg.liberado ? 'bg-primary' : 'bg-muted-foreground/30')}
+                >
+                  <span className={cn('absolute top-0.5 size-4 rounded-full bg-white shadow transition-all',
+                    cfg.liberado ? 'left-[18px]' : 'left-0.5')} />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Abas */}
           <div className="flex gap-1 p-1 rounded-xl bg-muted/50 border border-border/60">
             {(['emitente', 'padroes', 'produtos'] as const).map(a => (

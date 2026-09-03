@@ -4476,6 +4476,30 @@ router.post('/ifood/publicar', async (req, res, next) => {
 // ----- NFC-e (dados fiscais + certificado A1) -----------------------------
 
 /** Retorna a configuração fiscal da loja + status do certificado (sem segredos). */
+/*
+ * O MÓDULO FISCAL É LIBERADO PELA PLATAFORMA, LOJA POR LOJA.
+ *
+ * Uma guarda no PREFIXO, não uma linha em cada rota. São 17 rotas `/nfce/*`
+ * hoje e a próxima nasce coberta — o jeito "um `if` por rota" é como o pedido
+ * 88 saiu sem cobrança: o ponto único que não era único.
+ *
+ * `fiscal_liberado` (plataforma: "esta loja contratou o fiscal") é diferente de
+ * `nfce_ativo` (lojista: "emita nas minhas vendas"). Sem o primeiro, esconder a
+ * aba não bastaria: a rota responde a quem chamar direto.
+ */
+router.use('/nfce', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req) as any;
+    if (Number(loja?.fiscal_liberado ?? 0) !== 1) {
+      /* 403 e não 404: a rota existe, o módulo é que não está contratado — e a
+         mensagem diz com quem resolver, senão o lojista procura no próprio
+         painel um botão que não é dele. */
+      throw erroHttp(403, 'O módulo fiscal (NFC-e) não está liberado para esta loja. Fale com o suporte.');
+    }
+    next();
+  } catch (e) { next(e); }
+});
+
 router.get('/nfce', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req) as any;
@@ -4918,7 +4942,10 @@ export async function emitirNfcePedido(pedidoId: number): Promise<{ autorizada: 
     const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ?').get(pedidoId) as any;
     if (!pedido) return null;
     const loja = await db.prepare('SELECT * FROM lojas WHERE id = ?').get(pedido.loja_id) as any;
-    if (!loja || !loja.nfce_ativo) return null;
+    /* Módulo bloqueado pela plataforma não emite, mesmo com `nfce_ativo = 1`
+       guardado de quando estava liberado. Sem isto, bloquear no admin
+       esconderia a aba e a nota continuaria saindo a cada entrega. */
+    if (!loja || !loja.fiscal_liberado || !loja.nfce_ativo) return null;
     /*
      * O SERVIDOR SÓ EMITE QUANDO ELE É O EMISSOR DESIGNADO.
      *

@@ -1101,6 +1101,19 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * "Já entreguei", sem ninguém revisar o documento antes.
      */
     ['lojas', 'maxxgestao_auto_emitir', 'maxxgestao_auto_emitir TINYINT NOT NULL DEFAULT 0'],
+    /*
+     * O MÓDULO FISCAL ESTÁ CONTRATADO POR ESTA LOJA?
+     *
+     * Não confundir com `nfce_ativo`, que é do LOJISTA e diz "emita nas minhas
+     * vendas". Este é da PLATAFORMA e diz se a loja tem o módulo — sem ele a
+     * aba Fiscal não existe e as rotas `/nfce/*` recusam.
+     *
+     * Nasce 0 e a migração abaixo liga para quem já usava. Nascer 1 daria a
+     * toda loja nova uma aba pedindo certificado A1 que ela não contratou; e
+     * ligar em massa quem já emite seria o outro erro, o de tirar do ar a
+     * emissão de quem tem nota autorizada em produção.
+     */
+    ['lojas', 'fiscal_liberado', 'fiscal_liberado TINYINT NOT NULL DEFAULT 0'],
     /* O cliente como Pessoa no Maxx Gestão. Guardado para ACHAR ANTES DE
        CRIAR: sem isso, cada pedido criaria uma duplicata do mesmo cliente no
        cadastro do lojista, e ele descobriria pelo cadastro inchado em vez de um
@@ -1418,6 +1431,30 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     }
   } catch (e) {
     console.warn('[schema] não deu pra atualizar o CHECK de forma_pagamento:', (e as Error).message);
+  }
+
+  /*
+   * BACKFILL do módulo fiscal: quem já usava continua usando.
+   *
+   * Roda uma vez, marcada em `schema_marcos`. Sem a marca, um lojista que
+   * DESLIGASSE o fiscal de propósito o veria voltar no próximo deploy.
+   */
+  try {
+    const [feito] = await pool.query(
+      "SELECT valor FROM configuracoes WHERE chave = 'mig_fiscal_liberado' LIMIT 1",
+    ) as any;
+    if (feito.length === 0) {
+      const [r] = await pool.query(
+        `UPDATE lojas SET fiscal_liberado = 1
+          WHERE nfce_ativo = 1 OR (nfce_cnpj IS NOT NULL AND nfce_cnpj <> '')`,
+      ) as any;
+      await pool.query(
+        "INSERT INTO configuracoes (chave, valor) VALUES ('mig_fiscal_liberado', '1')",
+      );
+      console.log(`[schema] módulo fiscal liberado para ${r?.affectedRows ?? 0} loja(s) que já usavam.`);
+    }
+  } catch (e) {
+    console.warn('[schema] backfill de fiscal_liberado não rodou:', (e as Error).message);
   }
 
   for (const [tabela, coluna, ddl] of [
