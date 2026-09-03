@@ -1065,11 +1065,20 @@ function CardHistoricoPedido({ pedido }: { pedido: PedidoComItens }) {
     pendente: 'warning', aceito: 'info', preparando: 'info', pronto: 'info', em_entrega: 'info',
   };
 
-  async function emitirNfce() {
+  /**
+   * EMITIR AQUI, quando alguém de fora é o emissor, PEDE CONFIRMAÇÃO.
+   *
+   * O servidor recusa com 409 e explica quem emite; a tela então pergunta, e só
+   * repete com `forcar` se a pessoa confirmar. Antes o botão emitia direto: com
+   * a loja em "o Maxx Gestão emite", os pedidos 107, 108 e 109 ganharam nota
+   * daqui enquanto o mesmo pedido estava lá esperando faturamento. Duas notas
+   * para uma venda, e desfazer custa cancelamento.
+   */
+  async function emitirNfce(forcar = false) {
     setEmitindo(true);
     try {
       const r = await api<{ autorizada: boolean; protocolo: string; motivo: string; numero: number }>(
-        'POST', `/api/lojista/nfce/emitir/${pedido.id}`
+        'POST', `/api/lojista/nfce/emitir/${pedido.id}`, forcar ? { forcar: true } : {}
       );
       if (r.autorizada) {
         setNotaFeita(true);
@@ -1078,6 +1087,19 @@ function CardHistoricoPedido({ pedido }: { pedido: PedidoComItens }) {
         mostrar({ tipo: 'erro', titulo: 'A SEFAZ recusou a NFC-e', descricao: r.motivo });
       }
     } catch (e) {
+      /*
+       * 409 aqui não é erro: é "tem certeza?". Mostrar como falha faria a
+       * pessoa concluir que o botão está quebrado e clicar de novo.
+       */
+      if (e instanceof ApiError && e.status === 409) {
+        setEmitindo(false);
+        if (window.confirm(`${e.message}
+
+Emitir mesmo assim aqui?`)) {
+          void emitirNfce(true);
+        }
+        return;
+      }
       if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
     } finally { setEmitindo(false); }
   }
@@ -1104,7 +1126,7 @@ function CardHistoricoPedido({ pedido }: { pedido: PedidoComItens }) {
             <div className="text-xs text-muted-foreground">{dataLocal(pedido.criado_em)}</div>
             {pedido.status === 'entregue' && (
               <div className="pt-2">
-                <Button size="sm" variant="outline" onClick={emitirNfce} disabled={emitindo || notaFeita}>
+                <Button size="sm" variant="outline" onClick={() => void emitirNfce()} disabled={emitindo || notaFeita}>
                   <FileText className="size-3.5" />
                   {notaFeita ? 'NFC-e emitida' : emitindo ? 'Emitindo…' : 'Emitir NFC-e'}
                 </Button>

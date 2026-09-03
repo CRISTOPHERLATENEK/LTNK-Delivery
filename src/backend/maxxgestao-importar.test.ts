@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import {
-  planejarImportacao, planoVazio, resumoDoPlano, PRECO_MARCADOR, peneirarPorCatalogo,
+  planejarImportacao, planoVazio, resumoDoPlano, PRECO_MARCADOR, peneirarPorCatalogo, podeAtualizar,
   type ItemDoCatalogo, type ProdutoNosso,
 } from './maxxgestao-importar';
 import { produtoDoErp, segundosEstimados, todasAsPaginas, categoriaDoProduto, LETRAS_VARREDURA } from './maxxgestao-catalogo';
@@ -20,7 +20,9 @@ const nosso = (id: number, nome: string, extra: Partial<ProdutoNosso> = {}): Pro
   id, nome, descricao: '', categoria: 'Lanches', variacaoErp: id, disponivel: true,
   /* Por padrão já precificado: o caso do marcador é escrito explicitamente nos
      testes que tratam dele, para não passar sem alguém ver. */
-  precoCentavos: 1500, sku: '', ...extra,
+  precoCentavos: 1500, sku: '',
+  /* Por padrão, espelho IGUAL ao valor: produto importado e não editado. */
+  espelho: { nome, descricao: '', categoria: 'Lanches' }, ...extra,
 });
 
 describe('produto novo entra pausado e sem preço de verdade', () => {
@@ -29,6 +31,9 @@ describe('produto novo entra pausado e sem preço de verdade', () => {
     expect(p.criar).toEqual([{
       variacao: 10, nome: 'X-Bacon', descricao: '', categoria: 'Lanches',
       codigoBarras: '', precoCentavos: PRECO_MARCADOR, sku: '',
+      /* Nasce com o espelho igual ao gravado: a primeira importação não pode
+         parecer edição do lojista. */
+      espelho: { nome: 'X-Bacon', descricao: '', categoria: 'Lanches' },
     }]);
   });
 
@@ -139,9 +144,12 @@ describe('só o que mudou vai no update', () => {
   it('nome, descrição e categoria diferentes viram update', () => {
     const p = planejarImportacao(
       [{ categoria: 'Bebidas', produto: { ...doErp(11, 'Açaí 500ml').produto, descricaoAdicional: 'com granola' } }],
-      [nosso(11, 'Açaí', { descricao: '', categoria: 'Lanches' })],
+      [nosso(11, 'Açaí', { descricao: '', categoria: 'Lanches', espelho: { nome: 'Açaí', descricao: '', categoria: 'Lanches' } })],
     );
-    expect(p.atualizar).toEqual([{ id: 11, nome: 'Açaí 500ml', descricao: 'com granola', categoria: 'Bebidas' }]);
+    expect(p.atualizar).toEqual([{
+      id: 11, nome: 'Açaí 500ml', descricao: 'com granola', categoria: 'Bebidas',
+      espelho: { nome: 'Açaí 500ml', descricao: 'com granola', categoria: 'Bebidas' },
+    }]);
   });
 
   it('igual não gera update, e é contado', () => {
@@ -161,7 +169,7 @@ describe('só o que mudou vai no update', () => {
     /* Catálogo sem categoria não é ordem para desorganizar o cardápio. */
     const p = planejarImportacao(
       [{ categoria: '', produto: doErp(11, 'Açaí').produto }],
-      [nosso(11, 'Açaí', { categoria: 'Bebidas' })],
+      [nosso(11, 'Açaí', { categoria: 'Bebidas', espelho: { nome: 'Açaí', descricao: '', categoria: 'Bebidas' } })],
     );
     expect(p.atualizar).toEqual([]);
   });
@@ -456,5 +464,81 @@ describe('o código interno (SKU)', () => {
       .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     expect(fonte).toContain('p.sku');
     expect(fonte).toContain("sets.push('sku = ?')");
+  });
+});
+
+describe('edição do lojista não é desfeita pela importação', () => {
+  /*
+   * A pergunta que trouxe isto: "a carga vai respeitar a alteração do produto
+   * editado?". Para o PREÇO já respeitava (marcador de R$ 0,01). Para o NOME
+   * não — e o efeito era invisível: quem encurtava "SALGADINHO BITES SNACKS
+   * CEBOLA 90GR" para "Bites Cebola" via o nome de sistema voltar na
+   * importação seguinte, sem aviso.
+   *
+   * A comparação é contra o ESPELHO (o que o ERP disse por último), não contra
+   * o valor do ERP agora — é o que separa "o ERP renomeou" de "o lojista
+   * renomeou".
+   */
+  it('nome editado aqui NÃO volta ao do ERP', () => {
+    const p = planejarImportacao(
+      [doErp(11, 'SALGADINHO BITES SNACKS CEBOLA 90GR')],
+      [nosso(11, 'Bites Cebola', {
+        espelho: { nome: 'SALGADINHO BITES SNACKS CEBOLA 90GR', descricao: '', categoria: 'Lanches' },
+      })],
+    );
+    expect(p.atualizar).toEqual([]);
+    expect(p.semMudanca).toBe(1);
+  });
+
+  it('mas o ERP renomeando um produto NÃO editado atualiza aqui', () => {
+    /* Proteger não pode virar congelar: produto que ninguém tocou segue o ERP. */
+    const p = planejarImportacao(
+      [doErp(11, 'AÇAÍ 500ML NOVO')],
+      [nosso(11, 'Açaí 500ml', { espelho: { nome: 'Açaí 500ml', descricao: '', categoria: 'Lanches' } })],
+    );
+    expect(p.atualizar[0].nome).toBe('AÇAÍ 500ML NOVO');
+  });
+
+  it('categoria escolhida aqui NÃO volta à do subgrupo', () => {
+    /* A categoria do delivery é curada — tem ordem, tem vitrine. O subgrupo do
+       ERP é organização de estoque. */
+    const p = planejarImportacao(
+      [{ categoria: 'SALGADINHOS', produto: doErp(11, 'Bites').produto }],
+      [nosso(11, 'Bites', { categoria: 'Aperitivos', espelho: { nome: 'Bites', descricao: '', categoria: 'SALGADINHOS' } })],
+    );
+    expect(p.atualizar.some(a => a.categoria !== undefined)).toBe(false);
+  });
+
+  it('o espelho é atualizado mesmo quando o valor NÃO foi aplicado', () => {
+    /*
+     * Ele registra o que o ERP diz HOJE. Deixá-lo velho faria a próxima
+     * importação recomparar contra um valor que já não existe lá.
+     */
+    const p = planejarImportacao(
+      [doErp(11, 'NOME NOVO DO ERP')],
+      [nosso(11, 'Meu nome', { espelho: { nome: 'NOME VELHO DO ERP', descricao: '', categoria: 'Lanches' } })],
+    );
+    expect(p.atualizar).toEqual([{
+      id: 11,
+      espelho: { nome: 'NOME NOVO DO ERP', descricao: '', categoria: 'Lanches' },
+    }]);
+  });
+
+  it('produto SEM espelho é tratado como não editado', () => {
+    /*
+     * É o comportamento antigo, e mudar isso de uma vez congelaria nome e
+     * categoria dos 1.111 produtos importados antes deste campo existir.
+     */
+    const p = planejarImportacao(
+      [doErp(11, 'NOME DO ERP')],
+      [nosso(11, 'Outro nome', { espelho: undefined })],
+    );
+    expect(p.atualizar[0].nome).toBe('NOME DO ERP');
+  });
+
+  it('podeAtualizar é a regra, em uma linha', () => {
+    expect(podeAtualizar('igual', 'igual')).toBe(true);
+    expect(podeAtualizar('editado', 'do erp')).toBe(false);
+    expect(podeAtualizar('qualquer', undefined)).toBe(true);
   });
 });

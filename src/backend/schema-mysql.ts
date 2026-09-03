@@ -1109,6 +1109,15 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
        `maxxgestao_variacao_id`, porque é a chave da mercadoria lá. */
     ['produtos', 'sku',                    "sku VARCHAR(60) NOT NULL DEFAULT ''"],
     /*
+     * O QUE O ERP DISSE POR ÚLTIMO sobre nome, descrição e categoria (JSON).
+     *
+     * É o que permite distinguir "o ERP mudou" de "o lojista mudou". Sem este
+     * espelho só dá para comparar ERP x nosso, e as duas situações ficam
+     * idênticas: a importação ou sobrescreve a edição do lojista, ou nunca
+     * atualiza nada. Com ele, cada campo escolhe o lado certo.
+     */
+    ['produtos', 'maxxgestao_espelho',     'maxxgestao_espelho TEXT'],
+    /*
      * O DOCUMENTO DO PEDIDO NO MAXX GESTÃO.
      *
      * `POST /documento` não é idempotente do lado deles: chamar duas vezes cria

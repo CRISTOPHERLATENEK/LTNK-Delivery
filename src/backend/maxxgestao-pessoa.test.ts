@@ -154,3 +154,39 @@ describe('o encanamento no envio do pedido', () => {
     expect(fonte).toContain('if (doCliente > 0) idPessoa = doCliente;');
   });
 });
+
+describe('a emissão manual respeita quem é o emissor', () => {
+  /*
+   * A ROTA MANUAL FICOU LIVRE DEMAIS, e custou: com a loja em
+   * `nfce_emissor = erp`, o botão "Emitir NFC-e" do card seguia aparecendo como
+   * ação normal e emitia. Os pedidos 107, 108 e 109 ganharam nota daqui
+   * (números 20, 21 e 22) enquanto o mesmo pedido estava no ERP como Pedido de
+   * Venda, esperando faturamento. Duas notas para uma venda, e desfazer custa
+   * cancelamento.
+   *
+   * A saída de emergência continua — agora exige `forcar`.
+   */
+  const fonte = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('recusa com 409 quando o emissor é outro', () => {
+    const i = fonte.indexOf("router.post('/nfce/emitir/:pedidoId'");
+    expect(i).toBeGreaterThan(0);
+    const trecho = fonte.slice(i, i + 1600);
+    expect(trecho).toContain("emissor !== 'sistema'");
+    expect(trecho).toContain('erroHttp(409');
+  });
+
+  it('e `forcar` mantém a saída de emergência', () => {
+    /* Sem ela, o dia em que o ERP estiver fora do ar não tem como emitir. */
+    const i = fonte.indexOf("router.post('/nfce/emitir/:pedidoId'");
+    expect(fonte.slice(i, i + 1600)).toContain('req.body?.forcar !== true');
+  });
+
+  it('a mensagem diz QUEM emite, não só que não pode', () => {
+    /* "Não permitido" manda a pessoa procurar o motivo; "quem emite é o Maxx
+       Gestão" já é a resposta. */
+    const i = fonte.indexOf("router.post('/nfce/emitir/:pedidoId'");
+    expect(fonte.slice(i, i + 1600)).toMatch(/Maxx Gest|maquininha/);
+  });
+});

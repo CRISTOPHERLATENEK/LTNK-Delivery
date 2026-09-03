@@ -401,3 +401,50 @@ Depois de emitir, a **chave de 44 dígitos** é lida do XML
 (`GET /api/documento/{id}/xml/v1`) e gravada em `pedidos.maxxgestao_chave`.
 Falha nessa leitura NÃO desfaz a emissão: a nota já está autorizada, e tratar
 isso como erro faria a próxima tentativa querer emitir de novo o que já saiu.
+
+## O que a importação respeita e o que ela sobrescreve
+
+Pergunta que apareceu na prática: *"editei o preço de um produto aqui; a carga
+respeita ou volta como está no catálogo?"*
+
+| campo | editado no delivery | o que a importação faz |
+|---|---|---|
+| **Preço** | R$ 12,90 (era R$ 0,01) | **respeita** — só escreve por cima do marcador |
+| **Nome** | encurtado para a vitrine | **respeita** |
+| **Descrição** | reescrita | **respeita** |
+| **Categoria** | movida de vitrine | **respeita** |
+| SKU | — | preenche quando o ERP tem |
+
+Para nome, descrição e categoria a proteção usa `produtos.maxxgestao_espelho`:
+um JSON com **o que o ERP disse por último**. A comparação é contra ele, não
+contra o valor do ERP agora — é o que separa "o ERP renomeou o produto" de "o
+lojista renomeou o produto". Sem o espelho, as duas situações são a mesma
+comparação e só existem dois comportamentos, os dois ruins: sobrescrever sempre
+(perde a edição de quem usa) ou nunca atualizar (o cardápio congela).
+
+Regra: o campo é atualizado **enquanto o nosso valor é igual ao espelho**.
+Editado uma vez, passa a ser do lojista. E o espelho é atualizado SEMPRE que o
+ERP muda, mesmo quando o valor não foi aplicado — ele registra o que o ERP diz
+hoje, não o que está na nossa tela.
+
+Produto **sem espelho** (nasceu aqui, ou foi importado antes do campo existir) é
+tratado como não editado: é o comportamento antigo, e mudar isso de uma vez
+congelaria nome e categoria dos 1.111 produtos já importados.
+
+**Reimportar lê o catálogo inteiro e grava só a diferença.** A API deles não tem
+filtro por data, então não existe "o que mudou desde ontem"; o custo de leitura
+é o mesmo, o de escrita é só o delta (`semMudanca` conta o resto).
+
+## A emissão manual respeita quem é o emissor
+
+`POST /nfce/emitir/:pedidoId` é a saída de emergência para o dia em que o
+emissor de fora estiver fora do ar. Ela ficou **livre demais**: com a loja em
+`nfce_emissor = erp`, o botão "Emitir NFC-e" do card seguia aparecendo como ação
+normal e emitia sem avisar. Os pedidos 107, 108 e 109 ganharam nota daqui
+(números 20, 21 e 22) enquanto o mesmo pedido estava no ERP como Pedido de Venda
+esperando faturamento — **duas notas para uma venda**, e desfazer custa
+cancelamento.
+
+Agora a rota recusa com **409** dizendo QUEM emite, e a tela pergunta antes de
+repetir com `forcar: true`. A saída de emergência continua existindo; deixou de
+ser o caminho acidental.

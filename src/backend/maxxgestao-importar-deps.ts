@@ -7,7 +7,7 @@
  */
 import db from './db-mysql';
 import { agoraUTC } from './util';
-import type { PlanoImportacao, ProdutoNosso } from './maxxgestao-importar';
+import type { PlanoImportacao, ProdutoNosso, EspelhoErp } from './maxxgestao-importar';
 
 /**
  * O cardápio do delivery, do jeito que a decisão precisa ver.
@@ -20,12 +20,12 @@ import type { PlanoImportacao, ProdutoNosso } from './maxxgestao-importar';
 export async function produtosDaLoja(lojaId: number): Promise<ProdutoNosso[]> {
   const linhas = await db.prepare(
     `SELECT id, nome, descricao, categoria, maxxgestao_variacao_id, disponivel,
-            preco_centavos, sku
+            preco_centavos, sku, maxxgestao_espelho
        FROM produtos WHERE loja_id = ? AND excluido = 0`
   ).all(lojaId) as Array<{
     id: number; nome: string; descricao: string | null; categoria: string | null;
     maxxgestao_variacao_id: number; disponivel: number; preco_centavos: number;
-    sku: string | null;
+    sku: string | null; maxxgestao_espelho: string | null;
   }>;
   return linhas.map(l => ({
     id: l.id,
@@ -36,7 +36,30 @@ export async function produtosDaLoja(lojaId: number): Promise<ProdutoNosso[]> {
     disponivel: !!l.disponivel,
     precoCentavos: Number(l.preco_centavos ?? 0),
     sku: l.sku ?? '',
+    /*
+     * Espelho ilegível vale COMO AUSENTE, não como vazio: ausente significa
+     * "trate como não editado" (o comportamento antigo), e vazio significaria
+     * "o ERP mandou string vazia", o que congelaria o campo de quem tem JSON
+     * estragado por qualquer motivo.
+     */
+    espelho: lerEspelho(l.maxxgestao_espelho),
   }));
+}
+
+/** O espelho gravado, ou `undefined` quando não há (ou está ilegível). */
+function lerEspelho(bruto: string | null): EspelhoErp | undefined {
+  if (!bruto) return undefined;
+  try {
+    const d = JSON.parse(bruto) as Partial<EspelhoErp>;
+    if (typeof d?.nome !== 'string') return undefined;
+    return {
+      nome: d.nome,
+      descricao: typeof d.descricao === 'string' ? d.descricao : '',
+      categoria: typeof d.categoria === 'string' ? d.categoria : '',
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export interface ResultadoGravacao {
@@ -65,10 +88,11 @@ export async function aplicarPlano(lojaId: number, plano: PlanoImportacao): Prom
     await db.prepare(
       `INSERT INTO produtos (loja_id, nome, descricao, categoria, preco_centavos,
                              codigo_barras, maxxgestao_variacao_id, sku,
+                             maxxgestao_espelho,
                              disponivel, disponivel_pdv, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`
     ).run(lojaId, p.nome, p.descricao, p.categoria, p.precoCentavos,
-          p.codigoBarras, p.variacao, p.sku, agora);
+          p.codigoBarras, p.variacao, p.sku, JSON.stringify(p.espelho), agora);
     criados++;
   }
 
@@ -86,6 +110,7 @@ export async function aplicarPlano(lojaId: number, plano: PlanoImportacao): Prom
     if (a.categoria !== undefined) { sets.push('categoria = ?'); vals.push(a.categoria); }
     if (a.precoCentavos !== undefined) { sets.push('preco_centavos = ?'); vals.push(a.precoCentavos); }
     if (a.sku !== undefined) { sets.push('sku = ?'); vals.push(a.sku); }
+    if (a.espelho !== undefined) { sets.push('maxxgestao_espelho = ?'); vals.push(JSON.stringify(a.espelho)); }
     if (!sets.length) continue;
     vals.push(a.id, lojaId);
     await db.prepare(`UPDATE produtos SET ${sets.join(', ')} WHERE id = ? AND loja_id = ?`).run(...vals);

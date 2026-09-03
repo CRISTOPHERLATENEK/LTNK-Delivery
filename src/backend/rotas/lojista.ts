@@ -4917,6 +4917,28 @@ router.post('/nfce/emitir/:pedidoId', async (req, res, next) => {
     const loja = await minhaLoja(req) as any;
     if (!loja.nfce_ativo) throw erroHttp(400, 'Ative a emissão de NFC-e na aba Fiscal.');
 
+    /*
+     * QUEM NÃO É O EMISSOR DESIGNADO SÓ EMITE COM INTENÇÃO EXPLÍCITA.
+     *
+     * Esta rota é a saída de emergência para o dia em que o emissor de fora
+     * estiver fora do ar — e ela ficou LIVRE demais: com a loja em
+     * `nfce_emissor = erp`, o botão "Emitir NFC-e" do card seguia aparecendo
+     * como ação normal e emitia sem dizer nada. Aconteceu: os pedidos 107, 108
+     * e 109 ganharam nota daqui (números 20, 21 e 22) enquanto o mesmo pedido
+     * estava no ERP como Pedido de Venda, esperando ser faturado lá. Duas notas
+     * para uma venda é o pior desfecho possível — e desfazer custa
+     * cancelamento.
+     *
+     * `forcar: true` mantém a saída de emergência, agora com quem clica sabendo
+     * o que está fazendo.
+     */
+    const emissor = String(loja.nfce_emissor ?? 'sistema');
+    if (emissor !== 'sistema' && req.body?.forcar !== true) {
+      const quem = emissor === 'erp' ? 'o Maxx Gestão' : 'a maquininha';
+      throw erroHttp(409, `Quem emite a NFC-e desta loja é ${quem}. `
+        + 'Emitir aqui criaria uma segunda nota para a mesma venda — confirme se é isso que você quer.');
+    }
+
     const pedido = await db.prepare('SELECT * FROM pedidos WHERE id = ? AND loja_id = ?')
       .get(req.params.pedidoId, loja.id) as any;
     if (!pedido) throw erroHttp(404, 'Venda não encontrada.');

@@ -15,7 +15,9 @@
  *    balcão.
  * 2. NUNCA APAGA. Produto que saiu do catálogo do ERP é PAUSADO, não excluído:
  *    excluir levaria embora o histórico de pedidos que aponta para ele.
- * 3. NUNCA PUBLICA SOZINHO. Produto novo entra pausado, com o marcador de
+ * 3. NUNCA DESFAZ EDIÇÃO DO LOJISTA. Nome, descrição e categoria só são
+ *    atualizados enquanto ninguém os tocou aqui — ver `EspelhoErp`.
+ * 4. NUNCA PUBLICA SOZINHO. Produto novo entra pausado, com o marcador de
  *    R$ 0,01 — visivelmente errado, que é o ponto. Um produto a um centavo
  *    pausado grita "me preencha"; qualquer valor plausível passaria batido e
  *    seria vendido a esse valor.
@@ -35,6 +37,40 @@ export interface ProdutoNosso {
   precoCentavos: number;
   /** O código interno que já está gravado aqui. */
   sku: string;
+  /**
+   * O QUE O ERP DISSE POR ÚLTIMO. Vazio em produto que nasceu aqui.
+   *
+   * Comparar o nosso valor com ESTE, e não com o do ERP, é o que separa "o ERP
+   * renomeou o produto" de "o lojista renomeou o produto". Sem o espelho as
+   * duas situações são a mesma comparação, e aí só existem dois
+   * comportamentos: sobrescrever sempre (perde a edição de quem usa) ou nunca
+   * atualizar (o cardápio congela desatualizado).
+   */
+  espelho?: EspelhoErp;
+}
+
+/** Nome, descrição e categoria como vieram do ERP na última importação. */
+export interface EspelhoErp {
+  nome: string;
+  descricao: string;
+  categoria: string;
+}
+
+/**
+ * O campo pode ser atualizado?
+ *
+ * Só quando o nosso valor é IGUAL ao que o ERP mandou por último — ou seja,
+ * ninguém mexeu nele aqui. Editado uma vez, o campo passa a ser do lojista para
+ * sempre; e é o certo: quem encurtou "SALGADINHO BITES SNACKS CEBOLA 90GR" para
+ * "Bites Cebola" fez isso porque o nome do ERP não serve na vitrine dele.
+ *
+ * Produto sem espelho (nasceu aqui, ou foi importado antes deste campo existir)
+ * é tratado como NÃO EDITADO: é o comportamento antigo, e mudar isso de uma vez
+ * congelaria nome e categoria de mil produtos que ninguém tocou.
+ */
+export function podeAtualizar(nosso: string, espelhado: string | undefined): boolean {
+  if (espelhado === undefined) return true;
+  return nosso === espelhado;
 }
 
 /**
@@ -64,12 +100,16 @@ export interface PlanoImportacao {
     /** Do ERP; `PRECO_MARCADOR` quando ele não tem preço para este produto. */
     precoCentavos: number;
     sku: string;
+    /** O que o ERP mandou — o produto nasce com o espelho igual ao valor. */
+    espelho: EspelhoErp;
   }>;
   atualizar: Array<{
     id: number; nome?: string; descricao?: string; categoria?: string;
     /** Só vem preenchido quando o nosso preço ainda é o marcador. */
     precoCentavos?: number;
     sku?: string;
+    /** O que o ERP diz hoje, para a próxima importação comparar. */
+    espelho?: EspelhoErp;
   }>;
   /** Estavam vinculados e saíram do catálogo do ERP: pausar, nunca apagar. */
   pausar: number[];
@@ -129,6 +169,13 @@ export function planejarImportacao(
            recusa, nem num valor inventado, que seria vendido. */
         precoCentavos: item.precoCentavos && item.precoCentavos > 0 ? item.precoCentavos : PRECO_MARCADOR,
         sku: produto.referencia,
+        /* Nasce com o espelho IGUAL ao que foi gravado: a primeira importação
+           não pode parecer edição do lojista. */
+        espelho: {
+          nome: produto.descricao,
+          descricao: produto.descricaoAdicional,
+          categoria: item.categoria,
+        },
       });
       continue;
     }
@@ -156,9 +203,42 @@ export function planejarImportacao(
       campos.precoCentavos = item.precoCentavos;
       mudou = true;
     }
-    if (produto.descricao !== nosso.nome) { campos.nome = produto.descricao; mudou = true; }
-    if (produto.descricaoAdicional !== nosso.descricao) { campos.descricao = produto.descricaoAdicional; mudou = true; }
-    if (item.categoria && item.categoria !== nosso.categoria) { campos.categoria = item.categoria; mudou = true; }
+    /*
+     * NOME, DESCRIÇÃO E CATEGORIA: só enquanto ninguém editou aqui.
+     *
+     * A comparação é contra o ESPELHO (o que o ERP disse por último), não
+     * contra o valor do ERP agora. Antes era contra o valor atual, e o efeito
+     * era invisível e caro: o lojista encurtava um nome para caber na vitrine e
+     * a importação seguinte devolvia o nome de sistema, sem avisar.
+     */
+    if (produto.descricao !== nosso.nome && podeAtualizar(nosso.nome, nosso.espelho?.nome)) {
+      campos.nome = produto.descricao; mudou = true;
+    }
+    if (produto.descricaoAdicional !== nosso.descricao && podeAtualizar(nosso.descricao, nosso.espelho?.descricao)) {
+      campos.descricao = produto.descricaoAdicional; mudou = true;
+    }
+    if (item.categoria && item.categoria !== nosso.categoria && podeAtualizar(nosso.categoria, nosso.espelho?.categoria)) {
+      campos.categoria = item.categoria; mudou = true;
+    }
+
+    /*
+     * O ESPELHO É ATUALIZADO SEMPRE que o ERP mudou, mesmo quando o valor não
+     * foi aplicado. Ele registra o que o ERP diz hoje — não o que está na nossa
+     * tela. Deixá-lo velho faria a próxima importação recomparar contra um
+     * valor que já não existe lá.
+     */
+    const espelhoNovo: EspelhoErp = {
+      nome: produto.descricao,
+      descricao: produto.descricaoAdicional,
+      categoria: item.categoria || (nosso.espelho?.categoria ?? ''),
+    };
+    if (!nosso.espelho
+        || nosso.espelho.nome !== espelhoNovo.nome
+        || nosso.espelho.descricao !== espelhoNovo.descricao
+        || nosso.espelho.categoria !== espelhoNovo.categoria) {
+      campos.espelho = espelhoNovo;
+      mudou = true;
+    }
 
     /*
      * SKU SÓ QUANDO O ERP TEM UM. Referência vazia lá não é ordem para apagar a
