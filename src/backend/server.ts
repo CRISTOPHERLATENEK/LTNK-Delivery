@@ -37,6 +37,7 @@ import { gravarFaturasDeTodos } from './faturas';
 import { deveEnviar, destinatariosDe } from './envio-contador';
 import { enviarPacoteAoContador } from './xml-contador';
 import { emailHabilitado } from './email';
+import { verificarBackup } from './vigia-backup';
 import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
@@ -1131,6 +1132,19 @@ const PORT = Number(process.env.PORT) || 3000;
   setInterval(() => {
     processarVencimentos(poolCentral())
       .catch(e => console.error('[ASSINATURA] falha ao processar vencimentos:', e));
+  }, 6 * 60 * 60_000);
+
+  /*
+   * VIGIA DO BACKUP: no boot e de 6 em 6 horas.
+   *
+   * No boot porque um servidor que acabou de subir é exatamente o momento em
+   * que alguém mexeu na máquina — e mexer na máquina é como o cron do backup
+   * some. De 6 em 6 horas porque o prazo tolerado é de 30h: mais frequente não
+   * descobre nada mais cedo, e menos frequente atrasa a descoberta em um dia.
+   */
+  verificarBackup().catch(e => console.error('[BACKUP] vigia falhou:', e));
+  setInterval(() => {
+    verificarBackup().catch(e => console.error('[BACKUP] vigia falhou:', e));
   }, 6 * 60 * 60_000);
 
   sincronizarHorarios().catch(e => console.error('[HORARIO AUTO] falha:', e));

@@ -199,4 +199,71 @@ else
 fi
 
 registrar "=== fim: $TOTAL banco(s) ok, $FALHAS falha(s) — total $(du -sh "$PASTA" | cut -f1) ==="
+
+# ---------------------------------------------------------------------------
+# AVISO NA HORA DA FALHA.
+#
+# O log so e lido por quem ja desconfia de alguma coisa. Sem aviso ativo, um
+# backup quebrado passa meses assim e a descoberta e no incidente.
+#
+# So avisa em FALHA. E-mail de "deu tudo certo" todo dia treina a pessoa a
+# arquivar sem ler — e ai o dia em que o assunto muda passa batido tambem. Quem
+# quiser confirmar que rodou tem o log e o vigia dentro do app.
+#
+# Usa o SMTP do .env, o mesmo que o sistema ja usa. Sem `mail` instalado: curl
+# fala SMTP nativamente e ja esta em toda maquina.
+# ---------------------------------------------------------------------------
+avisar_falha() {
+  local env=/opt/delivery/.env
+  [ -f "$env" ] || return 0
+  # `set -a` exporta o que o .env define; o subshell evita sujar este script.
+  local host user pass para
+  host=$(grep -E '^SMTP_HOST=' "$env" | cut -d= -f2- | tr -d '"'"'"'')
+  user=$(grep -E '^SMTP_USER=' "$env" | cut -d= -f2- | tr -d '"'"'"'')
+  pass=$(grep -E '^SMTP_PASS=' "$env" | cut -d= -f2- | tr -d '"'"'"'')
+  para=$(grep -E '^ALERTA_EMAIL=' "$env" | cut -d= -f2- | tr -d '"'"'"'')
+  [ -n "$para" ] || para="$user"
+  [ -n "$host" ] && [ -n "$user" ] && [ -n "$pass" ] && [ -n "$para" ] || {
+    registrar "AVISO nao enviei e-mail: SMTP incompleto no .env"
+    return 0
+  }
+  local corpo
+  corpo=$(printf 'From: %s
+To: %s
+Subject: [Delivery] Backup FALHOU (%s falha(s))
+
+%s
+
+Ultimas linhas do log:
+%s
+'     "$user" "$para" "$FALHAS" "O backup das $DATA terminou com $FALHAS falha(s)." "$(tail -15 "$LOG")")
+  if echo "$corpo" | curl -s --url "smtps://$host:465" --ssl-reqd        --mail-from "$user" --mail-rcpt "$para" --user "$user:$pass" -T - >>"$LOG" 2>&1; then
+    registrar "ok    aviso de falha enviado para $para"
+  else
+    registrar "AVISO nao consegui enviar o e-mail de falha"
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# HEARTBEAT EXTERNO — o unico que percebe a MAQUINA fora do ar.
+#
+# Tudo que roda aqui dentro para junto com a maquina, e maquina parada nao
+# manda e-mail dizendo que parou. Um servico de "dead man's switch" (o
+# healthchecks.io tem plano gratuito) espera o ping; se ele nao vier, quem
+# avisa e o servico, de fora.
+#
+# Pingado SO no sucesso, de proposito: pingar sempre transformaria o heartbeat
+# em "o script rodou", que nao e a pergunta. A pergunta e "houve backup bom".
+#
+# Sem HEARTBEAT_URL no .env, e pulado em silencio — e opcional.
+# ---------------------------------------------------------------------------
+if [ "$FALHAS" -eq 0 ]; then
+  URL=$(grep -E '^HEARTBEAT_URL=' /opt/delivery/.env 2>/dev/null | cut -d= -f2- | tr -d '"'"'"'')
+  if [ -n "${URL:-}" ]; then
+    curl -fsS -m 20 --retry 3 "$URL" >/dev/null 2>&1       && registrar "ok    heartbeat externo pingado"       || registrar "AVISO heartbeat externo nao respondeu"
+  fi
+else
+  avisar_falha
+fi
+
 [ "$FALHAS" -eq 0 ] || exit 1
