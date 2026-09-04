@@ -8,6 +8,10 @@ import {
   Mail, Lock, Eye, EyeOff, ScrollText, Wallet,
 } from 'lucide-react';
 import { AdminLayout } from './layout';
+import {
+  Cabecalho, Num, Status, Botao, Tabela, TabelaCabecalho, TabelaLinha,
+  CelulaNome, Vazio, type Tom,
+} from './ui';
 import { ContaDeOutroPerfil } from '@/components/conta-outro-perfil';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -62,138 +66,199 @@ function Dashboard() {
 
   const d = consulta.data;
 
+  /*
+   * ÚLTIMOS PEDIDOS vêm da mesma rota da tela de Pedidos, sem filtro.
+   *
+   * Consulta separada do dashboard de propósito: o dashboard é agregação e
+   * atualiza a cada 30s; esta lista é operação e cabe em 6 linhas. Juntar as
+   * duas obrigaria a rota de agregação a carregar pedido por pedido.
+   */
+  const ultimos = useQuery({
+    queryKey: ['admin-ultimos-pedidos'],
+    queryFn: () => api<{ pedidos: PedidoRecente[] }>('GET', '/api/admin/pedidos').then(r => r.pedidos.slice(0, 6)),
+    refetchInterval: 30_000,
+  });
+
+  /*
+   * "PRECISA DE VOCÊ": só pendência REAL, e o clique já leva com o filtro.
+   *
+   * Uma lista que aparece sempre — mesmo com zero — vira decoração e deixa de
+   * ser lida justamente no dia em que tem algo. E mandar a pessoa para a tela
+   * sem o filtro faz ela repetir na mão a busca que este bloco acabou de fazer.
+   */
+  const pendencias = [
+    d && d.lojas_pendentes > 0 && {
+      tom: 'atencao' as const,
+      texto: `${d.lojas_pendentes} ${d.lojas_pendentes === 1 ? 'loja aguardando aprovação' : 'lojas aguardando aprovação'}`,
+      rota: '/painel-admin/lojas?filtro=pendente',
+      acao: 'Revisar',
+    },
+    d && d.lojas_suspensas > 0 && {
+      tom: 'erro' as const,
+      texto: `${d.lojas_suspensas} ${d.lojas_suspensas === 1 ? 'loja suspensa' : 'lojas suspensas'}`,
+      rota: '/painel-admin/lojas?filtro=suspensa',
+      acao: 'Ver',
+    },
+  ].filter(Boolean) as { tom: 'atencao' | 'erro'; texto: string; rota: string; acao: string }[];
+
+  const KPIS = [
+    { rotulo: 'Pedidos hoje', valor: String(d?.pedidos_hoje ?? 0) },
+    { rotulo: 'Faturamento hoje', valor: brl(d?.faturamento_hoje_centavos ?? 0) },
+    { rotulo: 'Comissão gerada', valor: brl(d?.comissao_hoje_centavos ?? 0) },
+    { rotulo: 'Em andamento', valor: String(d?.pedidos_em_andamento ?? 0) },
+  ];
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      {/*
-        HEADER SIMPLES no lugar do hero gradiente.
-
-        O bloco escuro ocupava a primeira dobra inteira pra dizer "Olá" e repetir
-        o papel que já está na sidebar. Numa tela de operação o topo é o espaço
-        mais caro — quem abre o painel quer ver número, não saudação.
-      */}
-      <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h1 className="flex flex-wrap items-center gap-2 text-xl font-bold">
-          Olá, {u?.nome?.split(' ')[0] ?? 'Admin'}
-          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
-            {superAdmin ? 'Super Admin' : 'Operacional'}
+    <div className="mx-auto max-w-5xl">
+      <Cabecalho
+        titulo="Painel"
+        subtitulo={
+          consulta.isLoading ? 'Carregando…' : (
+            <>
+              {d?.lojas_ativas ?? 0} lojas ativas
+              {(d?.lojas_pendentes ?? 0) > 0 && ` · ${d?.lojas_pendentes} aguardando aprovação`}
+              {' · '}{d?.total_usuarios ?? 0} usuários
+            </>
+          )
+        }
+        acoes={
+          <span className="text-[12.5px]" style={{ color: 'var(--adm-rotulo)' }}>
+            {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
           </span>
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          {new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' })}
-        </p>
-      </div>
-
-      {/* Alerta lojas pendentes */}
-      {d && d.lojas_pendentes > 0 && (
-        <div className="flex items-center gap-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-5 py-4">
-          <AlertCircle className="size-5 text-amber-500 shrink-0" />
-          <div className="flex-1 text-sm font-semibold text-amber-700 dark:text-amber-400">
-            {d.lojas_pendentes} loja{d.lojas_pendentes > 1 ? 's' : ''} aguardando aprovação
-          </div>
-          <Button size="sm" asChild>
-            <Link to="/painel-admin/lojas">Revisar <ArrowRight className="size-3.5" /></Link>
-          </Button>
-        </div>
-      )}
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard
-          titulo="Pedidos hoje"
-          valor={consulta.isLoading ? '…' : String(d?.pedidos_hoje ?? 0)}
-          icone={<ShoppingBag className="size-5" />}
-          cor="bg-primary/10 text-primary"
-        />
-        <KpiCard
-          titulo="Faturamento hoje"
-          valor={consulta.isLoading ? '…' : brl(d?.faturamento_hoje_centavos ?? 0)}
-          icone={<TrendingUp className="size-5" />}
-          cor="bg-primary/10 text-primary"
-        />
-        <KpiCard
-          titulo="Comissão gerada"
-          valor={consulta.isLoading ? '…' : brl(d?.comissao_hoje_centavos ?? 0)}
-          icone={<Crown className="size-5" />}
-          cor="bg-primary/10 text-primary"
-        />
-        <KpiCard
-          titulo="Em andamento"
-          valor={consulta.isLoading ? '…' : String(d?.pedidos_em_andamento ?? 0)}
-          icone={<Clock className="size-5" />}
-          cor="bg-primary/10 text-primary"
-        />
-      </div>
-
-      {/* Gráfico de vendas + ranking */}
-      <div className="grid gap-3 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
-          <CardContent className="p-5">
-            <div className="flex items-baseline justify-between mb-4">
-              <h2 className="font-bold flex items-center gap-2">
-                <TrendingUp className="size-4 text-primary" /> Vendas — últimos 14 dias
-              </h2>
-              {d && (
-                <span className="text-xs text-muted-foreground">
-                  {brl(d.serie_vendas?.reduce((s, x) => s + x.total_centavos, 0) ?? 0)} no período
-                </span>
-              )}
-            </div>
-            {consulta.isLoading
-              ? <Skeleton className="h-40 rounded-xl" />
-              : <GraficoVendas serie={d?.serie_vendas ?? []} />}
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardContent className="p-5">
-            <h2 className="font-bold flex items-center gap-2 mb-4">
-              <Crown className="size-4 text-amber-500" /> Lojas que mais vendem
-            </h2>
-            {consulta.isLoading
-              ? <Skeleton className="h-40 rounded-xl" />
-              : <RankingLojas lojas={d?.top_lojas ?? []} />}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Status de lojas */}
-      <div className="grid grid-cols-3 gap-3">
-        <LojaStatus
-          titulo="Ativas"
-          valor={consulta.isLoading ? '…' : String(d?.lojas_ativas ?? 0)}
-          cor="text-emerald-600"
-          bg="bg-emerald-500/10"
-        />
-        <LojaStatus
-          titulo="Pendentes"
-          valor={consulta.isLoading ? '…' : String(d?.lojas_pendentes ?? 0)}
-          cor={d && d.lojas_pendentes > 0 ? 'text-amber-600' : 'text-muted-foreground'}
-          bg={d && d.lojas_pendentes > 0 ? 'bg-amber-500/10' : 'bg-muted/40'}
-        />
-        <LojaStatus
-          titulo="Suspensas"
-          valor={consulta.isLoading ? '…' : String(d?.lojas_suspensas ?? 0)}
-          cor={d && d.lojas_suspensas > 0 ? 'text-destructive' : 'text-muted-foreground'}
-          bg={d && d.lojas_suspensas > 0 ? 'bg-destructive/10' : 'bg-muted/40'}
-        />
-      </div>
+        }
+      />
 
       {/*
-        "ACESSO RÁPIDO" REMOVIDO: eram sete cards repetindo, um a um, itens que
-        já estão na sidebar — dois caminhos pro mesmo lugar, e o de baixo
-        exigindo rolar a página. O único atalho que se justificava era o de loja
-        pendente, e esse já existe acima como alerta âmbar, que só aparece
-        quando há pendência de verdade.
+        KPI EM FAIXA ÚNICA dividida por hairlines, não quatro cards.
+        Quatro cards com sombra criam quatro objetos onde existe uma leitura só;
+        a faixa põe os números lado a lado, que é como se comparam.
       */}
+      <div
+        className="grid grid-cols-2 sm:grid-cols-4"
+        style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}
+      >
+        {KPIS.map((k, i) => (
+          <div
+            key={k.rotulo}
+            className="px-4 py-3"
+            style={{
+              borderLeft: i === 0 || (i === 2 && true) ? undefined : '1px solid var(--adm-linha2)',
+              borderTop: i >= 2 ? '1px solid var(--adm-linha2)' : undefined,
+            }}
+          >
+            <div className="text-[11.5px]" style={{ color: 'var(--adm-rotulo)' }}>{k.rotulo}</div>
+            <Num className="mt-0.5 block text-[24px] font-medium leading-tight">
+              {consulta.isLoading ? '—' : k.valor}
+            </Num>
+          </div>
+        ))}
+      </div>
 
-      {/* Total usuários */}
-      {d && (
-        <p className="text-xs text-muted-foreground text-center">
-          {d.total_usuarios} usuário{d.total_usuarios !== 1 ? 's' : ''} cadastrados na plataforma
-        </p>
+      {pendencias.length > 0 && (
+        <section className="pt-5">
+          <div className="pb-2 text-[11px] font-medium uppercase tracking-wider" style={{ color: 'var(--adm-rotulo)' }}>
+            Precisa de você
+          </div>
+          <div style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}>
+            {pendencias.map((p, i) => (
+              <div
+                key={p.rota}
+                className="flex items-center gap-3 px-3 py-2.5"
+                style={{ borderTop: i === 0 ? undefined : '1px solid var(--adm-linha3)' }}
+              >
+                <Status tom={p.tom}>{p.texto}</Status>
+                <Link to={p.rota} className="ml-auto shrink-0">
+                  <Botao altura={30}>{p.acao}</Botao>
+                </Link>
+              </div>
+            ))}
+          </div>
+        </section>
       )}
+
+      <section className="pt-5">
+        <div className="flex items-baseline justify-between pb-2">
+          <div className="text-[11px] font-medium uppercase tracking-wider" style={{ color: 'var(--adm-rotulo)' }}>
+            Últimos pedidos
+          </div>
+          <Link to="/painel-admin/pedidos" className="text-[12px] text-primary">ver todos</Link>
+        </div>
+        <Tabela colunas="minmax(0,1fr) minmax(0,1fr) 110px 120px">
+          <TabelaCabecalho>
+            <span>Loja</span>
+            <span>Cliente</span>
+            <span className="text-right">Valor</span>
+            <span>Status</span>
+          </TabelaCabecalho>
+          {(ultimos.data ?? []).map((p, i) => (
+            <TabelaLinha key={`${p.tenant_id ?? 0}-${p.id}`} primeira={i === 0}>
+              <CelulaNome nome={p.loja_nome} sub={`#${p.id}`} />
+              <span className="truncate">{p.cliente_nome || <Vazio />}</span>
+              <Num className="text-right">{brl(p.total_centavos)}</Num>
+              <Status tom={TOM_DO_PEDIDO[p.status] ?? 'neutro'}>{p.status}</Status>
+            </TabelaLinha>
+          ))}
+          {!ultimos.isLoading && (ultimos.data ?? []).length === 0 && (
+            <div className="px-3 py-6 text-center text-[12.5px]" style={{ color: 'var(--adm-dado)' }}>
+              Nenhum pedido ainda.
+            </div>
+          )}
+        </Tabela>
+      </section>
+
+      <div className="grid gap-4 pt-5 lg:grid-cols-5">
+        <section className="lg:col-span-3">
+          <div className="flex items-baseline justify-between pb-2">
+            <div className="text-[11px] font-medium uppercase tracking-wider" style={{ color: 'var(--adm-rotulo)' }}>
+              Vendas — últimos 14 dias
+            </div>
+            {d && (
+              <Num className="text-[12px]">
+                {brl(d.serie_vendas?.reduce((s, x) => s + x.total_centavos, 0) ?? 0)}
+              </Num>
+            )}
+          </div>
+          <div className="px-3 py-3" style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}>
+            {consulta.isLoading
+              ? <Skeleton className="h-40" />
+              : <GraficoVendas serie={d?.serie_vendas ?? []} />}
+          </div>
+        </section>
+
+        <section className="lg:col-span-2">
+          <div className="pb-2 text-[11px] font-medium uppercase tracking-wider" style={{ color: 'var(--adm-rotulo)' }}>
+            Lojas que mais vendem
+          </div>
+          <div className="px-3 py-3" style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}>
+            {consulta.isLoading
+              ? <Skeleton className="h-40" />
+              : <RankingLojas lojas={d?.top_lojas ?? []} />}
+          </div>
+        </section>
+      </div>
     </div>
   );
+}
+
+/** O status do pedido no vocabulário de cor do painel. */
+const TOM_DO_PEDIDO: Record<string, Tom> = {
+  entregue: 'ok',
+  cancelado: 'erro',
+  recusado: 'erro',
+  pendente: 'atencao',
+  aceito: 'neutro',
+  preparando: 'neutro',
+  pronto: 'neutro',
+  em_entrega: 'neutro',
+};
+
+interface PedidoRecente {
+  id: number;
+  status: string;
+  total_centavos: number;
+  loja_nome: string;
+  cliente_nome: string;
+  tenant_id?: number;
 }
 
 /* ───────────────────────── Gráfico de vendas (SVG, sem libs) ───────────────────────── */

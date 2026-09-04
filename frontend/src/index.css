@@ -252,3 +252,78 @@ label[for] {
     scroll-behavior: auto !important;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   PAINEL ADMIN — linguagem visual chapada.
+
+   Tudo sob `.adm` de propósito: o painel do LOJISTA e o site público usam
+   a paleta da marca (que cada cliente troca) e cantos arredondados. Trocar
+   isso globalmente mudaria a cara de todo mundo por causa de uma tela
+   interna. O admin é ferramenta nossa; pode ter regras próprias.
+
+   Cores fixas, não variáveis de tema: aqui não há white-label. O cliente
+   nunca vê esta tela.
+   ───────────────────────────────────────────────────────────── */
+.adm {
+  --adm-fg: #1C1917;          /* texto principal e ação */
+  --adm-fg2: #57534E;         /* texto secundário */
+  --adm-rotulo: #78716C;      /* rótulos e subtítulos */
+  --adm-dado: #6B6560;        /* dados secundários, mono */
+  --adm-fundo: #FFFFFF;
+  --adm-fundo2: #FBFAF9;      /* sidebar, rodapés, hover de linha */
+  --adm-ativo: #EFEDEA;       /* item de menu ativo */
+  --adm-seg: #F1EFEC;         /* opção ativa do segmented */
+  --adm-linha: #ECEAE6;       /* hairline forte */
+  --adm-linha2: #F1EFEC;
+  --adm-linha3: #F5F4F1;      /* hairline de linha de tabela */
+  --adm-ok: #3F8F62;
+  --adm-atencao: #C79A4B;
+  --adm-erro: #C0574C;
+  --adm-inativo: #C6C1BB;
+  --adm-pendencia: #A06A28;   /* contador de pendência no menu */
+
+  color: var(--adm-fg);
+  background: var(--adm-fundo);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+/*
+ * NÚMERO É SEMPRE MONO E TABULAR.
+ *
+ * Valor, contagem, data, id, ip, slug. Com fonte proporcional, uma coluna de
+ * valores não alinha e comparar duas linhas vira trabalho de ler dígito a
+ * dígito — que é justamente o que uma tabela existe pra evitar.
+ */
+.adm-num {
+  font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', 'Menlo', monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Nenhuma sombra no painel admin. Separação é hairline, sempre. */
+.adm *, .adm *::before, .adm *::after { box-shadow: none !important; }
+
+/*
+ * O SWITCH NÃO TEM TRANSITION NO QUE MUDA.
+ *
+ * `transition: background` na mesma propriedade que recebe o valor dinâmico
+ * congelava o repaint e o switch mostrava o estado anterior — o bug que
+ * derrubou o protótipo duas vezes. Sem transition, o estado é sempre o real.
+ */
+.adm-switch { width: 38px; height: 21px; border-radius: 4px; position: relative; flex: none; }
+.adm-switch > span { position: absolute; top: 3px; width: 15px; height: 15px; border-radius: 3px; background: #fff; }
+
+/* Todo botão de altura fixa: o texto nunca quebra. */
+.adm button, .adm .adm-btn { white-space: nowrap; }
+.adm input, .adm select, .adm textarea { box-sizing: border-box; }
+
+/*
+ * MOBILE: a tabela rola na horizontal com a primeira coluna presa.
+ * Espremer seis colunas em 360px não deixa nada legível.
+ */
+@media (max-width: 767px) {
+  .adm-tabela-rolagem { overflow-x: auto; }
+  .adm-tabela-rolagem > * { min-width: 640px; }
+}
