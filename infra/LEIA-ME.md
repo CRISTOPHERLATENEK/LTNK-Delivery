@@ -13,8 +13,57 @@ Todo dia às 03:12 (`/etc/cron.d/backup-delivery`), em `/opt/backup-delivery/<da
 - **`uploads.tar.gz`** — fotos de produto, logo e banner. Sem isso, restaurar
   devolve todo produto apontando para uma imagem que não existe mais, e o
   lojista teria que refotografar o cardápio inteiro
+- **`certificados.tar.gz`** — o A1 fiscal e os certificados da ONZ/Pix. Ficavam
+  de fora (o backup pegava só `uploads`), e o certificado não se recupera de
+  lugar nenhum: não está em banco, não está no git, só existe naquele disco.
+  Perder o A1 é parar de emitir nota até comprar outro
+- **`ambiente.tar.gz.enc`** — o `.env`, **cifrado**. É a peça sem a qual o
+  restore não serve: `APP_SECRET` é a chave que cifra os segredos em repouso no
+  banco (token do Mercado Pago, token do Maxx Gestão, senha do certificado).
+  Restaurar o banco sem ela devolve tudo isso como lixo indecifrável — o restore
+  "funciona" e o sistema não
 - **retenção de 14 dias**, limpando só DEPOIS do dump do dia (nunca fica sem
   nenhuma cópia caso o dump de hoje falhe)
+
+## A senha do `.env` cifrado
+
+Fica em `/root/.backup-senha` (600) e **não entra no backup**: guardar a senha
+junto do que ela protege é o mesmo que não ter senha.
+
+Por isso ela precisa estar **fora do servidor** — num gerenciador de senhas. Se
+ela só existir na máquina, o dia em que a máquina morrer é o dia em que o `.env`
+cifrado na nuvem vira um arquivo que ninguém consegue abrir.
+
+Criar, uma vez:
+
+```bash
+openssl rand -base64 48 > /root/.backup-senha && chmod 600 /root/.backup-senha
+```
+
+Enquanto ela não existir, o backup **pula o `.env`** e registra um aviso alto no
+log — é melhor um backup sem o `.env`, e o operador sabendo, do que segredo em
+claro espalhado por toda cópia do backup.
+
+Para abrir o `.env` de um backup:
+
+```bash
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000   -pass file:/root/.backup-senha -in ambiente.tar.gz.enc | tar -xzf - -C /destino
+```
+
+## Ensaio de restauração
+
+```bash
+restaurar-delivery.sh --testar
+```
+
+Restaura **todos** os bancos do backup mais recente em cópias `_ensaio`, conta
+as tabelas comparando com produção, confere que as peças que não são banco estão
+presentes, e apaga as cópias no fim. Não toca em produção e pode rodar com o app
+no ar.
+
+Existe porque **backup que nunca foi restaurado é suposição, não garantia**: o
+dump pode estar completo e mesmo assim não subir — charset, versão do MySQL,
+permissão. Vale rodar de vez em quando; leva segundos.
 
 Cada arquivo é verificado: o `.sql.gz` precisa terminar com `Dump completed` e o
 `.tar.gz` precisa ter o índice legível. Sem isso, um backup truncado por disco
