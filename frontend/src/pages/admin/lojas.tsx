@@ -683,14 +683,36 @@ const ORIGENS_ADMIN = [
  */
 function ModulosDaLoja({ loja }: { loja: Loja }) {
   const { mostrar } = useToast();
-  const [estado, setEstado] = useState<{ vendas: 0 | 1; fiscal: 0 | 1 } | null>(null);
+  const [estado, setEstado] = useState<EstadoModulos | null>(null);
   const [salvando, setSalvando] = useState<string | null>(null);
 
   useEffect(() => {
-    api<{ vendas: 0 | 1; fiscal: 0 | 1 }>('GET', comTenant(`/api/admin/lojas/${loja.id}/modulos`, loja))
+    api<EstadoModulos>('GET', comTenant(`/api/admin/lojas/${loja.id}/modulos`, loja))
       .then(setEstado)
       .catch(() => {});
   }, [loja.id]);
+
+  /*
+   * TROCAR O CANAL grava na hora, sem confirmação.
+   *
+   * Nenhuma das três escolhas quebra nada: canal decide quão cedo a loja recebe
+   * NOVIDADE, e voltar para "Recomendado" desfaz na mesma hora. Segurança não
+   * passa por aqui — corrige para todo mundo no mesmo deploy.
+   */
+  async function trocarCanal(canal: Canal) {
+    if (!estado || estado.canal === canal) return;
+    setSalvando('canal');
+    try {
+      const r = await api<{ canal: Canal }>('PUT', comTenant(`/api/admin/lojas/${loja.id}/canal`, loja), { canal });
+      /* Relê: a lista de funcionalidades do canal novo vem do servidor, e
+         montá-la aqui repetiria a regra que já existe lá. */
+      const novo = await api<EstadoModulos>('GET', comTenant(`/api/admin/lojas/${loja.id}/modulos`, loja));
+      setEstado(novo);
+      mostrar({ tipo: 'sucesso', titulo: `Canal: ${ROTULO_CANAL[r.canal]}` });
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setSalvando(null); }
+  }
 
   const MODULOS = [
     {
@@ -736,6 +758,10 @@ ${aviso}`)) return;
       <p className="mb-2 flex items-center gap-2 text-sm font-bold text-primary">
         <Package className="size-4" /> Módulos contratados
       </p>
+      {/*
+        O CANAL VEM DEPOIS DOS MÓDULOS, e a ordem é a da pergunta que se faz:
+        primeiro "o que este cliente tem?", depois "quão cedo ele recebe?".
+      */}
       <div className="space-y-2">
         {MODULOS.map(m => {
           const ligado = !!estado[m.chave];
@@ -770,8 +796,68 @@ ${aviso}`)) return;
           );
         })}
       </div>
+
+      <div className="mt-3">
+        <p className="mb-1.5 text-[13px] font-bold">Canal de liberação</p>
+        <div className="flex" style={{ border: '1px solid var(--adm-linha, #ECEAE6)', borderRadius: 4, width: 'fit-content' }}>
+          {(['estavel', 'beta', 'teste'] as Canal[]).map((c, i) => (
+            <button
+              key={c}
+              type="button"
+              disabled={salvando === 'canal'}
+              aria-pressed={estado.canal === c}
+              onClick={() => void trocarCanal(c)}
+              className="h-[30px] px-3 text-[12px] disabled:opacity-50"
+              style={{
+                /* Sem transition no background: é a propriedade dinâmica. */
+                background: estado.canal === c ? '#F1EFEC' : '#fff',
+                fontWeight: estado.canal === c ? 600 : 400,
+                borderLeft: i === 0 ? 'none' : '1px solid #ECEAE6',
+              }}
+            >
+              {ROTULO_CANAL[c]}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
+          {DESCRICAO_CANAL[estado.canal]}
+        </p>
+        {estado.funcionalidades.length > 0 && (
+          <ul className="mt-1.5 space-y-1">
+            {estado.funcionalidades.map(f => (
+              <li key={f.chave} className="text-[11.5px] leading-relaxed text-muted-foreground">
+                <span className="font-medium text-foreground">{f.titulo}</span>
+                {f.porque && <> — {f.porque}</>}
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted-foreground">
+          Correção de segurança <b>não</b> passa por canal: sai para todos os clientes no
+          mesmo deploy.
+        </p>
+      </div>
     </div>
   );
+}
+
+type Canal = 'estavel' | 'beta' | 'teste';
+
+const ROTULO_CANAL: Record<Canal, string> = {
+  estavel: 'Recomendado', beta: 'Beta', teste: 'Teste',
+};
+
+const DESCRICAO_CANAL: Record<Canal, string> = {
+  estavel: 'Só o que já foi provado em beta e teste. É o padrão de todo cliente novo.',
+  beta: 'Recebe as novidades antes, depois de passarem pelo teste. Pode encontrar aresta.',
+  teste: 'Recebe tudo assim que existe, inclusive o que ainda vai mudar. Para uso interno.',
+};
+
+interface EstadoModulos {
+  vendas: 0 | 1;
+  fiscal: 0 | 1;
+  canal: Canal;
+  funcionalidades: { chave: string; titulo: string; canal: Canal; porque: string }[];
 }
 
 function FiscalLojaAdmin({ loja }: { loja: Loja }) {

@@ -9,6 +9,9 @@ import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-
 import bcrypt from 'bcrypt';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
 import {
+  CANAIS, canalValido, funcionalidadesDoCanal, FUNCIONALIDADES,
+} from '../canais';
+import {
   quemEmite, soOsCamposDaTela,
   CAMPOS_LOJA_LISTA as CAMPOS_LOJA_LISTA_NOMES, CAMPOS_SO_PARA_DERIVAR,
 } from '../quem-emite';
@@ -1258,13 +1261,59 @@ router.put('/lojas/:id/modulo/:modulo', exigirSuperAdmin, async (req, res, next)
   } catch (e) { next(e); }
 });
 
-/** Estado dos módulos desta loja, para a tela do admin montar os interruptores. */
+/** Estado dos módulos e do canal desta loja, para a tela do admin. */
 router.get('/lojas/:id/modulos', exigirSuperAdmin, async (req, res, next) => {
   try {
-    const l = await db.prepare('SELECT vendas_liberado, fiscal_liberado FROM lojas WHERE id = ?')
-      .get(req.params.id) as { vendas_liberado: number; fiscal_liberado: number } | undefined;
+    const l = await db.prepare(
+      'SELECT vendas_liberado, fiscal_liberado, canal_versao FROM lojas WHERE id = ?'
+    ).get(req.params.id) as {
+      vendas_liberado: number; fiscal_liberado: number; canal_versao: string | null;
+    } | undefined;
     if (!l) throw erroHttp(404, 'Loja não encontrada.');
-    res.json({ vendas: l.vendas_liberado ? 1 : 0, fiscal: l.fiscal_liberado ? 1 : 0 });
+    const canal = canalValido(l.canal_versao);
+    res.json({
+      vendas: l.vendas_liberado ? 1 : 0,
+      fiscal: l.fiscal_liberado ? 1 : 0,
+      canal,
+      /* As funcionalidades que este canal abre, com o motivo de ainda não serem
+         estáveis — para o admin saber o que está entregando ao mudar o canal, em
+         vez de descobrir pelo lojista reclamando. */
+      funcionalidades: funcionalidadesDoCanal(canal).map(k => ({
+        chave: k,
+        titulo: FUNCIONALIDADES[k].titulo,
+        canal: FUNCIONALIDADES[k].canal,
+        porque: (FUNCIONALIDADES[k] as { porque?: string }).porque ?? '',
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * TROCA O CANAL de liberação desta loja. Só a plataforma.
+ *
+ * Não confundir com os módulos: módulo é o que o cliente CONTRATOU, canal é
+ * quão cedo ele recebe o que já está contratado. Um cliente pode ter o módulo
+ * fiscal e mesmo assim não ver um ajuste novo dele, se o ajuste ainda está em
+ * beta e o cliente está em estável.
+ */
+router.put('/lojas/:id/canal', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    const bruto = String(req.body?.canal ?? '').trim().toLowerCase();
+    /* Recusa em vez de cair no padrão: aqui é escolha explícita de gente, e
+       gravar `estavel` em silêncio faria o admin achar que a tela não funciona.
+       (No BANCO é o contrário — lá o padrão protege quem lê.) */
+    if (!(CANAIS as readonly string[]).includes(bruto)) {
+      throw erroHttp(400, `Canal inválido. Use ${CANAIS.join(', ')}.`);
+    }
+    const loja = await db.prepare('SELECT id, nome FROM lojas WHERE id = ?')
+      .get(req.params.id) as { id: number; nome: string } | undefined;
+    if (!loja) throw erroHttp(404, 'Loja não encontrada.');
+    await db.prepare('UPDATE lojas SET canal_versao = ? WHERE id = ?').run(bruto, loja.id);
+    console.log(`[canal] loja ${loja.id} (${loja.nome}): canal agora é ${bruto}`);
+    await registrarAuditoria(req, 'loja.canal', {
+      alvoTipo: 'loja', alvoId: loja.id, alvoDesc: loja.nome, detalhes: `canal: ${bruto}`,
+    });
+    res.json({ canal: bruto });
   } catch (e) { next(e); }
 });
 

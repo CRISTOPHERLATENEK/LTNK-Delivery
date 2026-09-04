@@ -44,6 +44,9 @@ import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
 import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '../maxxgestao-preambulo';
 import { enviarPedidoAoErp, fecharDocumentoNoErp } from '../maxxgestao-emitir';
 import { MODELOS_DOCUMENTO, modeloValido } from '../maxxgestao-documento';
+import {
+  funcionalidadeLiberada, funcionalidadesDoCanal, type ChaveFuncionalidade,
+} from '../canais';
 import { credenciaisDoAmbiente as credenciaisIfood } from '../ifood-cliente';
 import { lerCardapioIfood } from '../ifood-catalogo';
 import { planejarImportacao, type ProdutoImportado } from '../ifood-importar';
@@ -3943,6 +3946,14 @@ router.get('/erp', async (req, res, next) => {
       auto_emitir: Number(linha?.maxxgestao_auto_emitir ?? 0) === 1,
       modelo: modeloValido(linha?.maxxgestao_modelo),
       caixa: Math.max(0, Number(linha?.maxxgestao_id_caixa ?? 0)),
+      /*
+       * O QUE O CANAL DESTA LOJA ABRE.
+       *
+       * Vai calculado do servidor porque a regra do canal é uma só: repetir o
+       * `if` no navegador garantiria que as duas versões discordassem na
+       * primeira funcionalidade promovida. A tela só pergunta "está na lista?".
+       */
+      funcionalidades: funcionalidadesDoCanal((loja as { canal_versao?: string }).canal_versao),
     });
   } catch (e) { next(e); }
 });
@@ -4064,6 +4075,7 @@ router.post('/erp/testar', async (req, res, next) => {
 router.put('/erp/caixa', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
+    exigirFuncionalidade(loja, 'erp-caixa');
     const n = Math.trunc(Number(req.body?.caixa ?? 0));
     if (!Number.isFinite(n) || n < 0) {
       return res.status(400).json({ erro: 'Informe o número do caixa, ou 0 para não usar caixa.' });
@@ -4077,6 +4089,7 @@ router.put('/erp/caixa', async (req, res, next) => {
 router.put('/erp/modelo', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
+    exigirFuncionalidade(loja, 'erp-modelo-documento');
     const bruto = String(req.body?.modelo ?? '').trim().toUpperCase();
     if (!(MODELOS_DOCUMENTO as readonly string[]).includes(bruto)) {
       /* Recusa em vez de cair no padrão: aqui é escolha explícita de gente, e
@@ -4093,6 +4106,7 @@ router.put('/erp/modelo', async (req, res, next) => {
 router.put('/erp/auto-emitir', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
+    exigirFuncionalidade(loja, 'erp-auto-emitir');
     const ligar = req.body?.ligado === true;
 
     if (ligar) {
@@ -4563,6 +4577,24 @@ router.post('/ifood/publicar', async (req, res, next) => {
 // ----- NFC-e (dados fiscais + certificado A1) -----------------------------
 
 /** Retorna a configuração fiscal da loja + status do certificado (sem segredos). */
+/**
+ * A funcionalidade tem que estar aberta para o CANAL desta loja.
+ *
+ * Esconder o controle na tela não basta: a rota responde a quem chamar direto,
+ * e quem está em estável não deveria conseguir ligar um ajuste que ainda está
+ * sendo descoberto em beta.
+ *
+ * NUNCA use isto para segurança — autenticação, permissão, validação, limite.
+ * Ver o cabeçalho de `canais.ts`: correção de segurança sai para todo mundo no
+ * mesmo deploy, sem canal.
+ */
+function exigirFuncionalidade(loja: unknown, chave: ChaveFuncionalidade) {
+  const canal = (loja as { canal_versao?: string } | null)?.canal_versao;
+  if (!funcionalidadeLiberada(chave, canal)) {
+    throw erroHttp(403, 'Este recurso ainda está em liberação controlada e não está disponível para a sua loja.');
+  }
+}
+
 /*
  * O MÓDULO FISCAL É LIBERADO PELA PLATAFORMA, LOJA POR LOJA.
  *

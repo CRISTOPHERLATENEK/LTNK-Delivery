@@ -40,6 +40,13 @@ export interface EstadoErp {
    * é por isso que o pedido não aparecia no MeuChef.
    */
   caixa: number;
+  /**
+   * O que o CANAL desta loja abre.
+   *
+   * Vem calculado do servidor: repetir a regra do canal aqui garantiria que as
+   * duas versões discordassem na primeira funcionalidade promovida.
+   */
+  funcionalidades: string[];
 }
 
 interface EmpresaErp {
@@ -336,6 +343,10 @@ Ligar assim mesmo?`,
     } finally { setSalvandoCaixa(false); }
   }
 
+  /* Esconder é cortesia: a rota recusa com 403 de qualquer jeito. Sem
+     esconder, o lojista mexeria num controle que só devolve erro. */
+  const liberada = (chave: string) => !!estado?.funcionalidades?.includes(chave);
+
   const configurado = !!estado?.configurado;
   const emitindo = !!estado?.emitindo;
 
@@ -485,7 +496,8 @@ Ligar assim mesmo?`,
         }
       />
 
-      {/* ─────────── emissão automática ─────────── */}
+      {/* erp-auto-emitir — em liberação por canal */}
+      {liberada('erp-auto-emitir') && (
       <Linha
         titulo="Emitir a nota automaticamente"
         descricao={
@@ -525,8 +537,10 @@ Ligar assim mesmo?`,
           </p>
         )}
       </Linha>
+      )}
 
-      {/* ─────────── o caixa do PDV ─────────── */}
+      {/* erp-caixa — em liberação por canal */}
+      {liberada('erp-caixa') && (
       <Linha
         titulo="Caixa do Maxx Gestão"
         descricao={
@@ -563,8 +577,10 @@ Ligar assim mesmo?`,
           fechamento de outro operador.
         </p>
       </Linha>
+      )}
 
-      {/* ─────────── o modelo do documento ─────────── */}
+      {/* erp-modelo-documento — em liberação por canal */}
+      {liberada('erp-modelo-documento') && (
       <Linha
         titulo="Como o pedido entra no Maxx Gestão"
         descricao={
@@ -607,6 +623,7 @@ Ligar assim mesmo?`,
           Maxx Gestão continuam como foram criados.
         </p>
       </Linha>
+      )}
 
       {/* ─────────── a explicação, fechada ─────────── */}
       <Sanfona titulo="Como funciona a emissão pelo ERP">

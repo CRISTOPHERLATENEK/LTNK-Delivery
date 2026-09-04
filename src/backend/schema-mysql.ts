@@ -1128,6 +1128,14 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['lojas', 'vendas_liberado', 'vendas_liberado TINYINT NOT NULL DEFAULT 0'],
     /*
+     * O CANAL DE LIBERAÇÃO desta loja: estavel, beta ou teste.
+     *
+     * Governa quais NOVIDADES ela enxerga — nunca segurança, que sai para todo
+     * mundo no mesmo deploy (ver `canais.ts`). Nasce em `estavel`: cliente novo
+     * não é cobaia, e quem quiser testar pede.
+     */
+    ['lojas', 'canal_versao', "canal_versao VARCHAR(12) NOT NULL DEFAULT 'estavel'"],
+    /*
      * O MODELO do documento que o pedido vira no Maxx Gestão.
      *
      * `PA` (Pedido de Venda) é o padrão e o que está em produção. `PV`
