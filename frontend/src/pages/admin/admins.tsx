@@ -1,22 +1,23 @@
 /**
  * Gestão de admins — apenas o super admin acessa.
  * Cria/remove admins operacionais (que NÃO podem editar marca/comissão).
+ *
+ * "Trocar minha senha" e "Resetar meu 2FA" NÃO moram aqui: foram para
+ * /painel-admin/minha-conta. Esta tela é sobre administrar OUTRAS pessoas, e
+ * juntar as duas coisas convidava a mexer na conta errada.
  */
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Users, UserPlus, Trash2, Crown, Shield, ArrowUpCircle, ArrowDownCircle, Lock, X } from 'lucide-react';
 import { AdminLayout } from './layout';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, sessaoUsuario } from '@/lib/api';
 import { dataLocal } from '@/lib/format';
-import { cn } from '@/lib/utils';
+import {
+  Cabecalho, Tabela, TabelaCabecalho, TabelaLinha, TabelaRodape, CelulaNome,
+  Num, Status, Botao, PainelLateral, LinhaRotulada, Campo, Secao,
+} from './ui';
 
 interface Admin {
   id: number;
@@ -38,23 +39,24 @@ export function TelaAdmins() {
     queryFn: () => api<{ admins: Admin[] }>('GET', '/api/admin/admins').then(r => r.admins),
   });
 
+  const [criando, setCriando] = useState(false);
   const [form, setForm] = useState({ nome: '', email: '', telefone: '', senha: '' });
   const [enviando, setEnviando] = useState(false);
   const [alvoPromocao, setAlvoPromocao] = useState<{ admin: Admin; acao: 'promover' | 'rebaixar' } | null>(null);
   const [senhaPromocao, setSenhaPromocao] = useState('');
   const [enviandoPromocao, setEnviandoPromocao] = useState(false);
 
-
-
-
-
-  async function criar(e: React.FormEvent) {
-    e.preventDefault();
+  async function criar() {
+    if (!form.nome || !form.email || form.senha.length < 6) {
+      mostrar({ tipo: 'erro', titulo: 'Preencha nome, e-mail e uma senha de ao menos 6 caracteres.' });
+      return;
+    }
     setEnviando(true);
     try {
       await api('POST', '/api/admin/admins', form);
-      mostrar({ tipo: 'sucesso', titulo: 'Admin operacional criado!', descricao: `${form.nome} já pode entrar.` });
+      mostrar({ tipo: 'sucesso', titulo: 'Admin operacional criado', descricao: `${form.nome} já pode entrar.` });
       setForm({ nome: '', email: '', telefone: '', senha: '' });
+      setCriando(false);
       consulta.refetch();
     } catch (err) {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
@@ -64,7 +66,12 @@ export function TelaAdmins() {
   }
 
   async function remover(admin: Admin) {
-    if (!(await confirmar({ titulo: `Remover ${admin.nome}?`, descricao: 'Ele perderá o acesso imediatamente.', confirmar: 'Remover', destrutivo: true }))) return;
+    if (!(await confirmar({
+      titulo: `Remover ${admin.nome}?`,
+      descricao: 'Ele perderá o acesso imediatamente.',
+      confirmar: 'Remover',
+      destrutivo: true,
+    }))) return;
     try {
       await api('DELETE', `/api/admin/admins/${admin.id}`);
       mostrar({ tipo: 'info', titulo: 'Admin removido.' });
@@ -81,7 +88,7 @@ export function TelaAdmins() {
       await api('POST', `/api/admin/admins/${alvoPromocao.admin.id}/${alvoPromocao.acao}`, { senha: senhaPromocao });
       mostrar({
         tipo: 'sucesso',
-        titulo: alvoPromocao.acao === 'promover' ? 'Promovido a super admin!' : 'Rebaixado a admin operacional.',
+        titulo: alvoPromocao.acao === 'promover' ? 'Promovido a super admin' : 'Rebaixado a admin operacional',
         descricao: alvoPromocao.admin.nome,
       });
       setAlvoPromocao(null);
@@ -94,173 +101,155 @@ export function TelaAdmins() {
     }
   }
 
+  const admins = consulta.data ?? [];
+  const supers = admins.filter(a => a.super_admin).length;
+
   return (
     <AdminLayout titulo="Admins">
-    <div className="space-y-5 max-w-3xl mx-auto">
-      <div className="flex items-center gap-3">
-        <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-          <Users className="size-6" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Gerenciar admins</h1>
-          <p className="text-sm text-muted-foreground">
-            Admins operacionais podem aprovar lojas e ver pedidos, mas não mexem na marca nem na comissão.
-          </p>
-        </div>
-      </div>
+      <div className="mx-auto max-w-3xl">
+        <Cabecalho
+          titulo="Admins"
+          subtitulo={
+            consulta.isLoading ? 'Carregando…' : (
+              <>
+                {admins.length} {admins.length === 1 ? 'admin' : 'admins'} · {supers} super
+                {' · '}operacionais aprovam lojas e veem pedidos, mas não mexem na marca nem na comissão
+              </>
+            )
+          }
+          acoes={<Botao variante="primario" onClick={() => setCriando(true)}>Novo admin</Botao>}
+        />
 
-      {/* "Trocar minha senha" e "Resetar 2FA" saíram daqui pra /painel-admin/minha-conta.
-          Esta tela é sobre administrar OUTRAS pessoas; a própria credencial é outro
-          assunto, e junto convidava a mexer na conta errada. */}
-
-      <Card>
-        <CardContent className="p-5">
-          <h2 className="flex items-center gap-2 font-bold mb-4">
-            <UserPlus className="size-5 text-primary" />
-            Novo admin operacional
-          </h2>
-          <form onSubmit={criar} className="space-y-3">
-            <div className="grid sm:grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="nome">Nome</Label>
-                <Input id="nome" required value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
-              </div>
-              <div>
-                <Label htmlFor="email">E-mail</Label>
-                <Input id="email" type="email" required value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-              </div>
-              <div>
-                <Label htmlFor="tel">Telefone (opcional)</Label>
-                <Input id="tel" type="tel" value={form.telefone} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} />
-              </div>
-              <div>
-                <Label htmlFor="senha">Senha inicial (mín. 6)</Label>
-                <Input id="senha" type="password" minLength={6} required value={form.senha} onChange={e => setForm(f => ({ ...f, senha: e.target.value }))} />
-              </div>
-            </div>
-            <Button type="submit" size="lg" className="w-full" disabled={enviando}>
-              <UserPlus className="size-4" />
-              {enviando ? 'Criando…' : 'Criar admin operacional'}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      <div>
-        <h2 className="text-lg font-bold px-1 mb-3">Admins cadastrados</h2>
-        {consulta.isLoading && <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-20" />)}</div>}
-        <div className="space-y-3">
-          {consulta.data?.map(a => (
-            <Card key={a.id}>
-              <CardContent className="p-4 flex items-center gap-3">
-                <div className="flex size-12 items-center justify-center rounded-2xl bg-accent shrink-0">
-                  {a.super_admin
-                    ? <Crown className="size-6 text-amber-500" />
-                    : <Shield className="size-6 text-primary" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <strong>{a.nome}</strong>
-                    {a.super_admin
-                      ? <Badge variant="warning" className="text-[10px]">SUPER</Badge>
-                      : <Badge variant="info" className="text-[10px]">OPERACIONAL</Badge>}
-                    {!!a.bloqueado && <Badge variant="danger" className="text-[10px]">BLOQUEADO</Badge>}
-                    {a.id === eu?.id && <Badge variant="outline" className="text-[10px]">VOCÊ</Badge>}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {a.email} · desde {dataLocal(a.criado_em)}
-                  </div>
-                </div>
-                {a.id !== eu?.id && (
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {a.super_admin ? (
-                      <Button variant="outline" size="sm" onClick={() => setAlvoPromocao({ admin: a, acao: 'rebaixar' })}>
-                        <ArrowDownCircle className="size-4" /> Rebaixar
-                      </Button>
-                    ) : (
-                      <Button variant="outline" size="sm" onClick={() => setAlvoPromocao({ admin: a, acao: 'promover' })}>
-                        <ArrowUpCircle className="size-4" /> Promover
-                      </Button>
-                    )}
-                    {!a.super_admin && (
-                      <Button variant="destructive" size="sm" onClick={() => remover(a)}>
-                        <Trash2 className="size-4" />
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-
-      <Card className="border-amber-500/40 bg-amber-500/5">
-        <CardContent className="p-4 flex items-start gap-3 text-sm">
-          <Crown className="size-5 text-amber-500 shrink-0 mt-0.5" />
-          <div>
-            <strong className="text-amber-700 dark:text-amber-300">Sobre o super admin:</strong>{' '}
-            <span className="text-muted-foreground">
-              Super admins têm acesso total (marca, comissão, financeiro, outros admins e clientes do SaaS).
-              Promover ou rebaixar exige sua senha como segunda confirmação, e o último super admin não pode ser rebaixado.
-            </span>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-
-    {alvoPromocao && (
-      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
-        <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => !enviandoPromocao && setAlvoPromocao(null)} />
-        <Card className="relative w-full max-w-sm">
-          <CardContent className="p-6 space-y-4">
-            <div className="flex items-start justify-between gap-2">
-              <div className="flex items-center gap-2.5">
-                <div className={cn(
-                  'flex size-10 items-center justify-center rounded-2xl',
-                  alvoPromocao.acao === 'promover' ? 'bg-amber-500/12 text-amber-600' : 'bg-muted text-muted-foreground',
-                )}>
-                  {alvoPromocao.acao === 'promover' ? <Crown className="size-5" /> : <ArrowDownCircle className="size-5" />}
-                </div>
-                <div>
-                  <h2 className="font-extrabold leading-tight">
-                    {alvoPromocao.acao === 'promover' ? 'Promover a super admin' : 'Rebaixar super admin'}
-                  </h2>
-                  <p className="text-xs text-muted-foreground">{alvoPromocao.admin.nome}</p>
-                </div>
-              </div>
-              <button onClick={() => setAlvoPromocao(null)} className="p-1 rounded-lg hover:bg-muted text-muted-foreground">
-                <X className="size-4" />
-              </button>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              {alvoPromocao.acao === 'promover'
-                ? 'Ele passará a ter acesso total à plataforma (marca, comissão, financeiro e outros admins). Confirme sua senha para continuar.'
-                : 'Ele perderá o acesso total e volta a ser admin operacional. Confirme sua senha para continuar.'}
-            </p>
-            <div>
-              <Label htmlFor="senha-promocao">Sua senha</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-                <Input
-                  id="senha-promocao" type="password" autoFocus className="pl-9"
-                  value={senhaPromocao} onChange={e => setSenhaPromocao(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && confirmarPromocao()}
+        {consulta.isLoading ? (
+          <Skeleton className="h-56" />
+        ) : (
+          <Tabela colunas="minmax(0,1.5fr) 130px 120px 150px">
+            <TabelaCabecalho>
+              <span>Nome</span>
+              <span>Desde</span>
+              <span>Papel</span>
+              <span />
+            </TabelaCabecalho>
+            {admins.map((a, i) => (
+              <TabelaLinha key={a.id} primeira={i === 0}>
+                <CelulaNome
+                  nome={
+                    <>
+                      {a.nome}
+                      {a.id === eu?.id && (
+                        <span className="ml-1.5 text-[11px] font-normal" style={{ color: 'var(--adm-rotulo)' }}>
+                          você
+                        </span>
+                      )}
+                    </>
+                  }
+                  sub={a.email}
                 />
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" className="flex-1" onClick={() => setAlvoPromocao(null)} disabled={enviandoPromocao}>
-                Cancelar
-              </Button>
-              <Button className="flex-1" onClick={confirmarPromocao} disabled={enviandoPromocao || !senhaPromocao}>
-                {enviandoPromocao ? 'Confirmando…' : 'Confirmar'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+                <Num className="text-[12px]">{dataLocal(a.criado_em)}</Num>
+                <Status tom={a.bloqueado ? 'erro' : a.super_admin ? 'atencao' : 'neutro'}>
+                  {a.bloqueado ? 'Bloqueado' : a.super_admin ? 'Super' : 'Operacional'}
+                </Status>
+                {/* Ninguém age sobre a própria conta aqui: rebaixar a si mesmo
+                    ou se remover são os dois jeitos de perder o acesso sem
+                    ninguém para devolver. */}
+                <div className="flex items-center justify-end gap-1.5">
+                  {a.id !== eu?.id && (
+                    <>
+                      <Botao
+                        altura={30}
+                        onClick={() => setAlvoPromocao({ admin: a, acao: a.super_admin ? 'rebaixar' : 'promover' })}
+                      >
+                        {a.super_admin ? 'Rebaixar' : 'Promover'}
+                      </Botao>
+                      {!a.super_admin && (
+                        <Botao altura={30} variante="perigo" onClick={() => void remover(a)}>Remover</Botao>
+                      )}
+                    </>
+                  )}
+                </div>
+              </TabelaLinha>
+            ))}
+            <TabelaRodape total={admins.length} />
+          </Tabela>
+        )}
+
+        <p className="pt-3 text-[12px] leading-relaxed" style={{ color: 'var(--adm-rotulo)' }}>
+          Super admins têm acesso total: marca, comissão, financeiro, outros admins e clientes.
+          Promover ou rebaixar exige sua senha como segunda confirmação, e o último super admin
+          não pode ser rebaixado.
+        </p>
       </div>
-    )}
+
+      {/* ── Novo admin ── */}
+      <PainelLateral
+        aberto={criando}
+        titulo="Novo admin operacional"
+        subtitulo="Aprova lojas e vê pedidos. Não mexe em marca nem comissão."
+        aoFechar={() => setCriando(false)}
+        rodape={
+          <>
+            <Botao altura={30} onClick={() => setCriando(false)} desabilitado={enviando}>Cancelar</Botao>
+            <Botao altura={30} variante="primario" onClick={() => void criar()} desabilitado={enviando}>
+              {enviando ? 'Criando…' : 'Criar'}
+            </Botao>
+          </>
+        }
+      >
+        <Secao titulo="Dados">
+          <LinhaRotulada rotulo="Nome" primeira>
+            <Campo valor={form.nome} aoMudar={v => setForm(f => ({ ...f, nome: v }))} />
+          </LinhaRotulada>
+          <LinhaRotulada rotulo="E-mail">
+            <Campo tipo="email" valor={form.email} aoMudar={v => setForm(f => ({ ...f, email: v }))} />
+          </LinhaRotulada>
+          <LinhaRotulada rotulo="Telefone" apoio="Opcional">
+            <Campo tipo="tel" valor={form.telefone} aoMudar={v => setForm(f => ({ ...f, telefone: v }))} />
+          </LinhaRotulada>
+          <LinhaRotulada rotulo="Senha inicial" apoio="Mínimo 6 caracteres">
+            <Campo tipo="password" valor={form.senha} aoMudar={v => setForm(f => ({ ...f, senha: v }))} />
+          </LinhaRotulada>
+        </Secao>
+      </PainelLateral>
+
+      {/* ── Promover / rebaixar ── */}
+      <PainelLateral
+        aberto={!!alvoPromocao}
+        titulo={alvoPromocao?.acao === 'promover' ? 'Promover a super admin' : 'Rebaixar super admin'}
+        subtitulo={alvoPromocao?.admin.nome}
+        aoFechar={() => { if (!enviandoPromocao) { setAlvoPromocao(null); setSenhaPromocao(''); } }}
+        rodape={
+          <>
+            <Botao altura={30} onClick={() => setAlvoPromocao(null)} desabilitado={enviandoPromocao}>Cancelar</Botao>
+            <Botao
+              altura={30}
+              variante="primario"
+              onClick={() => void confirmarPromocao()}
+              desabilitado={enviandoPromocao || !senhaPromocao}
+            >
+              {enviandoPromocao ? 'Confirmando…' : 'Confirmar'}
+            </Botao>
+          </>
+        }
+      >
+        <p className="pb-4 text-[13px]" style={{ color: 'var(--adm-fg2)' }}>
+          {alvoPromocao?.acao === 'promover'
+            ? 'Ele passará a ter acesso total à plataforma: marca, comissão, financeiro e outros admins.'
+            : 'Ele perderá o acesso total e volta a ser admin operacional.'}
+        </p>
+        <Secao titulo="Confirmação">
+          <LinhaRotulada rotulo="Sua senha" apoio="Segunda confirmação" primeira>
+            <input
+              type="password"
+              autoFocus
+              value={senhaPromocao}
+              onChange={e => setSenhaPromocao(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') void confirmarPromocao(); }}
+              className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4 }}
+            />
+          </LinhaRotulada>
+        </Secao>
+      </PainelLateral>
     </AdminLayout>
   );
 }
