@@ -173,8 +173,21 @@ find "$DESTINO" -mindepth 1 -maxdepth 1 -type d -mtime +$RETENCAO_DIAS \
 #
 # Pra configurar (uma vez, com as SUAS credenciais):  rclone config
 # ---------------------------------------------------------------------------
+#
+# `copy` E NAO `sync`. A diferenca aqui e o backup inteiro.
+#
+# `sync` ESPELHA: o que sumiu daqui, ele apaga la. Num ransomware que cifra
+# /opt/backup-delivery, ou num `rm -rf` acidental, a proxima execucao replicaria
+# a destruicao para a copia externa — que era justamente a unica sobrevivente.
+# `copy` so soma; nada some do destino por acao desta maquina.
+#
+# O preco e o destino crescer (~25 MB/dia, ~9 GB/ano). Barato demais perto do
+# risco. A retencao remota deve rodar DO OUTRO LADO — no bucket, por regra de
+# ciclo de vida; na VPS de backup, por cron de la. Nunca daqui: se esta maquina
+# puder apagar a copia externa, um invasor com root aqui tambem pode.
+#
 if command -v rclone >/dev/null 2>&1 && rclone listremotes 2>/dev/null | grep -q ^backup:; then
-  if rclone sync "$DESTINO" backup:delivery-backup --transfers 4 --checksum >>"$LOG" 2>&1; then
+  if rclone copy "$DESTINO" backup:delivery-backup --transfers 4 --checksum >>"$LOG" 2>&1; then
     registrar "ok    copia externa enviada ($(rclone size backup:delivery-backup --json 2>/dev/null | head -c 120))"
   else
     # NAO conta como falha do backup: o local esta feito. Mas fica no log, que e

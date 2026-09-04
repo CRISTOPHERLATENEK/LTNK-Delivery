@@ -74,6 +74,62 @@ cheio parece bom até o dia em que precisa ser usado.
 
 ## Cópia fora da máquina
 
+### A regra que vale para qualquer destino
+
+**Quem copia nunca pode apagar.** O script usa `rclone copy`, não `sync`, e a
+diferença é o backup inteiro: `sync` espelha, então um ransomware que cifrasse
+`/opt/backup-delivery` — ou um `rm -rf` errado — teria a destruição replicada
+para a cópia externa na execução seguinte, apagando a única sobrevivente.
+
+Pela mesma razão, a **retenção remota roda do outro lado**: no bucket, por regra
+de ciclo de vida; na VPS de backup, por cron de lá. Se a máquina de produção
+puder apagar a cópia externa, um invasor com root nela também pode.
+
+### Opção A — VPS de backup (segunda máquina)
+
+Funciona, com duas condições:
+
+1. **Outro provedor, ou no mínimo outra conta.** Duas VPS na mesma conta morrem
+   juntas numa suspensão por cobrança, que é um dos cenários mais comuns.
+2. **A VPS de backup PUXA; a de produção não empurra.** Este é o ponto que
+   separa "tenho backup" de "tenho backup que sobrevive a invasão". Se produção
+   empurra, ela guarda a credencial do destino — e quem tomar root em produção
+   apaga os dois lados. Se o backup puxa, produção não tem credencial nenhuma do
+   destino, e não há o que roubar.
+
+Na VPS de backup, uma chave SSH restrita e um cron:
+
+```bash
+# na VPS de backup
+ssh-keygen -t ed25519 -f ~/.ssh/puxar-backup -N ''
+# a chave PUBLICA vai para produção, em /root/.ssh/authorized_keys, com o
+# comando travado: ela só serve para ler, nunca para entrar de verdade.
+#   command="rsync --server --sender -vlogDtpre.iLsfxC . /opt/backup-delivery/",
+#   no-agent-forwarding,no-port-forwarding,no-pty ssh-ed25519 AAAA...
+```
+
+```bash
+# /etc/cron.d/puxar-delivery — na VPS de backup, 1h depois do backup de lá
+42 4 * * * root rsync -az --delete-excluded -e "ssh -i /root/.ssh/puxar-backup"   root@<ip-producao>:/opt/backup-delivery/ /opt/copia-delivery/   && find /opt/copia-delivery -mindepth 1 -maxdepth 1 -type d -mtime +90 -exec rm -rf {} +
+```
+
+### Opção B — bucket de objeto (R2, B2, S3)
+
+Mais barato (centavos por mês contra o preço de uma VPS) e sem máquina para
+manter — bucket não precisa de patch de segurança. Configure uma vez:
+
+```bash
+rclone config      # o destino PRECISA se chamar `backup`
+```
+
+E ligue **versionamento** e **regra de ciclo de vida** no bucket: com
+versionamento, sobrescrever não perde a versão boa; a regra apaga o que passar
+de 90 dias sem ninguém precisar lembrar.
+
+Se o provedor oferecer **bloqueio de objeto** (object lock / immutability),
+ligue: nem uma credencial roubada apaga o que está travado.
+
+
 O backup local sobrevive a um `rm -rf` da pasta do app, mas **não** a VPS
 apagada, disco corrompido, conta suspensa ou ransomware com root — que são
 justamente os casos em que ele seria a única saída.
