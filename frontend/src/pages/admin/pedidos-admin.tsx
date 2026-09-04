@@ -1,24 +1,17 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ShoppingBag, X, ChevronRight, MapPin, Bike, CreditCard, Phone, Check, Download } from 'lucide-react';
+import { MapPin, Bike, CreditCard, Phone, Check } from 'lucide-react';
 import { AdminLayout } from './layout';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import {
+  Cabecalho, Toolbar, Busca, Segmented, Tabela, TabelaCabecalho, TabelaLinha,
+  TabelaRodape, CelulaNome, Num, Status, Vazio, Botao, PainelLateral, type Tom,
+} from './ui';
 import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
-import { DrawerDetalhe } from '@/components/ui/drawer-detalhe';
 import { useToast } from '@/components/ui/toast';
 import { api, tokenSessao } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
-import { cn } from '@/lib/utils';
 
-const STATUS_CORES: Record<string, 'success' | 'danger' | 'info' | 'warning' | 'secondary'> = {
-  entregue: 'success', cancelado: 'danger', recusado: 'danger',
-  pendente: 'warning', aceito: 'info', preparando: 'info', pronto: 'info', em_entrega: 'info',
-};
 const ROTULO: Record<string, string> = {
   pendente: 'Pendente', aceito: 'Aceito', preparando: 'Preparando', pronto: 'Pronto',
   em_entrega: 'Em entrega', entregue: 'Entregue', cancelado: 'Cancelado', recusado: 'Recusado',
@@ -66,6 +59,8 @@ export function TelaPedidosAdmin() {
   const [aberto, setAberto] = useState<PedidoAdmin | null>(null);
   const [visiveis, setVisiveis] = useState(PAGINA);
   const [exportando, setExportando] = useState(false);
+  const [busca, setBusca] = useState('');
+  const [grupo, setGrupo] = useState<'todos' | 'andamento' | 'entregue' | 'problema'>('todos');
 
   const lojas = useQuery({
     queryKey: ['admin-lojas-simples'],
@@ -120,192 +115,209 @@ export function TelaPedidosAdmin() {
   }
 
   const pedidos = consulta.data ?? [];
-  const faturamento = pedidos.filter(p => p.status === 'entregue').reduce((s, p) => s + p.total_centavos, 0);
-  const emAndamento = pedidos.filter(p => ATIVOS.includes(p.status)).length;
-  const temFiltros = filtros.status || filtros.loja_id || filtros.de || filtros.ate;
-  const naTela = pedidos.slice(0, visiveis);
+
+  /*
+   * A BUSCA É LOCAL, os filtros são do servidor.
+   *
+   * Loja, status e período mudam o CONJUNTO consultado (vão na query). A busca
+   * por texto peneira o que já veio — mandá-la ao servidor faria cada tecla
+   * digitada virar uma consulta a 500 pedidos.
+   */
+  const t = busca.trim().toLowerCase();
+  const visiveisFiltrados = t
+    ? pedidos.filter(p =>
+      `${p.loja_nome} ${p.cliente_nome} ${p.id} ${p.entregador_nome ?? ''}`.toLowerCase().includes(t))
+    : pedidos;
+
+  const faturamento = visiveisFiltrados.filter(p => p.status === 'entregue').reduce((s, p) => s + p.total_centavos, 0);
+  const emAndamento = visiveisFiltrados.filter(p => ATIVOS.includes(p.status)).length;
+  const temFiltros = !!(filtros.status || filtros.loja_id || filtros.de || filtros.ate || busca);
+  const naTela = visiveisFiltrados.slice(0, visiveis);
+
+  /*
+   * O SEGMENTED AGRUPA, e não repete os oito status.
+   *
+   * Oito opções lado a lado não cabem e não são a pergunta que alguém faz aqui:
+   * "o que está rolando agora", "o que fechou", "o que deu errado". O status
+   * exato continua no seletor ao lado, para quem precisa de um só.
+   */
+  const GRUPOS = [
+    { v: 'todos' as const, label: 'Todos', membros: STATUS_LISTA },
+    { v: 'andamento' as const, label: 'Em andamento', membros: ATIVOS },
+    { v: 'entregue' as const, label: 'Entregues', membros: ['entregue'] },
+    { v: 'problema' as const, label: 'Cancelados', membros: ['cancelado', 'recusado'] },
+  ];
+  const grupoAtivo = GRUPOS.find(g => g.v === grupo)!;
+  const daTela = grupo === 'todos'
+    ? naTela
+    : naTela.filter(p => grupoAtivo.membros.includes(p.status));
 
   return (
     <AdminLayout titulo="Pedidos">
-      <div className="space-y-5 max-w-5xl mx-auto">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-extrabold flex items-center gap-2">
-              <ShoppingBag className="size-6 text-primary" /> Todos os pedidos
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {pedidos.length} pedido{pedidos.length !== 1 ? 's' : ''} na visão atual
-            </p>
+      <div className="mx-auto max-w-5xl">
+        <Cabecalho
+          titulo="Pedidos"
+          subtitulo={
+            consulta.isLoading ? 'Carregando…' : (
+              <>
+                {pedidos.length} na visão atual · {emAndamento} em andamento · {brl(faturamento)} entregue
+              </>
+            )
+          }
+          acoes={
+            <>
+              {/* AO VIVO é um interruptor de texto, não um pill pulsante: a
+                  animação piscando na borda da tela puxa o olho o tempo todo
+                  para uma informação que muda uma vez por sessão. */}
+              <Botao onClick={() => setAoVivo(v => !v)}>
+                {aoVivo ? 'Ao vivo' : 'Pausado'}
+              </Botao>
+              <Botao variante="primario" onClick={() => void exportarCsv()} desabilitado={exportando || pedidos.length === 0}>
+                {exportando ? 'Gerando…' : 'Exportar CSV'}
+              </Botao>
+            </>
+          }
+        />
+
+        <Toolbar>
+          <div className="min-w-[200px] flex-1">
+            <Busca valor={busca} aoMudar={v => { setBusca(v); setVisiveis(PAGINA); }}
+              placeholder="Buscar por loja, cliente, entregador ou nº…" />
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={exportarCsv} disabled={exportando || pedidos.length === 0}>
-              <Download className="size-3.5" /> {exportando ? 'Gerando…' : 'Exportar CSV'}
-            </Button>
-            <button
-              onClick={() => setAoVivo(v => !v)}
-              className={cn(
-                'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
-                aoVivo ? 'bg-emerald-500/10 text-emerald-600' : 'bg-muted text-muted-foreground',
-              )}
-            >
-              <span className={cn('size-2 rounded-full', aoVivo ? 'bg-emerald-500 animate-pulse' : 'bg-muted-foreground')} />
-              {aoVivo ? 'Ao vivo' : 'Pausado'}
-            </button>
-          </div>
-        </div>
+          <Segmented
+            valor={grupo}
+            aoMudar={g => { setGrupo(g); setVisiveis(PAGINA); }}
+            opcoes={GRUPOS.map(g => ({
+              v: g.v,
+              label: g.label,
+              contagem: g.v === 'todos'
+                ? visiveisFiltrados.length
+                : visiveisFiltrados.filter(p => g.membros.includes(p.status)).length,
+            }))}
+          />
+        </Toolbar>
 
-        {/* KPIs rápidos */}
-        <div className="grid grid-cols-3 gap-3">
-          <MiniKpi valor={String(pedidos.length)} rotulo="Total" />
-          <MiniKpi valor={String(emAndamento)} rotulo="Em andamento" cor="text-blue-600" />
-          <MiniKpi valor={brl(faturamento)} rotulo="Entregue (R$)" cor="text-emerald-600" />
-        </div>
+        <Toolbar>
+          <select
+            value={filtros.loja_id}
+            onChange={e => mudar('loja_id', e.target.value)}
+            aria-label="Loja"
+            className="h-[34px] px-2 text-[12.5px] outline-none"
+            style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: '#fff' }}
+          >
+            <option value="">Todas as lojas</option>
+            {lojas.data?.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </select>
+          <select
+            value={filtros.status}
+            onChange={e => mudar('status', e.target.value)}
+            aria-label="Status exato"
+            className="h-[34px] px-2 text-[12.5px] outline-none"
+            style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: '#fff' }}
+          >
+            <option value="">Qualquer status</option>
+            {STATUS_LISTA.map(st => <option key={st} value={st}>{ROTULO[st]}</option>)}
+          </select>
+          <input type="date" value={filtros.de} onChange={e => mudar('de', e.target.value)} aria-label="De"
+            className="h-[34px] px-2 text-[12.5px] outline-none"
+            style={{ border: '1px solid var(--adm-linha)', borderRadius: 4 }} />
+          <input type="date" value={filtros.ate} onChange={e => mudar('ate', e.target.value)} aria-label="Até"
+            className="h-[34px] px-2 text-[12.5px] outline-none"
+            style={{ border: '1px solid var(--adm-linha)', borderRadius: 4 }} />
+          {temFiltros && <Botao altura={34} onClick={() => { limpar(); setBusca(''); setGrupo('todos'); }}>Limpar</Botao>}
+        </Toolbar>
 
-        {/* Filtros */}
-        <Card>
-          <CardContent className="p-4">
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 items-end">
-              <div className="col-span-2 sm:col-span-1">
-                <Label>Loja</Label>
-                <select
-                  value={filtros.loja_id}
-                  onChange={e => mudar('loja_id', e.target.value)}
-                  className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm"
-                >
-                  <option value="">Todas</option>
-                  {lojas.data?.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
-                </select>
-              </div>
-              <div>
-                <Label>Status</Label>
-                <select
-                  value={filtros.status}
-                  onChange={e => mudar('status', e.target.value)}
-                  className="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm"
-                >
-                  <option value="">Todos</option>
-                  {STATUS_LISTA.map(s => <option key={s} value={s}>{ROTULO[s]}</option>)}
-                </select>
-              </div>
-              <div>
-                <Label>De</Label>
-                <Input type="date" value={filtros.de} onChange={e => mudar('de', e.target.value)} />
-              </div>
-              <div>
-                <Label>Até</Label>
-                <Input type="date" value={filtros.ate} onChange={e => mudar('ate', e.target.value)} />
-              </div>
-              <div className="col-span-2 sm:col-span-1">
-                {temFiltros ? (
-                  <Button type="button" variant="outline" className="w-full" onClick={limpar}>
-                    <X className="size-3.5" /> Limpar filtros
-                  </Button>
-                ) : (
-                  <p className="text-xs text-muted-foreground">Os filtros aplicam ao escolher.</p>
-                )}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        {consulta.isError && <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />}
 
-        {consulta.isLoading && (
-          <div className="space-y-2">{[1, 2, 3, 4, 5].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
-        )}
-
-        {consulta.isError && (
-          <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />
-        )}
-
-        {!consulta.isLoading && pedidos.length === 0 && !consulta.isError && (
-          <Card><CardContent className="p-10 text-center text-muted-foreground">
-            Nenhum pedido encontrado com esses filtros.
-          </CardContent></Card>
-        )}
-
-        {/* Lista */}
-        <div className="space-y-2">
-          {/* key com o cliente junto: o id 77 existe em mais de um cliente */}
-          {naTela.map(p => (
-            <Card key={`${p.tenant_id ?? 0}-${p.id}`} className={cn('transition-shadow', aberto?.id === p.id && aberto?.tenant_id === p.tenant_id && 'ring-2 ring-primary/40')}>
-              <CardContent className="p-0">
-                <button onClick={() => setAberto(p)} className="w-full p-4 text-left">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="font-mono text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-md">
-                      #{String(p.id).padStart(4, '0')}
-                    </span>
-                    <Badge variant={STATUS_CORES[p.status] ?? 'secondary'} className="text-[10px]">
-                      {ROTULO[p.status] ?? p.status}
-                    </Badge>
-                    <span className="text-sm font-semibold flex-1 min-w-[120px] truncate">
-                      {p.loja_nome}
+        {consulta.isLoading ? (
+          <Skeleton className="h-72" />
+        ) : (
+          <Tabela colunas="minmax(0,1.2fr) minmax(0,1fr) 100px 130px 120px">
+            <TabelaCabecalho>
+              <span>Loja</span>
+              <span>Cliente</span>
+              <span className="text-right">Valor</span>
+              <span>Quando</span>
+              <span>Status</span>
+            </TabelaCabecalho>
+            {/* key com o cliente junto: o id 77 existe em mais de um cliente */}
+            {daTela.map((pd, i) => (
+              <TabelaLinha key={`${pd.tenant_id ?? 0}-${pd.id}`} primeira={i === 0} aoClicar={() => setAberto(pd)}>
+                <CelulaNome
+                  nome={
+                    <>
+                      {pd.loja_nome}
                       {/* A etiqueta existe pra desambiguar. Quando o cliente da
                           plataforma se chama igual à loja, ela só repetiria o nome. */}
-                      {p.tenant_nome && p.tenant_nome !== p.loja_nome && (
-                        <span className="ml-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
-                          {p.tenant_nome}
+                      {pd.tenant_nome && pd.tenant_nome !== pd.loja_nome && (
+                        <span className="ml-1.5 text-[11px] font-normal" style={{ color: 'var(--adm-rotulo)' }}>
+                          {pd.tenant_nome}
                         </span>
                       )}
-                    </span>
-                    <span className="text-sm text-muted-foreground truncate hidden sm:block">{p.cliente_nome}</span>
-                    <span className="font-bold tabular-nums text-sm">{brl(p.total_centavos)}</span>
-                    <span className="text-xs text-muted-foreground shrink-0 hidden sm:block">{dataLocal(p.criado_em)}</span>
-                    <ChevronRight className="size-4 text-muted-foreground" />
-                  </div>
-                </button>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                    </>
+                  }
+                  sub={`#${String(pd.id).padStart(4, '0')}`}
+                />
+                <span className="truncate">{pd.cliente_nome || <Vazio />}</span>
+                <Num className="text-right">{brl(pd.total_centavos)}</Num>
+                <Num className="text-[12px]">{dataLocal(pd.criado_em)}</Num>
+                <Status tom={TOM[pd.status] ?? 'neutro'}>{ROTULO[pd.status] ?? pd.status}</Status>
+              </TabelaLinha>
+            ))}
+            <TabelaRodape
+              total={daTela.length}
+              filtro={grupo === 'todos' ? undefined : grupoAtivo.label}
+            />
+          </Tabela>
+        )}
 
         {/*
           CARREGAR MAIS em vez de paginação numerada: a lista já vem ordenada
           por id decrescente e quem abre esta tela quer os recentes — trocar de
           "página" perderia esse fio. O backend corta em 500.
         */}
-        {pedidos.length > naTela.length && (
-          <div className="flex flex-col items-center gap-1.5 pt-1">
-            <Button variant="outline" onClick={() => setVisiveis(v => v + PAGINA)}>
-              Carregar mais {Math.min(PAGINA, pedidos.length - naTela.length)}
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              Mostrando {naTela.length} de {pedidos.length}
+        {visiveisFiltrados.length > naTela.length && (
+          <div className="flex flex-col items-center gap-1.5 pt-3">
+            <Botao onClick={() => setVisiveis(v => v + PAGINA)}>
+              Carregar mais {Math.min(PAGINA, visiveisFiltrados.length - naTela.length)}
+            </Botao>
+            <span className="text-[11.5px]" style={{ color: 'var(--adm-dado)' }}>
+              Mostrando {naTela.length} de {visiveisFiltrados.length}
               {pedidos.length === 500 && ' (limite da consulta — filtre por data pra ver períodos maiores)'}
             </span>
           </div>
         )}
       </div>
 
-      <DrawerDetalhe
+      <PainelLateral
         aberto={aberto !== null}
         aoFechar={() => setAberto(null)}
         titulo={aberto ? `Pedido #${String(aberto.id).padStart(4, '0')}` : ''}
         subtitulo={aberto && (
           <>
-            <Badge variant={STATUS_CORES[aberto.status] ?? 'secondary'} className="text-[10px]">
-              {ROTULO[aberto.status] ?? aberto.status}
-            </Badge>
-            <span>{aberto.loja_nome}</span>
-            {aberto.tenant_nome && aberto.tenant_nome !== aberto.loja_nome && <span>· {aberto.tenant_nome}</span>}
-            <span>· {dataLocal(aberto.criado_em)}</span>
+            {ROTULO[aberto.status] ?? aberto.status} · {aberto.loja_nome}
+            {aberto.tenant_nome && aberto.tenant_nome !== aberto.loja_nome && ` · ${aberto.tenant_nome}`}
+            {' · '}{dataLocal(aberto.criado_em)}
           </>
         )}
       >
         {aberto && <DetalhePedido id={aberto.id} tenantId={aberto.tenant_id} />}
-      </DrawerDetalhe>
+      </PainelLateral>
     </AdminLayout>
   );
 }
 
-function MiniKpi({ valor, rotulo, cor }: { valor: string; rotulo: string; cor?: string }) {
-  return (
-    <Card>
-      <CardContent className="p-4 text-center">
-        <div className={cn('text-xl font-extrabold tabular-nums', cor)}>{valor}</div>
-        <div className="text-xs text-muted-foreground mt-0.5">{rotulo}</div>
-      </CardContent>
-    </Card>
-  );
-}
+/** O status do pedido no vocabulário de cor do painel. */
+const TOM: Record<string, Tom> = {
+  entregue: 'ok',
+  cancelado: 'erro',
+  recusado: 'erro',
+  pendente: 'atencao',
+  aceito: 'neutro',
+  preparando: 'neutro',
+  pronto: 'neutro',
+  em_entrega: 'neutro',
+};
 
 interface DetalheResp {
   pedido: {

@@ -7,6 +7,10 @@ import {
   FileText, ShieldCheck, Upload, Package, Save, ChevronUp, Globe, Loader2, LogIn,
 } from 'lucide-react';
 import { AdminLayout } from './layout';
+import {
+  Cabecalho, Toolbar, Busca, Segmented, Tabela, TabelaCabecalho, TabelaLinha,
+  TabelaRodape, CelulaNome, Status, Vazio, Botao, PainelLateral, baixarCsv, type Tom,
+} from './ui';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,7 +18,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
-import { DrawerDetalhe } from '@/components/ui/drawer-detalhe';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, ehSuperAdmin, tokenSessao, abrirSessaoLojistaImpersonada, destinoImpersonacao } from '@/lib/api';
@@ -198,204 +201,177 @@ export function TelaLojas() {
           </div>
         )}
 
-        {/* Header */}
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-extrabold flex items-center gap-2">
-              <Store className="size-6 text-primary" /> Lojas
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {todas.length} lojas cadastradas
-              {pendentes > 0 && (
-                <span className="ml-2 font-semibold text-amber-600">· {pendentes} aguardando aprovação</span>
-              )}
-            </p>
-          </div>
-          {superAdmin && (
-            <Link to="/painel-admin/clientes">
-              <Button>
-                <Building2 className="size-4" /> Novo cliente
-              </Button>
-            </Link>
+        <Cabecalho
+          titulo="Lojas"
+          subtitulo={
+            consulta.isLoading ? 'Carregando…' : (
+              <>
+                {todas.length} cadastradas
+                {pendentes > 0 && ` · ${pendentes} aguardando aprovação`}
+              </>
+            )
+          }
+          acoes={superAdmin && (
+            <Link to="/painel-admin/clientes"><Botao variante="primario">Novo cliente</Botao></Link>
           )}
-        </div>
+        />
 
-        {/* Busca + filtros */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <input
-              value={busca}
-              onChange={e => setBusca(e.target.value)}
-              placeholder="Buscar por nome, dono ou e-mail…"
-              className="w-full h-10 pl-10 pr-4 rounded-xl border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-            />
+        <Toolbar>
+          <div className="min-w-[200px] flex-1">
+            <Busca valor={busca} aoMudar={setBusca} placeholder="Buscar por nome, dono ou e-mail…" />
           </div>
-          <div className="flex gap-1.5 flex-wrap">
-            {FILTROS.map(f => (
-              <button
-                key={f.valor}
-                onClick={() => setFiltro(f.valor)}
-                className={cn(
-                  'px-3 py-2 rounded-xl text-sm font-semibold transition-colors whitespace-nowrap',
-                  filtro === f.valor ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {f.label}
-                {f.valor !== 'todas' && (
-                  <span className="ml-1.5 tabular-nums opacity-60">
-                    ({todas.filter(l => l.status_aprovacao === f.valor).length})
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
+          <Segmented
+            valor={filtro}
+            aoMudar={setFiltro}
+            opcoes={FILTROS.map(f => ({
+              v: f.valor,
+              label: f.label,
+              contagem: f.valor === 'todas'
+                ? todas.length
+                : todas.filter(l => l.status_aprovacao === f.valor).length,
+            }))}
+          />
+        </Toolbar>
 
-        {consulta.isLoading && (
-          <div className="space-y-3">{[1, 2, 3].map(i => <Skeleton key={i} className="h-24 rounded-2xl" />)}</div>
-        )}
+        {consulta.isError && <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />}
 
-        {consulta.isError && (
-          <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />
-        )}
-
-        {!consulta.isLoading && lojas.length === 0 && !consulta.isError && (
-          <Card><CardContent className="p-10 text-center text-muted-foreground">Nenhuma loja encontrada.</CardContent></Card>
-        )}
-
-        {/* Lista */}
-        <div className="space-y-3">
-          {lojas.map(l => {
-            const aberto = selecionada === l.id;
-            return (
-              <Card key={l.id} className={cn(
-                'transition-shadow',
-                aberto && 'ring-2 ring-primary/40',
-                l.status_aprovacao === 'pendente' && 'border-amber-500/30 bg-amber-500/5',
-                l.status_aprovacao === 'suspensa' && 'border-destructive/30',
-              )}>
-                <CardContent className="p-5">
-                  <div className="flex items-center gap-4">
-                    {/* Logo */}
-                    <button
-                      onClick={() => setSelecionada(aberto ? null : l.id)}
-                      className="shrink-0"
-                      title="Ver vendas"
-                    >
-                      {l.logo_url
-                        ? <img src={l.logo_url} alt="" className="size-14 rounded-2xl object-cover border border-border" />
-                        : <div className="flex size-14 items-center justify-center rounded-2xl bg-muted"><Store className="size-6 text-muted-foreground" /></div>}
-                    </button>
-
-                    {/* Info — clicável para abrir vendas */}
-                    <button
-                      onClick={() => setSelecionada(aberto ? null : l.id)}
-                      className="flex-1 min-w-0 text-left"
-                    >
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-[15px]">{l.nome}</span>
-                        <StatusBadge status={l.status_aprovacao} />
-                        {l.aberta
-                          ? <Badge variant="success" className="text-[10px]">Aberta</Badge>
-                          : <Badge variant="secondary" className="text-[10px]">Fechada</Badge>}
-                      </div>
-                      <div className="text-sm text-muted-foreground mt-0.5 flex items-center gap-1.5 flex-wrap">
-                        {l.categoria} · {l.dono_nome}
-                        {l.tenant_nome && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-                            <Building2 className="size-2.5" /> {l.tenant_nome}
-                          </span>
-                        )}
-                      </div>
-                      {(l.dominio_personalizado || l.slug) && (
-                        <div className="text-xs text-muted-foreground mt-0.5 font-mono flex items-center gap-1">
-                          <Globe className="size-3" />
-                          {l.dominio_personalizado || `/${l.slug}`}
-                        </div>
-                      )}
-                      {/*
-                        QUEM EMITE A NOTA, no card e não só dentro da gaveta.
-                        O estado que interessa — vendendo sem nota — é o que
-                        ninguém vai clicar para descobrir.
-                      */}
-                      {l.situacao_nota && (
-                        <div className="mt-1.5 flex items-center gap-1.5" title={l.situacao_nota.detalhe}>
-                          <FileText className="size-3 text-muted-foreground" />
-                          <span className={cn('rounded-full px-2 py-0.5 text-[10.5px] font-bold',
-                            SELO_NOTA[l.situacao_nota.estado])}>
-                            {l.situacao_nota.rotulo}
-                          </span>
-                        </div>
-                      )}
-                      <div className="text-xs text-primary font-semibold mt-1 flex items-center gap-1">
-                        <TrendingUp className="size-3" />
-                        Ver vendas e configurações
-                        <ChevronRight className="size-3" />
-                      </div>
-                    </button>
-
-                    {/* Ações */}
-                    <div className="flex flex-col gap-2 shrink-0">
-                      {!!l.tenant_id && (
-                        <Button size="sm" variant="outline" onClick={() => entrarComoLojista(l)}>
-                          <LogIn className="size-3.5" /> Entrar
-                        </Button>
-                      )}
-                      {l.status_aprovacao !== 'aprovada' && (
-                        <Button size="sm" variant="success" onClick={() => aprovar(l)}>
-                          <CheckCircle2 className="size-3.5" /> {l.status_aprovacao === 'suspensa' ? 'Reativar' : 'Aprovar'}
-                        </Button>
-                      )}
-                      {l.status_aprovacao === 'aprovada' && (
-                        <Button size="sm" variant="destructive" onClick={() => suspender(l)}>
-                          <XCircle className="size-3.5" /> Suspender
-                        </Button>
-                      )}
-                      {superAdmin && (
-                        <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => excluir(l)}>
-                          <Trash2 className="size-3.5" /> Excluir
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                </CardContent>
-
-                {/*
-                  VENDAS E CONFIGURAÇÕES EM DRAWER.
-                  Aberto inline, este bloco tem vendas + comissão + domínio +
-                  WhatsApp + fiscal: empurrava as lojas seguintes vários écrans
-                  pra baixo, e fechar exigia rolar de volta até achar o card.
-                */}
-                <DrawerDetalhe
-                  aberto={aberto}
-                  aoFechar={() => setSelecionada(null)}
-                  titulo={l.nome}
-                  subtitulo={
+        {consulta.isLoading ? (
+          <Skeleton className="h-72" />
+        ) : (
+          <Tabela colunas="minmax(0,1.4fr) minmax(0,1fr) 130px 110px 110px">
+            <TabelaCabecalho>
+              <span>Loja</span>
+              <span>Dono</span>
+              <span>Nota</span>
+              <span>Situação</span>
+              <span />
+            </TabelaCabecalho>
+            {lojas.map((l, i) => (
+              <TabelaLinha key={l.id} primeira={i === 0} aoClicar={() => setSelecionada(l.id)}>
+                <CelulaNome
+                  nome={
                     <>
-                      <StatusBadge status={l.status_aprovacao} />
-                      <span>{l.categoria} · {l.dono_nome}</span>
+                      {l.nome}
+                      {/* Aberta/fechada é estado do DIA, não do cadastro: vai
+                          como texto discreto ao lado, não como mais um selo
+                          competindo com a situação da loja. */}
+                      {!l.aberta && (
+                        <span className="ml-1.5 text-[11px] font-normal" style={{ color: 'var(--adm-rotulo)' }}>
+                          fechada
+                        </span>
+                      )}
+                      {l.tenant_nome && l.tenant_nome !== l.nome && (
+                        <span className="ml-1.5 text-[11px] font-normal" style={{ color: 'var(--adm-rotulo)' }}>
+                          {l.tenant_nome}
+                        </span>
+                      )}
                     </>
                   }
-                >
-                  <div className="space-y-1">
-                    <PainelVendas loja={l} />
-                    {superAdmin && <ComissaoLojaEditor loja={l} onSalvo={() => consulta.refetch()} />}
-                    {superAdmin && <DominioLojaEditor loja={l} onSalvo={() => consulta.refetch()} />}
-                    {superAdmin && <WhatsAppPermissoesEditor loja={l} onSalvo={() => consulta.refetch()} />}
-                    {superAdmin && <ModulosDaLoja loja={l} />}
-                    {superAdmin && <FiscalLojaAdmin loja={l} />}
-                  </div>
-                </DrawerDetalhe>
-              </Card>
-            );
-          })}
-        </div>
+                  sub={l.dominio_personalizado || (l.slug ? `/${l.slug}` : '')}
+                />
+                <CelulaNome nome={l.dono_nome} sub={l.dono_email} />
+                {/* Quem emite a nota — a coluna que mostra "vendendo sem nota",
+                    o estado que não aparecia em tela nenhuma. */}
+                {l.situacao_nota
+                  ? <Status tom={TOM_NOTA[l.situacao_nota.estado] ?? 'neutro'}>{l.situacao_nota.rotulo}</Status>
+                  : <Vazio />}
+                <Status tom={TOM_SITUACAO[l.status_aprovacao] ?? 'neutro'}>
+                  {ROTULO_SITUACAO[l.status_aprovacao] ?? l.status_aprovacao}
+                </Status>
+                {/*
+                  AS AÇÕES DESTRUTIVAS SAÍRAM DA LINHA.
+                  Aprovar, suspender e excluir ficavam a um clique de distância
+                  numa lista onde a linha inteira já é clicável — vizinhança
+                  perigosa demais para "excluir". Agora moram na gaveta, onde
+                  quem clica já leu de qual loja se trata.
+                */}
+                <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
+                  {!!l.tenant_id && (
+                    <Botao altura={30} onClick={() => entrarComoLojista(l)}>Entrar</Botao>
+                  )}
+                </div>
+              </TabelaLinha>
+            ))}
+            <TabelaRodape
+              total={lojas.length}
+              filtro={filtro === 'todas' ? undefined : FILTROS.find(f => f.valor === filtro)?.label}
+              aoExportar={lojas.length > 0 ? () => baixarCsv(
+                'lojas',
+                ['Loja', 'Slug', 'Domínio', 'Dono', 'E-mail', 'Situação', 'Aberta', 'Emissor da nota'],
+                lojas.map(l => [
+                  l.nome, l.slug ?? '', l.dominio_personalizado ?? '', l.dono_nome, l.dono_email,
+                  ROTULO_SITUACAO[l.status_aprovacao] ?? l.status_aprovacao,
+                  l.aberta ? 'sim' : 'não',
+                  l.situacao_nota?.rotulo ?? '',
+                ]),
+              ) : undefined}
+            />
+          </Tabela>
+        )}
       </div>
+
+      {/* ── Detalhe em painel lateral ── */}
+      {(() => {
+        const l = todas.find(x => x.id === selecionada);
+        if (!l) return null;
+        return (
+          <PainelLateral
+            aberto
+            aoFechar={() => setSelecionada(null)}
+            titulo={l.nome}
+            subtitulo={
+              <>
+                {ROTULO_SITUACAO[l.status_aprovacao] ?? l.status_aprovacao} · {l.categoria} · {l.dono_nome}
+              </>
+            }
+            rodape={
+              <>
+                {l.status_aprovacao !== 'aprovada' && (
+                  <Botao altura={30} variante="primario" onClick={() => aprovar(l)}>
+                    {l.status_aprovacao === 'suspensa' ? 'Reativar' : 'Aprovar'}
+                  </Botao>
+                )}
+                {l.status_aprovacao === 'aprovada' && (
+                  <Botao altura={30} variante="perigo" onClick={() => suspender(l)}>Suspender</Botao>
+                )}
+                {superAdmin && (
+                  <Botao altura={30} variante="perigo" onClick={() => excluir(l)}>Excluir</Botao>
+                )}
+              </>
+            }
+          >
+            <div className="space-y-1">
+              <PainelVendas loja={l} />
+              {superAdmin && <ComissaoLojaEditor loja={l} onSalvo={() => consulta.refetch()} />}
+              {superAdmin && <DominioLojaEditor loja={l} onSalvo={() => consulta.refetch()} />}
+              {superAdmin && <WhatsAppPermissoesEditor loja={l} onSalvo={() => consulta.refetch()} />}
+              {superAdmin && <ModulosDaLoja loja={l} />}
+              {superAdmin && <FiscalLojaAdmin loja={l} />}
+            </div>
+          </PainelLateral>
+        );
+      })()}
     </AdminLayout>
   );
 }
+
+/** A situação do cadastro no vocabulário de cor do painel. */
+const TOM_SITUACAO: Record<string, Tom> = {
+  aprovada: 'ok', pendente: 'atencao', suspensa: 'erro',
+};
+const ROTULO_SITUACAO: Record<string, string> = {
+  aprovada: 'Aprovada', pendente: 'Aguardando', suspensa: 'Suspensa',
+};
+
+/*
+ * A COR DIZ SE TERMINA EM NOTA, não qual emissor é. `proprio` é âmbar como quem
+ * não tem emissor nenhum: a emissão deste sistema está incompleta, então
+ * apontar para ela também acaba em venda sem nota.
+ */
+const TOM_NOTA: Record<string, Tom> = {
+  erp: 'ok', maquininha: 'ok', proprio: 'atencao', sem_credencial: 'atencao', nenhum: 'erro',
+};
+
 
 /* ──────────────────── Comissão customizada por loja ──────────────────── */
 
@@ -1201,8 +1177,3 @@ function FiscalLojaAdmin({ loja }: { loja: Loja }) {
   );
 }
 
-function StatusBadge({ status }: { status: 'pendente' | 'aprovada' | 'suspensa' }) {
-  if (status === 'aprovada') return <Badge variant="success" className="text-[10px]"><CheckCircle2 className="size-3 mr-1" />Aprovada</Badge>;
-  if (status === 'suspensa') return <Badge variant="danger" className="text-[10px]"><XCircle className="size-3 mr-1" />Suspensa</Badge>;
-  return <Badge variant="warning" className="text-[10px]"><Clock className="size-3 mr-1" />Pendente</Badge>;
-}
