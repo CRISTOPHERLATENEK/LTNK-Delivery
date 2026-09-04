@@ -1,0 +1,8 @@
+# Backup dos bancos do Delivery — 03:12, todo dia.
+# 03:12 e nao 03:00 de proposito: minuto redondo e onde todo mundo agenda, e
+# concorrer com outra tarefa pesada e o que faz backup estourar timeout.
+# MAILTO vazio: sem isso o cron tenta mandar e-mail a cada execucao e enche o log.
+MAILTO=""
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+12 3 * * * root /usr/local/bin/backup-delivery.sh

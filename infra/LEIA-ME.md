@@ -1,5 +1,8 @@
 # Backup e restauração
 
+> **Se o servidor caiu agora**, vá direto para [SE-O-SERVIDOR-CAIR.md](SE-O-SERVIDOR-CAIR.md).
+> Este arquivo explica como o backup funciona; aquele diz o que fazer no incidente.
+
 Os dois scripts rodam no servidor, em `/usr/local/bin/`. Estão versionados aqui
 porque script que só existe na máquina desaparece com a máquina — e é justamente
 numa máquina perdida que eles seriam necessários.
