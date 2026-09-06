@@ -11,6 +11,10 @@ import { useLocation } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Handshake, Plus, Pencil, Trash2, Lock, Unlock, Building2, X } from 'lucide-react';
 import { AdminLayout } from './layout';
+import {
+  Cabecalho, Toolbar, Segmented, Tabela, TabelaCabecalho, TabelaLinha,
+  TabelaRodape, CelulaNome, Num, Botao, PainelLateral,
+} from './ui';
 import { PainelSolicitacoes } from './solicitacoes';
 import { PainelModulos } from './modulos';
 import { Card, CardContent } from '@/components/ui/card';
@@ -116,124 +120,109 @@ export function TelaRevendedores() {
 
   return (
     <AdminLayout titulo="Revendedores">
-      <div className="mx-auto max-w-4xl space-y-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="flex items-center gap-2 text-2xl font-extrabold">
-              <Handshake className="size-6 text-primary" /> Revendedores
-            </h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {lista.length} cadastrado{lista.length !== 1 ? 's' : ''}
-              {totalMes > 0 && <> · <b className="text-foreground">{brl(totalMes)}</b>/mês a receber</>}
-            </p>
-          </div>
-          {aba === 'revendedores' && (
-            <Button onClick={() => { setEditando(null); setCriando(true); }}>
-              <Plus className="size-4" /> Novo revendedor
-            </Button>
+      <div className="mx-auto max-w-4xl">
+        <Cabecalho
+          titulo="Revendedores"
+          subtitulo={
+            <>
+              {lista.length} {lista.length === 1 ? 'cadastrado' : 'cadastrados'}
+              {totalMes > 0 && ` · ${brl(totalMes)} por mês a receber`}
+              {pendentesSolic > 0 && ` · ${pendentesSolic} solicitação(ões) aguardando`}
+            </>
+          }
+          acoes={aba === 'revendedores' && (
+            <Botao variante="primario" onClick={() => { setEditando(null); setCriando(true); }}>
+              Novo revendedor
+            </Botao>
           )}
-        </div>
+        />
 
-        <div className="flex gap-2 border-b border-border">
-          {([
-            { chave: 'revendedores' as const, rotulo: 'Revendedores' },
-            { chave: 'solicitacoes' as const, rotulo: 'Solicitações' },
-            { chave: 'modulos' as const, rotulo: 'Módulos' },
-          ]).map(t => (
-            <button
-              key={t.chave}
-              type="button"
-              onClick={() => setAba(t.chave)}
-              className={cn('relative -mb-px flex items-center gap-2 border-b-2 px-3 py-2 text-sm font-semibold transition-colors',
-                aba === t.chave ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground')}
-            >
-              {t.rotulo}
-              {/* Ponto âmbar na aba: a pendência precisa ser vista de onde a
-                  pessoa já está, não só de quem abrir a aba por acaso. */}
-              {t.chave === 'solicitacoes' && pendentesSolic > 0 && (
-                <span className="size-2 rounded-full bg-amber-500" title={`${pendentesSolic} aguardando análise`} />
-              )}
-            </button>
-          ))}
-        </div>
+        <Toolbar>
+          {/* As três abas viraram um segmented como o resto do painel: eram o
+              único lugar com sublinhado, e duas linguagens para "escolha uma
+              destas" na mesma ferramenta é o que faz cada tela parecer outra. */}
+          <Segmented
+            valor={aba}
+            aoMudar={setAba}
+            opcoes={[
+              { v: 'revendedores' as const, label: 'Revendedores', contagem: lista.length },
+              { v: 'solicitacoes' as const, label: 'Solicitações', contagem: pendentesSolic || undefined },
+              { v: 'modulos' as const, label: 'Módulos' },
+            ]}
+          />
+        </Toolbar>
 
         {aba === 'modulos' ? <PainelModulos /> : aba === 'solicitacoes' ? <PainelSolicitacoes /> : (
-        <>
+          <>
+            {consulta.isError && <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />}
 
-        {(criando || editando) && (
-          <FormRevendedor
-            editando={editando}
-            onFechar={() => { setCriando(false); setEditando(null); }}
-            onSalvo={() => {
-              setCriando(false); setEditando(null);
-              qc.invalidateQueries({ queryKey: ['admin-revendedores'] });
-            }}
-          />
-        )}
+            {consulta.isLoading ? (
+              <Skeleton className="h-64" />
+            ) : (
+              <Tabela colunas="minmax(0,1.4fr) 110px 120px 110px 130px">
+                <TabelaCabecalho>
+                  <span>Revendedor</span>
+                  <span className="text-right">Clientes</span>
+                  <span className="text-right">Por cliente</span>
+                  <span className="text-right">No mês</span>
+                  <span />
+                </TabelaCabecalho>
+                {lista.map((r, i) => (
+                  <TabelaLinha key={r.id} primeira={i === 0} aoClicar={() => { setCriando(false); setEditando(r); }}>
+                    <CelulaNome nome={r.nome} sub={r.email} />
+                    <Num className="text-right">
+                      {r.clientes_ativos}
+                      {r.clientes !== r.clientes_ativos && (
+                        <span style={{ color: 'var(--adm-dado)' }}>/{r.clientes}</span>
+                      )}
+                    </Num>
+                    <Num className="text-right">{brl(r.custo_centavos)}</Num>
+                    <div className="text-right">
+                      <Num className="font-medium">{brl(r.total_centavos)}</Num>
+                      {/* A quebra só aparece quando há módulo: sem eles,
+                          "mensalidade R$ X + módulos R$ 0" é ruído. */}
+                      {r.modulos_centavos > 0 && (
+                        <div className="adm-num text-[11px]" style={{ color: 'var(--adm-dado)' }}>
+                          {brl(r.mensalidades_centavos)} + {brl(r.modulos_centavos)}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
+                      <Botao altura={30} onClick={() => alternarBloqueio(r)}>
+                        {r.bloqueado ? 'Desbloquear' : 'Bloquear'}
+                      </Botao>
+                      <Botao altura={30} variante="perigo" onClick={() => remover(r)}>Remover</Botao>
+                    </div>
+                  </TabelaLinha>
+                ))}
+                <TabelaRodape total={lista.length} />
+              </Tabela>
+            )}
 
-        {consulta.isLoading && (
-          <div className="space-y-2">{[1, 2].map(i => <Skeleton key={i} className="h-24 rounded-xl" />)}</div>
-        )}
-        {consulta.isError && <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />}
-
-        {!consulta.isLoading && lista.length === 0 && !consulta.isError && (
-          <Card><CardContent className="space-y-2 p-10 text-center text-muted-foreground">
-            <Handshake className="mx-auto size-10 opacity-20" />
-            <p className="font-medium">Nenhum revendedor ainda</p>
-            <p className="text-sm">Cadastre um e depois vincule os clientes dele na aba Clientes.</p>
-          </CardContent></Card>
-        )}
-
-        <div className="space-y-2">
-          {lista.map(r => (
-            <Card key={r.id} className={r.bloqueado ? 'opacity-60' : ''}>
-              <CardContent className="flex flex-wrap items-center gap-4 p-4">
-                <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary/10 font-bold text-primary">
-                  {(r.nome || '?').charAt(0).toUpperCase()}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-semibold">{r.nome}</span>
-                    {!!r.bloqueado && <Badge variant="danger" className="text-[10px]">Bloqueado</Badge>}
-                  </div>
-                  <div className="mt-0.5 truncate text-xs text-muted-foreground">{r.email}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Building2 className="size-3" />
-                      {r.clientes_ativos} ativo{r.clientes_ativos !== 1 ? 's' : ''}
-                      {r.clientes !== r.clientes_ativos && ` de ${r.clientes}`}
-                    </span>
-                    <span>{brl(r.custo_centavos)} por cliente</span>
-                  </div>
-                </div>
-                <div className="shrink-0 text-right">
-                  <div className="text-lg font-extrabold tabular-nums">{brl(r.total_centavos)}</div>
-                  {/* A quebra só aparece quando há módulo: sem eles, "mensalidade
-                      R$ X + módulos R$ 0" é ruído. */}
-                  <div className="text-[11px] text-muted-foreground">
-                    {r.modulos_centavos > 0
-                      ? `${brl(r.mensalidades_centavos)} + ${brl(r.modulos_centavos)} módulos`
-                      : 'no mês'}
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => { setCriando(false); setEditando(r); }} title="Editar">
-                    <Pencil className="size-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => alternarBloqueio(r)} title={r.bloqueado ? 'Desbloquear' : 'Bloquear'}>
-                    {r.bloqueado ? <Unlock className="size-3.5" /> : <Lock className="size-3.5" />}
-                  </Button>
-                  <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => remover(r)} title="Remover">
-                    <Trash2 className="size-3.5" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-        </>
+            {!consulta.isLoading && lista.length === 0 && !consulta.isError && (
+              <p className="pt-4 text-center text-[12.5px]" style={{ color: 'var(--adm-dado)' }}>
+                Nenhum revendedor ainda. Cadastre um e depois vincule os clientes dele.
+              </p>
+            )}
+          </>
         )}
       </div>
+
+      <PainelLateral
+        aberto={criando || !!editando}
+        titulo={editando ? editando.nome : 'Novo revendedor'}
+        subtitulo={editando ? editando.email : 'Cadastro e custo por cliente'}
+        aoFechar={() => { setCriando(false); setEditando(null); }}
+      >
+        <FormRevendedor
+          editando={editando}
+          onFechar={() => { setCriando(false); setEditando(null); }}
+          onSalvo={() => {
+            setCriando(false); setEditando(null);
+            qc.invalidateQueries({ queryKey: ['admin-revendedores'] });
+          }}
+        />
+      </PainelLateral>
     </AdminLayout>
   );
 }

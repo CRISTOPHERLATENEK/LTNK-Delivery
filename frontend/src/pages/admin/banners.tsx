@@ -2,6 +2,10 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Image, Plus, Trash2, ToggleLeft, ToggleRight, Tag } from 'lucide-react';
 import { AdminLayout } from './layout';
+import {
+  Cabecalho, Tabela, TabelaCabecalho, TabelaLinha, TabelaRodape,
+  CelulaNome, Num, Status, Vazio, Botao, PainelLateral,
+} from './ui';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -117,26 +121,77 @@ export function TelaBanners() {
 
   return (
     <AdminLayout titulo="Banners">
-      <div className="space-y-5 max-w-4xl mx-auto">
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-extrabold tracking-tight flex items-center gap-2">
-              <Image className="size-6 text-primary" /> Banners do carrossel
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Imagens exibidas na página inicial. Clique em um banner leva à loja ou abre o produto direto.
-            </p>
-          </div>
-          <Button onClick={() => setCriando(c => !c)}>
-            <Plus className="size-4" /> Novo banner
-          </Button>
-        </div>
+      <div className="mx-auto max-w-4xl">
+        <Cabecalho
+          titulo="Banners"
+          subtitulo={
+            consulta.isLoading ? 'Carregando…' : (
+              <>
+                {consulta.data?.length ?? 0} no carrossel da página inicial ·
+                {' '}{(consulta.data ?? []).filter(b => b.ativo).length} ativos
+              </>
+            )
+          }
+          acoes={<Botao variante="primario" onClick={() => setCriando(true)}>Novo banner</Botao>}
+        />
 
-        {criando && (
-          <Card className="border-primary/30">
-            <CardContent className="p-5">
-              <h3 className="font-bold mb-4">Novo banner</h3>
-              <form onSubmit={salvar} className="grid gap-3 sm:grid-cols-2">
+        {consulta.isLoading ? (
+          <Skeleton className="h-64" />
+        ) : (
+          <Tabela colunas="56px minmax(0,1.6fr) minmax(0,1fr) 70px 100px 110px">
+            <TabelaCabecalho>
+              <span />
+              <span>Título</span>
+              <span>Destino</span>
+              <span className="text-right">Ordem</span>
+              <span>Situação</span>
+              <span />
+            </TabelaCabecalho>
+            {(consulta.data ?? []).map((b, i) => (
+              <TabelaLinha key={b.id} primeira={i === 0}>
+                {/*
+                  A MINIATURA É A PRIMEIRA COLUNA, e é a única imagem da tela.
+                  Num banner, a imagem É o conteúdo — uma lista só de títulos
+                  obrigaria a abrir cada um para saber qual é qual.
+                */}
+                <img
+                  src={b.imagem}
+                  alt=""
+                  className="h-9 w-[52px] object-cover"
+                  style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, opacity: b.ativo ? 1 : 0.45 }}
+                />
+                <CelulaNome nome={b.titulo} sub={b.subtitulo || ''} />
+                <div className="min-w-0 text-[12.5px]" style={{ color: 'var(--adm-fg2)' }}>
+                  {b.produto_nome
+                    ? <>abre <b className="font-medium">{b.produto_nome}</b></>
+                    : b.loja_nome
+                      ? <>vai para {b.loja_nome}</>
+                      : b.link_url
+                        ? <span className="adm-num truncate">{b.link_url}</span>
+                        : <Vazio />}
+                </div>
+                <Num className="text-right">{b.ordem}</Num>
+                <Status tom={b.ativo ? 'ok' : 'inativo'}>{b.ativo ? 'Ativo' : 'Inativo'}</Status>
+                <div className="flex items-center justify-end gap-1.5">
+                  <Botao altura={30} onClick={() => alternarAtivo(b)}>
+                    {b.ativo ? 'Desativar' : 'Ativar'}
+                  </Botao>
+                  <Botao altura={30} variante="perigo" onClick={() => excluir(b.id)}>Excluir</Botao>
+                </div>
+              </TabelaLinha>
+            ))}
+            <TabelaRodape total={consulta.data?.length ?? 0} />
+          </Tabela>
+        )}
+      </div>
+
+      <PainelLateral
+        aberto={criando}
+        titulo="Novo banner"
+        subtitulo="Aparece no carrossel da página inicial"
+        aoFechar={() => { setCriando(false); setForm(FORM_VAZIO); }}
+      >
+        <form onSubmit={salvar} className="grid gap-3 sm:grid-cols-2">
                 <div className="sm:col-span-2">
                   <Label>Título *</Label>
                   <Input required value={form.titulo} onChange={campo('titulo')} placeholder="Ex.: Promoção de Verão" />
@@ -208,78 +263,7 @@ export function TelaBanners() {
                   </Button>
                 </div>
               </form>
-            </CardContent>
-          </Card>
-        )}
-
-        {consulta.isLoading && (
-          <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-24" />)}</div>
-        )}
-
-        {!consulta.isLoading && (consulta.data?.length ?? 0) === 0 && (
-          <Card>
-            <CardContent className="p-8 text-center text-muted-foreground">
-              Nenhum banner cadastrado ainda.
-            </CardContent>
-          </Card>
-        )}
-
-        <div className="space-y-3">
-          {consulta.data?.map(b => (
-            <Card key={b.id} className={b.ativo ? '' : 'opacity-60'}>
-              <CardContent className="p-4 flex items-center gap-4">
-                <img
-                  src={b.imagem}
-                  alt={b.titulo}
-                  className="size-20 rounded-xl object-cover border border-border shrink-0 bg-muted"
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold truncate">{b.titulo}</span>
-                    <Badge variant={b.ativo ? 'success' : 'secondary'}>
-                      {b.ativo ? 'Ativo' : 'Inativo'}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">ordem {b.ordem}</span>
-                  </div>
-                  {b.subtitulo && (
-                    <p className="text-xs text-muted-foreground mt-0.5">{b.subtitulo}</p>
-                  )}
-                  {b.loja_nome && (
-                    <p className="text-xs text-muted-foreground mt-0.5">Loja: {b.loja_nome}</p>
-                  )}
-                  {b.produto_nome && (
-                    <p className="text-xs text-primary mt-0.5 flex items-center gap-1">
-                      <Tag className="size-3" /> Abre: {b.produto_nome}
-                    </p>
-                  )}
-                  {b.link_url && (
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">🔗 {b.link_url}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => alternarAtivo(b)}
-                    className="text-muted-foreground hover:text-primary transition-colors"
-                    title={b.ativo ? 'Desativar' : 'Ativar'}
-                  >
-                    {b.ativo
-                      ? <ToggleRight className="size-6 text-primary" />
-                      : <ToggleLeft className="size-6" />
-                    }
-                  </button>
-                  <button
-                    onClick={() => excluir(b.id)}
-                    className="text-muted-foreground hover:text-destructive transition-colors p-1"
-                    title="Excluir"
-                  >
-                    <Trash2 className="size-4" />
-                  </button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
+      </PainelLateral>
     </AdminLayout>
   );
 }
