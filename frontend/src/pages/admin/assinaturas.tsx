@@ -13,6 +13,10 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CreditCard, AlertTriangle, CheckCircle2, Ban, Clock, RefreshCw, Plus } from 'lucide-react';
 import { AdminLayout } from './layout';
+import {
+  Cabecalho, Toolbar, Segmented, Tabela, TabelaCabecalho, TabelaLinha,
+  TabelaRodape, CelulaNome, Num, Status, Botao, PainelLateral, baixarCsv, type Tom,
+} from './ui';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -71,6 +75,7 @@ export function TelaAssinaturas() {
   const confirmar = useConfirm();
   const qc = useQueryClient();
   const [editando, setEditando] = useState<number | null>(null);
+  const [filtro, setFiltro] = useState<'todas' | 'risco' | 'ativa' | 'teste'>('todas');
 
   const consulta = useQuery({
     queryKey: ['admin-assinaturas'],
@@ -105,98 +110,176 @@ export function TelaAssinaturas() {
     .filter(a => a.status_agora === 'ativa' || a.status_agora === 'inadimplente')
     .reduce((s, a) => s + a.valor_centavos, 0);
 
+  /*
+   * ATRASADAS PRIMEIRO, e o resto por vencimento.
+   *
+   * Ordem alfabética faria a única assinatura atrasada de quinze aparecer no
+   * meio da lista — que é o mesmo que não mostrar. A tela existe para responder
+   * "de quem eu preciso cobrar", e a resposta tem que estar na primeira linha.
+   */
+  const PESO: Record<Status, number> = {
+    inadimplente: 0, suspensa: 1, teste: 2, ativa: 3, cancelada: 4,
+  };
+  const ordenadas = [...(dados?.assinaturas ?? [])].sort((x, y) =>
+    PESO[x.status_agora] - PESO[y.status_agora]
+    || y.dias_atraso - x.dias_atraso
+    || x.tenant_nome.localeCompare(y.tenant_nome));
+
+  const visiveis = filtro === 'todas'
+    ? ordenadas
+    : filtro === 'risco'
+      ? ordenadas.filter(a => a.status_agora === 'inadimplente' || a.status_agora === 'suspensa')
+      : ordenadas.filter(a => a.status_agora === filtro);
+
+  const emEdicao = editando === null
+    ? null
+    : dados?.assinaturas.find(a => a.tenant_id === editando) ?? null;
+  const semAssinaturaEmEdicao = editando !== null && !emEdicao
+    ? dados?.sem_assinatura.find(t => t.tenant_id === editando) ?? null
+    : null;
+
   return (
     <AdminLayout titulo="Assinaturas">
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold">
-              <CreditCard className="size-5 text-primary" /> Assinaturas
-            </h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Quanto cada cliente paga, quando vence e o corte automático de acesso.
-            </p>
-          </div>
-          <Button type="button" variant="outline" onClick={processarAgora}>
-            <RefreshCw className="size-4" /> Processar vencimentos
-          </Button>
-        </div>
+      <div className="mx-auto max-w-4xl">
+        <Cabecalho
+          titulo="Assinaturas"
+          subtitulo={
+            consulta.isLoading ? 'Carregando…' : (
+              <>
+                {brl(receita)} por mês · {dados?.assinaturas.length ?? 0} clientes
+                {!!dados?.sem_assinatura.length && ` · ${dados.sem_assinatura.length} sem assinatura`}
+                {!!emRisco.length && ` · ${emRisco.length} em risco`}
+              </>
+            )
+          }
+          acoes={<Botao onClick={processarAgora}>Processar vencimentos</Botao>}
+        />
 
-        {/* Receita recorrente: soma de quem está em dia OU atrasado (atrasado
-            ainda é receita a receber; suspenso e cancelado não entram). */}
-        {!!dados && (
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Card><CardContent className="p-4">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Receita recorrente</div>
-              <div className="text-xl font-extrabold tabular-nums text-emerald-600">{brl(receita)}</div>
-              <div className="text-[11px] text-muted-foreground">por mês, contando atrasados</div>
-            </CardContent></Card>
-            <Card><CardContent className="p-4">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Clientes</div>
-              <div className="text-xl font-extrabold tabular-nums">{dados.assinaturas.length}</div>
-              <div className="text-[11px] text-muted-foreground">{dados.sem_assinatura.length} sem assinatura</div>
-            </CardContent></Card>
-            <Card className={emRisco.length ? 'border-amber-500/40' : undefined}><CardContent className="p-4">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">Em risco</div>
-              <div className={cn('text-xl font-extrabold tabular-nums', emRisco.length && 'text-amber-600')}>
-                {emRisco.length}
-              </div>
-              <div className="text-[11px] text-muted-foreground">atrasadas ou suspensas</div>
-            </CardContent></Card>
+        {/*
+          TENANTS SEM ASSINATURA VÊM ANTES DA LISTA.
+          São os que estão no ar sem ninguém ter decidido a cobrança — e é o
+          único jeito de essa conta aparecer, já que eles não estão na tabela.
+        */}
+        {!!dados?.sem_assinatura.length && (
+          <div className="mb-4 rounded-[6px] border p-3" style={{ borderColor: 'var(--adm-atencao)', background: 'rgba(199,154,75,0.06)' }}>
+            <p className="text-[13px] font-bold">
+              {dados.sem_assinatura.length === 1
+                ? '1 cliente no ar sem cobrança registrada'
+                : `${dados.sem_assinatura.length} clientes no ar sem cobrança registrada`}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {dados.sem_assinatura.map(t => (
+                <Botao key={t.tenant_id} altura={30} onClick={() => setEditando(t.tenant_id)}>
+                  {t.tenant_nome}
+                </Botao>
+              ))}
+            </div>
           </div>
         )}
 
-        {consulta.isLoading && <div className="space-y-2">{[1, 2].map(i => <Skeleton key={i} className="h-28" />)}</div>}
+        <Toolbar>
+          <Segmented
+            valor={filtro}
+            aoMudar={setFiltro}
+            opcoes={[
+              { v: 'todas', label: 'Todas', contagem: ordenadas.length },
+              { v: 'risco', label: 'Em risco', contagem: ordenadas.filter(a => a.status_agora === 'inadimplente' || a.status_agora === 'suspensa').length },
+              { v: 'ativa', label: 'Em dia', contagem: ordenadas.filter(a => a.status_agora === 'ativa').length },
+              { v: 'teste', label: 'Em teste', contagem: ordenadas.filter(a => a.status_agora === 'teste').length },
+            ]}
+          />
+        </Toolbar>
+
         {consulta.isError && <Falha erro={consulta.error} aoTentar={() => consulta.refetch()} />}
 
-        {/* Tenants SEM assinatura vêm primeiro: são os que estão usando de graça
-            sem ninguém ter decidido isso. */}
-        {!!dados?.sem_assinatura.length && (
-          <Card className="border-dashed">
-            <CardContent className="p-4 space-y-2">
-              <div className="text-sm font-bold">Sem assinatura definida</div>
-              <p className="text-xs text-muted-foreground">
-                Estes clientes estão no ar sem cobrança registrada. Defina o plano para entrarem no controle de vencimento.
-              </p>
-              <div className="flex flex-wrap gap-2 pt-1">
-                {dados.sem_assinatura.map(t => (
-                  <Button key={t.tenant_id} type="button" size="sm" variant="outline"
-                    onClick={() => setEditando(t.tenant_id)}>
-                    <Plus className="size-3.5" /> {t.tenant_nome}
-                  </Button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {dados?.assinaturas.map(a => (
-          <LinhaAssinatura
-            key={a.tenant_id}
-            a={a}
-            aberta={editando === a.tenant_id}
-            onAlternar={() => setEditando(e => (e === a.tenant_id ? null : a.tenant_id))}
-            onMudou={() => qc.invalidateQueries({ queryKey: ['admin-assinaturas'] })}
-          />
-        ))}
-
-        {/* Formulário de tenant que ainda não tem assinatura */}
-        {editando !== null && !dados?.assinaturas.some(a => a.tenant_id === editando) && (
-          <Card><CardContent className="p-4">
-            <Formulario
-              tenantId={editando}
-              nome={dados?.sem_assinatura.find(t => t.tenant_id === editando)?.tenant_nome || ''}
-              onSalvo={() => { setEditando(null); qc.invalidateQueries({ queryKey: ['admin-assinaturas'] }); }}
+        {consulta.isLoading ? (
+          <Skeleton className="h-64" />
+        ) : (
+          <Tabela colunas="minmax(0,1.4fr) 110px 110px 90px 130px">
+            <TabelaCabecalho>
+              <span>Cliente</span>
+              <span className="text-right">Valor</span>
+              <span>Vence</span>
+              <span className="text-right">Atraso</span>
+              <span>Situação</span>
+            </TabelaCabecalho>
+            {visiveis.map((a, i) => (
+              <TabelaLinha key={a.tenant_id} primeira={i === 0} aoClicar={() => setEditando(a.tenant_id)}>
+                <CelulaNome nome={a.tenant_nome} sub={`/${a.tenant_slug} · ${a.plano}`} />
+                <Num className="text-right">{brl(a.valor_centavos)}</Num>
+                <Num className="text-[12px]">{a.vence_em ? dataLocal(a.vence_em) : '—'}</Num>
+                {/* O atraso em dias é o número que decide cobrar ou cortar —
+                    vermelho só quando existe, para não pintar a lista inteira. */}
+                <Num className="text-right" >
+                  {a.dias_atraso > 0
+                    ? <span style={{ color: 'var(--adm-erro)' }}>{a.dias_atraso}d</span>
+                    : <span style={{ color: 'var(--adm-dado)' }}>—</span>}
+                </Num>
+                <Status tom={TOM_ASSINATURA[a.status_agora] ?? 'neutro'}>
+                  {APARENCIA[a.status_agora]?.rotulo ?? a.status_agora}
+                </Status>
+              </TabelaLinha>
+            ))}
+            <TabelaRodape
+              total={visiveis.length}
+              filtro={filtro === 'todas' ? undefined : filtro === 'risco' ? 'Em risco' : APARENCIA[filtro as Status]?.rotulo}
+              aoExportar={visiveis.length > 0 ? () => baixarCsv(
+                'assinaturas',
+                ['Cliente', 'Slug', 'Plano', 'Valor', 'Dia', 'Vence em', 'Atraso (dias)', 'Situação'],
+                visiveis.map(a => [
+                  a.tenant_nome, a.tenant_slug, a.plano, (a.valor_centavos / 100).toFixed(2),
+                  a.dia_vencimento, a.vence_em ?? '', a.dias_atraso,
+                  APARENCIA[a.status_agora]?.rotulo ?? a.status_agora,
+                ]),
+              ) : undefined}
             />
-          </CardContent></Card>
+          </Tabela>
         )}
       </div>
+
+      <PainelLateral
+        aberto={editando !== null}
+        aoFechar={() => setEditando(null)}
+        titulo={emEdicao?.tenant_nome ?? semAssinaturaEmEdicao?.tenant_nome ?? ''}
+        subtitulo={emEdicao
+          ? `${APARENCIA[emEdicao.status_agora]?.rotulo} · ${brl(emEdicao.valor_centavos)} · vence dia ${emEdicao.dia_vencimento}`
+          : 'Sem assinatura definida'}
+      >
+        {emEdicao && (
+          <LinhaAssinatura
+            a={emEdicao}
+            onMudou={() => qc.invalidateQueries({ queryKey: ['admin-assinaturas'] })}
+          />
+        )}
+        {semAssinaturaEmEdicao && (
+          <Formulario
+            tenantId={semAssinaturaEmEdicao.tenant_id}
+            nome={semAssinaturaEmEdicao.tenant_nome}
+            onSalvo={() => { setEditando(null); qc.invalidateQueries({ queryKey: ['admin-assinaturas'] }); }}
+          />
+        )}
+      </PainelLateral>
     </AdminLayout>
   );
 }
 
-function LinhaAssinatura({ a, aberta, onAlternar, onMudou }: {
-  a: Assinatura; aberta: boolean; onAlternar: () => void; onMudou: () => void;
+/** A situação da assinatura no vocabulário de cor do painel. */
+const TOM_ASSINATURA: Record<Status, Tom> = {
+  ativa: 'ok',
+  teste: 'neutro',
+  inadimplente: 'atencao',
+  suspensa: 'erro',
+  cancelada: 'inativo',
+};
+
+/*
+ * O CONTEÚDO do painel lateral de uma assinatura: registrar pagamento e editar.
+ *
+ * Deixou de ser uma linha que expande. Expandir empurrava as assinaturas
+ * seguintes para baixo, e fechar exigia rolar de volta até achar a que abriu.
+ */
+function LinhaAssinatura({ a, onMudou }: {
+  a: Assinatura; onMudou: () => void;
 }) {
   const { mostrar } = useToast();
   const [valorPago, setValorPago] = useState((a.valor_centavos / 100).toFixed(2));
@@ -261,17 +344,15 @@ function LinhaAssinatura({ a, aberta, onAlternar, onMudou }: {
             <Button type="button" size="sm" disabled={registrando} onClick={registrarPagamento}>
               {registrando ? '…' : 'Registrar pagamento'}
             </Button>
-            <Button type="button" size="sm" variant="outline" onClick={onAlternar}>
-              {aberta ? 'Fechar' : 'Editar'}
-            </Button>
           </div>
         </div>
 
-        {aberta && (
-          <div className="border-t border-border pt-3">
-            <Formulario tenantId={a.tenant_id} nome={a.tenant_nome} atual={a} onSalvo={onMudou} />
-          </div>
-        )}
+        {/* O formulário fica SEMPRE aberto dentro do painel: aqui não há lista
+            atrás para preservar, e um segundo clique de "Editar" seria só um
+            passo a mais entre a pessoa e o que ela veio fazer. */}
+        <div className="border-t border-border pt-3">
+          <Formulario tenantId={a.tenant_id} nome={a.tenant_nome} atual={a} onSalvo={onMudou} />
+        </div>
       </CardContent>
     </Card>
   );

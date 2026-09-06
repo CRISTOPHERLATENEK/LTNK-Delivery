@@ -1025,7 +1025,13 @@ router.put('/comissao', exigirSuperAdmin, async (req, res, next) => {
 
 /** Consulta de repasses por loja — a lista e o CSV usam a mesma. */
 function consultaRepasses(req: import('express').Request) {
-  let sql = `SELECT l.id AS loja_id, l.nome AS loja_nome,
+  /*
+   * `comissao_percentual` vem junto porque a tela precisa distinguir a loja com
+   * ACORDO PRÓPRIO da que herda o padrão da plataforma. Sem isso, as duas
+   * aparecem iguais — e a próxima mudança da comissão global pega a de acordo
+   * próprio sem ninguém perceber que ela não deveria mudar.
+   */
+  let sql = `SELECT l.id AS loja_id, l.nome AS loja_nome, l.comissao_percentual,
                       COUNT(p.id) AS pedidos,
                       COALESCE(SUM(p.total_centavos), 0)    AS faturamento_centavos,
                       COALESCE(SUM(p.comissao_centavos), 0) AS comissao_centavos,
@@ -1038,7 +1044,7 @@ function consultaRepasses(req: import('express').Request) {
   if (dataValida(req.query.de))  { filtros.push('p.criado_em >= ?'); params.push(inicioUtcDaData(req.query.de)); }
   if (dataValida(req.query.ate)) { filtros.push('p.criado_em <= ?'); params.push(fimUtcDaData(req.query.ate)); }
   if (filtros.length) sql += ' AND ' + filtros.join(' AND ');
-  sql += ' GROUP BY l.id, l.nome ORDER BY faturamento_centavos DESC';
+  sql += ' GROUP BY l.id, l.nome, l.comissao_percentual ORDER BY faturamento_centavos DESC';
   return { sql, params };
 }
 

@@ -2,6 +2,10 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { TrendingUp, Percent, Filter, X, Download } from 'lucide-react';
 import { AdminLayout } from './layout';
+import {
+  Cabecalho, Toolbar, Tabela, TabelaCabecalho, TabelaLinha, TabelaRodape,
+  CelulaNome, Num, Botao, Secao, LinhaRotulada,
+} from './ui';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,12 +13,15 @@ import { Label } from '@/components/ui/label';
 import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
+import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, ehSuperAdmin, tokenSessao } from '@/lib/api';
 import { brl } from '@/lib/format';
 
 interface Repasse {
   loja_id: number;
   loja_nome: string;
+  /** Comissão própria da loja; `null` = herda o padrão da plataforma. */
+  comissao_percentual: number | null;
   pedidos: number;
   faturamento_centavos: number;
   comissao_centavos: number;
@@ -26,6 +33,7 @@ interface Repasse {
 
 export function TelaRepasses() {
   const { mostrar } = useToast();
+  const confirmar = useConfirm();
   const superAdmin = ehSuperAdmin();
   const [de, setDe] = useState('');
   const [ate, setAte] = useState('');
@@ -58,8 +66,28 @@ export function TelaRepasses() {
     queryFn: () => api<{ comissao_percentual: number }>('GET', '/api/admin/comissao'),
   });
 
-  async function salvarComissao(e: React.FormEvent) {
-    e.preventDefault();
+  /*
+   * ALTERAR A COMISSÃO GLOBAL PEDE CONFIRMAÇÃO, citando de quanto para quanto.
+   *
+   * É um campo de número que muda o quanto TODA loja sem acordo próprio recebe.
+   * Digitar 1 no lugar de 10 é um deslize de teclado com consequência em
+   * dinheiro, espalhada por todos os clientes, e que ninguém percebe olhando a
+   * tela — a lista continua parecendo certa.
+   */
+  async function salvarComissao() {
+    const atual = comissaoQ.data?.comissao_percentual ?? 0;
+    const nova = Number(novaComissao);
+    if (!Number.isFinite(nova) || nova < 0 || nova > 50) {
+      mostrar({ tipo: 'erro', titulo: 'Informe um percentual entre 0 e 50.' });
+      return;
+    }
+    const ok = await confirmar({
+      titulo: `Alterar a comissão de ${atual}% para ${nova}%?`,
+      descricao: 'Vale para os novos pedidos das lojas sem comissão própria. '
+        + 'As lojas com percentual próprio não mudam.',
+      confirmar: 'Alterar',
+    });
+    if (!ok) return;
     setSalvandoComissao(true);
     try {
       await api('PUT', '/api/admin/comissao', { comissao_percentual: Number(novaComissao) });
@@ -100,157 +128,136 @@ export function TelaRepasses() {
   const totalComissao = repasses.reduce((s, r) => s + r.comissao_centavos, 0);
   const totalRepasse = repasses.reduce((s, r) => s + r.repasse_centavos, 0);
 
+  const comissaoAtual = comissaoQ.data?.comissao_percentual ?? 0;
+
   return (
     <AdminLayout titulo="Repasses">
-      <div className="space-y-5 max-w-4xl mx-auto">
-        <div>
-          <h1 className="text-2xl font-extrabold flex items-center gap-2">
-            <TrendingUp className="size-6 text-primary" /> Comissão e repasses
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Relatório financeiro por loja — apenas pedidos entregues.
-          </p>
-        </div>
+      <div className="mx-auto max-w-4xl">
+        <Cabecalho
+          titulo="Repasses"
+          subtitulo={
+            repassesQ.isLoading ? 'Carregando…' : (
+              <>
+                {repasses.length} {repasses.length === 1 ? 'loja' : 'lojas'} · {brl(totalFaturamento)} faturado ·
+                {' '}{brl(totalComissao)} de comissão · {brl(totalRepasse)} a repassar
+              </>
+            )
+          }
+          acoes={<Botao onClick={exportarCsv}>Exportar CSV</Botao>}
+        />
 
-        {/* Comissão */}
-        <Card className="border-primary/20">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between flex-wrap gap-4">
-              <div className="flex items-center gap-4">
-                <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10">
-                  <Percent className="size-6 text-primary" />
-                </div>
-                <div>
-                  <div className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Comissão da plataforma</div>
-                  <div className="text-3xl font-extrabold tabular-nums mt-0.5">
-                    {comissaoQ.isLoading ? '…' : `${comissaoQ.data?.comissao_percentual ?? 0}%`}
-                  </div>
-                </div>
-              </div>
+        {/* ── A comissão da plataforma ── */}
+        <Secao titulo="Comissão da plataforma">
+          <LinhaRotulada
+            rotulo="Percentual atual"
+            apoio="Vale para as lojas sem comissão própria"
+            primeira
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <Num className="text-[20px] font-medium">
+                {comissaoQ.isLoading ? '—' : `${comissaoAtual}%`}
+              </Num>
               {superAdmin && (
-                <form onSubmit={salvarComissao} className="flex items-end gap-2">
-                  <div>
-                    <Label>Novo %</Label>
-                    <Input
-                      type="number" min="0" max="50" step="0.5"
-                      value={novaComissao}
-                      onChange={e => setNovaComissao(e.target.value)}
-                      placeholder="Ex: 10"
-                      className="w-28"
-                      required
-                    />
-                  </div>
-                  <Button type="submit" size="sm" disabled={salvandoComissao}>
+                <>
+                  <input
+                    type="number" min="0" max="50" step="0.5"
+                    value={novaComissao}
+                    onChange={e => setNovaComissao(e.target.value)}
+                    placeholder="novo %"
+                    aria-label="Novo percentual"
+                    className="h-[34px] w-24 px-2 text-right text-[13px] outline-none"
+                    style={{ border: '1px solid var(--adm-linha)', borderRadius: 4 }}
+                  />
+                  <Botao
+                    variante="primario"
+                    desabilitado={salvandoComissao || !novaComissao}
+                    onClick={() => void salvarComissao()}
+                  >
                     {salvandoComissao ? 'Salvando…' : 'Alterar'}
-                  </Button>
-                </form>
+                  </Botao>
+                </>
               )}
             </div>
-          </CardContent>
-        </Card>
+          </LinhaRotulada>
+        </Secao>
 
-        {/* Filtro período */}
-        <Card>
-          <CardContent className="p-4">
-            <form
-              onSubmit={e => { e.preventDefault(); setAplicados({ de, ate }); }}
-              className="flex items-end gap-3 flex-wrap"
-            >
-              <div>
-                <Label>De</Label>
-                <Input type="date" value={de} onChange={e => setDe(e.target.value)} />
-              </div>
-              <div>
-                <Label>Até</Label>
-                <Input type="date" value={ate} onChange={e => setAte(e.target.value)} />
-              </div>
-              <Button type="submit"><Filter className="size-3.5" /> Filtrar</Button>
-              {(de || ate) && (
-                <Button type="button" variant="ghost" size="sm" onClick={() => { setDe(''); setAte(''); setAplicados({ de: '', ate: '' }); }}>
-                  <X className="size-3.5" /> Limpar
-                </Button>
-              )}
-              <Button type="button" variant="outline" size="sm" className="ml-auto" onClick={exportarCsv}>
-                <Download className="size-3.5" /> Exportar CSV
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+        {/*
+          O PERÍODO TROCA O CONJUNTO CONSULTADO, não filtra o que já veio — por
+          isso continua com botão. Aplicar a cada tecla digitada numa data
+          dispararia uma consulta por dígito (0, 04, 04/0, …).
+        */}
+        <Toolbar>
+          <input type="date" value={de} onChange={e => setDe(e.target.value)} aria-label="De"
+            className="h-[34px] px-2 text-[12.5px] outline-none"
+            style={{ border: '1px solid var(--adm-linha)', borderRadius: 4 }} />
+          <input type="date" value={ate} onChange={e => setAte(e.target.value)} aria-label="Até"
+            className="h-[34px] px-2 text-[12.5px] outline-none"
+            style={{ border: '1px solid var(--adm-linha)', borderRadius: 4 }} />
+          <Botao onClick={() => setAplicados({ de, ate })}>Aplicar período</Botao>
+          {(de || ate) && (
+            <Botao onClick={() => { setDe(''); setAte(''); setAplicados({ de: '', ate: '' }); }}>Limpar</Botao>
+          )}
+        </Toolbar>
 
-        {/* Totais */}
-        {!repassesQ.isLoading && repasses.length > 0 && (
-          <div className="grid grid-cols-3 gap-3">
-            <Card>
-              <CardContent className="p-5 text-center">
-                <div className="text-xl font-extrabold tabular-nums">{brl(totalFaturamento)}</div>
-                <div className="text-xs text-muted-foreground mt-1 font-medium">Faturamento total</div>
-              </CardContent>
-            </Card>
-            <Card className="border-primary/20 bg-primary/5">
-              <CardContent className="p-5 text-center">
-                <div className="text-xl font-extrabold tabular-nums text-primary">{brl(totalComissao)}</div>
-                <div className="text-xs text-muted-foreground mt-1 font-medium">Comissão da plataforma</div>
-              </CardContent>
-            </Card>
-            <Card className="border-emerald-500/20 bg-emerald-500/5">
-              <CardContent className="p-5 text-center">
-                <div className="text-xl font-extrabold tabular-nums text-emerald-600">{brl(totalRepasse)}</div>
-                <div className="text-xs text-muted-foreground mt-1 font-medium">A repassar às lojas</div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        {repassesQ.isError && <Falha compacto erro={repassesQ.error} aoTentar={() => repassesQ.refetch()} />}
 
-        {repassesQ.isLoading && (
-          <div className="space-y-2">{[1,2,3,4].map(i => <Skeleton key={i} className="h-16 rounded-xl" />)}</div>
-        )}
-
-        {repassesQ.isError && (
-          <Falha compacto erro={repassesQ.error} aoTentar={() => repassesQ.refetch()} />
-        )}
-
-        {!repassesQ.isLoading && repasses.length === 0 && !repassesQ.isError && (
-          <Card><CardContent className="p-10 text-center text-muted-foreground">
-            Nenhum pedido entregue no período selecionado.
-          </CardContent></Card>
-        )}
-
-        <div className="space-y-2">
-          {repasses.map(r => (
-            <Card key={`${r.tenant_id ?? 0}-${r.loja_id}`} className="hover:shadow-sm transition-shadow">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-1.5 font-semibold">
+        {repassesQ.isLoading ? (
+          <Skeleton className="h-64" />
+        ) : (
+          <Tabela colunas="minmax(0,1.4fr) 80px 120px 120px 120px">
+            <TabelaCabecalho>
+              <span>Loja</span>
+              <span className="text-right">Pedidos</span>
+              <span className="text-right">Faturamento</span>
+              <span className="text-right">Comissão</span>
+              <span className="text-right">A repassar</span>
+            </TabelaCabecalho>
+            {repasses.map((r, i) => (
+              <TabelaLinha key={`${r.tenant_id ?? 0}-${r.loja_id}`} primeira={i === 0}>
+                <CelulaNome
+                  nome={
+                    <>
                       {r.loja_nome}
                       {/* Só quando acrescenta informação — ver comentário igual em Pedidos. */}
                       {r.tenant_nome && r.tenant_nome !== r.loja_nome && (
-                        <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">{r.tenant_nome}</span>
+                        <span className="ml-1.5 text-[11px] font-normal" style={{ color: 'var(--adm-rotulo)' }}>
+                          {r.tenant_nome}
+                        </span>
                       )}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {r.pedidos} pedido{r.pedidos !== 1 ? 's' : ''} entregues
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-3 gap-6 text-right text-sm">
-                    <div>
-                      <div className="tabular-nums font-semibold">{brl(r.faturamento_centavos)}</div>
-                      <div className="text-xs text-muted-foreground">faturamento</div>
-                    </div>
-                    <div>
-                      <div className="tabular-nums font-semibold text-primary">{brl(r.comissao_centavos)}</div>
-                      <div className="text-xs text-muted-foreground">comissão</div>
-                    </div>
-                    <div>
-                      <div className="tabular-nums font-bold text-emerald-600">{brl(r.repasse_centavos)}</div>
-                      <div className="text-xs text-muted-foreground">repasse</div>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                    </>
+                  }
+                  /* COMISSÃO PRÓPRIA aparece como valor; herdada, como "padrão".
+                     Sem distinguir, o lojista com acordo especial parece igual a
+                     todo mundo — e a próxima mudança da comissão global o pega
+                     sem ninguém perceber. */
+                  sub={r.comissao_percentual != null
+                    ? `${r.comissao_percentual}% próprio`
+                    : `padrão (${comissaoAtual}%)`}
+                />
+                <Num className="text-right">{r.pedidos}</Num>
+                <Num className="text-right">{brl(r.faturamento_centavos)}</Num>
+                <Num className="text-right">{brl(r.comissao_centavos)}</Num>
+                <Num className="text-right font-medium">{brl(r.repasse_centavos)}</Num>
+              </TabelaLinha>
+            ))}
+            {repasses.length > 0 && (
+              <TabelaLinha>
+                <span className="text-[12px] font-semibold">Total</span>
+                <span />
+                <Num className="text-right font-semibold">{brl(totalFaturamento)}</Num>
+                <Num className="text-right font-semibold">{brl(totalComissao)}</Num>
+                <Num className="text-right font-semibold">{brl(totalRepasse)}</Num>
+              </TabelaLinha>
+            )}
+            <TabelaRodape total={repasses.length} />
+          </Tabela>
+        )}
+
+        {!repassesQ.isLoading && repasses.length === 0 && (
+          <p className="pt-3 text-center text-[12.5px]" style={{ color: 'var(--adm-dado)' }}>
+            Nenhum pedido entregue no período selecionado.
+          </p>
+        )}
       </div>
     </AdminLayout>
   );
