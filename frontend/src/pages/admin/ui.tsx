@@ -10,14 +10,16 @@
  * admin é ferramenta nossa, com uma cor de ação só (`#1C1917`). Os tokens moram
  * em `index.css` sob `.adm`.
  */
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode, type CSSProperties } from 'react';
 import { cn } from '@/lib/utils';
 
 /* ── Números ─────────────────────────────────────────────────────────── */
 
 /** Valor, contagem, data, id, slug: mono, tabular, alinhado à direita. */
-export function Num({ children, className }: { children: ReactNode; className?: string }) {
-  return <span className={cn('adm-num', className)}>{children}</span>;
+export function Num({ children, className, style }: {
+  children: ReactNode; className?: string; style?: CSSProperties;
+}) {
+  return <span className={cn('adm-num', className)} style={style}>{children}</span>;
 }
 
 /* ── Status ──────────────────────────────────────────────────────────── */

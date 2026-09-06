@@ -6,6 +6,10 @@ import {
   ChevronRight, Plus, Mail, Phone, Search, Lock, Unlock, Pencil, X, KeyRound,
 } from 'lucide-react';
 import { AdminLayout } from './layout';
+import {
+  Cabecalho, Toolbar, Busca, Tabela, TabelaCabecalho, TabelaLinha, TabelaRodape,
+  CelulaNome, Num, Status, Botao, PainelLateral, baixarCsv,
+} from './ui';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -80,65 +84,119 @@ export function TelaLojistas() {
 
   return (
     <AdminLayout titulo="Lojistas">
-      <div className="space-y-5 max-w-4xl mx-auto">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <h1 className="text-2xl font-extrabold flex items-center gap-2">
-              <Store className="size-6 text-primary" /> Lojistas
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {consulta.data?.length ?? 0} lojistas · clientes e pedidos de cada loja
-            </p>
-          </div>
-          <Button asChild>
-            <Link to="/painel-admin/lojas"><Plus className="size-4" /> Nova loja</Link>
-          </Button>
-        </div>
+      <div className="mx-auto max-w-4xl">
+        <Cabecalho
+          titulo="Lojistas"
+          subtitulo={
+            consulta.isLoading
+              ? 'Carregando…'
+              : `${consulta.data?.length ?? 0} lojistas · clientes e pedidos de cada loja`
+          }
+          acoes={<Link to="/painel-admin/lojas"><Botao variante="primario">Nova loja</Botao></Link>}
+        />
 
         {/* O cadastro do lojista é feito junto com a loja (sempre vinculado). */}
-        <div className="flex items-start gap-2.5 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
-          <Store className="size-4 text-primary shrink-0 mt-0.5" />
-          <span className="text-muted-foreground">
-            O acesso do lojista é criado <b className="text-foreground">dentro do cadastro da loja</b>, em{' '}
-            <Link to="/painel-admin/lojas" className="text-primary font-semibold hover:underline">Lojas → Nova loja</Link>.
-            Assim a conta fica sempre vinculada à loja certa.
-          </span>
-        </div>
+        <p className="pb-3 text-[12px] leading-relaxed" style={{ color: 'var(--adm-rotulo)' }}>
+          O acesso do lojista é criado dentro do cadastro da loja, em{' '}
+          <Link to="/painel-admin/lojas" className="text-primary">Lojas → Nova loja</Link>.
+          Assim a conta fica sempre vinculada à loja certa.
+        </p>
 
-        {/* Busca */}
-        <div className="relative">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <input
-            value={busca}
-            onChange={e => setBusca(e.target.value)}
-            placeholder="Buscar por nome, dono ou e-mail…"
-            className="w-full h-10 pl-10 pr-4 rounded-xl border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
-          />
-        </div>
+        <Toolbar>
+          <div className="min-w-[200px] flex-1">
+            <Busca valor={busca} aoMudar={setBusca} placeholder="Buscar por loja, dono ou e-mail…" />
+          </div>
+        </Toolbar>
 
-        {consulta.isLoading && (
-          <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-28 rounded-2xl" />)}</div>
-        )}
-
-        <div className="space-y-3">
-          {lista.map(l => (
-            <CardLojista
-              key={chaveLojista(l)}
-              lojista={l}
-              expandido={expandido === chaveLojista(l)}
-              onToggle={() => setExpandido(expandido === chaveLojista(l) ? null : chaveLojista(l))}
+        {consulta.isLoading ? (
+          <Skeleton className="h-64" />
+        ) : (
+          <Tabela colunas="minmax(0,1.3fr) minmax(0,1.1fr) 90px 120px 110px">
+            <TabelaCabecalho>
+              <span>Loja</span>
+              <span>Dono</span>
+              <span className="text-right">Pedidos</span>
+              <span className="text-right">Faturamento</span>
+              <span>Acesso</span>
+            </TabelaCabecalho>
+            {lista.map((l, i) => (
+              <TabelaLinha
+                key={chaveLojista(l)}
+                primeira={i === 0}
+                aoClicar={() => setExpandido(chaveLojista(l))}
+              >
+                <CelulaNome
+                  nome={
+                    <>
+                      {l.loja_nome}
+                      {l.tenant_nome && l.tenant_nome !== l.loja_nome && (
+                        <span className="ml-1.5 text-[11px] font-normal" style={{ color: 'var(--adm-rotulo)' }}>
+                          {l.tenant_nome}
+                        </span>
+                      )}
+                    </>
+                  }
+                  sub={l.categoria}
+                />
+                <CelulaNome nome={l.dono_nome} sub={l.dono_email} />
+                <Num className="text-right">{l.total_pedidos}</Num>
+                <Num className="text-right">{brl(l.faturamento_centavos)}</Num>
+                {/*
+                  A COLUNA É "ACESSO", não "situação da loja": aqui a pergunta é
+                  sobre a PESSOA — ela consegue entrar? A situação do cadastro da
+                  loja tem tela própria, e repeti-la aqui faria duas fontes para
+                  o mesmo dado.
+                */}
+                <Status tom={l.dono_bloqueado ? 'erro' : 'ok'}>
+                  {l.dono_bloqueado ? 'Bloqueado' : 'Ativo'}
+                </Status>
+              </TabelaLinha>
+            ))}
+            <TabelaRodape
+              total={lista.length}
+              aoExportar={lista.length > 0 ? () => baixarCsv(
+                'lojistas',
+                ['Loja', 'Categoria', 'Dono', 'E-mail', 'Telefone', 'Pedidos', 'Faturamento', 'Clientes', 'Acesso'],
+                lista.map(l => [
+                  l.loja_nome, l.categoria, l.dono_nome, l.dono_email, l.dono_telefone,
+                  l.total_pedidos, (l.faturamento_centavos / 100).toFixed(2), l.total_clientes,
+                  l.dono_bloqueado ? 'bloqueado' : 'ativo',
+                ]),
+              ) : undefined}
             />
-          ))}
-        </div>
+          </Tabela>
+        )}
       </div>
+
+      {/* ── Detalhe em painel lateral ── */}
+      {(() => {
+        const l = lista.find(x => chaveLojista(x) === expandido);
+        if (!l) return null;
+        return (
+          <PainelLateral
+            aberto
+            aoFechar={() => setExpandido(null)}
+            titulo={l.loja_nome}
+            subtitulo={`${l.dono_nome} · ${l.dono_email}`}
+          >
+            <CardLojista lojista={l} />
+          </PainelLateral>
+        );
+      })()}
     </AdminLayout>
   );
 }
 
-function CardLojista({ lojista: l, expandido, onToggle }: {
+/*
+ * O CONTEÚDO do painel lateral de um lojista: clientes e pedidos daquela loja.
+ *
+ * Deixou de ser um card que expande na lista. Expandir empurrava as lojas
+ * seguintes vários écrans para baixo — e as consultas de clientes e pedidos, que
+ * antes dependiam do `expandido`, agora rodam porque o painel só existe quando
+ * está aberto.
+ */
+function CardLojista({ lojista: l }: {
   lojista: Lojista;
-  expandido: boolean;
-  onToggle: () => void;
 }) {
   const { mostrar } = useToast();
   const confirmar = useConfirm();
@@ -149,7 +207,6 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
   const clientesQ = useQuery({
     queryKey: ['admin-clientes', l.tenant_id ?? 0, l.id],
     queryFn: () => api<{ clientes: Cliente[] }>('GET', comTenant(`/api/admin/lojistas/${l.id}/clientes`, l)).then(r => r.clientes),
-    enabled: expandido,
   });
 
   function aoSalvarCliente() {
@@ -161,7 +218,6 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
   const pedidosQ = useQuery({
     queryKey: ['admin-pedidos-lojista', l.tenant_id ?? 0, l.id],
     queryFn: () => api<{ pedidos: any[] }>('GET', comTenant(`/api/admin/lojistas/${l.id}/pedidos`, l)).then(r => r.pedidos),
-    enabled: expandido,
   });
 
   async function alternarBloqueio(usuarioId: number, nome: string, bloqueadoAtual: 0 | 1) {
@@ -184,73 +240,21 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
     }
   }
 
+  /*
+   * O painel lateral já traz o nome da loja no header e o "Bloquear" no
+   * corpo. O que sobra aqui é o drill-down: clientes e pedidos daquela loja.
+   */
   return (
-    <Card className={cn('transition-shadow', expandido && 'shadow-md ring-1 ring-primary/10')}>
-      <CardContent className="p-5">
-        {/* Cabeçalho */}
-        <div className="flex items-center gap-4">
-          <div className="shrink-0">
-            {l.logo_url
-              ? <img src={l.logo_url} alt="" className="size-14 rounded-2xl object-cover border border-border" />
-              : <div className="flex size-14 items-center justify-center rounded-2xl bg-muted"><Store className="size-6 text-muted-foreground" /></div>
-            }
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold text-[15px]">{l.loja_nome}</span>
-              <Badge variant={l.status_aprovacao === 'aprovada' ? 'success' : l.status_aprovacao === 'suspensa' ? 'danger' : 'warning'} className="text-[10px]">
-                {l.status_aprovacao}
-              </Badge>
-              {l.aberta ? <Badge variant="success" className="text-[10px]">Aberta</Badge> : <Badge variant="secondary" className="text-[10px]">Fechada</Badge>}
-              {!!l.dono_bloqueado && <Badge variant="danger" className="text-[10px]">DONO BLOQUEADO</Badge>}
-            </div>
-            <div className="text-sm text-muted-foreground mt-0.5">
-              {l.dono_nome} · {l.dono_email}
-            </div>
-            <div className="flex gap-4 mt-2 text-xs font-semibold text-muted-foreground flex-wrap">
-              <span className="flex items-center gap-1.5"><Users className="size-3.5 text-primary" />{l.total_clientes} clientes</span>
-              <span className="flex items-center gap-1.5"><ShoppingBag className="size-3.5 text-primary" />{l.total_pedidos} pedidos</span>
-              <span className="flex items-center gap-1.5"><TrendingUp className="size-3.5 text-emerald-500" />{brl(l.faturamento_centavos)}</span>
-            </div>
-          </div>
-          <Button
-            variant={l.dono_bloqueado ? 'outline' : 'ghost'}
-            size="sm"
-            className="shrink-0"
-            onClick={() => alternarBloqueio(l.usuario_id, l.dono_nome, l.dono_bloqueado)}
-          >
-            {l.dono_bloqueado ? <><Unlock className="size-4" /> Desbloquear</> : <><Lock className="size-4" /> Bloquear</>}
-          </Button>
-          <button
-            onClick={onToggle}
-            title="Ver clientes e pedidos"
-            className="shrink-0 flex size-9 items-center justify-center rounded-xl hover:bg-accent text-muted-foreground transition-colors"
-          >
-            <ChevronRight className="size-4" />
-          </button>
-        </div>
-
-      </CardContent>
-
-      {/*
-        DRILL-DOWN EM DRAWER, não mais inline.
-        Aberto no lugar, ele empurrava os lojistas seguintes pra fora da tela —
-        e como carrega clientes E pedidos, o empurrão era grande. Agora a lista
-        fica parada atrás e o ESC fecha.
-      */}
-      <DrawerDetalhe
-        aberto={expandido}
-        aoFechar={onToggle}
-        titulo={l.loja_nome}
-        subtitulo={
-          <>
-            <Badge variant={l.status_aprovacao === 'aprovada' ? 'success' : l.status_aprovacao === 'suspensa' ? 'danger' : 'warning'} className="text-[10px]">
-              {l.status_aprovacao}
-            </Badge>
-            <span>{l.dono_nome} · {l.dono_email}</span>
-          </>
-        }
-      >
+    <>
+      <div className="pb-3">
+        <Botao
+          variante={l.dono_bloqueado ? 'primario' : 'perigo'}
+          altura={30}
+          onClick={() => alternarBloqueio(l.usuario_id, l.dono_nome, l.dono_bloqueado)}
+        >
+          {l.dono_bloqueado ? 'Desbloquear acesso' : 'Bloquear acesso'}
+        </Botao>
+      </div>
           <div className="space-y-5">
             {/* Clientes */}
             <div>
@@ -326,8 +330,7 @@ function CardLojista({ lojista: l, expandido, onToggle }: {
               </div>
             </div>
           </div>
-      </DrawerDetalhe>
-    </Card>
+    </>
   );
 }
 
