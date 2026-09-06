@@ -128,6 +128,9 @@ export const CAMPOS_LOJA_LISTA = [
   'id', 'nome', 'descricao', 'categoria', 'endereco', 'status_aprovacao', 'aberta',
   'logo_url', 'usuario_id', 'comissao_percentual', 'criado_em', 'slug',
   'dominio_personalizado', 'whatsapp_permite_oficial', 'whatsapp_permite_nao_oficial',
+  /* O canal de liberação é coluna da LISTA, não detalhe: sem ele, descobrir
+     quem está em beta exigia abrir uma loja por vez. */
+  'canal_versao',
 ] as const;
 
 /**

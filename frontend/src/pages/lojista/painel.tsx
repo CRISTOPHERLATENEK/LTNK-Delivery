@@ -176,6 +176,22 @@ export function PainelLojista() {
    */
   const temVendas = Number((lojaQ.data?.loja as any)?.vendas_liberado ?? 0) === 1;
 
+  /*
+   * O AVISO DE CANAL, para quem NÃO está no recomendado.
+   *
+   * Uma loja em Beta era idêntica a qualquer outra por dentro. Quando ela abria
+   * chamado dizendo "apareceu um botão estranho", nem ela nem quem atendia
+   * sabia que ela tinha optado por receber cedo — e essa é a primeira pergunta
+   * do atendimento.
+   *
+   * Fica no rodapé da navegação e não como faixa no topo: é contexto
+   * permanente, não alerta. Faixa no topo, vista todo dia, vira invisível em
+   * uma semana e ainda rouba a primeira dobra.
+   */
+  const canal = (lojaQ.data as { canal?: string } | undefined)?.canal ?? 'estavel';
+  const canalRotulo = (lojaQ.data as { canal_rotulo?: string } | undefined)?.canal_rotulo ?? '';
+  const canalNota = (lojaQ.data as { canal_nota?: string } | undefined)?.canal_nota ?? '';
+
   // Barra de baixo do CELULAR — mesma regra de permissão da sidebar.
   const itensNav = [
     { rota: '/lojista', icone: Home, rotulo: 'Início', fim: true, area: null },
@@ -253,6 +269,21 @@ export function PainelLojista() {
 
   return (
     <AppLayout itens={itensNav} grupos={gruposNav} titulo="Painel do lojista">
+      {/*
+        AVISO DE CANAL — só para quem NÃO está no recomendado.
+        Discreto e acima do conteúdo, com a nota que a plataforma escreveu. Quem
+        está no padrão não vê nada: avisar "você está no normal" é ruído que
+        gasta a atenção que os outros dois canais precisam.
+      */}
+      {canal !== 'estavel' && (
+        <div
+          className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2 text-[12.5px]"
+          style={{ borderColor: 'rgba(199,154,75,0.5)', background: 'rgba(199,154,75,0.07)' }}
+        >
+          <span className="font-semibold">Você recebe novidades antes ({canalRotulo})</span>
+          {canalNota && <span className="text-muted-foreground">{canalNota}</span>}
+        </div>
+      )}
       <Routes>
         <Route index element={<DashboardLoja />} />
         <Route path="pedidos" element={<PedidosLoja />} />

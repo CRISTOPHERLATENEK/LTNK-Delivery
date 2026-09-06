@@ -10,6 +10,7 @@ import bcrypt from 'bcrypt';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
 import {
   CANAIS, canalValido, funcionalidadesDoCanal, FUNCIONALIDADES,
+  ROTULO_CANAL, DESCRICAO_CANAL, diasNoCanal,
 } from '../canais';
 import {
   quemEmite, soOsCamposDaTela,
@@ -1264,6 +1265,74 @@ router.put('/lojas/:id/modulo/:modulo', exigirSuperAdmin, async (req, res, next)
     await db.prepare(`UPDATE lojas SET ${coluna} = ? WHERE id = ?`).run(liberado, loja.id);
     console.log(`[modulo] loja ${loja.id} (${loja.nome}): ${req.params.modulo} ${liberado ? 'LIBERADO' : 'BLOQUEADO'}`);
     res.json({ modulo: req.params.modulo, liberado });
+  } catch (e) { next(e); }
+});
+
+/**
+ * AS NOTAS DE CADA CANAL — escritas por quem publica, não geradas.
+ *
+ * O catálogo diz o que MUDOU no código; a nota diz o que isso significa para
+ * quem usa. São coisas diferentes, e só a segunda serve para o lojista: "agora
+ * o pedido pode entrar num caixa do Maxx Gestão" é catálogo; "estamos testando
+ * a integração com o PDV, avise se o pedido não aparecer" é nota.
+ *
+ * Uma por canal, texto livre. Guardadas em `configuracoes` (chave/valor), que é
+ * onde já moram os ajustes da plataforma.
+ */
+const CHAVE_NOTA: Record<string, string> = {
+  estavel: 'nota_canal_estavel',
+  beta: 'nota_canal_beta',
+  teste: 'nota_canal_teste',
+};
+
+router.get('/canais', exigirSuperAdmin, async (_req, res, next) => {
+  try {
+    const nota = async (canal: string): Promise<string> => {
+      const r = await db.prepare('SELECT valor FROM configuracoes WHERE chave = ?')
+        .get(CHAVE_NOTA[canal]) as { valor: string } | undefined;
+      return r?.valor ?? '';
+    };
+
+    /* Quantas lojas em cada canal — a distribuição que não existia em tela
+       nenhuma, e que é o que decide se já dá para promover. */
+    const linhas = await db.prepare(
+      'SELECT canal_versao, COUNT(*) AS n FROM lojas GROUP BY canal_versao'
+    ).all() as { canal_versao: string | null; n: number }[];
+    const lojasPorCanal: Record<string, number> = { estavel: 0, beta: 0, teste: 0 };
+    for (const l of linhas) lojasPorCanal[canalValido(l.canal_versao)] += Number(l.n) || 0;
+
+    res.json({
+      canais: await Promise.all(CANAIS.map(async c => ({
+        canal: c,
+        rotulo: ROTULO_CANAL[c],
+        descricao: DESCRICAO_CANAL[c],
+        nota: await nota(c),
+        lojas: lojasPorCanal[c],
+        funcionalidades: (Object.keys(FUNCIONALIDADES) as (keyof typeof FUNCIONALIDADES)[])
+          .filter(k => FUNCIONALIDADES[k].canal === c)
+          .map(k => ({
+            chave: k,
+            titulo: FUNCIONALIDADES[k].titulo,
+            porque: (FUNCIONALIDADES[k] as { porque?: string }).porque ?? '',
+            dias: diasNoCanal(k),
+          })),
+      }))),
+    });
+  } catch (e) { next(e); }
+});
+
+router.put('/canais/:canal/nota', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    const chave = CHAVE_NOTA[String(req.params.canal)];
+    if (!chave) throw erroHttp(400, 'Canal desconhecido.');
+    const texto = textoLimpo(req.body?.nota, 2000);
+    await db.prepare(
+      'INSERT INTO configuracoes (chave, valor) VALUES (?, ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)'
+    ).run(chave, texto);
+    await registrarAuditoria(req, 'canal.nota', {
+      alvoTipo: 'canal', alvoDesc: String(req.params.canal), detalhes: texto.slice(0, 120),
+    });
+    res.json({ nota: texto });
   } catch (e) { next(e); }
 });
 

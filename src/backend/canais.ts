@@ -59,6 +59,25 @@ export interface Funcionalidade {
   titulo: string;
   /** Por que ela ainda não é estável — some quando vira `estavel`. */
   porque?: string;
+  /**
+   * Quando ela entrou no canal atual (AAAA-MM-DD).
+   *
+   * Existe para uma pergunta que ninguém conseguia responder: "há quanto tempo
+   * isso está em beta?". Sem ela, funcionalidade em canal vira gaveta — fica
+   * ali para sempre porque nada lembra de decidir. A tela mostra "em beta há 40
+   * dias", e quarenta dias parados numa tela incomodam o suficiente para
+   * alguém promover ou desistir.
+   */
+  desde: string;
+}
+
+/** Há quantos dias esta funcionalidade está no canal em que está. */
+export function diasNoCanal(chave: string, agora = Date.now()): number {
+  const f = (FUNCIONALIDADES as Record<string, Funcionalidade>)[chave];
+  if (!f?.desde) return 0;
+  const t = Date.parse(`${f.desde}T00:00:00Z`);
+  if (!Number.isFinite(t)) return 0;
+  return Math.max(0, Math.floor((agora - t) / 86_400_000));
 }
 
 /**
@@ -78,16 +97,19 @@ export const FUNCIONALIDADES = {
     canal: 'beta',
     titulo: 'Emitir a NFC-e automaticamente no Maxx Gestão',
     porque: 'Emitir não tem volta, e a SEFAZ ainda recusa por dados de intermediador.',
+      desde: '2026-09-04',
   },
   'erp-modelo-documento': {
     canal: 'beta',
     titulo: 'Escolher como o pedido entra no Maxx Gestão (Pedido ou Pré-Venda)',
     porque: 'Qual modelo o PDV puxa varia por instalação e ainda está sendo descoberto.',
+      desde: '2026-09-04',
   },
   'erp-caixa': {
     canal: 'beta',
     titulo: 'Enviar o pedido para um caixa do Maxx Gestão',
     porque: 'O campo não é documentado pela API deles; funciona, mas foi descoberto na marra.',
+      desde: '2026-09-04',
   },
 } as const satisfies Record<string, Funcionalidade>;
 

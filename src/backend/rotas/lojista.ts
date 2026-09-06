@@ -45,7 +45,8 @@ import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '
 import { enviarPedidoAoErp, fecharDocumentoNoErp } from '../maxxgestao-emitir';
 import { MODELOS_DOCUMENTO, modeloValido } from '../maxxgestao-documento';
 import {
-  funcionalidadeLiberada, funcionalidadesDoCanal, type ChaveFuncionalidade,
+  funcionalidadeLiberada, funcionalidadesDoCanal, canalValido, ROTULO_CANAL,
+  type ChaveFuncionalidade,
 } from '../canais';
 import { credenciaisDoAmbiente as credenciaisIfood } from '../ifood-cliente';
 import { lerCardapioIfood } from '../ifood-catalogo';
@@ -256,11 +257,29 @@ router.get('/loja', async (req, res, next) => {
      * Isto é só pra ESCONDER. O bloqueio de verdade está no middleware, que
      * roda em toda requisição — menu escondido não protege nada sozinho.
      */
+    /*
+     * O CANAL E A NOTA VÃO PARA O PAINEL DO LOJISTA.
+     *
+     * Sem isso, uma loja em Teste é idêntica a qualquer outra por dentro —
+     * e quando ela abre chamado dizendo "apareceu um botão estranho", nem ela
+     * nem quem atende sabe que ela optou por receber cedo. É a primeira
+     * pergunta do atendimento, e ninguém tinha como respondê-la.
+     */
+    const canal = canalValido((loja as { canal_versao?: string }).canal_versao);
+    const notaCanal = canal === 'estavel' ? '' : await (async () => {
+      const r = await db.prepare('SELECT valor FROM configuracoes WHERE chave = ?')
+        .get(`nota_canal_${canal}`) as { valor: string } | undefined;
+      return r?.valor ?? '';
+    })();
+
     const dono = ehDonoDaLoja(req, loja);
     const row = await db.prepare('SELECT permissoes FROM usuarios WHERE id = ?')
       .get(req.usuario!.id) as { permissoes: string | null } | undefined;
     res.json({
       loja,
+      canal,
+      canal_rotulo: ROTULO_CANAL[canal],
+      canal_nota: notaCanal,
       tenant_slug: tenant?.slug ?? null,
       sou_dono: dono,
       permissoes: dono

@@ -55,6 +55,8 @@ interface Loja {
     detalhe: string;
     alerta: boolean;
   };
+  /** O canal de liberação desta loja: estavel, beta ou teste. */
+  canal_versao?: string;
   /** Presentes só quando a lista vem agregada de todos os clientes (painel master). */
   tenant_id?: number;
   tenant_nome?: string;
@@ -79,6 +81,7 @@ const CATEGORIAS = ['Pizzaria', 'Hamburgueria', 'Japonesa', 'Brasileira', 'Doces
 
 export function TelaLojas() {
   const [filtro, setFiltro] = useState<Filtro>('todas');
+  const [canalFiltro, setCanalFiltro] = useState<'todos' | 'beta' | 'teste'>('todos');
   const [busca, setBusca] = useState('');
   const [selecionada, setSelecionada] = useState<number | null>(null);
   const { mostrar } = useToast();
@@ -158,6 +161,7 @@ export function TelaLojas() {
   const semNota = todas.filter(l => l.status_aprovacao === 'aprovada' && l.situacao_nota?.alerta);
 
   const lojas = todas.filter(l => {
+    if (canalFiltro !== 'todos' && l.canal_versao !== canalFiltro) return false;
     const matchFiltro = filtro === 'todas' || l.status_aprovacao === filtro;
     const matchBusca = !busca ||
       l.nome.toLowerCase().includes(busca.toLowerCase()) ||
@@ -220,6 +224,18 @@ export function TelaLojas() {
           <div className="min-w-[200px] flex-1">
             <Busca valor={busca} aoMudar={setBusca} placeholder="Buscar por nome, dono ou e-mail…" />
           </div>
+          {/* Um segundo segmented para o canal: são duas perguntas diferentes
+              sobre a mesma lista ("qual a situação do cadastro" e "quem recebe
+              cedo"), e juntá-las num só faria combinações que ninguém pede. */}
+          <Segmented
+            valor={canalFiltro}
+            aoMudar={setCanalFiltro}
+            opcoes={[
+              { v: 'todos' as const, label: 'Qualquer canal' },
+              { v: 'beta' as const, label: 'Beta', contagem: todas.filter(l => l.canal_versao === 'beta').length },
+              { v: 'teste' as const, label: 'Teste', contagem: todas.filter(l => l.canal_versao === 'teste').length },
+            ]}
+          />
           <Segmented
             valor={filtro}
             aoMudar={setFiltro}
@@ -238,11 +254,12 @@ export function TelaLojas() {
         {consulta.isLoading ? (
           <Skeleton className="h-72" />
         ) : (
-          <Tabela colunas="minmax(0,1.4fr) minmax(0,1fr) 130px 110px 110px">
+          <Tabela colunas="minmax(0,1.3fr) minmax(0,0.9fr) 120px 100px 100px 100px">
             <TabelaCabecalho>
               <span>Loja</span>
               <span>Dono</span>
               <span>Nota</span>
+              <span>Canal</span>
               <span>Situação</span>
               <span />
             </TabelaCabecalho>
@@ -275,6 +292,16 @@ export function TelaLojas() {
                 {l.situacao_nota
                   ? <Status tom={TOM_NOTA[l.situacao_nota.estado] ?? 'neutro'}>{l.situacao_nota.rotulo}</Status>
                   : <Vazio />}
+                {/*
+                  O CANAL COMO COLUNA. Sem ele, descobrir quem está em beta
+                  exigia abrir uma loja por vez — e a pergunta "quantos já estão
+                  recebendo isso?" é a que decide promover uma funcionalidade.
+                  Recomendado fica em cinza: é o repouso, e pintar o normal
+                  gasta a atenção que os outros dois precisam.
+                */}
+                <Status tom={l.canal_versao === 'teste' ? 'atencao' : l.canal_versao === 'beta' ? 'ok' : 'inativo'}>
+                  {l.canal_versao === 'teste' ? 'Teste' : l.canal_versao === 'beta' ? 'Beta' : 'Recomendado'}
+                </Status>
                 <Status tom={TOM_SITUACAO[l.status_aprovacao] ?? 'neutro'}>
                   {ROTULO_SITUACAO[l.status_aprovacao] ?? l.status_aprovacao}
                 </Status>

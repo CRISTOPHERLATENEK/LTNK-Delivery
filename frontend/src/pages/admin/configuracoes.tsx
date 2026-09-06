@@ -406,6 +406,121 @@ function SecaoBackup() {
  * Cada seção tem o próprio Salvar, como já era — os formulários são
  * independentes e salvar um nunca deve dar a impressão de salvar os outros.
  */
+
+interface CanalPainel {
+  canal: 'estavel' | 'beta' | 'teste';
+  rotulo: string;
+  descricao: string;
+  nota: string;
+  lojas: number;
+  funcionalidades: { chave: string; titulo: string; porque: string; dias: number }[];
+}
+
+/**
+ * CANAIS DE LIBERAÇÃO: o que cada versão entrega, e o texto que você escreve.
+ *
+ * O catálogo (o que mudou no código) é gerado; a NOTA é escrita por gente. São
+ * coisas diferentes e só a segunda serve para o lojista: "agora o pedido pode
+ * entrar num caixa do Maxx Gestão" é catálogo; "estamos testando a integração
+ * com o PDV, avise se o pedido não aparecer" é nota.
+ *
+ * A nota do canal aparece no painel de quem está nele — é assim que o lojista
+ * descobre que optou por receber cedo, e que o atendimento descobre junto.
+ */
+function SecaoCanais() {
+  const { mostrar } = useToast();
+  const consulta = useQuery({
+    queryKey: ['admin-canais'],
+    queryFn: () => api<{ canais: CanalPainel[] }>('GET', '/api/admin/canais').then(r => r.canais),
+  });
+
+  const [rascunhos, setRascunhos] = useState<Record<string, string>>({});
+  const [salvando, setSalvando] = useState<string | null>(null);
+
+  /* O rascunho nasce do que veio do servidor e só existe enquanto se digita:
+     assim o campo não "volta" ao recarregar a consulta no meio da edição. */
+  const texto = (c: CanalPainel) => rascunhos[c.canal] ?? c.nota;
+  const sujo = (c: CanalPainel) => texto(c) !== c.nota;
+
+  async function salvarNota(c: CanalPainel) {
+    setSalvando(c.canal);
+    try {
+      await api('PUT', `/api/admin/canais/${c.canal}/nota`, { nota: texto(c) });
+      setRascunhos(r => { const n = { ...r }; delete n[c.canal]; return n; });
+      await consulta.refetch();
+      mostrar({ tipo: 'sucesso', titulo: `Nota do canal ${c.rotulo} salva` });
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setSalvando(null); }
+  }
+
+  if (consulta.isLoading) return null;
+
+  return (
+    <>
+      {(consulta.data ?? []).map(c => (
+        <Secao key={c.canal} titulo={`Canal ${c.rotulo}`}>
+          <p className="-mt-1 text-[12px] leading-relaxed text-muted-foreground">
+            {c.descricao} · <b className="text-foreground">{c.lojas}</b>{' '}
+            {c.lojas === 1 ? 'loja' : 'lojas'} neste canal.
+          </p>
+
+          {/* O QUE ESTE CANAL ENTREGA a mais que o anterior. */}
+          {c.funcionalidades.length > 0 ? (
+            <ul className="space-y-1.5">
+              {c.funcionalidades.map(f => (
+                <li key={f.chave} className="text-[12.5px] leading-relaxed">
+                  <span className="font-medium">{f.titulo}</span>
+                  {f.porque && <span className="text-muted-foreground"> — {f.porque}</span>}
+                  {/*
+                    HÁ QUANTOS DIAS está parada aqui. Sem esse número, canal vira
+                    gaveta: nada lembra de decidir, e a funcionalidade fica em
+                    beta para sempre. Quarenta dias na tela incomodam o
+                    suficiente para alguém promover ou desistir.
+                  */}
+                  {f.dias > 0 && (
+                    <span className="adm-num ml-1 text-[11px] text-muted-foreground">
+                      há {f.dias}d
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-[12.5px] text-muted-foreground">
+              {c.canal === 'estavel'
+                ? 'Tudo que já foi promovido. Nada exclusivo deste canal.'
+                : 'Nenhuma funcionalidade exclusiva deste canal no momento.'}
+            </p>
+          )}
+
+          <div>
+            <Label htmlFor={`nota-${c.canal}`}>Nota para quem está neste canal</Label>
+            <textarea
+              id={`nota-${c.canal}`}
+              value={texto(c)}
+              maxLength={2000}
+              rows={3}
+              onChange={e => setRascunhos(r => ({ ...r, [c.canal]: e.target.value }))}
+              placeholder={c.canal === 'estavel'
+                ? 'Opcional — quem está aqui não precisa ser avisado de nada.'
+                : 'Ex.: você recebe novidades antes. Se algo parecer estranho, fale com a gente.'}
+              className="mt-1 w-full rounded-[4px] border border-input bg-background px-2.5 py-2 text-[13px] outline-none"
+            />
+            <div className="mt-1.5 flex items-center gap-2">
+              <Button type="button" size="sm" disabled={!sujo(c) || salvando === c.canal}
+                onClick={() => void salvarNota(c)}>
+                {salvando === c.canal ? 'Salvando…' : 'Salvar nota'}
+              </Button>
+              {sujo(c) && <span className="text-[11.5px] text-muted-foreground">não salvo</span>}
+            </div>
+          </div>
+        </Secao>
+      ))}
+    </>
+  );
+}
+
 export function TelaConfiguracoes() {
   return (
     <AdminLayout titulo="Configurações">
@@ -420,6 +535,7 @@ export function TelaConfiguracoes() {
             logo abaixo do servidor/sessão que ela usa — e só quando há o que
             conectar. Antes ela ficava aqui embaixo, longe da própria config. */}
         <SecaoConfiguracoesGerais />
+        <SecaoCanais />
         <SecaoBackup />
       </div>
     </AdminLayout>

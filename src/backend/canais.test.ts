@@ -10,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   CANAIS, canalValido, funcionalidadeLiberada, funcionalidadesDoCanal, FUNCIONALIDADES,
+  diasNoCanal,
 } from './canais';
 
 const semComentarios = (t: string) =>
@@ -200,5 +201,115 @@ describe('só a plataforma troca o canal', () => {
        loja está em beta?" não tem resposta. */
     const i = admin.indexOf("router.put('/lojas/:id/canal'");
     expect(admin.slice(i, i + 1200)).toContain("registrarAuditoria(req, 'loja.canal'");
+  });
+});
+
+describe('a visibilidade do rollout', () => {
+  const admin = fs.readFileSync(path.join(__dirname, 'rotas', 'admin.ts'), 'utf8');
+  const campos = fs.readFileSync(path.join(__dirname, 'quem-emite.ts'), 'utf8');
+
+  it('o canal é COLUNA da lista de lojas, não detalhe', () => {
+    /*
+     * Sem ele na lista, descobrir quem está em beta exigia abrir uma loja por
+     * vez — e "quantos já estão recebendo isso?" é a pergunta que decide
+     * promover uma funcionalidade.
+     */
+    const i = campos.indexOf('CAMPOS_LOJA_LISTA');
+    expect(campos.slice(i, campos.indexOf('] as const', i))).toContain("'canal_versao'");
+    const tela = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'frontend', 'src', 'pages', 'admin', 'lojas.tsx'), 'utf8');
+    expect(tela).toContain('l.canal_versao');
+  });
+
+  it('a rota de canais conta as lojas de cada um', () => {
+    const i = admin.indexOf("router.get('/canais'");
+    expect(i).toBeGreaterThan(0);
+    const t = admin.slice(i, i + 2200);
+    expect(t).toContain('GROUP BY canal_versao');
+    expect(t).toContain('lojas: lojasPorCanal[c]');
+    /* E lista o que CADA canal entrega, com há quantos dias. */
+    expect(t).toContain('dias: diasNoCanal(k)');
+  });
+
+  it('só o super admin lê e escreve os canais', () => {
+    for (const rota of ["router.get('/canais'", "router.put('/canais/:canal/nota'"]) {
+      const linha = admin.split('\n').find(l => l.includes(rota));
+      expect(linha, rota).toBeDefined();
+      expect(linha, rota).toContain('exigirSuperAdmin');
+    }
+  });
+
+  it('canal desconhecido não vira chave de configuração', () => {
+    /* `req.params.canal` monta o nome da chave gravada. Sem a lista fechada,
+       qualquer texto viraria uma linha nova em `configuracoes`. */
+    const i = admin.indexOf("router.put('/canais/:canal/nota'");
+    const t = admin.slice(i, i + 800);
+    expect(t).toContain('CHAVE_NOTA[String(req.params.canal)]');
+    expect(t).toMatch(/if \(!chave\) throw/);
+  });
+
+  it('a nota fica registrada na auditoria', () => {
+    /* É texto que o lojista vê. Sem registro, "quem escreveu isso?" não tem
+       resposta. */
+    const i = admin.indexOf("router.put('/canais/:canal/nota'");
+    expect(admin.slice(i, i + 900)).toContain("registrarAuditoria(req, 'canal.nota'");
+  });
+});
+
+describe('o lojista sabe em que canal está', () => {
+  const rotas = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8');
+  const painel = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'frontend', 'src', 'pages', 'lojista', 'painel.tsx'), 'utf8');
+
+  it('o canal e a nota vão no GET /loja', () => {
+    const i = rotas.indexOf("router.get('/loja'");
+    const t = rotas.slice(i, i + 3000);
+    expect(t).toContain('canal,');
+    expect(t).toContain('canal_nota: notaCanal');
+  });
+
+  it('o canal vem da COLUNA daquela loja, não de uma constante', () => {
+    /*
+     * Testado antes só por "o campo aparece na resposta", e isso passava com o
+     * valor cravado em `'beta'` — todo lojista veria o aviso, e o do canal
+     * certo veria o texto errado. A asserção olha a derivação.
+     */
+    const i = rotas.indexOf("router.get('/loja'");
+    const t = rotas.slice(i, i + 3000);
+    expect(t).toContain('canalValido((loja as { canal_versao?: string }).canal_versao)');
+  });
+
+  it('quem está em ESTÁVEL não recebe nota nenhuma', () => {
+    /*
+     * Avisar "você está no normal" é ruído que gasta a atenção que os outros
+     * dois canais precisam — e ainda faria uma consulta a mais por
+     * carregamento de painel, para todo mundo.
+     */
+    const i = rotas.indexOf("router.get('/loja'");
+    expect(rotas.slice(i, i + 3000)).toContain("canal === 'estavel' ? '' :");
+  });
+
+  it('a tela só mostra o aviso fora do recomendado', () => {
+    expect(painel).toContain("{canal !== 'estavel' && (");
+    expect(painel).toContain('canalRotulo');
+  });
+});
+
+describe('o catálogo diz há quanto tempo cada coisa está parada', () => {
+  it('toda funcionalidade tem data de entrada no canal', () => {
+    /* Sem ela, canal vira gaveta: nada lembra de decidir, e a funcionalidade
+       fica em beta para sempre. */
+    for (const [chave, f] of Object.entries(FUNCIONALIDADES)) {
+      expect((f as { desde?: string }).desde, chave).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+
+  it('diasNoCanal conta a partir da data, e nunca devolve negativo', () => {
+    const doisDias = Date.parse('2026-09-06T00:00:00Z');
+    expect(diasNoCanal('erp-caixa', doisDias)).toBe(2);
+    /* Data no futuro (relógio torto, digitação) não pode virar "-3 dias" na
+       tela: zero é a leitura honesta de "acabou de entrar". */
+    expect(diasNoCanal('erp-caixa', Date.parse('2026-09-01T00:00:00Z'))).toBe(0);
+    expect(diasNoCanal('nao-existe', doisDias)).toBe(0);
   });
 });
