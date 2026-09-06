@@ -8,6 +8,8 @@ import { contaDoMes, type ClienteNaConta } from '../conta-revendedor';
 import db, { comTenant, comTransacao, bancoTenantAtual, abrirPool } from '../db-mysql';
 import bcrypt from 'bcrypt';
 import { autenticar, exigirPerfil, exigirSuperAdmin, gerarTokenImpersonado } from '../auth';
+import { montarDossie, dossieEmTexto } from '../suporte-dossie';
+import { responderSuporte, SemChaveSuporte } from '../suporte-ia';
 import {
   CANAIS, canalValido, funcionalidadesDoCanal, FUNCIONALIDADES,
   ROTULO_CANAL, DESCRICAO_CANAL, diasNoCanal,
@@ -697,6 +699,46 @@ router.get('/lojas/:id/painel', async (req, res, next) => {
       abertura_automatica: Number(loja.auto_horario ?? 0) === 1,
     });
   } catch (e) { next(e); }
+});
+
+/**
+ * SUPORTE COM IA — lê o estado da loja e explica. Nunca age.
+ *
+ * Duas respostas na mesma rota: o DOSSIÊ sempre (estado real, texto puro,
+ * gerado sem custo nenhum) e, quando há pergunta, a explicação da IA. Metade
+ * dos chamados se resolve olhando só o dossiê — e essa metade não deveria
+ * custar uma chamada de API nem parar quando a Anthropic estiver fora do ar.
+ */
+router.post('/lojas/:id/suporte', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    const lojaId = inteiroPositivo(req.params.id);
+    if (!lojaId) throw erroHttp(400, 'Loja inválida.');
+
+    const d = await montarDossie(lojaId);
+    if (!d) throw erroHttp(404, 'Loja não encontrada.');
+
+    const pergunta = textoLimpo(req.body?.pergunta, 2000).trim();
+    if (!pergunta) {
+      /* Sem pergunta, devolve só o retrato. É o modo mais usado e o mais
+         barato: custa uma consulta ao banco. */
+      return res.json({ dossie: dossieEmTexto(d), alertas: d.alertas, resposta: null });
+    }
+
+    const r = await responderSuporte(lojaId, pergunta);
+    /* Registrado porque é dado de cliente saindo para um serviço externo: sem
+       isso, "quem perguntou o quê sobre qual loja" não tem resposta. */
+    await registrarAuditoria(req, 'suporte.ia', {
+      alvoTipo: 'loja', alvoId: lojaId, alvoDesc: d.loja.nome,
+      detalhes: pergunta.slice(0, 160),
+    });
+    res.json({
+      dossie: r.dossie, alertas: d.alertas, resposta: r.resposta,
+      modelo: r.modelo, tokens: r.tokens,
+    });
+  } catch (e) {
+    if (e instanceof SemChaveSuporte) return next(erroHttp(503, e.message));
+    next(e);
+  }
 });
 
 // ----- Pedidos (todos, com filtros) ----------------------------------------

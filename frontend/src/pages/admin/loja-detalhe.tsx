@@ -232,6 +232,7 @@ export function TelaLojaDetalhe() {
   /* Fechado por padrão: são ajustes raros, e abertos empurrariam os pedidos —
      que é o que se olha todo dia — para fora da tela. */
   const [avancado, setAvancado] = useState(false);
+  const [suporte, setSuporte] = useState(false);
 
   const pedidos = useMemo(() => {
     const todos = d?.pedidos ?? [];
@@ -522,6 +523,15 @@ export function TelaLojaDetalhe() {
             </div>
 
             <div className="pt-4">
+              <Botao altura={30} onClick={() => setSuporte(v => !v)}>
+                {suporte ? 'Fechar suporte' : 'Diagnóstico e suporte'}
+              </Botao>
+              <p className="pt-1 text-[11.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
+                O estado real desta loja, e a IA para explicar o que está acontecendo.
+              </p>
+            </div>
+
+            <div className="pt-4">
               <Botao altura={30} onClick={() => setAvancado(v => !v)}>
                 {avancado ? 'Fechar configuração' : 'Configuração avançada'}
               </Botao>
@@ -564,6 +574,8 @@ export function TelaLojaDetalhe() {
           </div>
         </aside>
       </div>
+
+      {suporte && <PainelSuporte lojaId={l.id} comTenant={comTenant} />}
 
       {/*
         CONFIGURAÇÃO AVANÇADA em largura inteira, por baixo das colunas.
@@ -695,6 +707,114 @@ function LinhaPedido({ p, primeira }: { p: PedidoLoja; primeira: boolean }) {
       <Num className="text-[12px]">{dataLocal(p.criado_em)}</Num>
       <Status tom={TOM_PEDIDO[p.status] ?? 'neutro'}>{ROTULO_PEDIDO[p.status] ?? p.status}</Status>
       <Num className="text-right">{brl(p.total_centavos)}</Num>
+    </div>
+  );
+}
+
+/**
+ * DIAGNÓSTICO E SUPORTE.
+ *
+ * Abre mostrando o DOSSIÊ — o estado real da loja em texto, gerado sem custo
+ * nenhum. Metade dos chamados morre aí ("ah, o emissor está apontado para o
+ * sistema"), e essa metade não deveria custar uma chamada de API.
+ *
+ * A pergunta para a IA é o segundo passo, opcional e explícito. Fosse
+ * automático, toda abertura de tela viraria uma cobrança.
+ */
+function PainelSuporte({ lojaId, comTenant }: { lojaId: number; comTenant: (u: string) => string }) {
+  const { mostrar } = useToast();
+  const [pergunta, setPergunta] = useState('');
+  const [carregando, setCarregando] = useState(false);
+  const [dados, setDados] = useState<{
+    dossie: string; alertas: string[]; resposta: string | null;
+    modelo?: string; tokens?: { entrada: number; saida: number; cache_lido: number };
+  } | null>(null);
+
+  /* O dossiê carrega sozinho ao abrir; a IA só quando alguém pergunta. */
+  useEffect(() => {
+    let vivo = true;
+    api<typeof dados>('POST', comTenant(`/api/admin/lojas/${lojaId}/suporte`), {})
+      .then(r => { if (vivo) setDados(r); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [lojaId]);
+
+  async function perguntar() {
+    const t = pergunta.trim();
+    if (!t) return;
+    setCarregando(true);
+    try {
+      const r = await api<typeof dados>('POST', comTenant(`/api/admin/lojas/${lojaId}/suporte`), { pergunta: t });
+      setDados(r);
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setCarregando(false); }
+  }
+
+  return (
+    <div
+      className="max-h-[60vh] shrink-0 overflow-y-auto px-4 py-3"
+      style={{ borderTop: '1px solid var(--adm-linha)', background: 'var(--adm-fundo2)' }}
+    >
+      <div className="mx-auto grid max-w-5xl gap-4 lg:grid-cols-2">
+        <div>
+          <Rotulo>Estado desta loja</Rotulo>
+          {/* Os alertas primeiro, e separados: são as linhas que explicam
+              chamado, e no meio de vinte fatos elas se perdem. */}
+          {!!dados?.alertas.length && (
+            <ul className="mb-2 space-y-1">
+              {dados.alertas.map((a, i) => (
+                <li key={i} className="text-[12.5px] leading-relaxed" style={{ color: 'var(--adm-erro)' }}>
+                  {a}
+                </li>
+              ))}
+            </ul>
+          )}
+          <pre
+            className="whitespace-pre-wrap text-[12px] leading-relaxed"
+            style={{ color: 'var(--adm-fg2)', fontFamily: 'inherit' }}
+          >
+            {dados?.dossie ?? 'Lendo o estado da loja…'}
+          </pre>
+        </div>
+
+        <div>
+          <Rotulo>Perguntar à IA</Rotulo>
+          <textarea
+            value={pergunta}
+            onChange={e => setPergunta(e.target.value)}
+            rows={3}
+            maxLength={2000}
+            placeholder="Ex.: o lojista diz que os pedidos não estão gerando nota."
+            className="w-full px-2.5 py-2 text-[13px] outline-none"
+            style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: '#fff', boxSizing: 'border-box' }}
+          />
+          <div className="mt-1.5 flex items-center gap-2">
+            <Botao altura={30} variante="primario" desabilitado={carregando || !pergunta.trim()} onClick={() => void perguntar()}>
+              {carregando ? 'Pensando…' : 'Perguntar'}
+            </Botao>
+            {/* O custo à vista: sem isso ninguém percebe que cada clique gasta. */}
+            {dados?.tokens && (
+              <Num className="text-[11px]" style={{ color: 'var(--adm-dado)' }}>
+                {dados.tokens.entrada + dados.tokens.saida} tokens
+                {dados.tokens.cache_lido > 0 && ` · ${dados.tokens.cache_lido} do cache`}
+              </Num>
+            )}
+          </div>
+
+          {dados?.resposta && (
+            <div
+              className="mt-3 whitespace-pre-wrap px-3 py-2.5 text-[13px] leading-relaxed"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 6, background: '#fff' }}
+            >
+              {dados.resposta}
+            </div>
+          )}
+          <p className="pt-2 text-[11.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
+            A IA lê o estado da loja e explica. Ela não altera nada — quem age é você.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
