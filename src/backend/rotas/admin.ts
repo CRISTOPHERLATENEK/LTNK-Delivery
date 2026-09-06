@@ -587,6 +587,118 @@ router.get('/lojas/:id/vendas', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * TUDO O QUE A TELA DE DETALHE DA LOJA PRECISA, numa chamada.
+ *
+ * A tela mostra dados da loja, do dono, do cliente da plataforma, os números do
+ * período, a lista de pedidos e o histórico de auditoria. Buscar isso em cinco
+ * requisições faria a tela montar em cascata — cada bloco aparecendo num
+ * momento diferente, com o layout pulando enquanto a pessoa já está lendo.
+ *
+ * Só devolve o que EXISTE no banco. Campos que a tela gostaria de ter e que
+ * ninguém guarda (último acesso do lojista, por exemplo) não são inventados
+ * aqui: a tela omite a linha em vez de mostrar um traço que parece defeito.
+ */
+router.get('/lojas/:id/painel', async (req, res, next) => {
+  try {
+    const lojaId = inteiroPositivo(req.params.id);
+    if (!lojaId) throw erroHttp(400, 'Loja inválida.');
+
+    const loja = await db.prepare(
+      `SELECT l.id, l.nome, l.slug, l.categoria, l.endereco, l.aberta, l.auto_horario,
+              l.status_aprovacao, l.criado_em, l.dominio_personalizado,
+              l.comissao_percentual, l.fiscal_liberado, l.vendas_liberado,
+              l.canal_versao, l.nfce_ativo, l.nfce_municipio, l.nfce_uf,
+              l.nfce_razao_social, l.nfce_cnpj,
+              u.id AS dono_id, u.nome AS dono_nome, u.email AS dono_email,
+              u.telefone AS dono_telefone, u.bloqueado AS dono_bloqueado
+         FROM lojas l JOIN usuarios u ON u.id = l.usuario_id
+        WHERE l.id = ?`
+    ).get(lojaId) as Record<string, unknown> | undefined;
+    if (!loja) throw erroHttp(404, 'Loja não encontrada.');
+
+    /*
+     * O PERÍODO PADRÃO É 30 DIAS, e a tela diz isso em cada número.
+     *
+     * Sem recorte, "faturamento" seria o histórico inteiro — um número que
+     * cresce para sempre e não responde nada. Trinta dias é o que se compara
+     * com o mês passado.
+     */
+    const dias = Math.min(365, Math.max(1, Number(req.query.dias) || 30));
+    const desde = new Date(Date.now() - dias * 86_400_000).toISOString();
+
+    const entregues = await db.prepare(
+      `SELECT COUNT(*) AS pedidos,
+              COALESCE(SUM(total_centavos), 0)    AS faturamento_centavos,
+              COALESCE(SUM(comissao_centavos), 0) AS comissao_centavos,
+              COALESCE(SUM(total_centavos - comissao_centavos), 0) AS repasse_centavos
+         FROM pedidos WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ?`
+    ).get(lojaId, desde) as {
+      pedidos: number; faturamento_centavos: number;
+      comissao_centavos: number; repasse_centavos: number;
+    };
+
+    const contagem = await db.prepare(
+      `SELECT
+         SUM(status IN ('pendente','aceito','preparando','pronto','em_entrega')) AS em_andamento,
+         SUM(status IN ('cancelado','recusado')) AS cancelados,
+         COUNT(*) AS total
+        FROM pedidos WHERE loja_id = ? AND criado_em >= ?`
+    ).get(lojaId, desde) as { em_andamento: number; cancelados: number; total: number };
+
+    /* 200 pedidos: a coluna do meio filtra e busca localmente, e trazer o
+       histórico inteiro de uma loja movimentada travaria a tela. */
+    const pedidos = await db.prepare(
+      `SELECT p.id, p.status, p.total_centavos, p.criado_em, p.forma_pagamento,
+              c.nome AS cliente_nome
+         FROM pedidos p JOIN usuarios c ON c.id = p.cliente_id
+        WHERE p.loja_id = ? AND p.criado_em >= ?
+        ORDER BY p.id DESC LIMIT 200`
+    ).all(lojaId, desde);
+
+    /* O histórico de quem mexeu NESTA loja. Sem ele, "por que essa loja está
+       suspensa?" não tem resposta em lugar nenhum da tela. */
+    /*
+     * A tabela é `admin_auditoria`. Escrevi `auditoria` na primeira versão e o
+     * `.catch(() => [])` engolia o erro — o histórico apareceria vazio para
+     * sempre, parecendo "esta loja nunca foi mexida" em vez de "a consulta está
+     * quebrada". Sem o catch, o erro sobe e alguém conserta.
+     */
+    const auditoria = await db.prepare(
+      `SELECT acao, alvo_desc, detalhes, criado_em, admin_nome
+         FROM admin_auditoria WHERE alvo_tipo = 'loja' AND alvo_id = ?
+        ORDER BY id DESC LIMIT 20`
+    ).all(lojaId);
+
+    const padrao = await db.prepare(
+      "SELECT valor FROM configuracoes WHERE chave = 'comissao_percentual'"
+    ).get() as { valor: string } | undefined;
+
+    res.json({
+      loja,
+      periodo_dias: dias,
+      resumo: {
+        ...entregues,
+        ticket_medio_centavos: entregues.pedidos
+          ? Math.round(entregues.faturamento_centavos / entregues.pedidos) : 0,
+        em_andamento: Number(contagem?.em_andamento ?? 0),
+        cancelados: Number(contagem?.cancelados ?? 0),
+        total: Number(contagem?.total ?? 0),
+      },
+      pedidos,
+      auditoria,
+      comissao_padrao: Number(padrao?.valor ?? 0),
+      /*
+       * `aberta` é DERIVADA DA AGENDA quando `auto_horario` está ligado: um job
+       * a cada 60s força o valor conforme o horário da loja. A tela precisa
+       * saber disso para mostrar como leitura, e não como um interruptor que se
+       * desfaz sozinho em um minuto.
+       */
+      abertura_automatica: Number(loja.auto_horario ?? 0) === 1,
+    });
+  } catch (e) { next(e); }
+});
+
 // ----- Pedidos (todos, com filtros) ----------------------------------------
 
 /** Monta a consulta da lista/CSV a partir dos filtros da tela. */

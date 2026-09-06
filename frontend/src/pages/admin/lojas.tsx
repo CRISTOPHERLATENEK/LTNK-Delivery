@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Store, CheckCircle2, XCircle, Clock, Search, Building2, Trash2,
@@ -9,7 +9,7 @@ import {
 import { AdminLayout } from './layout';
 import {
   Cabecalho, Toolbar, Busca, Segmented, Tabela, TabelaCabecalho, TabelaLinha,
-  TabelaRodape, CelulaNome, Status, Vazio, Botao, PainelLateral, baixarCsv, type Tom,
+  TabelaRodape, CelulaNome, Status, Vazio, Botao, baixarCsv, type Tom,
 } from './ui';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -25,7 +25,7 @@ import { brl, dataLocal } from '@/lib/format';
 import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
 import { cn } from '@/lib/utils';
 
-interface Loja {
+export interface Loja {
   id: number;
   nome: string;
   descricao: string;
@@ -82,6 +82,7 @@ const CATEGORIAS = ['Pizzaria', 'Hamburgueria', 'Japonesa', 'Brasileira', 'Doces
 export function TelaLojas() {
   const [filtro, setFiltro] = useState<Filtro>('todas');
   const [canalFiltro, setCanalFiltro] = useState<'todos' | 'beta' | 'teste'>('todos');
+  const navegar = useNavigate();
   const [busca, setBusca] = useState('');
   const [selecionada, setSelecionada] = useState<number | null>(null);
   const { mostrar } = useToast();
@@ -264,7 +265,15 @@ export function TelaLojas() {
               <span />
             </TabelaCabecalho>
             {lojas.map((l, i) => (
-              <TabelaLinha key={l.id} primeira={i === 0} aoClicar={() => setSelecionada(l.id)}>
+              <TabelaLinha
+                key={l.id}
+                primeira={i === 0}
+                /* Leva para a TELA da loja, não abre painel: o detalhe tem link
+                   próprio, botão voltar e recarrega — três coisas que um painel
+                   sobreposto não dá, e que importam numa tela onde se decide
+                   suspender e excluir. */
+                aoClicar={() => navegar(`/painel-admin/lojas/${l.id}${l.tenant_id ? `?tenant_id=${l.tenant_id}` : ''}`)}
+              >
                 <CelulaNome
                   nome={
                     <>
@@ -337,47 +346,6 @@ export function TelaLojas() {
         )}
       </div>
 
-      {/* ── Detalhe em painel lateral ── */}
-      {(() => {
-        const l = todas.find(x => x.id === selecionada);
-        if (!l) return null;
-        return (
-          <PainelLateral
-            aberto
-            aoFechar={() => setSelecionada(null)}
-            titulo={l.nome}
-            subtitulo={
-              <>
-                {ROTULO_SITUACAO[l.status_aprovacao] ?? l.status_aprovacao} · {l.categoria} · {l.dono_nome}
-              </>
-            }
-            rodape={
-              <>
-                {l.status_aprovacao !== 'aprovada' && (
-                  <Botao altura={30} variante="primario" onClick={() => aprovar(l)}>
-                    {l.status_aprovacao === 'suspensa' ? 'Reativar' : 'Aprovar'}
-                  </Botao>
-                )}
-                {l.status_aprovacao === 'aprovada' && (
-                  <Botao altura={30} variante="perigo" onClick={() => suspender(l)}>Suspender</Botao>
-                )}
-                {superAdmin && (
-                  <Botao altura={30} variante="perigo" onClick={() => excluir(l)}>Excluir</Botao>
-                )}
-              </>
-            }
-          >
-            <div className="space-y-1">
-              <PainelVendas loja={l} />
-              {superAdmin && <ComissaoLojaEditor loja={l} onSalvo={() => consulta.refetch()} />}
-              {superAdmin && <DominioLojaEditor loja={l} onSalvo={() => consulta.refetch()} />}
-              {superAdmin && <WhatsAppPermissoesEditor loja={l} onSalvo={() => consulta.refetch()} />}
-              {superAdmin && <ModulosDaLoja loja={l} />}
-              {superAdmin && <FiscalLojaAdmin loja={l} />}
-            </div>
-          </PainelLateral>
-        );
-      })()}
     </AdminLayout>
   );
 }
@@ -402,65 +370,9 @@ const TOM_NOTA: Record<string, Tom> = {
 
 /* ──────────────────── Comissão customizada por loja ──────────────────── */
 
-function ComissaoLojaEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void }) {
-  const { mostrar } = useToast();
-  const [valor, setValor] = useState(loja.comissao_percentual != null ? String(loja.comissao_percentual) : '');
-  const [salvando, setSalvando] = useState(false);
-
-  /*
-   * A comissão PADRÃO da plataforma como referência.
-   *
-   * O campo aceita vazio ("usa o padrão"), mas o padrão não aparecia em lugar
-   * nenhum aqui — dava pra digitar 12% sem saber que o padrão já era 12%, ou
-   * apagar o valor sem saber pra quanto a loja voltaria.
-   */
-  const padraoQ = useQuery({
-    queryKey: ['admin-comissao-padrao'],
-    queryFn: () => api<{ comissao_percentual: number }>('GET', '/api/admin/comissao').then(r => r.comissao_percentual),
-    staleTime: 5 * 60_000,
-  });
-
-  async function salvar(e: React.FormEvent) {
-    e.preventDefault();
-    setSalvando(true);
-    try {
-      await api('PUT', comTenant(`/api/admin/lojas/${loja.id}/comissao`, loja), {
-        comissao_percentual: valor === '' ? null : Number(valor),
-      });
-      mostrar({ tipo: 'sucesso', titulo: valor === '' ? 'Comissão padrão da plataforma aplicada.' : `Comissão desta loja: ${valor}%` });
-      onSalvo();
-    } catch (err) {
-      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
-    } finally { setSalvando(false); }
-  }
-
-  return (
-    <form onSubmit={salvar} className="mt-3 border-t pt-3">
-      <div className="flex items-end gap-2">
-        <div className="flex-1 max-w-xs">
-          <Label>Comissão desta loja (%)</Label>
-          <Input
-            type="number" min="0" max="50" step="0.5"
-            value={valor}
-            onChange={e => setValor(e.target.value)}
-            placeholder="Vazio = usa a comissão padrão"
-          />
-        </div>
-        <Button type="submit" size="sm" disabled={salvando}>{salvando ? 'Salvando…' : 'Salvar'}</Button>
-      </div>
-      {padraoQ.data != null && (
-        <p className="mt-1.5 text-xs text-muted-foreground">
-          Padrão da plataforma: <b className="text-foreground">{padraoQ.data}%</b>
-          {valor === '' ? ' — é o que esta loja usa hoje.' : ' — deixe vazio pra voltar a usá-lo.'}
-        </p>
-      )}
-    </form>
-  );
-}
-
 /* ──────────────────── Domínio próprio (definido pelo admin) ──────────────────── */
 
-function DominioLojaEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void }) {
+export function DominioLojaEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void }) {
   const { mostrar } = useToast();
   const [valor, setValor] = useState(loja.dominio_personalizado || '');
   const [salvando, setSalvando] = useState(false);
@@ -498,7 +410,7 @@ function DominioLojaEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void 
 
 /* ──────────────────── Permissões de WhatsApp (definido pelo admin) ──────────────────── */
 
-function WhatsAppPermissoesEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void }) {
+export function WhatsAppPermissoesEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void }) {
   const { mostrar } = useToast();
   const [oficial, setOficial] = useState(!!loja.whatsapp_permite_oficial);
   const [naoOficial, setNaoOficial] = useState(!!loja.whatsapp_permite_nao_oficial);
@@ -566,67 +478,6 @@ const ROTULO_STATUS: Record<string, string> = {
   em_entrega: 'Em entrega', entregue: 'Entregue', cancelado: 'Cancelado', recusado: 'Recusado',
 };
 
-function PainelVendas({ loja }: { loja: Loja }) {
-  const consulta = useQuery({
-    queryKey: ['admin-loja-vendas', loja.id, loja.tenant_id],
-    queryFn: () => api<Vendas>('GET', comTenant(`/api/admin/lojas/${loja.id}/vendas`, loja)),
-  });
-
-  if (consulta.isLoading) {
-    return <div className="mt-4 pt-4 border-t border-border"><Skeleton className="h-32 rounded-xl" /></div>;
-  }
-  if (!consulta.data) return null;
-  const { resumo, recentes } = consulta.data;
-
-  return (
-    <div className="mt-4 pt-4 border-t border-border space-y-4">
-      {/* KPIs financeiros */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <Kpi icone={Receipt}    cor="text-foreground"     valor={brl(resumo.faturamento_centavos)} rotulo="Faturamento" />
-        <Kpi icone={TrendingUp} cor="text-primary"        valor={brl(resumo.comissao_centavos)}    rotulo="Comissão" />
-        <Kpi icone={TrendingUp} cor="text-emerald-600"    valor={brl(resumo.repasse_centavos)}     rotulo="Repasse" />
-        <Kpi icone={Ticket}     cor="text-foreground"     valor={brl(resumo.ticket_medio_centavos)} rotulo="Ticket médio" />
-      </div>
-
-      {/* Contadores */}
-      <div className="flex flex-wrap gap-2 text-xs">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 px-2.5 py-1 font-semibold">
-          <CheckCircle2 className="size-3.5" /> {resumo.pedidos} entregues
-        </span>
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 text-blue-700 dark:text-blue-300 px-2.5 py-1 font-semibold">
-          <Activity className="size-3.5" /> {resumo.em_andamento} em andamento
-        </span>
-        {resumo.cancelados > 0 && (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 text-destructive px-2.5 py-1 font-semibold">
-            <XCircle className="size-3.5" /> {resumo.cancelados} cancelados
-          </span>
-        )}
-      </div>
-
-      {/* Pedidos recentes */}
-      <div>
-        <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">Pedidos recentes</h4>
-        {recentes.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-3 text-center">Nenhum pedido ainda.</p>
-        ) : (
-          <div className="divide-y divide-border/60 rounded-xl border border-border/60 overflow-hidden">
-            {recentes.map(p => (
-              <div key={p.id} className="flex items-center gap-3 px-3 py-2.5 text-sm">
-                <span className="font-mono text-xs text-muted-foreground w-12">#{String(p.id).padStart(4, '0')}</span>
-                <span className="flex-1 min-w-0 truncate">{p.cliente_nome}</span>
-                <Badge variant={p.status === 'entregue' ? 'success' : ['cancelado', 'recusado'].includes(p.status) ? 'danger' : 'secondary'} className="text-[10px]">
-                  {ROTULO_STATUS[p.status] || p.status}
-                </Badge>
-                <span className="tabular-nums font-semibold w-20 text-right">{brl(p.total_centavos)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function Kpi({ icone: Icone, cor, valor, rotulo }: { icone: typeof Receipt; cor: string; valor: string; rotulo: string }) {
   return (
     <div className="rounded-xl border border-border/60 bg-background p-3">
@@ -684,7 +535,7 @@ const ORIGENS_ADMIN = [
  * Juntos e não espalhados pela gaveta porque a pergunta que se faz aqui é uma
  * só — "o que este cliente tem?" — e respondê-la exigia abrir três seções.
  */
-function ModulosDaLoja({ loja }: { loja: Loja }) {
+export function ModulosDaLoja({ loja }: { loja: Loja }) {
   const { mostrar } = useToast();
   const [estado, setEstado] = useState<EstadoModulos | null>(null);
   const [salvando, setSalvando] = useState<string | null>(null);
@@ -863,7 +714,7 @@ interface EstadoModulos {
   funcionalidades: { chave: string; titulo: string; canal: Canal; porque: string }[];
 }
 
-function FiscalLojaAdmin({ loja }: { loja: Loja }) {
+export function FiscalLojaAdmin({ loja }: { loja: Loja }) {
   const lojaId = loja.id;
   const { mostrar } = useToast();
   const [aberto, setAberto] = useState(false);

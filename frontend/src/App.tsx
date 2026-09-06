@@ -41,6 +41,7 @@ const TelaLojistas = lazySeguro(() => import('@/pages/admin/lojistas').then(m =>
 const TelaRevendedores = lazySeguro(() => import('@/pages/admin/revendedores').then(m => ({ default: m.TelaRevendedores })));
 const PainelRevendedor = lazySeguro(() => import('@/pages/revendedor/painel').then(m => ({ default: m.PainelRevendedor })));
 const TelaLojas = lazySeguro(() => import('@/pages/admin/lojas').then(m => ({ default: m.TelaLojas })));
+const TelaLojaDetalhe = lazySeguro(() => import('@/pages/admin/loja-detalhe').then(m => ({ default: m.TelaLojaDetalhe })));
 const TelaPedidosAdmin = lazySeguro(() => import('@/pages/admin/pedidos-admin').then(m => ({ default: m.TelaPedidosAdmin })));
 const TelaBanners = lazySeguro(() => import('@/pages/admin/banners').then(m => ({ default: m.TelaBanners })));
 const TelaRepasses = lazySeguro(() => import('@/pages/admin/repasses').then(m => ({ default: m.TelaRepasses })));
@@ -175,6 +176,9 @@ export default function App() {
         <Route path="/painel-admin/revendedores" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaRevendedores /></Guard>} />
         <Route path="/painel-admin/solicitacoes" element={<Guard perfis={['admin']} exigeSuperAdmin redirectTo="/painel-admin"><TelaRevendedores /></Guard>} />
         <Route path="/painel-admin/lojas"    element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaLojas /></Guard>} />
+        {/* Rota PRÓPRIA e não overlay: o detalhe da loja tem link, volta e
+            recarrega — três coisas que um modal não dá. */}
+        <Route path="/painel-admin/lojas/:id" element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaLojaDetalhe /></Guard>} />
         <Route path="/painel-admin/monitor"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaMonitor /></Guard>} />
         <Route path="/painel-admin/entregadores" element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaEntregadores /></Guard>} />
         <Route path="/painel-admin/pedidos"  element={<Guard perfis={['admin']} redirectTo="/painel-admin"><TelaPedidosAdmin /></Guard>} />
