@@ -102,7 +102,7 @@ export const FUNCIONALIDADES = {
   'erp-modelo-documento': {
     canal: 'beta',
     titulo: 'Escolher como o pedido entra no Maxx Gestão (Pedido ou Pré-Venda)',
-    porque: 'Qual modelo o PDV puxa varia por instalação e ainda está sendo descoberto.',
+    porque: 'São documentos diferentes na operação do ERP; qual serve depende de como a loja trabalha.',
       desde: '2026-09-04',
   },
   'erp-caixa': {

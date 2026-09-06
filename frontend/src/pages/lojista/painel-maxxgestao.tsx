@@ -28,16 +28,19 @@ export interface EstadoErp {
   /**
    * O modelo do documento: `PA` (Pedido de Venda) ou `PV` (Pré-Venda).
    *
-   * É o ajuste que decide se o pedido cai na fila que o PDV MeuChef puxa — e
-   * qual modelo entra nela varia por instalação, então quem descobre é o
-   * lojista, testando.
+   * Foi criado para descobrir qual modelo o PDV MeuChef puxa. Descobrimos
+   * depois, pelo fabricante, que NÃO EXISTE API de integração com o PDV — o
+   * ajuste continua porque `PA` e `PV` são documentos diferentes na operação de
+   * quem usa o ERP, e a escolha é do lojista. Só parou de ser sobre o PDV.
    */
   modelo: 'PA' | 'PV';
   /**
    * O caixa do ERP em que o pedido entra. 0 = nenhum.
    *
-   * Medido: todo documento do PDV deles tem caixa, e os nossos vinham com 0 —
-   * é por isso que o pedido não aparecia no MeuChef.
+   * Medido: todo documento nascido na operação do ERP tem caixa e os nossos
+   * vinham com 0. Continua valendo — documento sem caixa fica fora do
+   * fechamento —, mas NÃO faz o pedido aparecer no PDV: não existe API de
+   * integração com o MeuChef.
    */
   caixa: number;
   /**
@@ -545,8 +548,8 @@ Ligar assim mesmo?`,
         titulo="Caixa do Maxx Gestão"
         descricao={
           estado && estado.caixa > 0
-            ? `Os pedidos entram no caixa ${estado.caixa} — é assim que eles aparecem no PDV (MeuChef).`
-            : 'Sem caixa, o pedido chega no Gestão mas não entra na fila do PDV (MeuChef).'
+            ? `Os pedidos entram no caixa ${estado.caixa} do Maxx Gestão.`
+            : 'Sem caixa, o pedido chega no Maxx Gestão sem pertencer a nenhum caixa.'
         }
         acao={
           <div className="flex shrink-0 items-center gap-2">
@@ -585,8 +588,8 @@ Ligar assim mesmo?`,
         titulo="Como o pedido entra no Maxx Gestão"
         descricao={
           estado?.modelo === 'PV'
-            ? 'Como Pré-Venda — é o que o PDV (MeuChef) costuma puxar para finalizar no caixa.'
-            : 'Como Pedido de Venda. Se o pedido não aparecer no seu PDV, experimente Pré-Venda.'
+            ? 'Como Pré-Venda.'
+            : 'Como Pedido de Venda — o padrão.'
         }
         acao={
           <div className="flex shrink-0 gap-1 rounded-xl border border-border bg-muted/40 p-1">

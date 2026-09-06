@@ -555,11 +555,11 @@ export async function enviarPedidoAoErp(
     idUsuario,
     idPagamento,
     /* O modelo é escolha do lojista (`PA` por padrão): é ele que decide se o
-       pedido cai na fila que o PDV MeuChef puxa. `modeloValido` protege o
-       envio de um valor estranho no banco. */
+       documento é um Pedido de Venda ou uma Pré-Venda na operação do ERP.
+       `modeloValido` protege o envio de um valor estranho no banco. */
     modelo: modeloValido(loja?.maxxgestao_modelo),
     /* O caixa do ERP, quando o lojista informou. Sem ele o documento nasce
-       fora da operação do PDV e o MeuChef não o lista. */
+       fora de qualquer caixa e fica de fora do fechamento. */
     idCaixa: Math.max(0, Number(loja?.maxxgestao_id_caixa ?? 0)),
     /* HORA DE BRASÍLIA. Os documentos do ERP vêm sem fuso, em hora local:
        mandar UTC joga o pedido três horas para frente e, à noite, para o dia

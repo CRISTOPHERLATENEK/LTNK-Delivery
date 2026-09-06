@@ -671,3 +671,35 @@ Duas consequências:
 `DELETE /api/documento/{id}/v1`, `DELETE /api/documento/v1/{id}` e
 `POST /api/documento/{id}/cancelar/v1` são todos 404. O mais próximo de apagar
 é `POST .../status/v1` com `C` — o documento continua na lista, cancelado.
+
+## RESPOSTA DO FABRICANTE (06/09/2026): não existe API do MeuChef
+
+Confirmado com a Maxx Gestão: **a integração com o MeuChef ainda vai ser feita.
+Não existe API de apontamento para o PDV.**
+
+Isso encerra a investigação dos dias 03 e 04/09 — e o encerramento importa,
+porque as pistas que a gente tinha eram boas o bastante para alguém retomar a
+mesma linha daqui a três meses e gastar o mesmo tempo. Ficam registradas as
+conclusões, com o que continua verdade e o que não era o que parecia:
+
+**Continua verdade.** Os nossos documentos nasciam sem caixa (`idCaixa: 0`) e
+todo documento da operação do ERP tem caixa. Mandar `idCaixa` no
+`POST /api/documento/v1` FUNCIONA — conferido criando o documento 2749 e lendo
+de volta. Documento sem caixa fica fora do fechamento, então mandar continua
+sendo o certo.
+
+**Não era o que parecia.** Mandar o caixa NÃO faz o pedido aparecer no MeuChef,
+e trocar o modelo (`PA` ↔ `PV`) também não. O PDV não lê os documentos da API —
+simplesmente não há integração. Nenhuma combinação de campo resolveria, porque o
+problema nunca esteve no documento.
+
+**O que sobra dos dois ajustes que criamos.** O do CAIXA continua útil pelo
+motivo fiscal/operacional (o documento pertence a um caixa). O do MODELO
+continua porque `PA` e `PV` são documentos diferentes na operação de quem usa o
+ERP, e a escolha é do lojista. Os dois só pararam de ser sobre o PDV — e o texto
+na tela foi corrigido, porque prometia o que não acontece.
+
+**Quando a API existir**, o que já está pronto e não se perde: o pedido virando
+documento com os itens vinculados, o cliente espelhado como Pessoa, a forma de
+pagamento, o caixa, o modelo configurável, e a leitura de volta pela lista
+paginada. O que faltará é só o endpoint deles.
