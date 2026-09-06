@@ -6,6 +6,10 @@ import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, Trash2, Handshake, Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward, Link2 } from 'lucide-react';
 import { AdminLayout } from './layout';
+import {
+  Cabecalho, Tabela, TabelaCabecalho, TabelaLinha, TabelaRodape,
+  CelulaNome, Num, Status, Vazio, Botao, PainelLateral, baixarCsv,
+} from './ui';
 import { SeloRevendedor } from './revendedores';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -58,6 +62,8 @@ export function TelaTenants() {
   const vazio = { nome: '', slug: '', dominio: '', nome_loja: '', categoria: '', dono_nome: '', email: '', senha: '', telefone: '' };
   const [form, setForm] = useState(vazio);
   const [criando, setCriando] = useState(false);
+  /* Qual cliente está com o painel de detalhe aberto. */
+  const [aberto, setAberto] = useState<number | null>(null);
   const [enviando, setEnviando] = useState(false);
 
   /** Etapas do assistente: 'cliente' cria o tenant; as demais só completam dados nele. */
@@ -201,22 +207,20 @@ export function TelaTenants() {
   return (
     <AdminLayout titulo="Clientes">
       <div className="max-w-4xl space-y-5 mx-auto">
-        {/* Cabeçalho */}
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div>
-            <h1 className="flex items-center gap-2 text-xl font-extrabold">
-              <Building2 className="size-5 text-primary" /> Clientes (Tenants)
-            </h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Cada cliente tem seu próprio banco isolado e domínio.
-            </p>
-          </div>
-          {!criando && (
-            <Button onClick={() => setCriando(true)}>
-              <Plus className="size-4" /> Novo cliente
-            </Button>
+        <Cabecalho
+          titulo="Clientes"
+          subtitulo={
+            consulta.isLoading ? 'Carregando…' : (
+              <>
+                {tenants.length} {tenants.length === 1 ? 'cliente' : 'clientes'} ·
+                {' '}{tenants.filter(t => t.ativo).length} ativos · cada um com banco isolado e domínio
+              </>
+            )
+          }
+          acoes={!criando && (
+            <Botao variante="primario" onClick={() => setCriando(true)}>Novo cliente</Botao>
           )}
-        </div>
+        />
 
         {/* Assistente de criação — 4 etapas */}
         {criando && (
@@ -355,25 +359,82 @@ export function TelaTenants() {
           </Card>
         )}
 
-        {/* Lista */}
         {consulta.isLoading ? (
-          <div className="space-y-2">{[1, 2].map(i => <Skeleton key={i} className="h-24" />)}</div>
-        ) : tenants.length === 0 ? (
-          <Card><CardContent className="p-10 text-center text-muted-foreground">
-            Nenhum cliente ainda. Clique em "Novo cliente".
-          </CardContent></Card>
+          <Skeleton className="h-64" />
         ) : (
-          <div className="space-y-3">
-            {tenants.map(t => (
-              <TenantCard key={t.id} t={t} onToggle={() => alternarAtivo(t)} onSalvarDominio={d => salvarDominio(t, d)}
-                revendedores={revendedoresQ.data ?? []} onSalvarRevendedor={id => salvarRevendedor(t, id)} onExcluir={() => excluir(t)}
-                modulos={modulosQ.data ?? []}
-                modulosDoCliente={modulosPorTenant[t.id] ?? []}
-                onAlternarModulo={(mid, ligar) => alternarModulo(t, mid, ligar)} />
+          <Tabela colunas="minmax(0,1.3fr) minmax(0,1.1fr) 70px minmax(0,1fr) 110px">
+            <TabelaCabecalho>
+              <span>Cliente</span>
+              <span>Endereço</span>
+              <span className="text-right">Lojas</span>
+              <span>Revendedor</span>
+              <span>Situação</span>
+            </TabelaCabecalho>
+            {tenants.map((t, i) => (
+              <TabelaLinha key={t.id} primeira={i === 0} aoClicar={() => setAberto(t.id)}>
+                <CelulaNome nome={t.nome} sub={t.slug} />
+                {/*
+                  O ENDEREÇO EFETIVO é o link que se entrega ao cliente, e por
+                  isso é coluna e não detalhe: cliente sem domínio próprio
+                  aparecia só como "sem domínio", e quem cadastrou não tinha
+                  como descobrir que o subdomínio existe e funciona.
+                */}
+                {t.url
+                  ? <span className="adm-num truncate text-[12px]">{t.url.replace(/^https?:\/\//, '')}</span>
+                  : <Vazio />}
+                <Num className="text-right">{t.lojas}</Num>
+                {t.revendedor_nome
+                  ? <span className="truncate text-[12.5px]">{t.revendedor_nome}</span>
+                  : <Vazio>direto</Vazio>}
+                <Status tom={t.ativo ? 'ok' : 'inativo'}>{t.ativo ? 'Ativo' : 'Suspenso'}</Status>
+              </TabelaLinha>
             ))}
-          </div>
+            <TabelaRodape
+              total={tenants.length}
+              aoExportar={tenants.length > 0 ? () => baixarCsv(
+                'clientes',
+                ['Cliente', 'Slug', 'Endereço', 'Banco', 'Lojas', 'Revendedor', 'Situação'],
+                tenants.map(t => [
+                  t.nome, t.slug, t.url ?? '', t.db_nome, t.lojas,
+                  t.revendedor_nome ?? '', t.ativo ? 'ativo' : 'suspenso',
+                ]),
+              ) : undefined}
+            />
+          </Tabela>
+        )}
+
+        {!consulta.isLoading && tenants.length === 0 && (
+          <p className="pt-4 text-center text-[12.5px]" style={{ color: 'var(--adm-dado)' }}>
+            Nenhum cliente ainda. Clique em "Novo cliente".
+          </p>
         )}
       </div>
+
+      {/* ── Detalhe em painel lateral ── */}
+      {(() => {
+        const t = tenants.find(x => x.id === aberto);
+        if (!t) return null;
+        return (
+          <PainelLateral
+            aberto
+            aoFechar={() => setAberto(null)}
+            titulo={t.nome}
+            subtitulo={<span className="adm-num">{t.slug} · {t.db_nome}</span>}
+          >
+            <TenantCard
+              t={t}
+              onToggle={() => alternarAtivo(t)}
+              onSalvarDominio={d => salvarDominio(t, d)}
+              revendedores={revendedoresQ.data ?? []}
+              onSalvarRevendedor={id => salvarRevendedor(t, id)}
+              onExcluir={() => { setAberto(null); excluir(t); }}
+              modulos={modulosQ.data ?? []}
+              modulosDoCliente={modulosPorTenant[t.id] ?? []}
+              onAlternarModulo={(mid, ligar) => alternarModulo(t, mid, ligar)}
+            />
+          </PainelLateral>
+        );
+      })()}
     </AdminLayout>
   );
 }

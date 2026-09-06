@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { LifeBuoy, MessageCircle, CheckCircle2, DatabaseBackup, Download, Loader2, Save, CreditCard, FlaskConical, Rocket } from 'lucide-react';
 import { AdminLayout } from './layout';
+import { Cabecalho } from './ui';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -408,13 +409,13 @@ function SecaoBackup() {
 export function TelaConfiguracoes() {
   return (
     <AdminLayout titulo="Configurações">
-      <div className="mx-auto max-w-3xl space-y-4">
-        <div>
-          <h1 className="text-xl font-bold">Configurações</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Suporte, integrações e backup da plataforma.
-          </p>
-        </div>
+      {/* 620px: linha de leitura de formulário. Mais largo, o olho perde o
+          começo da linha seguinte entre um campo e outro. */}
+      <div className="mx-auto max-w-[620px]">
+        <Cabecalho
+          titulo="Configurações"
+          subtitulo="Suporte, integrações e backup da plataforma"
+        />
         {/* A conexão do WhatsApp é renderizada DENTRO de SecaoConfiguracoesGerais,
             logo abaixo do servidor/sessão que ela usa — e só quando há o que
             conectar. Antes ela ficava aqui embaixo, longe da própria config. */}

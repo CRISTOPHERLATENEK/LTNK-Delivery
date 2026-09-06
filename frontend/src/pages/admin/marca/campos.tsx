@@ -89,18 +89,34 @@ export function ListaIconeTituloDescEditavel({ itens, onUp, onAdd, onRemove, max
   );
 }
 
-export function Secao({ icone: Icone, titulo, children }: {
-  icone: typeof Palette; titulo: string; children: React.ReactNode;
+/**
+ * A SEÇÃO DAS TRÊS TELAS DE FORMULÁRIO (Marca, Landing, Configurações).
+ *
+ * Rótulo em caps sobre um bloco de hairline, sem card e sem sombra — as três
+ * telas mudam de cara juntas porque compartilham este componente. O ícone virou
+ * opcional e não é mais desenhado: numa página com sete seções, sete ícones
+ * coloridos disputam a atenção com os campos, que é o que a pessoa veio editar.
+ * A assinatura mantém `icone` para não ter que tocar em cada chamada — e para o
+ * dia em que alguém quiser voltar atrás.
+ */
+export function Secao({ titulo, children }: {
+  icone?: unknown; titulo: string; children: React.ReactNode;
 }) {
   return (
-    <Card>
-      <CardContent className="p-5 space-y-4">
-        <div className="flex items-center gap-2 text-sm font-bold">
-          <Icone className="size-4 text-primary" /> {titulo}
-        </div>
+    <section className="pb-5">
+      <div
+        className="pb-2 text-[11px] font-medium uppercase tracking-wider"
+        style={{ color: 'var(--adm-rotulo, #78716C)' }}
+      >
+        {titulo}
+      </div>
+      <div
+        className="space-y-4 p-3"
+        style={{ border: '1px solid var(--adm-linha, #ECEAE6)', borderRadius: 6 }}
+      >
         {children}
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 

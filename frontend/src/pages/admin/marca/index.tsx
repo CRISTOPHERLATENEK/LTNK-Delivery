@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, Code2 } from 'lucide-react';
 import { AdminLayout } from '../layout';
+import { Cabecalho } from '../ui';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -89,16 +90,10 @@ export function TelaMarca() {
   return (
     <AdminLayout titulo="Marca">
     <div className="space-y-5 pb-24 max-w-5xl mx-auto">
-      {/* Cabeçalho */}
-      <div className="flex items-center gap-3">
-        <div className="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-          <Palette className="size-6" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-extrabold tracking-tight">Marca da plataforma</h1>
-          <p className="text-sm text-muted-foreground">White label — identidade que todos os clientes vão ver.</p>
-        </div>
-      </div>
+      <Cabecalho
+        titulo="Marca"
+        subtitulo="White label — a identidade que todos os clientes vão ver"
+      />
 
       <form id="form-marca" onSubmit={salvar} className="grid gap-5 lg:grid-cols-[1fr_360px]">
         {/* ───────────── Coluna de edição ───────────── */}

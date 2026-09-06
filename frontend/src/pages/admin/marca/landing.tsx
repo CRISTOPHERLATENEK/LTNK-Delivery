@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Save, Eye, ExternalLink, Image as ImageIcon, Megaphone, Store, LayoutTemplate, Plus, Trash2, Check, Users, Star, Tag, HelpCircle, Rocket, Zap, Receipt } from 'lucide-react';
 import { AdminLayout } from '../layout';
+import { Cabecalho, Botao } from '../ui';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -839,20 +840,16 @@ function EditorLanding() {
 export function TelaLanding() {
   return (
     <AdminLayout titulo="Landing page">
-      <div className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold">Landing page</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              A página que aparece no domínio principal quando o modo de exibição está em "Landing".
-            </p>
-          </div>
-          <Button variant="outline" size="sm" asChild>
+      <div>
+        <Cabecalho
+          titulo="Landing page"
+          subtitulo='A página do domínio principal quando o modo de exibição está em "Landing"'
+          acoes={
             <a href="/" target="_blank" rel="noreferrer">
-              <ExternalLink className="size-3.5" /> Ver landing ao vivo
+              <Botao>Ver ao vivo</Botao>
             </a>
-          </Button>
-        </div>
+          }
+        />
         <EditorLanding />
       </div>
     </AdminLayout>
