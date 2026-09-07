@@ -8,12 +8,8 @@
  * errada por estar tudo junto.
  */
 import { useState } from 'react';
-import { KeyRound, ShieldCheck, UserCog } from 'lucide-react';
 import { AdminLayout } from './layout';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Cabecalho, Secao, LinhaRotulada, Campo, Botao } from './ui';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, sessaoUsuario, ehSuperAdmin } from '@/lib/api';
 
@@ -27,8 +23,7 @@ export function TelaMinhaConta() {
   const [senhaReset2fa, setSenhaReset2fa] = useState('');
   const [resetando2fa, setResetando2fa] = useState(false);
 
-  async function trocarMinhaSenha(e: React.FormEvent) {
-    e.preventDefault();
+  async function trocarMinhaSenha() {
     if (formSenha.senha_nova !== formSenha.senha_confirma) {
       mostrar({ tipo: 'erro', titulo: 'As senhas novas não coincidem.' });
       return;
@@ -48,8 +43,7 @@ export function TelaMinhaConta() {
     }
   }
 
-  async function resetar2fa(e: React.FormEvent) {
-    e.preventDefault();
+  async function resetar2fa() {
     setResetando2fa(true);
     try {
       await api('POST', '/api/admin/2fa/resetar', { senha: senhaReset2fa });
@@ -68,83 +62,61 @@ export function TelaMinhaConta() {
 
   return (
     <AdminLayout titulo="Minha conta">
-      <div className="mx-auto max-w-2xl space-y-4">
-        <div>
-          <h1 className="text-xl font-bold">Minha conta</h1>
-          <p className="mt-0.5 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-            {u?.email}
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-bold text-primary">
-              {superAdmin ? 'Super Admin' : 'Operacional'}
-            </span>
+      {/* 620px: linha de leitura de formulário. Mais largo, o olho perde o
+          começo da linha seguinte entre um campo e outro. */}
+      <div className="mx-auto max-w-[620px]">
+        <Cabecalho
+          titulo="Minha conta"
+          subtitulo={`${u?.email ?? ''} · ${superAdmin ? 'super admin' : 'operacional'}`}
+        />
+
+        <Secao titulo="Trocar minha senha">
+          <LinhaRotulada rotulo="Senha atual" primeira>
+            <Campo tipo="password" valor={formSenha.senha_atual}
+              aoMudar={v => setFormSenha(f => ({ ...f, senha_atual: v }))} />
+          </LinhaRotulada>
+          <LinhaRotulada rotulo="Nova senha" apoio="Mínimo 6 caracteres">
+            <Campo tipo="password" valor={formSenha.senha_nova}
+              aoMudar={v => setFormSenha(f => ({ ...f, senha_nova: v }))} />
+          </LinhaRotulada>
+          <LinhaRotulada rotulo="Confirmar" apoio="Digite a nova senha de novo">
+            <Campo tipo="password" valor={formSenha.senha_confirma}
+              aoMudar={v => setFormSenha(f => ({ ...f, senha_confirma: v }))} />
+          </LinhaRotulada>
+          <LinhaRotulada rotulo="">
+            <Botao
+              variante="primario"
+              desabilitado={trocandoSenha || !formSenha.senha_atual || formSenha.senha_nova.length < 6}
+              onClick={() => void trocarMinhaSenha()}
+            >
+              {trocandoSenha ? 'Salvando…' : 'Trocar senha'}
+            </Botao>
+          </LinhaRotulada>
+        </Secao>
+
+        <Secao titulo="Resetar meu 2FA">
+          {/*
+            A CONSEQUÊNCIA ANTES DO CAMPO.
+            Quem chega aqui perdeu o celular e está com pressa — ler depois de
+            preencher é ler depois de decidir.
+          */}
+          <p className="px-3 pt-3 text-[12.5px] leading-relaxed" style={{ color: 'var(--adm-fg2)' }}>
+            Perdeu o celular ou trocou de aparelho? Isto apaga o app autenticador atual
+            e os códigos de backup — no próximo login você configura um novo, do zero.
+            O 2FA continua obrigatório.
           </p>
-        </div>
-
-        <Card>
-          <CardContent className="p-5">
-            <h2 className="mb-4 flex items-center gap-2 font-bold">
-              <KeyRound className="size-5 text-primary" />
-              Trocar minha senha
-            </h2>
-            <form onSubmit={trocarMinhaSenha} className="space-y-3">
-              <div>
-                <Label htmlFor="senha-atual">Senha atual</Label>
-                <Input
-                  id="senha-atual" type="password" required autoComplete="current-password"
-                  value={formSenha.senha_atual}
-                  onChange={e => setFormSenha(f => ({ ...f, senha_atual: e.target.value }))}
-                />
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label htmlFor="senha-nova">Nova senha (mín. 6)</Label>
-                  <Input
-                    id="senha-nova" type="password" minLength={6} required autoComplete="new-password"
-                    value={formSenha.senha_nova}
-                    onChange={e => setFormSenha(f => ({ ...f, senha_nova: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="senha-confirma">Confirmar nova senha</Label>
-                  <Input
-                    id="senha-confirma" type="password" minLength={6} required autoComplete="new-password"
-                    value={formSenha.senha_confirma}
-                    onChange={e => setFormSenha(f => ({ ...f, senha_confirma: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <Button type="submit" size="lg" className="w-full" disabled={trocandoSenha}>
-                <KeyRound className="size-4" />
-                {trocandoSenha ? 'Salvando…' : 'Trocar senha'}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-5">
-            <h2 className="mb-1 flex items-center gap-2 font-bold">
-              <ShieldCheck className="size-5 text-primary" />
-              Resetar meu 2FA
-            </h2>
-            <p className="mb-4 text-xs text-muted-foreground">
-              Perdeu o celular ou trocou de aparelho? Isso apaga o app autenticador atual e os códigos de
-              backup — no próximo login você configura um novo, do zero. O 2FA continua obrigatório.
-            </p>
-            <form onSubmit={resetar2fa} className="space-y-3">
-              <div>
-                <Label htmlFor="senha-reset-2fa">Confirme sua senha</Label>
-                <Input
-                  id="senha-reset-2fa" type="password" required autoComplete="current-password"
-                  value={senhaReset2fa} onChange={e => setSenhaReset2fa(e.target.value)}
-                />
-              </div>
-              <Button type="submit" variant="outline" disabled={resetando2fa || !senhaReset2fa}>
-                <UserCog className="size-4" />
-                {resetando2fa ? 'Resetando…' : 'Resetar 2FA'}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
+          <LinhaRotulada rotulo="Sua senha" apoio="Confirmação">
+            <Campo tipo="password" valor={senhaReset2fa} aoMudar={setSenhaReset2fa} />
+          </LinhaRotulada>
+          <LinhaRotulada rotulo="">
+            {/* `perigo` e não `primario`: apagar o autenticador é o tipo de
+                ação que não deveria parecer o caminho normal da tela. */}
+            <Botao variante="perigo" desabilitado={resetando2fa || !senhaReset2fa}
+              onClick={() => void resetar2fa()}>
+              {resetando2fa ? 'Resetando…' : 'Resetar 2FA'}
+            </Botao>
+          </LinhaRotulada>
+        </Secao>
       </div>
     </AdminLayout>
   );

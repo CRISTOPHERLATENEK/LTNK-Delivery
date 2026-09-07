@@ -9,15 +9,15 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, Plus, Pencil, Trash2, X } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Falha } from '@/components/ui/estado';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError } from '@/lib/api';
+import {
+  Toolbar, Tabela, TabelaCabecalho, TabelaLinha, TabelaRodape,
+  CelulaNome, Num, Botao, PainelLateral, Secao, LinhaRotulada, Campo,
+} from './ui';
 import { brl } from '@/lib/format';
 
 export interface Modulo {
@@ -62,22 +62,66 @@ export function PainelModulos() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          Valores extras que somam na conta do revendedor. Ligue em cada cliente na aba Clientes.
+    <>
+      <Toolbar>
+        <p className="min-w-[240px] flex-1 text-[12.5px] leading-relaxed" style={{ color: 'var(--adm-fg2)' }}>
+          {/*
+            "ISTO É COBRANÇA, NÃO PERMISSÃO" fica junto do que explica a tela,
+            não num aviso separado. Era uma faixa própria e virou a segunda
+            frase: o alerta em caixa própria lê-se uma vez e depois some da
+            vista, e é justamente a confusão que se quer evitar todo dia.
+          */}
+          Valores extras que somam na conta do revendedor. <b className="font-semibold">
+          Isto é cobrança, não permissão</b> — ligar um módulo não habilita o recurso no
+          painel do lojista, e desligar não tira.
         </p>
-        <Button size="sm" onClick={() => { setEditando(null); setCriando(true); }}>
-          <Plus className="size-4" /> Novo módulo
-        </Button>
-      </div>
+        <Botao variante="primario" onClick={() => { setEditando(null); setCriando(true); }}>
+          Novo módulo
+        </Botao>
+      </Toolbar>
 
-      <p className="rounded-xl border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-        <b className="text-foreground">Isto é cobrança, não permissão.</b> Ligar um módulo não habilita o
-        recurso no painel do lojista, e desligar não tira. O acesso continua sendo controlado por você.
-      </p>
+      {consulta.isError && <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />}
 
-      {(criando || editando) && (
+      {consulta.isLoading ? (
+        <Skeleton className="h-48" />
+      ) : (
+        <Tabela colunas="minmax(0,1.6fr) 110px 120px 150px">
+          <TabelaCabecalho>
+            <span>Módulo</span>
+            <span className="text-right">Clientes</span>
+            <span className="text-right">Por cliente</span>
+            <span />
+          </TabelaCabecalho>
+          {lista.map((m, i) => (
+            <TabelaLinha key={m.id} primeira={i === 0} aoClicar={() => { setCriando(false); setEditando(m); }}>
+              <CelulaNome nome={m.nome} sub={m.descricao || ''} />
+              <Num className="text-right">{m.clientes}</Num>
+              <div className="text-right">
+                <Num className="font-medium">{brl(m.preco_centavos)}</Num>
+                <div className="text-[11px]" style={{ color: 'var(--adm-dado)' }}>por mês</div>
+              </div>
+              <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
+                <Botao altura={30} variante="perigo" onClick={() => remover(m)}>Remover</Botao>
+              </div>
+            </TabelaLinha>
+          ))}
+          <TabelaRodape total={lista.length} />
+        </Tabela>
+      )}
+
+      {!consulta.isLoading && lista.length === 0 && !consulta.isError && (
+        <p className="pt-4 text-center text-[12.5px]" style={{ color: 'var(--adm-dado)' }}>
+          Nenhum módulo cadastrado. Ex.: NFC-e, PDV, WhatsApp oficial — cada um com o preço
+          que você cobra por ele.
+        </p>
+      )}
+
+      <PainelLateral
+        aberto={criando || !!editando}
+        titulo={editando ? editando.nome : 'Novo módulo'}
+        subtitulo={editando ? `ligado em ${editando.clientes} cliente(s)` : 'Cobrança por cliente, por mês'}
+        aoFechar={() => { setCriando(false); setEditando(null); }}
+      >
         <FormModulo
           editando={editando}
           onFechar={() => { setCriando(false); setEditando(null); }}
@@ -86,50 +130,8 @@ export function PainelModulos() {
             qc.invalidateQueries({ queryKey: ['admin-modulos'] });
           }}
         />
-      )}
-
-      {consulta.isLoading && <div className="space-y-2">{[1, 2].map(i => <Skeleton key={i} className="h-20 rounded-xl" />)}</div>}
-      {consulta.isError && <Falha compacto erro={consulta.error} aoTentar={() => consulta.refetch()} />}
-
-      {!consulta.isLoading && lista.length === 0 && !consulta.isError && (
-        <Card><CardContent className="space-y-2 p-10 text-center text-muted-foreground">
-          <Boxes className="mx-auto size-10 opacity-20" />
-          <p className="font-medium">Nenhum módulo cadastrado</p>
-          <p className="text-sm">Ex.: NFC-e, PDV, WhatsApp oficial — cada um com o preço que você cobra por ele.</p>
-        </CardContent></Card>
-      )}
-
-      <div className="space-y-2">
-        {lista.map(m => (
-          <Card key={m.id}>
-            <CardContent className="flex flex-wrap items-center gap-4 p-4">
-              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Boxes className="size-5" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <span className="font-semibold">{m.nome}</span>
-                {m.descricao && <p className="text-xs text-muted-foreground">{m.descricao}</p>}
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  ligado em {m.clientes} cliente{m.clientes !== 1 ? 's' : ''}
-                </p>
-              </div>
-              <div className="shrink-0 text-right">
-                <div className="text-lg font-extrabold tabular-nums">{brl(m.preco_centavos)}</div>
-                <div className="text-[11px] text-muted-foreground">por cliente/mês</div>
-              </div>
-              <div className="flex shrink-0 gap-1">
-                <Button variant="ghost" size="sm" onClick={() => { setCriando(false); setEditando(m); }}>
-                  <Pencil className="size-3.5" />
-                </Button>
-                <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => remover(m)}>
-                  <Trash2 className="size-3.5" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    </div>
+      </PainelLateral>
+    </>
   );
 }
 
@@ -142,8 +144,7 @@ function FormModulo({ editando, onFechar, onSalvo }: {
     : { nome: '', descricao: '', preco: '' });
   const [enviando, setEnviando] = useState(false);
 
-  async function salvar(e: React.FormEvent) {
-    e.preventDefault();
+  async function salvar() {
     setEnviando(true);
     try {
       if (editando) await api('PUT', `/api/admin/modulos/${editando.id}`, form);
@@ -157,40 +158,40 @@ function FormModulo({ editando, onFechar, onSalvo }: {
     }
   }
 
+  /*
+   * O FORMULÁRIO É O CONTEÚDO DO PAINEL, não um card acima da lista.
+   *
+   * Aberto no topo, ele empurrava os módulos existentes para fora da tela —
+   * justamente quando a pessoa quer comparar o preço novo com os que já
+   * cobra. O header e o botão de fechar são do painel.
+   */
   return (
-    <Card className="border-primary/30">
-      <CardContent className="p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-bold">{editando ? `Editar ${editando.nome}` : 'Novo módulo'}</h3>
-          <Button variant="ghost" size="sm" onClick={onFechar}><X className="size-4" /></Button>
-        </div>
-        <form onSubmit={salvar} className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="m-nome">Nome</Label>
-              <Input id="m-nome" required value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} placeholder="Ex.: NFC-e" />
-            </div>
-            <div>
-              <Label htmlFor="m-preco">Preço por cliente/mês</Label>
-              <Input id="m-preco" inputMode="decimal" value={form.preco} onChange={e => setForm(f => ({ ...f, preco: e.target.value }))} placeholder="Ex.: 30,00" />
-            </div>
-          </div>
-          <div>
-            <Label htmlFor="m-desc">Descrição (opcional)</Label>
-            <Input id="m-desc" value={form.descricao} onChange={e => setForm(f => ({ ...f, descricao: e.target.value }))} />
-          </div>
-          {editando && (
-            <p className="text-xs text-muted-foreground">
-              Mudar o preço vale só para os próximos. Quem já tem o módulo mantém o valor combinado —
-              senão a conta do mês passado deixaria de bater com o que foi cobrado.
-            </p>
-          )}
-          <div className="flex gap-2">
-            <Button type="submit" disabled={enviando}>{enviando ? 'Salvando…' : 'Salvar'}</Button>
-            <Button type="button" variant="outline" onClick={onFechar}>Cancelar</Button>
-          </div>
-        </form>
-      </CardContent>
-    </Card>
+    <>
+      <Secao titulo="Dados">
+        <LinhaRotulada rotulo="Nome" primeira>
+          <Campo valor={form.nome} aoMudar={v => setForm(f => ({ ...f, nome: v }))} placeholder="Ex.: NFC-e" />
+        </LinhaRotulada>
+        <LinhaRotulada rotulo="Preço" apoio="Por cliente, por mês">
+          <Campo valor={form.preco} aoMudar={v => setForm(f => ({ ...f, preco: v }))} placeholder="Ex.: 30,00" />
+        </LinhaRotulada>
+        <LinhaRotulada rotulo="Descrição" apoio="Opcional">
+          <Campo valor={form.descricao} aoMudar={v => setForm(f => ({ ...f, descricao: v }))} />
+        </LinhaRotulada>
+      </Secao>
+
+      {editando && (
+        <p className="pb-4 text-[12.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
+          Mudar o preço vale só para os próximos. Quem já tem o módulo mantém o valor
+          combinado — senão a conta do mês passado deixaria de bater com o que foi cobrado.
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <Botao variante="primario" desabilitado={enviando} onClick={() => void salvar()}>
+          {enviando ? 'Salvando…' : 'Salvar'}
+        </Botao>
+        <Botao onClick={onFechar}>Cancelar</Botao>
+      </div>
+    </>
   );
 }
