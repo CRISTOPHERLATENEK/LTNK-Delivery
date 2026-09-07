@@ -31,6 +31,7 @@ import {
 } from '../oauth';
 import { listarTenants, urlDoTenant, poolCentral, Tenant } from '../tenants-mysql';
 import { gerarToken, gerarTokenPreAuth, autenticar, autenticarPreAuth, gerarTokenRevendedor } from '../auth';
+import { registrarAcesso } from '../ultimo-acesso';
 import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, telefoneDigitos, erroHttp } from '../util';
 import { enviarEmail, emailRedefinirSenha, emailHabilitado } from '../email';
 import { criptografar, descriptografar } from '../cripto';
@@ -298,6 +299,10 @@ router.post('/login', limiteLogin, async (req, res, next) => {
      * qualquer jeito, e a pessoa era deslogada no dia seguinte mesmo tendo
      * marcado a caixa.
      */
+    /* SESSÃO CONCEDIDA: marca o acesso. Aqui e não dentro de `gerarToken` —
+       aquela função é pura e usada em teste; escrever no banco de dentro dela
+       acoplaria a emissão do token ao tenant da requisição. */
+    await registrarAcesso(usuario.id);
     res.json({
       token: gerarToken(usuario, { manterConectado: req.body?.manter_conectado === true }),
       usuario: {
@@ -375,6 +380,10 @@ router.post('/2fa/confirmar', limite2fa, autenticarPreAuth, async (req, res, nex
     await db.prepare('UPDATE usuarios SET totp_ativo = 1, totp_backup_codes = ? WHERE id = ?')
       .run(JSON.stringify(codigos.map(c => c.hash)), usuario.id);
 
+    /* SESSÃO CONCEDIDA: marca o acesso. Aqui e não dentro de `gerarToken` —
+       aquela função é pura e usada em teste; escrever no banco de dentro dela
+       acoplaria a emissão do token ao tenant da requisição. */
+    await registrarAcesso(usuario.id);
     res.json({
       // Quem usa 2FA passa por aqui em vez do /login: sem repassar a opcao, o
       // "manter conectado" simplesmente nao valeria pra esses usuarios.
@@ -418,6 +427,10 @@ router.post('/2fa/verificar', limite2fa, autenticarPreAuth, async (req, res, nex
       throw erroHttp(400, 'Informe o código do app ou um código de backup.');
     }
 
+    /* SESSÃO CONCEDIDA: marca o acesso. Aqui e não dentro de `gerarToken` —
+       aquela função é pura e usada em teste; escrever no banco de dentro dela
+       acoplaria a emissão do token ao tenant da requisição. */
+    await registrarAcesso(usuario.id);
     res.json({ token: gerarToken(usuario, { manterConectado: req.body?.manter_conectado === true }), usuario: usuarioPublico(usuario) });
   } catch (e) { next(e); }
 });

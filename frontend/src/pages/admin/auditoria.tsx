@@ -27,6 +27,8 @@ interface Registro {
   alvo_desc: string;
   detalhes: string;
   criado_em: string;
+  /** De onde a ação partiu. Vazio nos registros anteriores à coluna. */
+  ip: string | null;
 }
 
 /*
@@ -105,10 +107,10 @@ export function TelaAuditoria() {
   function exportar() {
     baixarCsv(
       'auditoria',
-      ['Data', 'Admin', 'E-mail', 'Ação', 'Alvo', 'Detalhes'],
+      ['Data', 'Admin', 'E-mail', 'Ação', 'Alvo', 'Detalhes', 'Origem'],
       lista.map(r => [
         dataLocal(r.criado_em), r.admin_nome, r.admin_email,
-        rotuloAcao(r.acao), r.alvo_desc, r.detalhes,
+        rotuloAcao(r.acao), r.alvo_desc, r.detalhes, r.ip ?? '',
       ]),
     );
   }
@@ -165,12 +167,13 @@ export function TelaAuditoria() {
         {consulta.isLoading ? (
           <Skeleton className="h-64" />
         ) : (
-          <Tabela colunas="minmax(0,1.1fr) minmax(0,1.4fr) 150px 130px">
+          <Tabela colunas="minmax(0,1fr) minmax(0,1.2fr) 150px 130px 130px">
             <TabelaCabecalho>
               <span>Admin</span>
               <span>Alvo</span>
               <span>Data</span>
               <span>Ação</span>
+              <span>Origem</span>
             </TabelaCabecalho>
             {lista.map((r, i) => (
               <TabelaLinha key={r.id} primeira={i === 0}>
@@ -183,6 +186,7 @@ export function TelaAuditoria() {
                 </div>
                 <Num className="text-[12px]">{dataLocal(r.criado_em)}</Num>
                 <Status tom={tomAcao(r.acao)}>{rotuloAcao(r.acao)}</Status>
+                {r.ip ? <Num className="truncate text-[12px]">{r.ip}</Num> : <Vazio>sem registro</Vazio>}
               </TabelaLinha>
             ))}
             <TabelaRodape

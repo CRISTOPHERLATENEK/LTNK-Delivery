@@ -49,6 +49,8 @@ interface LojaPainel {
   whatsapp_permite_oficial: 0 | 1; whatsapp_permite_nao_oficial: 0 | 1;
   dono_id: number; dono_nome: string; dono_email: string;
   dono_telefone: string | null; dono_bloqueado: 0 | 1; dono_totp: 0 | 1;
+  /** Vazio = não entrou desde que a coluna existe — NÃO é o mesmo que nunca. */
+  dono_ultimo_acesso: string | null;
 }
 
 interface PedidoLoja {
@@ -65,7 +67,10 @@ interface Painel {
     em_andamento: number; cancelados: number; total: number;
   };
   pedidos: PedidoLoja[];
-  auditoria: { acao: string; alvo_desc: string; detalhes: string; criado_em: string; admin_nome: string }[];
+  auditoria: {
+    acao: string; alvo_desc: string; detalhes: string; criado_em: string;
+    admin_nome: string; ip: string | null;
+  }[];
   comissao_padrao: number;
   abertura_automatica: boolean;
   certificado_instalado: boolean;
@@ -587,12 +592,14 @@ export function TelaLojaDetalhe() {
               ['telefone', l.dono_telefone || '—', true],
               ['acesso', l.dono_bloqueado ? 'bloqueado' : 'ativo', false],
               ['2FA', l.dono_totp ? 'ativo' : 'não configurado', false],
+              /*
+                "sem registro" e não "nunca entrou": quem entrou ANTES de a
+                coluna existir aparece vazio até o próximo login, e escrever
+                "nunca entrou" acusaria de inativo um cliente que usa o sistema
+                todo dia.
+              */
+              ['último acesso', l.dono_ultimo_acesso ? dataLocal(l.dono_ultimo_acesso) : 'sem registro', true],
             ]} />
-            {/*
-              "Último acesso" está no desenho e NÃO existe no banco: nada
-              registra quando o lojista entrou pela última vez. A linha fica de
-              fora em vez de mostrar um traço — traço parece defeito da tela.
-            */}
           </div>
         )}
 
@@ -766,7 +773,7 @@ export function TelaLojaDetalhe() {
             <div style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}>
               <div className="grid items-center gap-3 px-3 py-2 text-[11px] font-medium"
                 style={{
-                  gridTemplateColumns: '150px minmax(0,1fr) 190px',
+                  gridTemplateColumns: '150px minmax(0,1fr) 190px 150px',
                   color: 'var(--adm-dado)',
                   borderBottom: '1px solid var(--adm-linha)',
                   background: 'var(--adm-fundo2)',
@@ -774,11 +781,12 @@ export function TelaLojaDetalhe() {
                 <span>Quando</span>
                 <span>Ação</span>
                 <span>Autor</span>
+                <span>Origem</span>
               </div>
               {d.auditoria.map((a, i) => (
                 <div key={i} className="grid items-center gap-3 px-3 py-2.5 text-[13px]"
                   style={{
-                    gridTemplateColumns: '150px minmax(0,1fr) 190px',
+                    gridTemplateColumns: '150px minmax(0,1fr) 190px 150px',
                     borderTop: i === 0 ? undefined : '1px solid var(--adm-linha3)',
                   }}>
                   <Num className="text-[12px]">{dataLocal(a.criado_em)}</Num>
@@ -787,6 +795,12 @@ export function TelaLojaDetalhe() {
                     {a.detalhes && <span style={{ color: 'var(--adm-dado)' }}> — {a.detalhes}</span>}
                   </span>
                   <span className="truncate text-[12.5px]" style={{ color: 'var(--adm-fg2)' }}>{a.admin_nome}</span>
+                  {/* O IP responde "de onde" — a pergunta que só aparece num
+                      incidente de acesso, e que o nome da conta não responde,
+                      porque conta pode ter sido usada por outra pessoa. */}
+                  {a.ip
+                    ? <Num className="truncate text-[12px]">{a.ip}</Num>
+                    : <Vazio>sem registro</Vazio>}
                 </div>
               ))}
               {d.auditoria.length === 0 && (
@@ -799,11 +813,6 @@ export function TelaLojaDetalhe() {
                 {d.auditoria.length} {d.auditoria.length === 1 ? 'registro' : 'registros'} desta loja
               </div>
             </div>
-            {/*
-              A COLUNA "ORIGEM" (IP) está no desenho e não existe: a tabela de
-              auditoria não guarda IP. Uma coluna inteira mostrando "—" seriam
-              três dedos de tela dizendo nada.
-            */}
           </div>
         )}
       </main>

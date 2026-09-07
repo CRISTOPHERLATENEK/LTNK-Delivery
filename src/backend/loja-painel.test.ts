@@ -145,13 +145,92 @@ describe('a tela não promete o que o sistema não faz', () => {
     expect(tela).toContain('o admin não altera');
   });
 
-  it('não inventa "último acesso"', () => {
+  it('"último acesso" vem do banco, não de estimativa', () => {
     /*
-     * O desenho pedia a linha e nada no banco registra quando o lojista entrou
-     * pela última vez. Mostrar um traço pareceria defeito da tela; omitir é
-     * honesto.
+     * ESTE TESTE MUDOU DE LADO, e o motivo fica registrado.
+     *
+     * Ele garantia que a tela NÃO mostrasse "último acesso": o desenho pedia a
+     * linha e nada no banco registrava o dado, então mostrar um traço pareceria
+     * defeito da tela. A coluna passou a existir (`usuarios.ultimo_acesso`,
+     * gravada no login), então a garantia deixou de ser "não mostre" e passou a
+     * ser "mostre o valor REAL" — nada de derivar de último pedido, que diz se
+     * a LOJA vendeu e não se o dono entrou.
      */
-    expect(tela).not.toMatch(/ultimo_acesso|último acesso['"]/);
+    expect(tela).toContain('dono_ultimo_acesso');
+    const i = admin.indexOf("router.get('/lojas/:id/painel'");
+    expect(admin.slice(i, i + 2000)).toContain('u.ultimo_acesso AS dono_ultimo_acesso');
+  });
+});
+
+describe('último acesso e IP', () => {
+  const login = fs.readFileSync(path.join(__dirname, 'rotas', 'autenticacao.ts'), 'utf8');
+  const acesso = fs.readFileSync(path.join(__dirname, 'ultimo-acesso.ts'), 'utf8');
+  const schema = fs.readFileSync(path.join(__dirname, 'schema-mysql.ts'), 'utf8');
+
+  it('o acesso é marcado no LOGIN, não a cada requisição', () => {
+    /*
+     * Marcar em toda chamada autenticada daria "visto há 30 segundos" ao preço
+     * de um UPDATE por requisição na tabela mais lida do sistema. A pergunta
+     * real é "entrou esta semana?", e o login responde.
+     */
+    expect(schema).toContain("['usuarios', 'ultimo_acesso'");
+    expect(acesso).toContain('UPDATE usuarios SET ultimo_acesso = ?');
+    /* Os TRÊS pontos que concedem sessão: login, 2FA configurado, 2FA
+       verificado. Faltar um deixaria uma parte dos usuários sem registro para
+       sempre, e ninguém notaria — o campo simplesmente ficaria velho. */
+    expect((login.match(/registrarAcesso\(usuario\.id\)/g) ?? []).length).toBe(3);
+  });
+
+  it('falhar ao marcar o acesso NÃO impede de entrar', () => {
+    /* Seria trocar um dado de conveniência por um cliente sem acesso. */
+    expect(acesso).toMatch(/catch \{[^}]*\}/);
+    expect(semComentarios(acesso)).not.toMatch(/throw/);
+  });
+
+  it('vazio é "sem registro", não "nunca entrou"', () => {
+    /*
+     * Quem entrou ANTES de a coluna existir aparece vazio até o próximo login.
+     * Escrever "nunca entrou" acusaria de inativo um cliente que usa o sistema
+     * todo dia — e é com base nessa tela que alguém decide ligar cobrando uso.
+     */
+    expect(tela).toContain("'sem registro'");
+    /* Sem comentário: o comentário da própria tela explica por que a frase é
+       proibida, e citá-la lá não é usá-la. */
+    expect(semComentarios(tela)).not.toMatch(/nunca entrou/);
+  });
+
+  it('a auditoria grava o IP, com espaço para IPv6', () => {
+    /*
+     * 45 caracteres: IPv6 mapeado em IPv4 chega a esse tamanho
+     * (`::ffff:255.255.255.255`). VARCHAR(15) cortaria o endereço no meio e
+     * guardaria um IP que não existe.
+     */
+    expect(schema).toContain("['admin_auditoria', 'ip', \"ip VARCHAR(45)");
+    const i = admin.indexOf('INSERT INTO admin_auditoria');
+    const t = admin.slice(i, i + 700);
+    expect(t).toContain('ip, criado_em');
+    expect(t).toContain('String(req.ip');
+  });
+
+  it('o IP vai truncado, e vem do req.ip (que depende do trust proxy)', () => {
+    /*
+     * Sem `trust proxy` configurado, atrás da Cloudflare todo registro sairia
+     * com o IP do proxy — um dado que parece informação e não identifica
+     * ninguém. O `slice` existe porque endereço maior que a coluna faria o
+     * INSERT falhar e o registro de auditoria simplesmente não acontecer.
+     */
+    const i = admin.indexOf('INSERT INTO admin_auditoria');
+    expect(admin.slice(i, i + 700)).toContain('.slice(0, 45)');
+    expect(servidor).toContain("app.set('trust proxy', saltosConfiaveis)");
+  });
+
+  it('as duas telas mostram a origem', () => {
+    expect(tela).toContain('<span>Origem</span>');
+    const auditoria = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'frontend', 'src', 'pages', 'admin', 'auditoria.tsx'), 'utf8');
+    expect(auditoria).toContain('<span>Origem</span>');
+    /* E o CSV também: quem exporta para investigar acesso precisa do IP. */
+    expect(auditoria).toContain("'Origem'],");
   });
 });
 

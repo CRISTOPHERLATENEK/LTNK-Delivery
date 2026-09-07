@@ -1136,6 +1136,27 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['lojas', 'canal_versao', "canal_versao VARCHAR(12) NOT NULL DEFAULT 'estavel'"],
     /*
+     * Quando a pessoa entrou pela última vez. Gravado no LOGIN, não a cada
+     * requisição — ver `ultimo-acesso.ts`.
+     *
+     * Vazio = nunca entrou desde que a coluna existe. NÃO é o mesmo que "nunca
+     * entrou": quem entrou antes disto aparece vazio até o próximo login, e a
+     * tela precisa dizer isso em vez de acusar o cliente de inativo.
+     */
+    ['usuarios', 'ultimo_acesso', "ultimo_acesso VARCHAR(32) NOT NULL DEFAULT ''"],
+    /*
+     * O IP de quem fez a ação administrativa.
+     *
+     * 45 caracteres porque IPv6 mapeado em IPv4 chega a 45
+     * (`::ffff:255.255.255.255`) — VARCHAR(15) cortaria o endereço no meio e
+     * guardaria um IP que não existe.
+     *
+     * É DADO PESSOAL: entra na auditoria porque "quem suspendeu esta loja, de
+     * onde" é a pergunta de um incidente de acesso, e sem o IP a resposta é
+     * apenas o nome de uma conta que pode ter sido usada por outra pessoa.
+     */
+    ['admin_auditoria', 'ip', "ip VARCHAR(45) NOT NULL DEFAULT ''"],
+    /*
      * O MODELO do documento que o pedido vira no Maxx Gestão.
      *
      * `PA` (Pedido de Venda) é o padrão e o que está em produção. `PV`

@@ -58,12 +58,19 @@ async function registrarAuditoria(
   opts?: { alvoTipo?: string; alvoId?: number | null; alvoDesc?: string; detalhes?: string },
 ): Promise<void> {
   try {
+    /*
+     * O IP vem do `req.ip`, que só é o endereço REAL porque o app roda com
+     * `trust proxy` configurado (CONFIA_PROXY, ver server.ts). Sem isso, atrás
+     * da Cloudflare todo registro sairia com o IP do proxy — um dado que parece
+     * informação e não identifica ninguém.
+     */
     await db.prepare(
-      `INSERT INTO admin_auditoria (admin_id, admin_nome, admin_email, acao, alvo_tipo, alvo_id, alvo_desc, detalhes, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO admin_auditoria (admin_id, admin_nome, admin_email, acao, alvo_tipo, alvo_id, alvo_desc, detalhes, ip, criado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       req.usuario!.id, req.usuario!.nome, req.usuario!.email, acao,
       opts?.alvoTipo || '', opts?.alvoId ?? null, opts?.alvoDesc || '', opts?.detalhes || '',
+      String(req.ip || '').slice(0, 45),
       agoraUTC(),
     );
   } catch { /* log é best-effort */ }
@@ -621,7 +628,7 @@ router.get('/lojas/:id/painel', async (req, res, next) => {
               (l.nfce_csc IS NOT NULL AND l.nfce_csc <> '') AS tem_csc,
               u.id AS dono_id, u.nome AS dono_nome, u.email AS dono_email,
               u.telefone AS dono_telefone, u.bloqueado AS dono_bloqueado,
-              u.totp_ativo AS dono_totp
+              u.totp_ativo AS dono_totp, u.ultimo_acesso AS dono_ultimo_acesso
          FROM lojas l JOIN usuarios u ON u.id = l.usuario_id
         WHERE l.id = ?`
     ).get(lojaId) as Record<string, unknown> | undefined;
@@ -675,7 +682,7 @@ router.get('/lojas/:id/painel', async (req, res, next) => {
      * quebrada". Sem o catch, o erro sobe e alguém conserta.
      */
     const auditoria = await db.prepare(
-      `SELECT acao, alvo_desc, detalhes, criado_em, admin_nome
+      `SELECT acao, alvo_desc, detalhes, criado_em, admin_nome, ip
          FROM admin_auditoria WHERE alvo_tipo = 'loja' AND alvo_id = ?
         ORDER BY id DESC LIMIT 20`
     ).all(lojaId);
