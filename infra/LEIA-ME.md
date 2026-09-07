@@ -177,3 +177,28 @@ Não é teoria — foi executado:
 | Foto de produto real | presente no backup, caminho conferido |
 
 Backup que nunca foi restaurado não é backup.
+
+## Retenção do log de auditoria
+
+`admin_auditoria` é limpa automaticamente: **registros com mais de 6 meses são
+apagados**, uma vez por dia, no banco de cada cliente.
+
+O motivo não é espaço em disco — é que desde que o IP entrou na tabela ela
+guarda **dado pessoal**. Guardar para sempre não é cautela: aumenta todo dia o
+tamanho do estrago de um vazamento, e sob a LGPD dado pessoal sem prazo é dado
+sem finalidade declarada.
+
+Para mudar o prazo sem deploy, no `.env` do servidor:
+
+```
+AUDITORIA_RETENCAO_MESES=12
+```
+
+O piso é 1 mês — um valor inválido ou zero cai em 6, porque um erro de
+digitação no `.env` não pode virar "apague tudo".
+
+**Isto apaga registro de auditoria e não tem volta.** Duas travas no código: o
+corte é sempre por DATA (nunca "deixe os últimos N", que apagaria o registro de
+ontem numa tabela movimentada) e o `DELETE` roda em lotes de 500 — sem lote, a
+transação segura a tabela por segundos e trava justamente a ação administrativa
+que está gerando o próximo registro.

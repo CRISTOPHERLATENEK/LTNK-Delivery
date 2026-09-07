@@ -38,6 +38,7 @@ import { deveEnviar, destinatariosDe } from './envio-contador';
 import { enviarPacoteAoContador } from './xml-contador';
 import { emailHabilitado } from './email';
 import { verificarBackup } from './vigia-backup';
+import { limparAuditoriaDoTenant } from './auditoria-retencao';
 import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
 import webhooksRoutes from './rotas/webhooks';
@@ -640,6 +641,28 @@ async function enviarXmlsAoContador(): Promise<void> {
   }
 }
 
+/**
+ * RETENÇÃO DA AUDITORIA em cada tenant.
+ *
+ * Uma vez por dia basta: o corte é em meses, e rodar de hora em hora só
+ * multiplicaria o `DELETE` sem apagar nada de novo.
+ *
+ * Um tenant com o banco fora do ar não impede os outros — o mesmo desenho do
+ * tick de horário ao lado.
+ */
+async function limparAuditoria(): Promise<void> {
+  for (const tenant of await listarTenants()) {
+    try {
+      const n = await comTenant(tenant.db_nome, limparAuditoriaDoTenant);
+      /* Só fala quando apagou: uma linha por dia por tenant dizendo "0" some o
+         log e esconde o dia em que o número for estranho. */
+      if (n > 0) console.log(`[AUDITORIA] ${tenant.slug}: ${n} registro(s) fora do prazo apagado(s).`);
+    } catch (e) {
+      console.error(`[AUDITORIA] falha ao limpar o tenant ${tenant.slug}:`, e);
+    }
+  }
+}
+
 /** Roda o tick de horário para CADA tenant (cada um no seu próprio banco). */
 async function sincronizarHorarios(): Promise<void> {
   for (const tenant of await listarTenants()) {
@@ -1142,6 +1165,16 @@ const PORT = Number(process.env.PORT) || 3000;
    * some. De 6 em 6 horas porque o prazo tolerado é de 30h: mais frequente não
    * descobre nada mais cedo, e menos frequente atrasa a descoberta em um dia.
    */
+  /*
+   * A limpeza roda no boot e a cada 24h. No boot porque um servidor que passou
+   * dias fora acumulou registros vencidos, e esperar o próximo ciclo deixaria
+   * dado pessoal além do prazo por mais um dia sem motivo.
+   */
+  limparAuditoria().catch(e => console.error('[AUDITORIA] limpeza falhou:', e));
+  setInterval(() => {
+    limparAuditoria().catch(e => console.error('[AUDITORIA] limpeza falhou:', e));
+  }, 24 * 60 * 60_000);
+
   verificarBackup().catch(e => console.error('[BACKUP] vigia falhou:', e));
   setInterval(() => {
     verificarBackup().catch(e => console.error('[BACKUP] vigia falhou:', e));
