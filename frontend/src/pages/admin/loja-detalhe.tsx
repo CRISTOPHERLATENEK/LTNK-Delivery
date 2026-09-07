@@ -1,14 +1,14 @@
 /**
- * DETALHE DA LOJA EM TELA CHEIA.
+ * DETALHE DA LOJA EM TELA CHEIA, COM ABAS.
  *
- * Substituiu o painel lateral de ~640px com rolagem interna. O problema não era
- * estética: naquela largura só cabiam três linhas de pedido, os números viravam
- * cards empilhados, e conferir "faturou quanto, com quantos cancelamentos" exigia
- * rolar para cima e para baixo comparando de memória.
+ * A versão anterior tinha três colunas rolando separadas. Funcionava para os
+ * números, mas espremia o resto: endereço e razão social quebravam em quatro
+ * linhas numa coluna de 288px, e a configuração pesada precisava de um botão
+ * "avançado" porque não cabia em lugar nenhum.
  *
- * Três colunas que rolam SEPARADAS, com a barra de topo e a faixa de números
- * sempre visíveis: o contexto (de quem é esta loja, quanto ela fez) não sai da
- * tela enquanto se percorre os pedidos.
+ * Uma aba por ASSUNTO, largura inteira, um scroll só. Barra de topo, abas e
+ * rodapé de ações ficam parados — o contexto (de quem é esta loja) e o que se
+ * pode fazer com ela não somem enquanto se percorre pedidos ou histórico.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
@@ -19,17 +19,15 @@ import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Falha } from '@/components/ui/estado';
+import { cn } from '@/lib/utils';
 import {
   Num, Status, Botao, Busca, Segmented, Vazio, baixarCsv, type Tom,
 } from './ui';
+import { MarcaX } from './marca-x';
 /*
- * OS EDITORES PESADOS vêm da tela de Lojas, onde já viviam.
- *
- * Domínio, permissões de WhatsApp, canal de liberação e o cadastro fiscal
- * completo não têm outra casa no painel — sumiram junto com o painel lateral
- * antigo e voltam aqui. Ficam num bloco que abre por baixo das três colunas, e
- * não dentro da coluna de 300px: o editor fiscal tem abas e uma tabela de
- * produtos, e espremê-lo ali seria trocar um problema de largura por outro.
+ * Os editores pesados vêm da tela de Lojas, onde já viviam. Domínio, WhatsApp,
+ * canal e cadastro fiscal não têm outra casa no painel — cada um agora aparece
+ * na ABA do seu assunto, em largura inteira, em vez de espremido numa coluna.
  */
 import {
   DominioLojaEditor, WhatsAppPermissoesEditor, ModulosDaLoja, FiscalLojaAdmin,
@@ -42,9 +40,15 @@ interface LojaPainel {
   dominio_personalizado: string | null; comissao_percentual: number | null;
   fiscal_liberado: 0 | 1; vendas_liberado: 0 | 1; canal_versao: string | null;
   nfce_ativo: 0 | 1; nfce_municipio: string | null; nfce_uf: string | null;
-  nfce_razao_social: string | null; nfce_cnpj: string | null;
+  nfce_razao_social: string | null; nfce_cnpj: string | null; nfce_ie: string | null;
+  nfce_crt: number; nfce_cmun: string | null; nfce_ambiente: number;
+  nfce_serie: number; nfce_proximo_numero: number;
+  nfce_ncm_padrao: string; nfce_cfop_padrao: string; nfce_csosn_padrao: string;
+  nfce_csc_id: string | null; nfce_cert_titular: string | null; nfce_cert_validade: string | null;
+  tem_csc: 0 | 1;
+  whatsapp_permite_oficial: 0 | 1; whatsapp_permite_nao_oficial: 0 | 1;
   dono_id: number; dono_nome: string; dono_email: string;
-  dono_telefone: string | null; dono_bloqueado: 0 | 1;
+  dono_telefone: string | null; dono_bloqueado: 0 | 1; dono_totp: 0 | 1;
 }
 
 interface PedidoLoja {
@@ -64,6 +68,7 @@ interface Painel {
   auditoria: { acao: string; alvo_desc: string; detalhes: string; criado_em: string; admin_nome: string }[];
   comissao_padrao: number;
   abertura_automatica: boolean;
+  certificado_instalado: boolean;
 }
 
 const TOM_PEDIDO: Record<string, Tom> = {
@@ -81,8 +86,10 @@ const TOM_SITUACAO: Record<string, Tom> = {
   aprovada: 'ok', pendente: 'atencao', suspensa: 'erro',
 };
 
+type Aba = 'resumo' | 'pedidos' | 'cadastro' | 'configuracao' | 'fiscal' | 'historico';
 type Grupo = 'todos' | 'entregue' | 'andamento' | 'cancelado';
 const ATIVOS = ['pendente', 'aceito', 'preparando', 'pronto', 'em_entrega'];
+const PAGINA = 12;
 
 export function TelaLojaDetalhe() {
   const { id } = useParams<{ id: string }>();
@@ -111,7 +118,10 @@ export function TelaLojaDetalhe() {
   });
   const d = consulta.data;
 
-  /* ── O que se edita: comissão e os dois módulos ────────────────────────── */
+  const [aba, setAba] = useState<Aba>('resumo');
+  const [chat, setChat] = useState(false);
+
+  /* ── O que se edita ────────────────────────────────────────────────────── */
   const [comissao, setComissao] = useState('');
   const [fiscal, setFiscal] = useState(false);
   const [vendas, setVendas] = useState(false);
@@ -141,12 +151,13 @@ export function TelaLojaDetalhe() {
   /*
    * SALVA SÓ O QUE MUDOU, em rotas que já existiam.
    *
-   * Comissão, módulo fiscal e módulo de vendas moram em endpoints diferentes
-   * porque são decisões diferentes. A barra junta as três na TELA — que é onde
-   * a pessoa pensa nelas juntas — sem juntar no servidor.
+   * Comissão e os dois módulos moram em endpoints diferentes porque são
+   * decisões diferentes. A barra junta as três na TELA — que é onde a pessoa
+   * pensa nelas juntas — sem juntar no servidor.
    */
-  async function salvar() {
+  async function salvar(forcarFiscal?: boolean) {
     if (!d) return;
+    const alvoFiscal = forcarFiscal ?? fiscal;
     setSalvando(true);
     try {
       if (comissao !== comissaoOriginal) {
@@ -156,8 +167,8 @@ export function TelaLojaDetalhe() {
         }
         await api('PUT', comTenant(`/api/admin/lojas/${d.loja.id}/comissao`), { comissao_percentual: n });
       }
-      if (fiscal !== !!d.loja.fiscal_liberado) {
-        await api('PUT', comTenant(`/api/admin/lojas/${d.loja.id}/modulo/fiscal`), { liberado: fiscal });
+      if (alvoFiscal !== !!d.loja.fiscal_liberado) {
+        await api('PUT', comTenant(`/api/admin/lojas/${d.loja.id}/modulo/fiscal`), { liberado: alvoFiscal });
       }
       if (vendas !== !!d.loja.vendas_liberado) {
         await api('PUT', comTenant(`/api/admin/lojas/${d.loja.id}/modulo/vendas`), { liberado: vendas });
@@ -226,13 +237,10 @@ export function TelaLojaDetalhe() {
     }
   }
 
-  /* ── Coluna do meio: filtro e busca dos pedidos ────────────────────────── */
+  /* ── Aba de pedidos ───────────────────────────────────────────────────── */
   const [grupo, setGrupo] = useState<Grupo>('todos');
   const [busca, setBusca] = useState('');
-  /* Fechado por padrão: são ajustes raros, e abertos empurrariam os pedidos —
-     que é o que se olha todo dia — para fora da tela. */
-  const [avancado, setAvancado] = useState(false);
-  const [suporte, setSuporte] = useState(false);
+  const [visiveis, setVisiveis] = useState(PAGINA);
 
   const pedidos = useMemo(() => {
     const todos = d?.pedidos ?? [];
@@ -261,11 +269,7 @@ export function TelaLojaDetalhe() {
     return <div className="adm p-6"><Skeleton className="h-64" /></div>;
   }
   if (consulta.isError || !d) {
-    return (
-      <div className="adm p-6">
-        <Falha erro={consulta.error} aoTentar={() => consulta.refetch()} />
-      </div>
-    );
+    return <div className="adm p-6"><Falha erro={consulta.error} aoTentar={() => consulta.refetch()} /></div>;
   }
 
   const l = d.loja;
@@ -273,9 +277,52 @@ export function TelaLojaDetalhe() {
   const url = l.dominio_personalizado
     ? `https://${l.dominio_personalizado}`
     : l.slug ? `/loja/${l.slug}` : '';
-
-  /* Cancelamento como PROPORÇÃO: "34" sozinho não diz se é muito. */
   const taxaCancelamento = r.total > 0 ? Math.round((r.cancelados / r.total) * 100) : 0;
+
+  /*
+   * OS PONTOS DE ATENÇÃO alimentam o Resumo E o contador da aba Configuração.
+   *
+   * Calculados uma vez: se o Resumo dissesse "3 pendências" e a aba mostrasse
+   * 2, a pessoa deixaria de confiar nos dois números.
+   */
+  const atencao: { texto: string; consequencia: string; aba: Aba }[] = [];
+  if (!l.fiscal_liberado) {
+    atencao.push({
+      texto: 'Módulo fiscal bloqueado',
+      consequencia: 'A aba Fiscal não aparece no painel dele e nenhuma nota sai.',
+      aba: 'fiscal',
+    });
+  }
+  if (!l.vendas_liberado) {
+    atencao.push({
+      texto: 'Módulo de vendas bloqueado',
+      consequencia: 'A aba Vendas não aparece no painel dele. O histórico fica guardado.',
+      aba: 'configuracao',
+    });
+  }
+  if (l.comissao_percentual == null && d.comissao_padrao === 0) {
+    atencao.push({
+      texto: 'Comissão herdando 0%',
+      consequencia: 'A plataforma não recebe nada desta loja.',
+      aba: 'configuracao',
+    });
+  }
+  if (l.dono_bloqueado) {
+    atencao.push({
+      texto: 'O acesso do lojista está bloqueado',
+      consequencia: 'Ele não consegue entrar no painel.',
+      aba: 'cadastro',
+    });
+  }
+
+  const ABAS: { id: Aba; rotulo: string; contagem?: number; alerta?: boolean; nota?: string }[] = [
+    { id: 'resumo', rotulo: 'Resumo' },
+    { id: 'pedidos', rotulo: 'Pedidos', contagem: d.pedidos.length },
+    { id: 'cadastro', rotulo: 'Cadastro' },
+    { id: 'configuracao', rotulo: 'Configuração', contagem: atencao.length || undefined, alerta: atencao.length > 0 },
+    { id: 'fiscal', rotulo: 'Fiscal (NFC-e)', nota: l.fiscal_liberado ? undefined : 'bloqueado' },
+    { id: 'historico', rotulo: 'Histórico', contagem: d.auditoria.length },
+  ];
 
   return (
     <div className="adm flex h-screen flex-col" style={{ background: '#fff' }}>
@@ -296,9 +343,7 @@ export function TelaLojaDetalhe() {
           {l.slug ? `/${l.slug}` : 'sem slug'} · {l.categoria}
         </Num>
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          {url && (
-            <a href={url} target="_blank" rel="noreferrer"><Botao altura={30}>Abrir loja</Botao></a>
-          )}
+          {url && <a href={url} target="_blank" rel="noreferrer"><Botao altura={30}>Abrir loja</Botao></a>}
           {tenantId && (
             <Botao altura={30} onClick={() => void entrarComoLojista()}>Entrar como lojista</Botao>
           )}
@@ -307,324 +352,519 @@ export function TelaLojaDetalhe() {
         </div>
       </header>
 
-      {/* ── Faixa de números ── */}
-      <div
-        className="grid shrink-0 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
+      {/* ── Abas ── */}
+      <nav
+        className="flex shrink-0 gap-1 overflow-x-auto px-4"
         style={{ borderBottom: '1px solid var(--adm-linha)' }}
       >
-        {[
-          {
-            rotulo: 'Faturamento', valor: brl(r.faturamento_centavos),
-            apoio: `últimos ${d.periodo_dias} dias`, cor: undefined as string | undefined,
-          },
-          {
-            rotulo: 'Comissão', valor: brl(r.comissao_centavos),
-            apoio: r.comissao_centavos === 0 ? 'isenta neste período' : 'da plataforma',
-          },
-          {
-            rotulo: 'Repasse', valor: brl(r.repasse_centavos),
-            apoio: 'a pagar', cor: 'var(--adm-ok)',
-          },
-          {
-            rotulo: 'Ticket médio', valor: brl(r.ticket_medio_centavos),
-            apoio: `${r.pedidos} ${r.pedidos === 1 ? 'entregue' : 'entregues'}`,
-          },
-          {
-            /*
-              CANCELAMENTO VIRA NÚMERO DE PRIMEIRA LINHA.
-              Antes vivia escondido numa pill ao lado de "entregues", do mesmo
-              tamanho e da mesma importância visual — e é o único dos cinco que
-              indica problema.
-            */
-            rotulo: 'Cancelamento', valor: `${taxaCancelamento}%`,
-            apoio: `${r.cancelados} de ${r.total} pedidos`,
-            cor: r.cancelados > 0 ? 'var(--adm-erro)' : undefined,
-          },
-        ].map((k, i) => (
-          <div
-            key={k.rotulo}
-            className="px-4 py-2.5"
-            style={{ borderLeft: i === 0 ? undefined : '1px solid var(--adm-linha2)' }}
-          >
-            <div className="text-[11.5px]" style={{ color: 'var(--adm-rotulo)' }}>{k.rotulo}</div>
-            <Num className="block text-[21px] leading-tight">{k.valor}</Num>
-            <div className="text-[11.5px]" style={{ color: k.cor ?? 'var(--adm-dado)' }}>{k.apoio}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Três colunas ── */}
-      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        {/* Esquerda: dados, leitura */}
-        <aside
-          className="shrink-0 overflow-y-auto p-4 lg:w-[288px]"
-          style={{ borderRight: '1px solid var(--adm-linha)' }}
-        >
-          <Bloco titulo="Loja" linhas={[
-            ['slug', l.slug ?? '—', true],
-            ['segmento', l.categoria, false],
-            ['endereço', l.endereco || '—', false],
-            ['cidade', [l.nfce_municipio, l.nfce_uf].filter(Boolean).join(' · ') || '—', false],
-            ['criada em', l.criado_em ? dataLocal(l.criado_em) : '—', true],
-          ]} />
-          <Bloco titulo="Cadastro fiscal" linhas={[
-            ['razão social', l.nfce_razao_social || '—', false],
-            ['CNPJ', l.nfce_cnpj || '—', true],
-            ['emissão', l.fiscal_liberado ? (l.nfce_ativo ? 'ligada' : 'liberada, desligada') : 'módulo bloqueado', false],
-            ['canal', l.canal_versao === 'teste' ? 'Teste' : l.canal_versao === 'beta' ? 'Beta' : 'Recomendado', false],
-          ]} />
-          <Bloco titulo="Responsável" linhas={[
-            ['lojista', l.dono_nome, false],
-            ['e-mail', l.dono_email, true],
-            ['telefone', l.dono_telefone || '—', true],
-            ['acesso', l.dono_bloqueado ? 'bloqueado' : 'ativo', false],
-          ]} />
-          {/*
-            "Último acesso" está no desenho e NÃO existe no banco: nada registra
-            quando o lojista entrou pela última vez. A linha fica de fora em vez
-            de mostrar um traço — traço parece defeito da tela, e some é honesto.
-          */}
-        </aside>
-
-        {/* Centro: pedidos */}
-        <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 flex-wrap items-center gap-2 px-4 py-2.5"
-            style={{ borderBottom: '1px solid var(--adm-linha)' }}>
-            <Segmented
-              valor={grupo}
-              aoMudar={setGrupo}
-              opcoes={(['todos', 'entregue', 'andamento', 'cancelado'] as Grupo[])
-                .map(g => ({ v: g, label: rotuloGrupo[g], contagem: contagem(g) }))}
-            />
-            <div className="min-w-[160px] flex-1">
-              <Busca valor={busca} aoMudar={setBusca} placeholder="Buscar cliente ou nº…" />
-            </div>
-            <Botao
-              altura={30}
-              desabilitado={pedidos.length === 0}
-              onClick={() => baixarCsv(
-                `pedidos-${l.slug || l.id}`,
-                ['Pedido', 'Cliente', 'Quando', 'Status', 'Pagamento', 'Total'],
-                pedidos.map(p => [
-                  p.id, p.cliente_nome, dataLocal(p.criado_em),
-                  ROTULO_PEDIDO[p.status] ?? p.status, p.forma_pagamento,
-                  (p.total_centavos / 100).toFixed(2),
-                ]),
-              )}
+        {ABAS.map(a => {
+          const ativa = aba === a.id;
+          return (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => setAba(a.id)}
+              aria-current={ativa ? 'page' : undefined}
+              className="flex shrink-0 items-center gap-1.5 px-2.5 py-2 text-[13px]"
+              style={{
+                /* Sem transition: `border-bottom-color` recebe o valor dinâmico,
+                   e a transition congela o repaint na aba anterior. */
+                borderBottom: `2px solid ${ativa ? 'var(--adm-fg)' : 'transparent'}`,
+                fontWeight: ativa ? 600 : 400,
+                color: ativa ? 'var(--adm-fg)' : 'var(--adm-fg2)',
+                marginBottom: -1,
+              }}
             >
-              Exportar CSV
-            </Botao>
-          </div>
+              {a.rotulo}
+              {a.contagem !== undefined && (
+                <Num
+                  className="text-[11px]"
+                  style={{ color: a.alerta ? 'var(--adm-pendencia)' : 'var(--adm-dado)' }}
+                >
+                  {a.contagem}
+                </Num>
+              )}
+              {a.nota && (
+                <span className="text-[11px]" style={{ color: 'var(--adm-pendencia)' }}>{a.nota}</span>
+              )}
+            </button>
+          );
+        })}
+      </nav>
 
-          <div
-            className="grid shrink-0 items-center gap-3 px-4 py-2 text-[11px] font-medium"
-            style={{
-              gridTemplateColumns: '76px minmax(0,1fr) 128px 104px 92px',
-              color: 'var(--adm-dado)',
-              borderBottom: '1px solid var(--adm-linha)',
-              background: 'var(--adm-fundo2)',
-            }}
-          >
-            <span>Pedido</span>
-            <span>Cliente</span>
-            <span>Quando</span>
-            <span>Status</span>
-            <span className="text-right">Total</span>
-          </div>
+      {/* ── Conteúdo ── */}
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        {aba === 'resumo' && (
+          <>
+            <div
+              className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
+              style={{ borderBottom: '1px solid var(--adm-linha)' }}
+            >
+              {[
+                { rotulo: 'Faturamento', valor: brl(r.faturamento_centavos), apoio: `últimos ${d.periodo_dias} dias` },
+                {
+                  rotulo: 'Comissão', valor: brl(r.comissao_centavos),
+                  apoio: l.comissao_percentual == null
+                    ? `herda o padrão (${d.comissao_padrao}%)`
+                    : `${l.comissao_percentual}% próprio`,
+                },
+                { rotulo: 'Repasse', valor: brl(r.repasse_centavos), apoio: 'a pagar', cor: 'var(--adm-ok)' },
+                { rotulo: 'Ticket médio', valor: brl(r.ticket_medio_centavos), apoio: `${r.pedidos} entregues` },
+                {
+                  /*
+                    CANCELAMENTO VIRA NÚMERO DE PRIMEIRA LINHA. Antes vivia numa
+                    pill ao lado de "entregues", do mesmo tamanho e da mesma
+                    importância — e é o único dos cinco que indica problema.
+                  */
+                  rotulo: 'Cancelamento', valor: `${taxaCancelamento}%`,
+                  apoio: `${r.cancelados} de ${r.total} pedidos`,
+                  cor: r.cancelados > 0 ? 'var(--adm-erro)' : undefined,
+                },
+              ].map((k, i) => (
+                <div key={k.rotulo} className="px-4 py-3"
+                  style={{ borderLeft: i === 0 ? undefined : '1px solid var(--adm-linha2)' }}>
+                  <div className="text-[11.5px]" style={{ color: 'var(--adm-rotulo)' }}>{k.rotulo}</div>
+                  <Num className="block text-[23px] leading-tight">{k.valor}</Num>
+                  <div className="text-[11.5px]" style={{ color: k.cor ?? 'var(--adm-dado)' }}>{k.apoio}</div>
+                </div>
+              ))}
+            </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {pedidos.map((p, i) => (
-              <LinhaPedido key={p.id} p={p} primeira={i === 0} />
-            ))}
-            {pedidos.length === 0 && (
-              <p className="px-4 py-10 text-center text-[12.5px]" style={{ color: 'var(--adm-dado)' }}>
-                {grupo === 'todos' && !busca
-                  ? `Nenhum pedido nos últimos ${d.periodo_dias} dias.`
-                  : `Nenhum pedido em ${rotuloGrupo[grupo]}.`}
-              </p>
+            <div className="grid gap-5 p-4 lg:grid-cols-2">
+              <section>
+                <Rotulo>Precisa de atenção</Rotulo>
+                {atencao.length === 0 ? (
+                  <p className="text-[12.5px]" style={{ color: 'var(--adm-dado)' }}>
+                    Nada pendente nesta loja.
+                  </p>
+                ) : (
+                  <div style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}>
+                    {atencao.map((a, i) => (
+                      <div key={a.texto} className="flex flex-wrap items-center gap-3 px-3 py-2.5"
+                        style={{ borderTop: i === 0 ? undefined : '1px solid var(--adm-linha3)' }}>
+                        <div className="min-w-0 flex-1">
+                          <Status tom="atencao">{a.texto}</Status>
+                          <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
+                            {a.consequencia}
+                          </p>
+                        </div>
+                        {/* Leva PARA A ABA CERTA: mandar a pessoa "procurar em
+                            Configuração" é fazê-la repetir a busca que este
+                            bloco acabou de fazer. */}
+                        <Botao altura={30} onClick={() => setAba(a.aba)}>Resolver</Botao>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section>
+                <div className="flex items-baseline justify-between">
+                  <Rotulo>Últimos pedidos</Rotulo>
+                  <button type="button" className="pb-1.5 text-[12px] text-primary" onClick={() => setAba('pedidos')}>
+                    ver todos
+                  </button>
+                </div>
+                <div style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}>
+                  {d.pedidos.slice(0, 5).map((p, i) => (
+                    <div key={p.id} className="grid items-center gap-3 px-3 py-2 text-[12.5px]"
+                      style={{
+                        gridTemplateColumns: '70px minmax(0,1fr) 104px 92px',
+                        borderTop: i === 0 ? undefined : '1px solid var(--adm-linha3)',
+                      }}>
+                      <Num className="text-[11.5px]">#{String(p.id).padStart(4, '0')}</Num>
+                      <span className="truncate">{p.cliente_nome || <Vazio />}</span>
+                      <Status tom={TOM_PEDIDO[p.status] ?? 'neutro'}>{ROTULO_PEDIDO[p.status] ?? p.status}</Status>
+                      <Num className="text-right">{brl(p.total_centavos)}</Num>
+                    </div>
+                  ))}
+                  {d.pedidos.length === 0 && (
+                    <p className="px-3 py-6 text-center text-[12.5px]" style={{ color: 'var(--adm-dado)' }}>
+                      Nenhum pedido nos últimos {d.periodo_dias} dias.
+                    </p>
+                  )}
+                </div>
+              </section>
+            </div>
+          </>
+        )}
+
+        {aba === 'pedidos' && (
+          <div className="p-4">
+            <div className="flex flex-wrap items-center gap-2 pb-3">
+              <Segmented
+                valor={grupo}
+                aoMudar={g => { setGrupo(g); setVisiveis(PAGINA); }}
+                opcoes={(['todos', 'entregue', 'andamento', 'cancelado'] as Grupo[])
+                  .map(g => ({ v: g, label: rotuloGrupo[g], contagem: contagem(g) }))}
+              />
+              <div className="min-w-[180px] flex-1">
+                <Busca valor={busca} aoMudar={v => { setBusca(v); setVisiveis(PAGINA); }}
+                  placeholder="Buscar cliente ou nº…" />
+              </div>
+              <Botao
+                desabilitado={pedidos.length === 0}
+                onClick={() => baixarCsv(
+                  `pedidos-${l.slug || l.id}`,
+                  ['Pedido', 'Cliente', 'Quando', 'Status', 'Pagamento', 'Total'],
+                  pedidos.map(p => [
+                    p.id, p.cliente_nome, dataLocal(p.criado_em),
+                    ROTULO_PEDIDO[p.status] ?? p.status, p.forma_pagamento,
+                    (p.total_centavos / 100).toFixed(2),
+                  ]),
+                )}
+              >
+                Exportar CSV
+              </Botao>
+            </div>
+
+            <div style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}>
+              <div className="grid items-center gap-3 px-3 py-2 text-[11px] font-medium"
+                style={{
+                  gridTemplateColumns: '84px minmax(0,1fr) 168px 130px 116px',
+                  color: 'var(--adm-dado)',
+                  borderBottom: '1px solid var(--adm-linha)',
+                  background: 'var(--adm-fundo2)',
+                }}>
+                <span>Pedido</span>
+                <span>Cliente</span>
+                <span>Quando</span>
+                <span>Status</span>
+                <span className="text-right">Total</span>
+              </div>
+              {pedidos.slice(0, visiveis).map((p, i) => (
+                <div key={p.id} className="grid items-center gap-3 px-3 py-[10px] text-[13px]"
+                  style={{
+                    gridTemplateColumns: '84px minmax(0,1fr) 168px 130px 116px',
+                    borderTop: i === 0 ? undefined : '1px solid var(--adm-linha3)',
+                  }}>
+                  <Num className="text-[12px]">#{String(p.id).padStart(4, '0')}</Num>
+                  <span className="truncate">{p.cliente_nome || <Vazio />}</span>
+                  {/* Data E HORA completas: "34 cancelados" não dizia se foram
+                      todos numa noite ou espalhados em três meses. */}
+                  <Num className="text-[12px]">{dataLocal(p.criado_em)}</Num>
+                  <Status tom={TOM_PEDIDO[p.status] ?? 'neutro'}>{ROTULO_PEDIDO[p.status] ?? p.status}</Status>
+                  <Num className="text-right">{brl(p.total_centavos)}</Num>
+                </div>
+              ))}
+              <div className="flex items-center justify-between gap-3 px-3 py-2"
+                style={{ borderTop: '1px solid var(--adm-linha)', background: 'var(--adm-fundo2)' }}>
+                <span className="text-[12px]" style={{ color: 'var(--adm-dado)' }}>
+                  {pedidos.length === 0
+                    ? `Nenhum pedido em ${rotuloGrupo[grupo]}`
+                    : `${Math.min(visiveis, pedidos.length)} de ${pedidos.length} pedidos${grupo === 'todos' ? '' : ` em ${rotuloGrupo[grupo]}`}`}
+                </span>
+                {pedidos.length > visiveis && (
+                  <Botao altura={30} onClick={() => setVisiveis(v => v + PAGINA)}>Carregar mais</Botao>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {aba === 'cadastro' && (
+          <div className="grid gap-5 p-4 lg:grid-cols-3">
+            <Bloco titulo="Loja" linhas={[
+              ['slug', l.slug ?? '—', true],
+              ['segmento', l.categoria, false],
+              ['endereço', l.endereco || '—', false],
+              ['cidade', [l.nfce_municipio, l.nfce_uf].filter(Boolean).join(' · ') || '—', false],
+              ['criada em', l.criado_em ? dataLocal(l.criado_em) : '—', true],
+              ['canal', l.canal_versao === 'teste' ? 'Teste' : l.canal_versao === 'beta' ? 'Beta' : 'Recomendado', false],
+            ]} />
+            <Bloco titulo="Cadastro fiscal" linhas={[
+              ['razão social', l.nfce_razao_social || '—', false],
+              ['CNPJ', l.nfce_cnpj || '—', true],
+              ['inscrição estadual', l.nfce_ie || '—', true],
+              ['emissão', l.fiscal_liberado ? (l.nfce_ativo ? 'ligada' : 'liberada, desligada') : 'módulo bloqueado', false],
+              ['certificado', d.certificado_instalado
+                ? `instalado${l.nfce_cert_validade ? ` · vence ${dataLocal(l.nfce_cert_validade)}` : ''}`
+                : 'não enviado', false],
+            ]} />
+            <Bloco titulo="Responsável" linhas={[
+              ['lojista', l.dono_nome, false],
+              ['e-mail', l.dono_email, true],
+              ['telefone', l.dono_telefone || '—', true],
+              ['acesso', l.dono_bloqueado ? 'bloqueado' : 'ativo', false],
+              ['2FA', l.dono_totp ? 'ativo' : 'não configurado', false],
+            ]} />
+            {/*
+              "Último acesso" está no desenho e NÃO existe no banco: nada
+              registra quando o lojista entrou pela última vez. A linha fica de
+              fora em vez de mostrar um traço — traço parece defeito da tela.
+            */}
+          </div>
+        )}
+
+        {aba === 'configuracao' && (
+          <div className="grid gap-5 p-4 lg:grid-cols-2">
+            <section>
+              <Rotulo>Módulos contratados</Rotulo>
+              <div style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}>
+                <Interruptor
+                  titulo="Vendas (PDV, mesas e caixa)"
+                  descricao="A aba Vendas não aparece no painel dele. O histórico fica guardado."
+                  descricaoLigado="O lojista vê a aba Vendas: balcão, mesas e caixa."
+                  ligado={vendas} aoMudar={setVendas} primeira
+                />
+                <Interruptor
+                  titulo="Fiscal (NFC-e)"
+                  descricao="A aba Fiscal não aparece e nenhuma nota sai. O cadastro fica guardado."
+                  descricaoLigado="O lojista vê a aba Fiscal e pode emitir NFC-e."
+                  ligado={fiscal} aoMudar={setFiscal}
+                />
+                {/*
+                  "LOJA ABERTA" É LEITURA, NÃO INTERRUPTOR.
+                  Com o horário automático, um job a cada 60s força `aberta`
+                  conforme a agenda. Um interruptor aqui seria desfeito sozinho
+                  em um minuto — e controle que não obedece é pior que controle
+                  que não existe, porque ensina a desconfiar dos outros.
+                */}
+                <div className="px-3 py-2.5" style={{ borderTop: '1px solid var(--adm-linha3)' }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[13px] font-medium">Loja aberta</span>
+                    <Status tom={l.aberta ? 'ok' : 'inativo'}>{l.aberta ? 'Aberta' : 'Fechada'}</Status>
+                  </div>
+                  <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
+                    controlada pelo lojista — o admin não altera
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <Rotulo>Comissão</Rotulo>
+              <div className="px-3 py-3" style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}>
+                <div className="flex items-center gap-2">
+                  <input
+                    value={comissao}
+                    onChange={e => setComissao(e.target.value.replace(/[^\d.,]/g, ''))}
+                    inputMode="decimal"
+                    placeholder="—"
+                    aria-label="Comissão desta loja em %"
+                    className="adm-num h-[34px] w-[68px] px-2 text-right text-[13px] outline-none"
+                    style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                  />
+                  <span className="text-[12.5px]" style={{ color: 'var(--adm-fg2)' }}>%</span>
+                </div>
+                {/* A REFERÊNCIA HERDADA à vista: sem ela, quem digita 10 não
+                    sabe se está aumentando ou diminuindo o que a loja pagava. */}
+                <p className="pt-1.5 text-[11.5px]" style={{ color: 'var(--adm-dado)' }}>
+                  vazio = herda o padrão da plataforma ({d.comissao_padrao}%)
+                </p>
+              </div>
+            </section>
+
+            {superAdmin && (
+              <section className="lg:col-span-2">
+                <ModulosDaLoja loja={comoLoja(l, tenantId)} />
+              </section>
+            )}
+
+            <section>
+              <DominioLojaEditor loja={comoLoja(l, tenantId)} onSalvo={() => void consulta.refetch()} />
+            </section>
+
+            <section>
+              <WhatsAppPermissoesEditor loja={comoLoja(l, tenantId)} onSalvo={() => void consulta.refetch()} />
+            </section>
+          </div>
+        )}
+
+        {aba === 'fiscal' && (
+          <div className="p-4">
+            {/*
+              A FAIXA RESOLVE SEM SAIR DA ABA.
+              Quem abre "Fiscal" e encontra tudo cinza precisa saber por quê — e
+              poder liberar ali, em vez de descobrir que o interruptor está em
+              outra aba.
+            */}
+            {!l.fiscal_liberado && (
+              <div className="mb-4 flex flex-wrap items-center gap-3 px-3 py-2.5"
+                style={{ border: '1px solid var(--adm-atencao)', borderRadius: 6, background: 'rgba(199,154,75,0.06)' }}>
+                <div className="min-w-0 flex-1">
+                  <Status tom="atencao">Módulo fiscal bloqueado para esta loja</Status>
+                  <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
+                    A aba Fiscal não aparece no painel dele e nenhuma nota sai. O cadastro abaixo fica guardado.
+                  </p>
+                </div>
+                {/* Passa o alvo direto: sem isso, o `salvar` leria o estado
+                    anterior do React e o clique não faria nada. */}
+                <Botao altura={30} variante="primario" desabilitado={salvando}
+                  onClick={() => { setFiscal(true); void salvar(true); }}>
+                  Liberar módulo
+                </Botao>
+              </div>
+            )}
+
+            <div className="grid gap-5 lg:grid-cols-2">
+              <section>
+                <Rotulo>Etapas do lojista</Rotulo>
+                <div style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}>
+                  {[
+                    {
+                      n: 1, nome: 'Certificado A1', apoio: 'assina cada nota emitida',
+                      ok: d.certificado_instalado,
+                      estado: d.certificado_instalado ? 'instalado' : 'não enviado',
+                    },
+                    {
+                      n: 2, nome: 'Dados do emitente', apoio: 'CNPJ, razão social, endereço',
+                      ok: !!l.nfce_cnpj, estado: l.nfce_cnpj ? 'confirmado' : 'incompleto',
+                    },
+                    {
+                      n: 3, nome: 'CSC e numeração', apoio: 'código do contribuinte e série',
+                      ok: !!l.tem_csc, estado: l.tem_csc ? `série ${l.nfce_serie}` : 'não configurado',
+                    },
+                    {
+                      n: 4, nome: 'Tributação padrão', apoio: 'NCM, CFOP e CSOSN dos produtos',
+                      ok: !!l.nfce_ncm_padrao, estado: l.nfce_ncm_padrao ? 'definida' : 'revisar',
+                    },
+                    {
+                      n: 5, nome: 'Ambiente', apoio: 'onde as notas são autorizadas',
+                      ok: Number(l.nfce_ambiente) === 1,
+                      estado: Number(l.nfce_ambiente) === 1 ? 'produção' : 'homologação',
+                    },
+                  ].map((e, i) => (
+                    <div key={e.n} className="flex items-center gap-3 px-3 py-2.5"
+                      style={{ borderTop: i === 0 ? undefined : '1px solid var(--adm-linha3)' }}>
+                      <Num className="w-4 shrink-0 text-[12px]" style={{ color: 'var(--adm-dado)' }}>{e.n}</Num>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[13px] font-medium">{e.nome}</div>
+                        <div className="text-[11.5px]" style={{ color: 'var(--adm-dado)' }}>{e.apoio}</div>
+                      </div>
+                      <Status tom={e.ok ? 'ok' : 'atencao'}>{e.estado}</Status>
+                    </div>
+                  ))}
+                </div>
+                <p className="pt-2 text-[11.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
+                  O lojista completa estas etapas no painel dele. Aqui você só acompanha e libera o módulo.
+                </p>
+              </section>
+
+              <Bloco titulo="Dados declarados" linhas={[
+                ['regime', Number(l.nfce_crt) === 1 ? 'Simples Nacional' : `CRT ${l.nfce_crt}`, false],
+                ['CNPJ', l.nfce_cnpj || '—', true],
+                ['inscrição estadual', l.nfce_ie || '—', true],
+                ['município (IBGE)', l.nfce_cmun || '—', true],
+                ['NCM padrão', l.nfce_ncm_padrao || '—', true],
+                ['CSOSN', l.nfce_csosn_padrao || '—', true],
+                ['CFOP', l.nfce_cfop_padrao || '—', true],
+                ['série / próximo nº', `${l.nfce_serie} / ${l.nfce_proximo_numero}`, true],
+              ]} />
+            </div>
+
+            {superAdmin && (
+              <div className="pt-5">
+                <FiscalLojaAdmin loja={comoLoja(l, tenantId)} />
+              </div>
             )}
           </div>
+        )}
 
-          <div
-            className="flex shrink-0 items-center justify-between gap-3 px-4 py-2"
-            style={{ borderTop: '1px solid var(--adm-linha)', background: 'var(--adm-fundo2)' }}
-          >
-            <span className="text-[12px]" style={{ color: 'var(--adm-dado)' }}>
-              {pedidos.length === 0
-                ? `Nenhum pedido em ${rotuloGrupo[grupo]}`
-                : `${pedidos.length} de ${d.pedidos.length} pedidos${grupo === 'todos' ? '' : ` em ${rotuloGrupo[grupo]}`}`}
-            </span>
-            <Link to={`/painel-admin/pedidos?loja_id=${l.id}`} className="text-[12px] text-primary">
-              Ver todos
-            </Link>
-          </div>
-        </section>
-
-        {/* Direita: o que se edita */}
-        <aside
-          className="flex shrink-0 flex-col overflow-hidden lg:w-[300px]"
-          style={{ borderLeft: '1px solid var(--adm-linha)' }}
-        >
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            <Rotulo>Comissão</Rotulo>
-            <div className="flex items-center gap-2 pb-1">
-              <input
-                value={comissao}
-                onChange={e => setComissao(e.target.value.replace(/[^\d.,]/g, ''))}
-                inputMode="decimal"
-                placeholder="—"
-                aria-label="Comissão desta loja em %"
-                className="adm-num h-[34px] w-16 px-2 text-right text-[13px] outline-none"
-                style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
-              />
-              <span className="text-[12.5px]" style={{ color: 'var(--adm-fg2)' }}>%</span>
-            </div>
-            {/*
-              A REFERÊNCIA HERDADA precisa estar à vista: sem ela, o campo vazio
-              não diz nada, e quem digita 10 não sabe se está aumentando ou
-              diminuindo o que a loja já pagava.
-            */}
-            <p className="pb-5 text-[11.5px]" style={{ color: 'var(--adm-dado)' }}>
-              {comissao.trim() === ''
-                ? `vazio = herda o padrão da plataforma (${d.comissao_padrao}%)`
-                : `acordo próprio · padrão da plataforma: ${d.comissao_padrao}%`}
-            </p>
-
-            <Rotulo>Módulos</Rotulo>
-            <Interruptor
-              titulo="Emissão fiscal"
-              descricao={fiscal ? 'o lojista vê a aba Fiscal e pode emitir' : 'a aba Fiscal não aparece e nenhuma nota sai'}
-              ligado={fiscal}
-              aoMudar={setFiscal}
-            />
-            <Interruptor
-              titulo="Vendas (PDV, mesas e caixa)"
-              descricao={vendas ? 'o lojista vê a aba Vendas' : 'a aba Vendas não aparece no painel dele'}
-              ligado={vendas}
-              aoMudar={setVendas}
-            />
-            {/*
-              "LOJA ABERTA" É LEITURA, NÃO INTERRUPTOR.
-              Com `auto_horario`, um job a cada 60s força `aberta` conforme a
-              agenda da loja. Um interruptor aqui seria desfeito sozinho em um
-              minuto — controle que não obedece é pior que controle que não
-              existe, porque ensina a desconfiar dos outros.
-            */}
-            <div className="py-2" style={{ borderTop: '1px solid var(--adm-linha3)' }}>
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[13px] font-medium">Loja aberta</span>
-                <Status tom={l.aberta ? 'ok' : 'inativo'}>{l.aberta ? 'Aberta' : 'Fechada'}</Status>
+        {aba === 'historico' && (
+          <div className="p-4">
+            <div style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}>
+              <div className="grid items-center gap-3 px-3 py-2 text-[11px] font-medium"
+                style={{
+                  gridTemplateColumns: '150px minmax(0,1fr) 190px',
+                  color: 'var(--adm-dado)',
+                  borderBottom: '1px solid var(--adm-linha)',
+                  background: 'var(--adm-fundo2)',
+                }}>
+                <span>Quando</span>
+                <span>Ação</span>
+                <span>Autor</span>
               </div>
-              <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
-                {d.abertura_automatica
-                  ? 'segue o horário cadastrado pelo lojista — não dá para forçar daqui'
-                  : 'controlada manualmente pelo lojista'}
-              </p>
-            </div>
-
-            <div className="pt-4">
-              <Botao altura={30} onClick={() => setSuporte(v => !v)}>
-                {suporte ? 'Fechar suporte' : 'Diagnóstico e suporte'}
-              </Botao>
-              <p className="pt-1 text-[11.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
-                O estado real desta loja, e a IA para explicar o que está acontecendo.
-              </p>
-            </div>
-
-            <div className="pt-4">
-              <Botao altura={30} onClick={() => setAvancado(v => !v)}>
-                {avancado ? 'Fechar configuração' : 'Configuração avançada'}
-              </Botao>
-              <p className="pt-1 text-[11.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
-                Domínio, WhatsApp, canal de liberação e cadastro fiscal.
-              </p>
-            </div>
-
-            <div className="pt-4">
-              <Rotulo>Histórico</Rotulo>
-              {d.auditoria.length === 0 ? (
-                <p className="text-[12px]" style={{ color: 'var(--adm-dado)' }}>
+              {d.auditoria.map((a, i) => (
+                <div key={i} className="grid items-center gap-3 px-3 py-2.5 text-[13px]"
+                  style={{
+                    gridTemplateColumns: '150px minmax(0,1fr) 190px',
+                    borderTop: i === 0 ? undefined : '1px solid var(--adm-linha3)',
+                  }}>
+                  <Num className="text-[12px]">{dataLocal(a.criado_em)}</Num>
+                  <span className="min-w-0">
+                    {a.acao}
+                    {a.detalhes && <span style={{ color: 'var(--adm-dado)' }}> — {a.detalhes}</span>}
+                  </span>
+                  <span className="truncate text-[12.5px]" style={{ color: 'var(--adm-fg2)' }}>{a.admin_nome}</span>
+                </div>
+              ))}
+              {d.auditoria.length === 0 && (
+                <p className="px-3 py-8 text-center text-[12.5px]" style={{ color: 'var(--adm-dado)' }}>
                   Nada registrado para esta loja.
                 </p>
-              ) : (
-                <ul className="space-y-2">
-                  {d.auditoria.map((a, i) => (
-                    <li key={i} className="text-[12px] leading-relaxed">
-                      <div>{a.acao}{a.detalhes && <span style={{ color: 'var(--adm-fg2)' }}> — {a.detalhes}</span>}</div>
-                      <Num className="text-[11px]" style={{ color: 'var(--adm-dado)' }}>
-                        {dataLocal(a.criado_em)} · {a.admin_nome}
-                      </Num>
-                    </li>
-                  ))}
-                </ul>
               )}
+              <div className="px-3 py-2 text-[12px]"
+                style={{ borderTop: '1px solid var(--adm-linha)', background: 'var(--adm-fundo2)', color: 'var(--adm-dado)' }}>
+                {d.auditoria.length} {d.auditoria.length === 1 ? 'registro' : 'registros'} desta loja
+              </div>
             </div>
+            {/*
+              A COLUNA "ORIGEM" (IP) está no desenho e não existe: a tabela de
+              auditoria não guarda IP. Uma coluna inteira mostrando "—" seriam
+              três dedos de tela dizendo nada.
+            */}
           </div>
+        )}
+      </main>
 
-          <div
-            className="flex shrink-0 items-center gap-2 px-4 py-2.5"
-            style={{ borderTop: '1px solid var(--adm-linha)', background: 'var(--adm-fundo2)' }}
-          >
-            <Botao altura={30} onClick={() => void suspender()}>
-              {l.status_aprovacao === 'suspensa' ? 'Reativar' : 'Suspender'}
-            </Botao>
-            {superAdmin && (
-              <Botao altura={30} variante="perigo" onClick={() => void excluir()}>Excluir</Botao>
-            )}
-          </div>
-        </aside>
-      </div>
-
-      {suporte && <PainelSuporte lojaId={l.id} comTenant={comTenant} />}
-
-      {/*
-        CONFIGURAÇÃO AVANÇADA em largura inteira, por baixo das colunas.
-        Os editores que moravam no painel lateral antigo continuam aqui — nada
-        do que existia se perdeu, só mudou de lugar.
-      */}
-      {avancado && (
-        <div
-          className="max-h-[60vh] shrink-0 overflow-y-auto px-4 py-3"
-          style={{ borderTop: '1px solid var(--adm-linha)', background: 'var(--adm-fundo2)' }}
-        >
-          <div className="mx-auto max-w-3xl">
-            {(() => {
-              /* Os editores esperam o objeto `Loja` da lista. Aqui só existem os
-                 campos que a tela usa, então o objeto é montado com eles. */
-              const comoLoja = {
-                ...l,
-                tenant_id: tenantId ? Number(tenantId) : undefined,
-              } as unknown as Loja;
-              return (
-                <>
-                  <DominioLojaEditor loja={comoLoja} onSalvo={() => void consulta.refetch()} />
-                  <WhatsAppPermissoesEditor loja={comoLoja} onSalvo={() => void consulta.refetch()} />
-                  {superAdmin && <ModulosDaLoja loja={comoLoja} />}
-                  {superAdmin && <FiscalLojaAdmin loja={comoLoja} />}
-                </>
-              );
-            })()}
-          </div>
+      {/* ── Rodapé de ações ── */}
+      <footer
+        className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 py-2.5"
+        style={{ borderTop: '1px solid var(--adm-linha)', background: 'var(--adm-fundo2)' }}
+      >
+        <div className="flex items-center gap-2">
+          <Botao altura={30} onClick={() => void suspender()}>
+            {l.status_aprovacao === 'suspensa' ? 'Reativar' : 'Suspender'}
+          </Botao>
+          {superAdmin && (
+            <Botao altura={30} variante="perigo" onClick={() => void excluir()}>Excluir</Botao>
+          )}
         </div>
-      )}
-
-      {/* ── Barra de alterações ── */}
-      {sujo && (
-        <div
-          className="flex shrink-0 items-center justify-between gap-3 px-4 py-2.5"
-          style={{ borderTop: '1px solid var(--adm-linha)', background: 'var(--adm-fundo2)' }}
-        >
-          <span className="text-[12.5px]" style={{ color: 'var(--adm-fg2)' }}>Alterações não salvas</span>
+        {sujo ? (
           <div className="flex items-center gap-2">
+            <span className="text-[12.5px]" style={{ color: 'var(--adm-fg2)' }}>Alterações não salvas</span>
             <Botao altura={30} onClick={descartar} desabilitado={salvando}>Descartar</Botao>
             <Botao altura={30} variante="primario" onClick={() => void salvar()} desabilitado={salvando}>
               {salvando ? 'Salvando…' : 'Salvar'}
             </Botao>
           </div>
-        </div>
+        ) : (
+          <Num className="text-[11.5px]" style={{ color: 'var(--adm-dado)' }}>tudo salvo</Num>
+        )}
+      </footer>
+
+      {/*
+        O CHAT É UM BOTÃO FLUTUANTE, não uma aba.
+        Aba daria a ele o mesmo peso de "Pedidos" e "Fiscal", que são assuntos da
+        loja; o suporte é uma ferramenta que se chama de qualquer lugar — e
+        chamá-la sem perder a aba onde a pessoa estava é justamente o ponto.
+      */}
+      {!chat && (
+        <button
+          type="button"
+          onClick={() => setChat(true)}
+          aria-label="Diagnóstico e suporte com IA"
+          title="Diagnóstico e suporte"
+          className="fixed bottom-16 right-5 z-40 flex size-11 items-center justify-center"
+          style={{ background: '#fff', border: '1px solid var(--adm-linha)', borderRadius: 999 }}
+        >
+          <MarcaX tamanho={22} />
+        </button>
+      )}
+      {chat && (
+        <ChatSuporte lojaId={l.id} nome={l.nome} comTenant={comTenant} aoFechar={() => setChat(false)} />
       )}
     </div>
   );
+}
+
+/**
+ * Os editores da tela de Lojas esperam o objeto `Loja` da lista. Aqui só
+ * existem os campos que esta tela usa, então o objeto é montado com eles.
+ */
+function comoLoja(l: LojaPainel, tenantId: string | null): Loja {
+  return { ...l, tenant_id: tenantId ? Number(tenantId) : undefined } as unknown as Loja;
 }
 
 function Rotulo({ children }: { children: React.ReactNode }) {
@@ -638,23 +878,24 @@ function Rotulo({ children }: { children: React.ReactNode }) {
 /** Bloco de leitura: chave à esquerda, valor à direita, mono no dado técnico. */
 function Bloco({ titulo, linhas }: { titulo: string; linhas: [string, string, boolean][] }) {
   return (
-    <div className="pb-5">
+    <section>
       <Rotulo>{titulo}</Rotulo>
-      <dl>
+      <dl style={{ border: '1px solid var(--adm-linha)', borderRadius: 6 }}>
         {linhas.map(([chave, valor, mono], i) => (
-          <div
-            key={chave}
-            className="flex gap-2 py-1.5"
-            style={{ borderTop: i === 0 ? undefined : '1px solid var(--adm-linha3)' }}
-          >
-            <dt className="w-[96px] shrink-0 text-[12px]" style={{ color: 'var(--adm-rotulo)' }}>{chave}</dt>
-            <dd className="min-w-0 flex-1 break-words text-[12.5px]">
+          <div key={chave} className="flex gap-3 px-3 py-2"
+            style={{ borderTop: i === 0 ? undefined : '1px solid var(--adm-linha3)' }}>
+            <dt className="w-[104px] shrink-0 text-[12px]" style={{ color: 'var(--adm-rotulo)' }}>{chave}</dt>
+            {/* `pretty` evita a última linha com uma palavra só, e o
+                `line-height` de 1.5 é o que faz um endereço de quatro linhas
+                continuar legível. */}
+            <dd className="min-w-0 flex-1 break-words text-[12.5px]"
+              style={{ lineHeight: 1.5, textWrap: 'pretty' } as React.CSSProperties}>
               {mono ? <Num>{valor}</Num> : valor}
             </dd>
           </div>
         ))}
       </dl>
-    </div>
+    </section>
   );
 }
 
@@ -663,11 +904,12 @@ function Bloco({ titulo, linhas }: { titulo: string; linhas: [string, string, bo
  * transition em `background`/`left` congela o repaint e o controle mostra o
  * estado anterior. Foi o bug que derrubou o protótipo duas vezes.
  */
-function Interruptor({ titulo, descricao, ligado, aoMudar }: {
-  titulo: string; descricao: string; ligado: boolean; aoMudar: (v: boolean) => void;
+function Interruptor({ titulo, descricao, descricaoLigado, ligado, aoMudar, primeira }: {
+  titulo: string; descricao: string; descricaoLigado: string;
+  ligado: boolean; aoMudar: (v: boolean) => void; primeira?: boolean;
 }) {
   return (
-    <div className="py-2" style={{ borderTop: '1px solid var(--adm-linha3)' }}>
+    <div className="px-3 py-2.5" style={{ borderTop: primeira ? undefined : '1px solid var(--adm-linha3)' }}>
       <div className="flex items-center justify-between gap-2">
         <span className="text-[13px] font-medium">{titulo}</span>
         <button
@@ -682,46 +924,26 @@ function Interruptor({ titulo, descricao, ligado, aoMudar }: {
           <span style={{ left: ligado ? 20 : 3 }} />
         </button>
       </div>
-      <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>{descricao}</p>
-    </div>
-  );
-}
-
-function LinhaPedido({ p, primeira }: { p: PedidoLoja; primeira: boolean }) {
-  const [sobre, setSobre] = useState(false);
-  return (
-    <div
-      onMouseEnter={() => setSobre(true)}
-      onMouseLeave={() => setSobre(false)}
-      className="grid items-center gap-3 px-4 py-[10px] text-[13px]"
-      style={{
-        gridTemplateColumns: '76px minmax(0,1fr) 128px 104px 92px',
-        borderTop: primeira ? undefined : '1px solid var(--adm-linha3)',
-        background: sobre ? 'var(--adm-fundo2)' : '#fff',
-      }}
-    >
-      <Num className="text-[12px]">#{String(p.id).padStart(4, '0')}</Num>
-      <span className="truncate">{p.cliente_nome || <Vazio />}</span>
-      {/* A COLUNA "QUANDO" não existia no painel antigo — sem ela, "34
-          cancelados" não dizia se foram ontem ou espalhados em três meses. */}
-      <Num className="text-[12px]">{dataLocal(p.criado_em)}</Num>
-      <Status tom={TOM_PEDIDO[p.status] ?? 'neutro'}>{ROTULO_PEDIDO[p.status] ?? p.status}</Status>
-      <Num className="text-right">{brl(p.total_centavos)}</Num>
+      <p className="text-[11.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
+        {ligado ? descricaoLigado : descricao}
+      </p>
     </div>
   );
 }
 
 /**
- * DIAGNÓSTICO E SUPORTE.
+ * DIAGNÓSTICO E SUPORTE, em painel flutuante.
  *
  * Abre mostrando o DOSSIÊ — o estado real da loja em texto, gerado sem custo
  * nenhum. Metade dos chamados morre aí ("ah, o emissor está apontado para o
  * sistema"), e essa metade não deveria custar uma chamada de API.
  *
- * A pergunta para a IA é o segundo passo, opcional e explícito. Fosse
- * automático, toda abertura de tela viraria uma cobrança.
+ * A pergunta à IA é o segundo passo, explícito. Fosse automático, toda abertura
+ * de tela viraria uma cobrança.
  */
-function PainelSuporte({ lojaId, comTenant }: { lojaId: number; comTenant: (u: string) => string }) {
+function ChatSuporte({ lojaId, nome, comTenant, aoFechar }: {
+  lojaId: number; nome: string; comTenant: (u: string) => string; aoFechar: () => void;
+}) {
   const { mostrar } = useToast();
   const [pergunta, setPergunta] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -733,18 +955,25 @@ function PainelSuporte({ lojaId, comTenant }: { lojaId: number; comTenant: (u: s
   /* O dossiê carrega sozinho ao abrir; a IA só quando alguém pergunta. */
   useEffect(() => {
     let vivo = true;
-    api<typeof dados>('POST', comTenant(`/api/admin/lojas/${lojaId}/suporte`), {})
+    api<NonNullable<typeof dados>>('POST', comTenant(`/api/admin/lojas/${lojaId}/suporte`), {})
       .then(r => { if (vivo) setDados(r); })
       .catch(() => {});
     return () => { vivo = false; };
   }, [lojaId]);
+
+  useEffect(() => {
+    const aoTeclar = (e: KeyboardEvent) => { if (e.key === 'Escape') aoFechar(); };
+    window.addEventListener('keydown', aoTeclar);
+    return () => window.removeEventListener('keydown', aoTeclar);
+  }, [aoFechar]);
 
   async function perguntar() {
     const t = pergunta.trim();
     if (!t) return;
     setCarregando(true);
     try {
-      const r = await api<typeof dados>('POST', comTenant(`/api/admin/lojas/${lojaId}/suporte`), { pergunta: t });
+      const r = await api<NonNullable<typeof dados>>(
+        'POST', comTenant(`/api/admin/lojas/${lojaId}/suporte`), { pergunta: t });
       setDados(r);
     } catch (e) {
       if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
@@ -752,69 +981,82 @@ function PainelSuporte({ lojaId, comTenant }: { lojaId: number; comTenant: (u: s
   }
 
   return (
-    <div
-      className="max-h-[60vh] shrink-0 overflow-y-auto px-4 py-3"
-      style={{ borderTop: '1px solid var(--adm-linha)', background: 'var(--adm-fundo2)' }}
+    <aside
+      className={cn(
+        'adm fixed bottom-4 right-4 z-50 flex flex-col',
+        'w-[min(440px,calc(100vw-2rem))] max-h-[min(640px,calc(100vh-2rem))]',
+      )}
+      style={{ background: '#fff', border: '1px solid var(--adm-linha)', borderRadius: 6 }}
+      role="dialog"
+      aria-label="Diagnóstico e suporte"
     >
-      <div className="mx-auto grid max-w-5xl gap-4 lg:grid-cols-2">
-        <div>
-          <Rotulo>Estado desta loja</Rotulo>
-          {/* Os alertas primeiro, e separados: são as linhas que explicam
-              chamado, e no meio de vinte fatos elas se perdem. */}
-          {!!dados?.alertas.length && (
-            <ul className="mb-2 space-y-1">
-              {dados.alertas.map((a, i) => (
-                <li key={i} className="text-[12.5px] leading-relaxed" style={{ color: 'var(--adm-erro)' }}>
-                  {a}
-                </li>
-              ))}
-            </ul>
-          )}
-          <pre
-            className="whitespace-pre-wrap text-[12px] leading-relaxed"
-            style={{ color: 'var(--adm-fg2)', fontFamily: 'inherit' }}
-          >
-            {dados?.dossie ?? 'Lendo o estado da loja…'}
-          </pre>
+      <header className="flex shrink-0 items-center gap-2 px-3 py-2.5"
+        style={{ borderBottom: '1px solid var(--adm-linha)' }}>
+        <MarcaX tamanho={18} />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[13px] font-semibold">Diagnóstico e suporte</div>
+          <div className="truncate text-[11px]" style={{ color: 'var(--adm-rotulo)' }}>{nome}</div>
         </div>
+        <button onClick={aoFechar} aria-label="Fechar"
+          className="px-1.5 text-[16px] leading-none" style={{ color: 'var(--adm-dado)' }}>×</button>
+      </header>
 
-        <div>
-          <Rotulo>Perguntar à IA</Rotulo>
-          <textarea
-            value={pergunta}
-            onChange={e => setPergunta(e.target.value)}
-            rows={3}
-            maxLength={2000}
-            placeholder="Ex.: o lojista diz que os pedidos não estão gerando nota."
-            className="w-full px-2.5 py-2 text-[13px] outline-none"
-            style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: '#fff', boxSizing: 'border-box' }}
-          />
-          <div className="mt-1.5 flex items-center gap-2">
-            <Botao altura={30} variante="primario" desabilitado={carregando || !pergunta.trim()} onClick={() => void perguntar()}>
-              {carregando ? 'Pensando…' : 'Perguntar'}
-            </Botao>
-            {/* O custo à vista: sem isso ninguém percebe que cada clique gasta. */}
-            {dados?.tokens && (
-              <Num className="text-[11px]" style={{ color: 'var(--adm-dado)' }}>
-                {dados.tokens.entrada + dados.tokens.saida} tokens
-                {dados.tokens.cache_lido > 0 && ` · ${dados.tokens.cache_lido} do cache`}
-              </Num>
-            )}
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-2.5">
+        {/* Os alertas primeiro e separados: são as linhas que explicam chamado,
+            e no meio de vinte fatos elas se perdem. */}
+        {!!dados?.alertas.length && (
+          <ul className="mb-2 space-y-1">
+            {dados.alertas.map((a, i) => (
+              <li key={i} className="text-[12.5px] leading-relaxed" style={{ color: 'var(--adm-erro)' }}>{a}</li>
+            ))}
+          </ul>
+        )}
+        <pre className="whitespace-pre-wrap text-[11.5px] leading-relaxed"
+          style={{ color: 'var(--adm-fg2)', fontFamily: 'inherit' }}>
+          {dados?.dossie ?? 'Lendo o estado da loja…'}
+        </pre>
+
+        {dados?.resposta && (
+          <div className="mt-3 whitespace-pre-wrap px-3 py-2.5 text-[13px] leading-relaxed"
+            style={{ border: '1px solid var(--adm-linha)', borderRadius: 6, background: 'var(--adm-fundo2)' }}>
+            {dados.resposta}
           </div>
-
-          {dados?.resposta && (
-            <div
-              className="mt-3 whitespace-pre-wrap px-3 py-2.5 text-[13px] leading-relaxed"
-              style={{ border: '1px solid var(--adm-linha)', borderRadius: 6, background: '#fff' }}
-            >
-              {dados.resposta}
-            </div>
-          )}
-          <p className="pt-2 text-[11.5px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
-            A IA lê o estado da loja e explica. Ela não altera nada — quem age é você.
-          </p>
-        </div>
+        )}
       </div>
-    </div>
+
+      <div className="shrink-0 px-3 py-2.5" style={{ borderTop: '1px solid var(--adm-linha)' }}>
+        <textarea
+          value={pergunta}
+          onChange={e => setPergunta(e.target.value)}
+          rows={2}
+          maxLength={2000}
+          placeholder="Ex.: o lojista diz que os pedidos não estão gerando nota."
+          onKeyDown={e => {
+            /* Enter envia, Shift+Enter quebra linha — o reflexo de qualquer
+               chat. Sem isso, quem digita rápido manda a pergunta pela metade
+               com o Enter e não entende por quê. */
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void perguntar(); }
+          }}
+          className="w-full px-2.5 py-2 text-[13px] outline-none"
+          style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: '#fff', boxSizing: 'border-box' }}
+        />
+        <div className="mt-1.5 flex items-center gap-2">
+          <Botao altura={30} variante="primario" desabilitado={carregando || !pergunta.trim()}
+            onClick={() => void perguntar()}>
+            {carregando ? 'Pensando…' : 'Perguntar'}
+          </Botao>
+          {/* O custo à vista: sem isso ninguém percebe que cada clique gasta. */}
+          {dados?.tokens && (
+            <Num className="text-[11px]" style={{ color: 'var(--adm-dado)' }}>
+              {dados.tokens.entrada + dados.tokens.saida} tokens
+              {dados.tokens.cache_lido > 0 && ` · ${dados.tokens.cache_lido} do cache`}
+            </Num>
+          )}
+        </div>
+        <p className="pt-1.5 text-[11px] leading-relaxed" style={{ color: 'var(--adm-dado)' }}>
+          A IA lê o estado da loja e explica. Ela não altera nada — quem age é você.
+        </p>
+      </div>
+    </aside>
   );
 }

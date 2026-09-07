@@ -611,9 +611,17 @@ router.get('/lojas/:id/painel', async (req, res, next) => {
               l.status_aprovacao, l.criado_em, l.dominio_personalizado,
               l.comissao_percentual, l.fiscal_liberado, l.vendas_liberado,
               l.canal_versao, l.nfce_ativo, l.nfce_municipio, l.nfce_uf,
-              l.nfce_razao_social, l.nfce_cnpj,
+              l.nfce_razao_social, l.nfce_cnpj, l.nfce_ie, l.nfce_crt,
+              l.nfce_cmun, l.nfce_ambiente, l.nfce_serie, l.nfce_proximo_numero,
+              l.nfce_ncm_padrao, l.nfce_cfop_padrao, l.nfce_csosn_padrao,
+              l.nfce_csc_id, l.nfce_cert_titular, l.nfce_cert_validade,
+              l.whatsapp_permite_oficial, l.whatsapp_permite_nao_oficial,
+              /* Só se EXISTE, nunca o valor: o CSC é segredo e a tela só
+                 precisa saber se a etapa está cumprida. */
+              (l.nfce_csc IS NOT NULL AND l.nfce_csc <> '') AS tem_csc,
               u.id AS dono_id, u.nome AS dono_nome, u.email AS dono_email,
-              u.telefone AS dono_telefone, u.bloqueado AS dono_bloqueado
+              u.telefone AS dono_telefone, u.bloqueado AS dono_bloqueado,
+              u.totp_ativo AS dono_totp
          FROM lojas l JOIN usuarios u ON u.id = l.usuario_id
         WHERE l.id = ?`
     ).get(lojaId) as Record<string, unknown> | undefined;
@@ -697,6 +705,13 @@ router.get('/lojas/:id/painel', async (req, res, next) => {
        * desfaz sozinho em um minuto.
        */
       abertura_automatica: Number(loja.auto_horario ?? 0) === 1,
+      /*
+       * O CERTIFICADO É ARQUIVO NO DISCO, não coluna: validade e titular ficam
+       * no banco, mas o .pfx pode ter sido apagado sem ninguém limpar as
+       * colunas. A tela precisa da verdade do disco, senão mostra "enviado"
+       * para uma loja que não emite.
+       */
+      certificado_instalado: fs.existsSync(caminhoCertificado(lojaId)),
     });
   } catch (e) { next(e); }
 });

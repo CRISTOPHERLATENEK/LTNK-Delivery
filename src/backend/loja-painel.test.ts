@@ -79,6 +79,52 @@ describe('a tela monta com UMA chamada', () => {
 });
 
 describe('a tela não promete o que o sistema não faz', () => {
+  it('as abas cobrem os seis assuntos', () => {
+    /*
+     * Uma aba por assunto foi a razão da v2: três colunas espremiam endereço e
+     * razão social em quatro linhas, e a configuração pesada só cabia atrás de
+     * um botão "avançado".
+     */
+    for (const id of ['resumo', 'pedidos', 'cadastro', 'configuracao', 'fiscal', 'historico']) {
+      expect(tela, id).toContain(`id: '${id}'`);
+    }
+  });
+
+  it('o contador de pendências do Resumo e o da aba são o MESMO cálculo', () => {
+    /* Se o Resumo dissesse "3 pendências" e a aba mostrasse 2, a pessoa
+       deixaria de confiar nos dois números. */
+    expect(tela).toContain('contagem: atencao.length || undefined');
+    expect((tela.match(/const atencao:/g) ?? []).length).toBe(1);
+  });
+
+  it('a faixa da aba Fiscal libera o módulo sem sair dali', () => {
+    /*
+     * Quem abre "Fiscal" e encontra tudo cinza precisa saber por quê e poder
+     * resolver ali — e o alvo vai por parâmetro, senão `salvar` leria o estado
+     * anterior do React e o clique não faria nada.
+     */
+    expect(tela).toContain('Liberar módulo');
+    expect(tela).toContain('void salvar(true)');
+    expect(tela).toMatch(/async function salvar\(forcarFiscal\?: boolean\)/);
+  });
+
+  it('o chat é botão flutuante, não aba', () => {
+    /*
+     * Aba daria a ele o mesmo peso de "Pedidos" e "Fiscal", que são assuntos da
+     * loja. O suporte é ferramenta: chama-se de qualquer aba, sem perder a aba
+     * onde a pessoa estava.
+     */
+    expect(tela).not.toMatch(/id: 'suporte'|id: 'chat'/);
+    /*
+     * O botão E a condição de abrir. Testado só por "contém <ChatSuporte", ele
+     * passava com o componente atrás de um `false &&` — a marca ficava na
+     * fonte e o chat nunca abria.
+     */
+    expect(tela).toContain('onClick={() => setChat(true)}');
+    expect(tela).toContain('<MarcaX tamanho={22} />');
+    expect(tela).toMatch(/\{chat && \(\s*<ChatSuporte/);
+  });
+
   it('"loja aberta" é LEITURA, não interruptor', () => {
     /*
      * Com `auto_horario`, um job a cada 60s força `aberta` conforme a agenda da
@@ -89,9 +135,14 @@ describe('a tela não promete o que o sistema não faz', () => {
     expect(servidor).toContain("UPDATE lojas SET aberta = ? WHERE id = ?");
     expect(rota()).toContain('abertura_automatica');
     /* Os interruptores da tela são só os dois módulos. */
-    const interruptores = tela.match(/<Interruptor/g) ?? [];
+    /* `<Interruptor` com o espaço/quebra a seguir: sem isso o `<Interruptor`
+       da linha de definição do componente entraria na conta. */
+    const interruptores = tela.match(/<Interruptor[\s]/g) ?? [];
     expect(interruptores.length).toBe(2);
-    expect(tela).toContain('não dá para forçar daqui');
+    /* A frase mudou na v2 para a do desenho ("o admin não altera"). O que o
+       teste garante continua sendo o mesmo: a tela DIZ por que é leitura, em
+       vez de deixar a pessoa achando que o controle sumiu. */
+    expect(tela).toContain('o admin não altera');
   });
 
   it('não inventa "último acesso"', () => {
