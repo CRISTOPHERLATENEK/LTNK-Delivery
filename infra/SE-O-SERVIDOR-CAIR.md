@@ -115,8 +115,9 @@ melhor: sobe os dumps diários todo dia, então além de cair para 24 h de perda
 a cópia externa passa a ter os 180 dias de histórico — não só duas gerações.
 
 E se o servidor ainda estiver de pé mas ameaçado: **tire um snapshot manual
-agora** (mesma tela, é grátis) e/ou rode `infra/puxar-backup.ps1` para trazer
-`/opt/backup-delivery` para fora.
+agora** (mesma tela, grátis — mas ele expira em 24 h, então é rede de curto
+prazo) e/ou rode `infra/puxar-backup.ps1` para trazer `/opt/backup-delivery`
+para fora.
 
 ### O que você precisa ter em mãos
 
@@ -246,7 +247,10 @@ esse motivo que a cópia externa é o item mais importante desta pasta.
    fora do servidor, 2 gerações. O paliativo da máquina de mesa foi montado e
    desligado no mesmo dia, por decisão; o script segue em
    `infra/puxar-backup.ps1` e religar é uma linha (ver LEIA-ME, opção A2).
-   Snapshot manual, grátis na mesma tela, antes de qualquer operação de risco.
+   Snapshot manual: grátis na mesma tela, mas **expira em 24 horas** (medido em
+   08/09/2026: criado 11:20, expiração 09/09). Serve como rede antes de uma
+   operação de risco no mesmo dia — trocar `APP_SECRET`, migração, mexer no
+   banco. Não serve como backup: no dia seguinte ele não existe mais.
 3. `rclone config` na VPS, com o destino chamado `backup` — **é o item que
    falta**, e o único que resolve a seção B deste documento.
 4. Rodar `restaurar-delivery.sh --testar` de vez em quando.
