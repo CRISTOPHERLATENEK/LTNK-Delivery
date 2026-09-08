@@ -179,6 +179,35 @@ describe('a fiação do vigia', () => {
   });
 
   /*
+   * AS COLUNAS QUE O VIGIA CONSULTA EXISTEM.
+   *
+   * Eu escrevi `WHERE excluida = 0` de cabeça, e `lojas` não tem exclusão
+   * lógica — o vigia caiu no primeiro ciclo em produção com "Unknown column
+   * 'excluida'". Degradou direito (o catch por tenant segurou), mas a checagem
+   * não fazia nada, e ninguém saberia sem ler o log do PM2. Consulta de vigia é
+   * o pior lugar para uma coluna errada: o silêncio parece "está tudo bem".
+   */
+  it('as colunas que o vigia consulta existem no schema', () => {
+    const vigia = fs.readFileSync(path.join(__dirname, 'vigia-saude.ts'), 'utf8');
+    const schema = fs.readFileSync(path.join(__dirname, 'schema-mysql.ts'), 'utf8');
+    const lojas = schema.slice(
+      schema.indexOf('CREATE TABLE IF NOT EXISTS lojas'),
+      schema.indexOf('CREATE TABLE IF NOT EXISTS produtos'),
+    );
+    expect(lojas).toMatch(/nfce_cert_validade/);
+    // A coluna que não existe, pelo nome: se voltar, este teste cai.
+    expect(vigia).not.toMatch(/FROM lojas WHERE excluida/);
+
+    const notas = schema.slice(
+      schema.indexOf('CREATE TABLE IF NOT EXISTS notas_fiscais'),
+      schema.indexOf('CREATE TABLE IF NOT EXISTS zonas_entrega'),
+    );
+    for (const coluna of ['loja_id', 'status', 'motivo', 'criado_em']) {
+      expect(notas).toContain(coluna);
+    }
+  });
+
+  /*
    * O QUE ESTE VIGIA NÃO FAZ tem que estar escrito nele: processo que morreu
    * não avisa que morreu. Sem essa frase no arquivo, alguém vai contar com o
    * vigia para detectar queda — e é o único caso em que ele não serve.

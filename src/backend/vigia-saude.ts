@@ -157,9 +157,15 @@ export async function coletarAchados(agora = Date.now()): Promise<Achado[]> {
   for (const t of tenants) {
     try {
       await comTenant(t.db_nome, async () => {
+        /*
+         * SEM FILTRO DE EXCLUSÃO porque `lojas` não tem exclusão lógica — eu
+         * escrevi `WHERE excluida = 0` de cabeça e o próprio vigia denunciou no
+         * primeiro ciclo em produção: "Unknown column 'excluida'". Ele degradou
+         * como devia (o catch por tenant não calou os outros), mas a checagem
+         * não fazia nada. `excluida` existe em `mesas`, não aqui.
+         */
         const lojas = await db.prepare(
-          `SELECT id, nome, nfce_cert_validade AS validade
-             FROM lojas WHERE excluida = 0`
+          `SELECT id, nome, nfce_cert_validade AS validade FROM lojas`
         ).all() as Array<{ id: number; nome: string; validade: string | null }>;
 
         for (const loja of lojas) {
