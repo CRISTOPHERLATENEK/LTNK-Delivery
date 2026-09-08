@@ -90,23 +90,33 @@ ssh vps-delivery 'certbot renew --nginx && systemctl reload nginx'
 
 ## B. A máquina sumiu
 
-**Leia isto antes de tudo:** este caminho só funciona se existir **cópia do
-backup fora da VPS**, e **hoje não existe nenhuma.**
+**Leia isto antes de tudo:** existe **uma** cópia fora da VPS, e ela é do
+próprio provedor — não é nada que a gente montou.
 
-| Onde | Estado |
-|---|---|
-| `rclone` para nuvem (R2, B2, S3) | **não configurado** — o log diz `copia externa nao configurada` todo dia |
-| cópia na máquina de mesa (`infra/puxar-backup.ps1`) | **desligada por decisão** em 08/09/2026 — o backup fica só no servidor |
+| Onde | Estado | Alcance |
+|---|---|---|
+| **Backup automático da Hostinger** | **ligado, SEMANAL** (hpanel → VPS → Snapshots e Backups) | imagem do disco inteiro, ~6,7 GB, guardada **fora do servidor**, 2 gerações, restauração em ~30 min |
+| `rclone` para nuvem (R2, B2, S3) | não configurado — o log diz `copia externa nao configurada` todo dia | — |
+| cópia na máquina de mesa (`infra/puxar-backup.ps1`) | desligada por decisão em 08/09/2026 | — |
 
-Enquanto isso valer, **a máquina perdida leva o backup junto**: os 384 MB de
-dumps moram no mesmo disco da aplicação. Não há o que restaurar — nem banco,
-nem uploads, nem certificados, nem o `.env`.
+**É o backup da Hostinger que salva a operação hoje**, e ele é melhor do que
+parece: sendo imagem do disco, ele carrega **dentro dele** o
+`/opt/backup-delivery` inteiro — ou seja, todas as gerações diárias daquele
+momento, com a profundidade de 180 dias.
 
-Se você está lendo isto no meio de um incidente e nunca configurou nada, pule
-para "Se não havia cópia externa". E se o servidor ainda estiver de pé mas
-ameaçado, a primeira coisa a fazer é tirar uma cópia de `/opt/backup-delivery`
-para qualquer lugar fora dele — `infra/puxar-backup.ps1` faz isso numa
-execução, sem depender de conta de nuvem.
+O que ele custa é **quanto você perde**: sendo semanal, o pior caso é o disco
+morrer 6 dias depois do último backup e você voltar **6 dias no tempo** —
+pedidos, pagamentos e cadastros do período viram nada. Os dumps diários
+existiam, mas morreram no disco junto.
+
+A opção **diária** existe no painel e custa **R$ 65,99/mês** (verificado em
+08/09/2026). O `rclone` para R2 resolve o mesmo problema por uma fração disso, e
+melhor: sobe os dumps diários todo dia, então além de cair para 24 h de perda,
+a cópia externa passa a ter os 180 dias de histórico — não só duas gerações.
+
+E se o servidor ainda estiver de pé mas ameaçado: **tire um snapshot manual
+agora** (mesma tela, é grátis) e/ou rode `infra/puxar-backup.ps1` para trazer
+`/opt/backup-delivery` para fora.
 
 ### O que você precisa ter em mãos
 
@@ -232,10 +242,11 @@ esse motivo que a cópia externa é o item mais importante desta pasta.
    entra no backup cifrado (`ambiente.tar.gz.enc`). **Falta guardar o valor no
    gerenciador de senhas** (`cat /root/.backup-senha`): enquanto ela existir só
    dentro da VPS, o `.env` cifrado é inabrível justamente no cenário da seção B.
-2. **Cópia fora da VPS: não existe.** O paliativo da máquina de mesa foi
-   montado e **desligado no mesmo dia, por decisão** — a opção é backup só
-   online. O script segue em `infra/puxar-backup.ps1` para o dia em que
-   precisar, e religar é uma linha (ver LEIA-ME, opção A2).
+2. **Cópia fora da VPS: existe a da Hostinger, semanal.** Ligada, guardada
+   fora do servidor, 2 gerações. O paliativo da máquina de mesa foi montado e
+   desligado no mesmo dia, por decisão; o script segue em
+   `infra/puxar-backup.ps1` e religar é uma linha (ver LEIA-ME, opção A2).
+   Snapshot manual, grátis na mesma tela, antes de qualquer operação de risco.
 3. `rclone config` na VPS, com o destino chamado `backup` — **é o item que
    falta**, e o único que resolve a seção B deste documento.
 4. Rodar `restaurar-delivery.sh --testar` de vez em quando.
