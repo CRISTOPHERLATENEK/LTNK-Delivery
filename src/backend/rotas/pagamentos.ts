@@ -517,32 +517,77 @@ export function escolherSegredoWebhook(
   return segredoDoEnv || null;
 }
 
+/**
+ * A LOJA É OBRIGADA A TER SEGREDO?
+ *
+ * `escolherSegredoWebhook` responde "qual segredo"; esta responde "e se não
+ * tiver nenhum, aceita?". Separadas porque a segunda é uma decisão de risco e a
+ * primeira é de roteamento.
+ *
+ * Sem isto, TODA LOJA NOVA nascia aceitando webhook sem conferência: o campo da
+ * assinatura vem vazio, e vazio significava "aceita". Numa plataforma com um
+ * cliente isso passa; ao vender, cada loja nova entra assim e ninguém percebe,
+ * porque nada na tela chama a ausência de problema.
+ *
+ * Exige só onde exigir é seguro e faz sentido:
+ *
+ *  - conta própria + PRODUÇÃO, sem segredo → EXIGE (recusa). É dinheiro de
+ *    verdade, e o lojista tem o segredo à mão no painel do MP. Recusar não perde
+ *    pagamento: a reconciliação de 5 min confirma o pedido.
+ *  - conta própria + TESTE, sem segredo → não exige. Quem está homologando ainda
+ *    não cadastrou webhook, e travar aqui trava a homologação.
+ *  - conta da PLATAFORMA → não exige. Aqui o segredo é o do `.env`, e um `.env`
+ *    sem essa variável passaria a recusar as notificações de TODAS as lojas de
+ *    uma vez — o oposto de endurecer com segurança.
+ */
+export function exigeSegredoWebhook(loja: {
+  temSegredoProprio: boolean;
+  temContaPropria: boolean;
+  modo: string | null;
+}): boolean {
+  if (loja.temSegredoProprio) return false;   // tem: nada a exigir
+  if (!loja.temContaPropria) return false;    // conta da plataforma
+  return loja.modo !== 'teste';               // produção é o padrão da coluna
+}
+
 /** Lê a loja e delega a decisão pra `escolherSegredoWebhook`. */
-async function segredoWebhookDaLoja(lojaId?: number): Promise<string | null> {
+async function segredoWebhookDaLoja(lojaId?: number): Promise<{ secret: string | null; exigir: boolean }> {
   const doEnv = process.env.MERCADOPAGO_WEBHOOK_SECRET || null;
-  if (!lojaId) return doEnv;
+  /*
+   * Sem `?loja=` não há como saber o modo nem de quem é a conta, então não dá
+   * para exigir. Não é buraco aberto de propósito: o conteúdo da notificação
+   * continua sendo ignorado e o status reconsultado na API, então o que se ganha
+   * omitindo a loja é disparar uma consulta — não aprovar um pedido.
+   */
+  if (!lojaId) return { secret: doEnv, exigir: false };
   try {
     const row = await db.prepare(
       `SELECT mercadopago_webhook_secret, mercadopago_token,
-              mercadopago_token_teste, mercadopago_token_producao
+              mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo
          FROM lojas WHERE id = ?`
     ).get(lojaId) as {
       mercadopago_webhook_secret: string | null; mercadopago_token: string | null;
       mercadopago_token_teste: string | null; mercadopago_token_producao: string | null;
+      mercadopago_modo: string | null;
     } | undefined;
-    if (!row) return doEnv;
+    if (!row) return { secret: doEnv, exigir: false };
 
     let segredoProprio: string | null = null;
     if (row.mercadopago_webhook_secret) {
       try { segredoProprio = descriptografar(row.mercadopago_webhook_secret); }
       catch { /* chave trocada: trata como se não tivesse */ }
     }
-    return escolherSegredoWebhook({
-      segredoProprio,
-      temContaPropria: !!(row.mercadopago_token_producao || row.mercadopago_token_teste || row.mercadopago_token),
-    }, doEnv);
+    const temContaPropria = !!(row.mercadopago_token_producao || row.mercadopago_token_teste || row.mercadopago_token);
+    return {
+      secret: escolherSegredoWebhook({ segredoProprio, temContaPropria }, doEnv),
+      exigir: exigeSegredoWebhook({
+        temSegredoProprio: !!segredoProprio,
+        temContaPropria,
+        modo: row.mercadopago_modo,
+      }),
+    };
   } catch {
-    return doEnv;
+    return { secret: doEnv, exigir: false };
   }
 }
 
@@ -1131,12 +1176,13 @@ router.post('/webhook/mercadopago', async (req, res) => {
      * reconsultado na API do MP dentro de `processarWebhookMP`).
      */
     const processar = async () => {
-      const secret = await segredoWebhookDaLoja(lojaDica);
+      const { secret, exigir } = await segredoWebhookDaLoja(lojaDica);
       const conferencia = conferirAssinatura({
         cabecalho: req.headers['x-signature'],
         requestId: req.headers['x-request-id'],
         dataId: String(pagamentoId),
         secret,
+        exigirSegredo: exigir,
       });
       if (!conferencia.valida) {
         /*

@@ -2007,6 +2007,22 @@ export function PagamentosLoja() {
                     Aparece no painel do Mercado Pago logo depois de cadastrar a URL acima. Com ela, o
                     sistema confere que a notificação veio mesmo do Mercado Pago e descarta as forjadas.
                   </p>
+                  {/*
+                    O AVISO SÓ EM PRODUÇÃO, e só sem a assinatura.
+                    Antes o campo lia como opcional: rótulo, explicação e um
+                    "• configurada" quando havia. Faltava a única frase que faz
+                    alguém ir buscar o segredo — o que acontece enquanto ele não
+                    está ali. Em teste não avisa, porque quem homologa ainda não
+                    cadastrou webhook e o aviso viraria ruído.
+                  */}
+                  {estado.modo === 'producao' && estado.cartao_online_ativo && !estado.webhook_secret_configurado && (
+                    <p className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-2.5 py-2 text-[11px] leading-snug">
+                      <b>Falta colar a assinatura.</b> Sem ela, as confirmações que o Mercado Pago
+                      envia são recusadas — o pedido pago só é confirmado na conferência automática,
+                      que roda a cada 5 minutos. Ou seja: nada se perde, mas o pedido pode demorar
+                      até 5 minutos para aparecer como pago.
+                    </p>
+                  )}
                   <div className="flex items-center gap-2">
                     <Input
                       id="wh_secret" type="password" value={webhookSecret} maxLength={200} autoComplete="off"

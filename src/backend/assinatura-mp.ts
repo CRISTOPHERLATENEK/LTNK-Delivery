@@ -62,6 +62,7 @@ export function montarManifest(dataId: string, requestId: string, ts: string): s
 /** Motivo da recusa — o log precisa distinguir "não veio" de "não bate". */
 export type MotivoRecusa =
   | 'sem-segredo'
+  | 'sem-segredo-exigido'
   | 'sem-cabecalho'
   | 'sem-request-id'
   | 'cabecalho-malformado'
@@ -81,18 +82,31 @@ export interface ResultadoAssinatura {
  * levam a lugares completamente diferentes — o primeiro é configuração do MP,
  * o segundo é segredo trocado.
  *
- * Sem segredo configurado, devolve `valida: true` com o motivo `sem-segredo`:
- * quem chama decide se isso é "aceita como sempre aceitou" (é o comportamento
- * hoje, mitigado pela reconsulta na API) ou se um dia passa a recusar.
+ * SEM SEGREDO, o resultado depende de `exigirSegredo` — e quem decide isso é
+ * `exigeSegredoWebhook` (rotas/pagamentos.ts), porque a resposta depende do modo
+ * da loja e de quem é a conta.
+ *
+ *  - `exigirSegredo: false` → aceita, com o motivo `sem-segredo`. É como sempre
+ *    funcionou, e está protegido pelo que sempre protegeu: o status é
+ *    reconsultado na API do MP antes de valer.
+ *  - `exigirSegredo: true`  → RECUSA, com o motivo `sem-segredo-exigido`. Loja em
+ *    produção com conta própria tem que colar a assinatura. Recusar aqui não
+ *    perde pagamento: a reconciliação roda a cada 5 min e confirma o pedido do
+ *    mesmo jeito — atrasa, não some.
  */
 export function conferirAssinatura(entrada: {
   cabecalho: unknown;
   requestId: unknown;
   dataId: string;
   secret: string | null;
+  exigirSegredo?: boolean;
 }): ResultadoAssinatura {
-  const { cabecalho, requestId, dataId, secret } = entrada;
-  if (!secret) return { valida: true, motivo: 'sem-segredo' };
+  const { cabecalho, requestId, dataId, secret, exigirSegredo } = entrada;
+  if (!secret) {
+    return exigirSegredo
+      ? { valida: false, motivo: 'sem-segredo-exigido' }
+      : { valida: true, motivo: 'sem-segredo' };
+  }
   if (typeof cabecalho !== 'string' || !cabecalho) return { valida: false, motivo: 'sem-cabecalho' };
   if (typeof requestId !== 'string' || !requestId) return { valida: false, motivo: 'sem-request-id' };
 

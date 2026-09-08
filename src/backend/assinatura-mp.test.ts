@@ -14,8 +14,10 @@
  * lowercase quebra o teste.
  */
 import { describe, it, expect } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { montarManifest, lerCabecalhoAssinatura, conferirAssinatura } from './assinatura-mp';
-import { escolherSegredoWebhook } from './rotas/pagamentos';
+import { escolherSegredoWebhook, exigeSegredoWebhook } from './rotas/pagamentos';
 
 const SEGREDO = 'segredo-de-teste';
 // HMAC-SHA256 de 'id:123456789;request-id:abc-123;ts:1704908010;' com SEGREDO.
@@ -144,14 +146,127 @@ describe('escolherSegredoWebhook — de quem é o segredo', () => {
   });
 
   /*
-   * O elo com a validação: null significa "sem segredo", e `conferirAssinatura`
-   * precisa ACEITAR nesse caso. Se algum dia isso virar recusa, esta linha
-   * quebra junto — e é bom que quebre, porque seria a mudança que derruba a
-   * confirmação de pagamento das lojas com conta própria.
+   * O elo com a validação: null significa "sem segredo", e por PADRÃO
+   * `conferirAssinatura` ACEITA nesse caso.
+   *
+   * Este comentário dizia que virar recusa seria a mudança que derruba a
+   * confirmação de pagamento das lojas com conta própria. Metade certo: virar
+   * recusa INCONDICIONAL derrubaria. Recusar só onde é seguro — loja em
+   * produção, que tem o segredo à mão — não derruba nada, porque a
+   * reconciliação de 5 min confirma o pedido de todo jeito. Quem decide isso
+   * agora é `exigeSegredoWebhook`, testada abaixo; aqui fica registrado o
+   * padrão, que continua sendo aceitar.
    */
-  it('null significa aceitar, não recusar', () => {
+  it('null significa aceitar, quando não se exige', () => {
     const secret = escolherSegredoWebhook({ segredoProprio: null, temContaPropria: true }, 'do-env');
     expect(conferirAssinatura({ cabecalho: undefined, requestId: undefined, dataId: '1', secret }))
       .toEqual({ valida: true, motivo: 'sem-segredo' });
+  });
+});
+
+/*
+ * TODA LOJA NOVA NASCIA ACEITANDO WEBHOOK SEM CONFERÊNCIA.
+ *
+ * O campo da assinatura vem vazio, e vazio significava "aceita". Com um cliente
+ * isso passa; ao vender, cada loja nova entra assim e nada na tela chama a
+ * ausência de problema. Estes testes fixam ONDE passou a exigir — e, o que
+ * importa igual, onde continua NÃO exigindo, porque exigir no lugar errado
+ * recusa notificação legítima e o pedido pago deixa de confirmar na hora.
+ */
+describe('exigeSegredoWebhook — onde a assinatura passou a ser obrigatória', () => {
+  it('produção com conta própria e sem segredo: EXIGE', () => {
+    expect(exigeSegredoWebhook({
+      temSegredoProprio: false, temContaPropria: true, modo: 'producao',
+    })).toBe(true);
+  });
+
+  /* A coluna tem 'producao' por padrão, mas nulo/lixo não pode virar "não exige"
+     — seria um jeito silencioso de escapar da regra. */
+  it('modo nulo conta como produção', () => {
+    expect(exigeSegredoWebhook({ temSegredoProprio: false, temContaPropria: true, modo: null })).toBe(true);
+  });
+
+  it('teste não exige — travaria a homologação', () => {
+    expect(exigeSegredoWebhook({
+      temSegredoProprio: false, temContaPropria: true, modo: 'teste',
+    })).toBe(false);
+  });
+
+  /*
+   * Conta da plataforma NÃO exige. Se exigisse, um `.env` sem
+   * MERCADOPAGO_WEBHOOK_SECRET passaria a recusar as notificações de TODAS as
+   * lojas de uma vez — endurecer assim é derrubar, não proteger.
+   */
+  it('conta da plataforma não exige', () => {
+    expect(exigeSegredoWebhook({
+      temSegredoProprio: false, temContaPropria: false, modo: 'producao',
+    })).toBe(false);
+  });
+
+  it('quem já tem segredo não tem o que exigir', () => {
+    expect(exigeSegredoWebhook({
+      temSegredoProprio: true, temContaPropria: true, modo: 'producao',
+    })).toBe(false);
+  });
+});
+
+describe('conferirAssinatura com segredo exigido', () => {
+  it('sem segredo e exigindo: RECUSA, com motivo próprio', () => {
+    expect(conferirAssinatura({
+      cabecalho: CABECALHO_BOM, requestId: REQ_ID, dataId: DATA_ID,
+      secret: null, exigirSegredo: true,
+    })).toEqual({ valida: false, motivo: 'sem-segredo-exigido' });
+  });
+
+  /*
+   * O motivo é separado de 'sem-segredo' de propósito: às duas da manhã, "aceitei
+   * porque não havia segredo" e "recusei porque exigia" levam a lugares opostos.
+   */
+  it('o motivo distingue aceitar de recusar', () => {
+    const aceito = conferirAssinatura({ cabecalho: undefined, requestId: undefined, dataId: '1', secret: null });
+    const recusado = conferirAssinatura({ cabecalho: undefined, requestId: undefined, dataId: '1', secret: null, exigirSegredo: true });
+    expect(aceito.motivo).toBe('sem-segredo');
+    expect(recusado.motivo).toBe('sem-segredo-exigido');
+  });
+
+  /*
+   * E O CAMINHO BOM CONTINUA BOM. Sem esta linha, `exigirSegredo` poderia estar
+   * recusando tudo — inclusive a notificação legítima da loja que colou o
+   * segredo — e os testes acima passariam iguais.
+   */
+  it('exigir não quebra a assinatura legítima', () => {
+    expect(conferirAssinatura({
+      cabecalho: CABECALHO_BOM, requestId: REQ_ID, dataId: DATA_ID,
+      secret: SEGREDO, exigirSegredo: true,
+    })).toEqual({ valida: true });
+  });
+});
+
+/* A regra só vale se a ROTA passar o `exigirSegredo`. Sem isto, tudo acima
+   passaria com a rota chamando a conferência como antes. */
+describe('a rota do webhook usa a exigência', () => {
+  const fonte = fs.readFileSync(path.join(__dirname, 'rotas', 'pagamentos.ts'), 'utf8');
+  const rota = fonte.slice(fonte.indexOf("router.post('/webhook/mercadopago'"));
+
+  it('a rota do MP passa exigirSegredo para a conferência', () => {
+    expect(rota).toMatch(/const \{ secret, exigir \} = await segredoWebhookDaLoja\(lojaDica\)/);
+    expect(rota).toMatch(/exigirSegredo: exigir/);
+  });
+});
+
+/* E a tela precisa dizer o que acontece enquanto falta — senão o lojista não
+   vai buscar o segredo, e a regra nova só produz atraso sem explicação. */
+describe('a tela do lojista avisa que falta a assinatura', () => {
+  const tela = fs.readFileSync(
+    path.join(__dirname, '..', '..', 'frontend', 'src', 'pages', 'lojista', 'loja-config.tsx'), 'utf8');
+
+  it('o aviso é condicionado a produção E ausência do segredo', () => {
+    expect(tela).toMatch(
+      /estado\.modo === 'producao' && estado\.cartao_online_ativo && !estado\.webhook_secret_configurado/);
+  });
+
+  it('o aviso diz o que acontece, não só que falta', () => {
+    expect(tela).toContain('são recusadas');
+    expect(tela).toMatch(/5 minutos/);
   });
 });
