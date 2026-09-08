@@ -108,21 +108,41 @@ describe('a tela não promete o que o sistema não faz', () => {
     expect(tela).toMatch(/async function salvar\(forcarFiscal\?: boolean\)/);
   });
 
-  it('o chat é botão flutuante, não aba', () => {
+  /*
+   * O CHAT ESTÁ DESLIGADO A PEDIDO, enquanto a metade de IA não tem crédito de
+   * API pago. Este teste mudou de lado de propósito: antes ele exigia que o
+   * botão aparecesse, e a razão era justamente evitar um `false &&` acidental
+   * que deixasse a marca na fonte e o chat fechado para sempre. Agora o
+   * desligamento é a decisão — então o que ele guarda é OUTRA coisa: que o
+   * desligamento seja de UM interruptor só, e que a fiação continue inteira,
+   * para religar custar uma palavra em vez de uma arqueologia.
+   */
+  it('o chat está fora da tela por um interruptor só', () => {
+    expect(tela).toMatch(/const SUPORTE_NA_TELA = false;/);
+    /* Os DOIS blocos atrás do mesmo interruptor. Se só o botão ficasse
+       escondido, o painel ainda abriria por outro caminho (deep link, estado
+       inicial) e a pessoa cairia na pergunta que não responde. */
+    expect(tela).toMatch(/\{SUPORTE_NA_TELA && !chat && \(/);
+    expect(tela).toMatch(/\{SUPORTE_NA_TELA && chat && \(\s*<ChatSuporte/);
+    /* E nenhum outro `SUPORTE_NA_TELA` ligado em outro lugar. */
+    expect(tela.match(/SUPORTE_NA_TELA/g)).toHaveLength(3); // a declaração + os 2 usos
+  });
+
+  it('a fiação do chat continua inteira, para religar em uma palavra', () => {
     /*
-     * Aba daria a ele o mesmo peso de "Pedidos" e "Fiscal", que são assuntos da
-     * loja. O suporte é ferramenta: chama-se de qualquer aba, sem perder a aba
-     * onde a pessoa estava.
-     */
-    expect(tela).not.toMatch(/id: 'suporte'|id: 'chat'/);
-    /*
-     * O botão E a condição de abrir. Testado só por "contém <ChatSuporte", ele
-     * passava com o componente atrás de um `false &&` — a marca ficava na
-     * fonte e o chat nunca abria.
+     * Sem isto, "desativar" viraria apagar o código, e voltar atrás custaria
+     * reescrever o painel. O botão, o estado e o componente seguem no arquivo.
      */
     expect(tela).toContain('onClick={() => setChat(true)}');
     expect(tela).toContain('<MarcaX tamanho={22} />');
-    expect(tela).toMatch(/\{chat && \(\s*<ChatSuporte/);
+    expect(tela).toContain('<ChatSuporte lojaId={l.id}');
+    /*
+     * E continua não sendo aba: aba daria a ele o mesmo peso de "Pedidos" e
+     * "Fiscal", que são assuntos da loja. O suporte é ferramenta — chama-se de
+     * qualquer aba, sem perder a aba onde a pessoa estava. Vale enquanto está
+     * desligado também, senão religar traz a decisão errada de volta.
+     */
+    expect(tela).not.toMatch(/id: 'suporte'|id: 'chat'/);
   });
 
   it('"loja aberta" é LEITURA, não interruptor', () => {

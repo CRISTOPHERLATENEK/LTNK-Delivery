@@ -93,6 +93,23 @@ const TOM_SITUACAO: Record<string, Tom> = {
 
 type Aba = 'resumo' | 'pedidos' | 'cadastro' | 'configuracao' | 'fiscal' | 'historico';
 type Grupo = 'todos' | 'entregue' | 'andamento' | 'cancelado';
+/**
+ * O CHAT DE DIAGNÓSTICO E SUPORTE ESTÁ FORA DA TELA.
+ *
+ * Desligado a pedido, enquanto a metade de IA não tem crédito de API pago:
+ * botão que abre um painel onde a pergunta não é respondida ensina a
+ * desconfiar do painel inteiro. O dossiê da loja funciona sem chave e sem
+ * custo, mas sem a pergunta ele não justificava um botão flutuante próprio.
+ *
+ * Para trazer de volta: `true` aqui, e o teste que guarda o desligamento
+ * (`loja-painel.test.ts`, "o chat está fora da tela por um interruptor só")
+ * passa a esperar `true`. São duas linhas de propósito: religar é decisão, e
+ * decisão fica registrada. A fiação está inteira — botão, estado e
+ * `ChatSuporte` continuam no arquivo, e a rota `POST /lojas/:id/suporte`
+ * continua no servidor. Nada mais precisa mudar.
+ */
+const SUPORTE_NA_TELA = false;
+
 const ATIVOS = ['pendente', 'aceito', 'preparando', 'pronto', 'em_entrega'];
 const PAGINA = 12;
 
@@ -849,7 +866,7 @@ export function TelaLojaDetalhe() {
         loja; o suporte é uma ferramenta que se chama de qualquer lugar — e
         chamá-la sem perder a aba onde a pessoa estava é justamente o ponto.
       */}
-      {!chat && (
+      {SUPORTE_NA_TELA && !chat && (
         <button
           type="button"
           onClick={() => setChat(true)}
@@ -861,7 +878,7 @@ export function TelaLojaDetalhe() {
           <MarcaX tamanho={22} />
         </button>
       )}
-      {chat && (
+      {SUPORTE_NA_TELA && chat && (
         <ChatSuporte lojaId={l.id} nome={l.nome} comTenant={comTenant} aoFechar={() => setChat(false)} />
       )}
     </div>
