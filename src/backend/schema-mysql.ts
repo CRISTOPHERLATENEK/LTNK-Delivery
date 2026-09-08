@@ -1173,6 +1173,22 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['usuarios', 'ultimo_acesso', "ultimo_acesso VARCHAR(32) NOT NULL DEFAULT ''"],
     /*
+     * ACEITE DOS TERMOS — quando, e de qual versão.
+     *
+     * PRECISAM ESTAR AQUI, e não só no CREATE TABLE: o CREATE é
+     * `IF NOT EXISTS`, então coluna nova só chega em banco novo. Eu esqueci
+     * disto e o deploy subiu com o INSERT do cadastro já nomeando as duas
+     * colunas em bancos que não as tinham — cadastro quebrado em produção até
+     * o próximo deploy. É o tipo de erro que o typecheck não vê e o teste não
+     * vê, porque o teste roda contra schema recém-criado.
+     *
+     * NULO nas contas que já existiam: elas se cadastraram antes de haver
+     * qualquer termo, e preencher com a data de hoje seria inventar um aceite
+     * que não aconteceu. Daí sem DEFAULT.
+     */
+    ['usuarios', 'termos_aceitos_em', 'termos_aceitos_em VARCHAR(32) NULL'],
+    ['usuarios', 'termos_versao', 'termos_versao VARCHAR(40) NULL'],
+    /*
      * O IP de quem fez a ação administrativa.
      *
      * 45 caracteres porque IPv6 mapeado em IPv4 chega a 45
