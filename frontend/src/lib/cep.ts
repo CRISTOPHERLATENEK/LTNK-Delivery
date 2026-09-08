@@ -9,6 +9,14 @@ export interface EnderecoCep {
   bairro: string;
   cidade: string;
   uf: string;
+  /**
+   * Código IBGE do município — o `cMun` que a NFC-e exige.
+   *
+   * O ViaCEP já devolve isso no campo `ibge` e a gente jogava fora. Sem ele,
+   * quem cadastra o fiscal tem que procurar o código do município numa tabela
+   * do IBGE e digitar sete dígitos na mão — errar um deles rejeita a nota.
+   */
+  cmun: string;
 }
 
 /**
@@ -62,6 +70,7 @@ export async function buscarCep(cep: string): Promise<EnderecoCep | null> {
       bairro: j.bairro || '',
       cidade: j.localidade || '',
       uf: j.uf || '',
+      cmun: String(j.ibge || '').replace(/\D/g, ''),
     };
   } catch {
     return null;

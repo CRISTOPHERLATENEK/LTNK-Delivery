@@ -2,7 +2,7 @@
  * Gestão de TENANTS (clientes do SaaS) — só super admin do painel principal.
  * Cada tenant tem seu próprio banco (.db) e domínio (multi-tenant SILO).
  */
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Boxes, Trash2, Handshake, Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward, Link2 } from 'lucide-react';
 import { AdminLayout } from './layout';
@@ -22,6 +22,7 @@ import { useConfirm } from '@/components/ui/confirm';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { api, ApiError, tokenSessao, abrirSessaoLojistaImpersonada, destinoImpersonacao } from '@/lib/api';
 import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
+import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import { cn } from '@/lib/utils';
 import { brl } from '@/lib/format';
 
@@ -478,16 +479,60 @@ function EtapaEndereco({ tenantId, lojaId, onVoltar, onProximo }: {
   tenantId: number; lojaId: number; onVoltar: () => void; onProximo: () => void;
 }) {
   const { mostrar } = useToast();
-  const [endereco, setEndereco] = useState('');
+  /*
+   * PARTES, NÃO UMA LINHA DE TEXTO.
+   *
+   * Era um campo único ("Rua Exemplo, 123 - Bairro, Cidade - UF") e dois
+   * passos depois o Fiscal pedia o endereço INTEIRO outra vez, em pedaços.
+   * Duas digitações do mesmo dado, e nada garantindo que combinassem — o
+   * endereço do mapa podia divergir do da nota, e isso só aparece quando a
+   * nota é recusada ou a entrega vai pro lugar errado.
+   *
+   * O texto que o geocoder usa é montado no servidor, num formato só.
+   */
+  const [cep, setCep] = useState('');
+  const [rua, setRua] = useState('');
+  const [numero, setNumero] = useState('');
+  const [complemento, setComplemento] = useState('');
+  const [bairro, setBairro] = useState('');
+  const [cidade, setCidade] = useState('');
+  const [uf, setUf] = useState('');
+  const [cmun, setCmun] = useState('');
+  const [buscandoCep, setBuscandoCep] = useState(false);
   const [taxa, setTaxa] = useState('0');
   const [tempo, setTempo] = useState('40');
   const [salvando, setSalvando] = useState(false);
+  const numeroRef = useRef<HTMLInputElement>(null);
+
+  /*
+   * Busca sozinho ao completar os 8 dígitos, sem botão. E o foco vai para o
+   * NÚMERO, que é o único campo que o CEP não sabe — é onde a pessoa
+   * continuaria digitando de qualquer jeito.
+   */
+  async function aoDigitarCep(bruto: string) {
+    setCep(formatarCep(bruto));
+    if (cepDigitos(bruto).length !== 8) return;
+    setBuscandoCep(true);
+    const achado = await buscarCep(bruto);
+    setBuscandoCep(false);
+    if (!achado) {
+      mostrar({ tipo: 'erro', titulo: 'CEP não encontrado — dá pra preencher à mão.' });
+      return;
+    }
+    setRua(achado.rua);
+    setBairro(achado.bairro);
+    setCidade(achado.cidade);
+    setUf(achado.uf);
+    setCmun(achado.cmun);
+    numeroRef.current?.focus();
+  }
 
   async function salvarEAvancar() {
     setSalvando(true);
     try {
       await api('PUT', `/api/admin/lojas/${lojaId}/detalhes?tenant_id=${tenantId}`, {
-        endereco: endereco.trim(),
+        /* As PARTES vão para o servidor; ele monta o texto e semeia o fiscal. */
+        cep, rua, numero, complemento, bairro, cidade, uf, cmun,
         taxa_entrega_centavos: Math.round(Number(taxa.replace(',', '.')) * 100) || 0,
         tempo_estimado_min: Number(tempo) || 40,
       });
@@ -499,11 +544,47 @@ function EtapaEndereco({ tenantId, lojaId, onVoltar, onProximo }: {
 
   return (
     <div className="space-y-4">
-      <div>
-        <Label>Endereço da loja</Label>
-        <Input value={endereco} onChange={e => setEndereco(e.target.value)} placeholder="Rua Exemplo, 123 - Bairro, Cidade - UF" />
-        <p className="text-[11px] text-muted-foreground mt-1">Usado pro mapa e pra calcular distância de entrega. Pode deixar em branco e completar depois.</p>
+      <div className="grid gap-3 sm:grid-cols-6">
+        <div className="sm:col-span-2">
+          <Label>CEP</Label>
+          <Input
+            value={cep} onChange={e => void aoDigitarCep(e.target.value)}
+            placeholder="00000-000" inputMode="numeric" maxLength={9} className="font-mono"
+          />
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            {buscandoCep ? 'Buscando…' : 'Preenche o resto sozinho'}
+          </p>
+        </div>
+        <div className="sm:col-span-4">
+          <Label>Rua</Label>
+          <Input value={rua} onChange={e => setRua(e.target.value)} placeholder="Av. Brasil" />
+        </div>
+        <div className="sm:col-span-2">
+          <Label>Número</Label>
+          <Input ref={numeroRef} value={numero} onChange={e => setNumero(e.target.value)} placeholder="123" />
+        </div>
+        <div className="sm:col-span-4">
+          <Label>Complemento</Label>
+          <Input value={complemento} onChange={e => setComplemento(e.target.value)} placeholder="Sala 2, fundos…" />
+        </div>
+        <div className="sm:col-span-3">
+          <Label>Bairro</Label>
+          <Input value={bairro} onChange={e => setBairro(e.target.value)} placeholder="Centro" />
+        </div>
+        <div className="sm:col-span-2">
+          <Label>Cidade</Label>
+          <Input value={cidade} onChange={e => setCidade(e.target.value)} placeholder="Joinville" />
+        </div>
+        <div className="sm:col-span-1">
+          <Label>UF</Label>
+          <Input value={uf} onChange={e => setUf(e.target.value.toUpperCase().slice(0, 2))} placeholder="SC" maxLength={2} className="uppercase" />
+        </div>
       </div>
+      <p className="text-[11px] text-muted-foreground">
+        Serve pro mapa, pra calcular a distância de entrega e já adianta o endereço da
+        nota fiscal — no passo Fiscal, o CNPJ ainda pode substituir pelo endereço oficial
+        da Receita. Pode deixar em branco e completar depois.
+      </p>
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label>Taxa de entrega (R$)</Label>

@@ -21,6 +21,7 @@ import {
 import { dataValida, inicioUtcDaData, fimUtcDaData } from '../periodo';
 import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, inicioDoDiaBR, dataBrasilia, emailValido, cpfValido, cpfDigitos, telefoneDigitos, reaisParaCentavos, filtroOrigemDelivery } from '../util';
 import { criptografar, descriptografar } from '../cripto';
+import { lerPartes, montarEnderecoTexto, temAlgumaParte, semearFiscal } from '../endereco-loja';
 import { montarLandingAdmin, salvarLanding } from '../landing-campos';
 import { garantirSessaoPlataforma, obterQrPlataforma, solicitarCodigoPlataforma, statusSessaoPlataforma, desconectarPlataforma } from '../whatsapp-nao-oficial';
 import { validarCertificado, } from '../assinatura';
@@ -1250,7 +1251,21 @@ router.put('/lojas/:id/detalhes', exigirSuperAdmin, async (req, res, next) => {
     const loja = await db.prepare('SELECT id FROM lojas WHERE id = ?').get(req.params.id) as { id: number } | undefined;
     if (!loja) throw erroHttp(404, 'Loja não encontrada.');
 
-    const endereco = req.body.endereco !== undefined ? textoLimpo(req.body.endereco, 200) : undefined;
+    /*
+     * ENDEREÇO EM PARTES, com o texto MONTADO aqui.
+     *
+     * A tela passou a coletar CEP, rua, número, complemento, bairro, cidade e
+     * UF — e não uma linha de texto livre. O texto que o geocoder usa é
+     * derivado disso, num formato só, em `endereco-loja.ts`.
+     *
+     * `endereco` cru continua aceito: a tela do lojista e chamadas antigas
+     * ainda mandam a linha pronta, e quebrar isso para trocar o formato de um
+     * campo seria trocar um problema por outro.
+     */
+    const partes = lerPartes(req.body as Record<string, unknown>);
+    const endereco = req.body.endereco !== undefined
+      ? textoLimpo(req.body.endereco, 200)
+      : (temAlgumaParte(partes) ? montarEnderecoTexto(partes) : undefined);
     const taxaEntrega = req.body.taxa_entrega_centavos !== undefined ? Math.max(0, Math.round(Number(req.body.taxa_entrega_centavos) || 0)) : undefined;
     const tempoEstimado = req.body.tempo_estimado_min !== undefined ? Math.max(1, Math.round(Number(req.body.tempo_estimado_min) || 40)) : undefined;
     const corMarca = req.body.cor_marca !== undefined ? textoLimpo(req.body.cor_marca, 20) : undefined;
@@ -1269,6 +1284,21 @@ router.put('/lojas/:id/detalhes', exigirSuperAdmin, async (req, res, next) => {
     const valores: unknown[] = [];
     const set = (col: string, v: unknown) => { if (v !== undefined) { campos.push(`${col} = ?`); valores.push(v); } };
     set('endereco', endereco);
+    /*
+     * SEMEIA O FISCAL com o que foi digitado aqui, mas só onde está vazio — a
+     * razão está em `semearFiscal`. Sem isto, o passo Fiscal do cadastro pede o
+     * endereço inteiro outra vez, dois passos depois de a pessoa ter digitado.
+     */
+    if (temAlgumaParte(partes)) {
+      const atual = await db.prepare(
+        `SELECT nfce_cep, nfce_logradouro, nfce_numero, nfce_bairro,
+                nfce_municipio, nfce_uf, nfce_cmun
+           FROM lojas WHERE id = ?`
+      ).get(loja.id) as Record<string, string | null> | undefined;
+      for (const [coluna, valor] of Object.entries(semearFiscal(partes, atual || {}))) {
+        set(coluna, valor);
+      }
+    }
     set('taxa_entrega_centavos', taxaEntrega);
     set('tempo_estimado_min', tempoEstimado);
     set('cor_marca', corMarca);
