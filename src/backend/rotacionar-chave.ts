@@ -185,10 +185,20 @@ async function principal(): Promise<void> {
    * existir query que cai num banco por acaso. Descobri rodando o ensaio de
    * verdade contra produção: o script morria na primeira linha do central.
    */
-  console.log('→ banco central');
+  /*
+   * ROTULA COM O NOME REAL DO BANCO, não com "central".
+   *
+   * O tenant `padrao` USA o banco central, e `usuarios.totp_secret` está
+   * marcada como 'ambos' — então a mesma linha aparecia duas vezes no
+   * relatório, uma como `central.usuarios.totp_secret#1` e outra como
+   * `delivery.usuarios.totp_secret#1`. No ensaio isso só inflava a contagem;
+   * valendo, gravaria o mesmo valor duas vezes. Com o nome real dos dois lados,
+   * a deduplicação abaixo funciona.
+   */
+  console.log(`→ banco central (${BANCO_PADRAO})`);
   await comTenant(BANCO_PADRAO, async () => {
-    todas.push(...await varrerConfiguracoes(velho, novo, 'central'));
-    todas.push(...await varrerColunas(colunasCentral(), velho, novo, 'central'));
+    todas.push(...await varrerConfiguracoes(velho, novo, BANCO_PADRAO));
+    todas.push(...await varrerColunas(colunasCentral(), velho, novo, BANCO_PADRAO));
   });
 
   const tenants = await listarTenants() as Array<{ db_nome: string; slug: string }>;
@@ -198,6 +208,19 @@ async function principal(): Promise<void> {
       varrerColunas(colunasTenant(), velho, novo, t.db_nome));
     todas.push(...doTenant);
   }
+
+  /* Mesma linha, mesmo banco: uma entrada só. Ver o comentário do central. */
+  const vistas = new Set<string>();
+  const unicas = todas.filter(l => {
+    if (vistas.has(l.onde)) return false;
+    vistas.add(l.onde);
+    return true;
+  });
+  if (unicas.length !== todas.length) {
+    console.log(`   (${todas.length - unicas.length} repetida(s) — o banco central também é tenant)`);
+  }
+  todas.length = 0;
+  todas.push(...unicas);
 
   const ilegiveis = todas.filter(l => l.estado === 'ilegivel');
   const recifrar = todas.filter(l => l.estado === 'recifrado');
@@ -235,12 +258,14 @@ async function principal(): Promise<void> {
   console.log('');
   console.log('→ gravando (central)');
   const nCentral = await comTenant(BANCO_PADRAO, () => gravar(
-    todas.filter(l => l.onde.startsWith('central.')),
-    [...colunasCentral()],
+    todas.filter(l => l.onde.startsWith(`${BANCO_PADRAO}.`)),
+    [...colunasCentral(), ...colunasTenant()],
   ));
   console.log(`   ${nCentral} gravado(s)`);
 
   for (const t of tenants) {
+    /* O central já foi: o tenant que usa o banco central não entra de novo. */
+    if (t.db_nome === BANCO_PADRAO) continue;
     const linhasT = todas.filter(l => l.onde.startsWith(`${t.db_nome}.`));
     if (linhasT.length === 0) continue;
     console.log(`→ gravando (${t.slug})`);

@@ -285,6 +285,26 @@ describe('o script protege quem roda', () => {
     expect(abort).toBeLessThan(grava);
   });
 
+  /*
+   * O BANCO CENTRAL TAMBÉM É TENANT nesta instalação (o tenant `padrao` usa o
+   * banco `delivery`), e `usuarios.totp_secret` está marcada como 'ambos'. Sem
+   * deduplicar, a mesma linha era varrida duas vezes: no ensaio inflava a
+   * contagem, e valendo gravaria o mesmo valor duas vezes. Descoberto rodando
+   * o ensaio contra produção, não lendo o código.
+   */
+  it('a mesma linha não é processada duas vezes', () => {
+    expect(exec).toMatch(/vistas\.has\(l\.onde\)/);
+    // E o laço de tenants pula o banco que o passe central já cobriu.
+    expect(exec).toMatch(/t\.db_nome === BANCO_PADRAO\) continue/);
+  });
+
+  /* Rótulo com o nome real do banco: é o que faz a deduplicação casar as duas
+     ocorrências da mesma linha. "central" fixo não casaria com "delivery". */
+  it('rotula com o nome real do banco, não com a palavra "central"', () => {
+    expect(exec).not.toMatch(/varrerColunas\([^)]*'central'\)/);
+    expect(exec).toMatch(/varrerConfiguracoes\(velho, novo, BANCO_PADRAO\)/);
+  });
+
   it('exige 32 caracteres na chave nova, como a aplicação em produção', () => {
     expect(exec).toMatch(/novo\.length < 32/);
   });
