@@ -91,10 +91,22 @@ ssh vps-delivery 'certbot renew --nginx && systemctl reload nginx'
 ## B. A máquina sumiu
 
 **Leia isto antes de tudo:** este caminho só funciona se existir **cópia do
-backup fora da VPS**. Enquanto o `rclone` não estiver configurado, o log diz
-todo dia `copia externa nao configurada`, e nesse caso **a máquina perdida leva
-o backup junto** — não há o que restaurar. Se você está lendo isto no meio de um
-incidente e nunca configurou, pule para "Se não havia cópia externa".
+backup fora da VPS**. Hoje existe **uma**, e é preciso saber o que ela cobre:
+
+| Onde | O que tem | Vale para |
+|---|---|---|
+| `C:\backup-delivery` na máquina do Cristopher | as **3 gerações mais novas**, puxadas todo dia às 13:00 pela tarefa "Backup Delivery - puxar do VPS" (`infra/puxar-backup.ps1`) | VPS perdida — é o que salva |
+| `rclone` para nuvem | **não configurado** | nada ainda; o log diz `copia externa nao configurada` todo dia |
+
+A cópia local resolve o caso "a VPS morreu", mas tem dois limites que a nuvem
+não tem: depende **daquela máquina estar ligada** às 13:00 (a tarefa recupera o
+dia perdido na próxima vez que ligar, mas nunca dispara se a máquina ficar dias
+desligada), e **um disco local morre também** — e o disco dessa máquina está com
+95% de uso. Ela é a primeira linha por enquanto, não a resposta final.
+
+Se você está lendo isto no meio de um incidente, comece por
+`C:\backup-delivery` na máquina. Se lá também não houver nada, pule para
+"Se não havia cópia externa".
 
 ### O que você precisa ter em mãos
 
@@ -216,8 +228,16 @@ esse motivo que a cópia externa é o item mais importante desta pasta.
 
 ## O que fazer HOJE para este documento valer
 
-1. `rclone config` na VPS, com o destino chamado `backup`.
-2. Criar `/root/.backup-senha` e guardar o valor **no gerenciador de senhas**.
-3. Rodar `restaurar-delivery.sh --testar` de vez em quando.
+1. ~~Criar `/root/.backup-senha`~~ — **feito em 08/09/2026.** O `.env` agora
+   entra no backup cifrado (`ambiente.tar.gz.enc`). **Falta guardar o valor no
+   gerenciador de senhas** (`cat /root/.backup-senha`): enquanto ela existir só
+   dentro da VPS, o `.env` cifrado é inabrível justamente no cenário da seção B.
+2. ~~Cópia fora da VPS~~ — **paliativo em pé desde 08/09/2026**: a máquina do
+   Cristopher puxa a geração mais nova todo dia às 13:00. Ver a tabela na
+   seção B para o que isso cobre e o que não cobre.
+3. `rclone config` na VPS, com o destino chamado `backup` — **ainda pendente**,
+   e é o que tira a dependência de uma máquina de mesa ligada.
+4. Rodar `restaurar-delivery.sh --testar` de vez em quando.
 
-Sem o passo 1, a seção B deste documento não tem como ser executada.
+Sem o passo 1 concluído, a seção B restaura o banco mas devolve os segredos
+como lixo.

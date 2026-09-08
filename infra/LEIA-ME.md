@@ -113,6 +113,34 @@ ssh-keygen -t ed25519 -f ~/.ssh/puxar-backup -N ''
 42 4 * * * root rsync -az --delete-excluded -e "ssh -i /root/.ssh/puxar-backup"   root@<ip-producao>:/opt/backup-delivery/ /opt/copia-delivery/   && find /opt/copia-delivery -mindepth 1 -maxdepth 1 -type d -mtime +90 -exec rm -rf {} +
 ```
 
+### Opção A2 — a máquina de mesa puxa (o que está em pé hoje)
+
+Sem conta nova e sem credencial nova: a máquina do Cristopher usa a chave SSH
+que já tem e copia a geração mais nova para `C:\backup-delivery`.
+
+- Script: `infra/puxar-backup.ps1` (versionado aqui, executado de onde está).
+- Tarefa do Windows: **"Backup Delivery - puxar do VPS"**, todo dia às 13:00,
+  com `StartWhenAvailable` — se a máquina estava desligada na hora, ela recupera
+  na próxima vez que ligar.
+- Guarda **3 gerações** (~75 MB). Não 14 como na VPS: o disco daquela máquina
+  está com 95% de uso, e o script **se recusa a copiar** com menos de 1 GB
+  livre — encher o disco do sistema é pior que ficar sem a cópia do dia.
+- Copia para `nome.parcial` e só renomeia no fim: cópia interrompida não fica
+  com nome de geração boa, que é o backup que engana na hora do aperto.
+- Log em `C:\backup-delivery\puxar-backup.log`.
+
+Para rodar à mão, conferir ou desligar:
+
+```powershell
+Start-ScheduledTask -TaskName 'Backup Delivery - puxar do VPS'
+Get-ScheduledTaskInfo -TaskName 'Backup Delivery - puxar do VPS'
+Unregister-ScheduledTask -TaskName 'Backup Delivery - puxar do VPS'
+```
+
+**O que isto NÃO resolve:** máquina desligada por dias, e disco local que morre.
+Por isso a opção B continua sendo o alvo — ela não depende de ninguém ligar o
+computador.
+
 ### Opção B — bucket de objeto (R2, B2, S3)
 
 Mais barato (centavos por mês contra o preço de uma VPS) e sem máquina para
