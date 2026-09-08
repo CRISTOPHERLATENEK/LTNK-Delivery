@@ -1928,6 +1928,8 @@ router.get('/configuracoes-gerais', async (_req, res, next) => {
       suporte_email:    await valor('suporte_email'),
       suporte_telefone: await valor('suporte_telefone'),
       termos_url:       await valor('termos_url'),
+      politica_url:     await valor('politica_url'),
+      termos_versao:    await valor('termos_versao'),
       wbapi_server:      await valorCentral('wbapi_server'),
       wbapi_session_id:  await valorCentral('wbapi_session_id'),
       // A chave nunca é devolvida — só se está configurada ou não (mesmo padrão do token oficial da Meta).
@@ -1959,6 +1961,14 @@ router.put('/configuracoes-gerais', exigirSuperAdmin, async (req, res, next) => 
     }
     if (req.body.suporte_telefone !== undefined) {
       await upsert('suporte_telefone', textoLimpo(req.body.suporte_telefone, 30));
+    }
+    if (req.body.politica_url !== undefined) {
+      const v = textoLimpo(req.body.politica_url, 500);
+      if (v && !/^https?:\/\//i.test(v)) throw erroHttp(400, 'URL da política de privacidade inválida (use https://…).');
+      await upsert('politica_url', v);
+    }
+    if (req.body.termos_versao !== undefined) {
+      await upsert('termos_versao', textoLimpo(req.body.termos_versao, 40));
     }
     if (req.body.termos_url !== undefined) {
       const v = textoLimpo(req.body.termos_url, 500);

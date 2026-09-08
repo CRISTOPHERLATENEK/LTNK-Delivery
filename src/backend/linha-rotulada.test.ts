@@ -17,7 +17,30 @@ import path from 'path';
  * próprio.
  */
 
-const RAIZ = path.join(__dirname, '..', '..', 'frontend', 'src', 'pages', 'admin', 'marca');
+const ADMIN = path.join(__dirname, '..', '..', 'frontend', 'src', 'pages', 'admin');
+const RAIZ = path.join(ADMIN, 'marca');
+
+/**
+ * A moldura chapada não é privilégio da pasta `marca/`.
+ *
+ * `configuracoes.tsx` importa a mesma `Secao` de `marca/campos` e ficou com
+ * TODOS os campos colados na borda desde o dia em que a `Secao` perdeu o
+ * padding — e este teste não pegou, porque olhava a pasta em vez de olhar quem
+ * usa. Agora ele segue o import: qualquer tela do admin que puxe `Secao` ou
+ * `Quadro` de `marca/campos` entra na conferência.
+ */
+function telasQueUsamAMolduraChapada(): Array<{ nome: string; caminho: string }> {
+  const fora = fs.readdirSync(ADMIN)
+    .filter(f => f.endsWith('.tsx'))
+    .map(f => ({ nome: f, caminho: path.join(ADMIN, f) }))
+    .filter(({ caminho }) => /from '\.\/marca\/campos'/.test(fs.readFileSync(caminho, 'utf8')));
+
+  const dentro = fs.readdirSync(RAIZ)
+    .filter(f => f.endsWith('.tsx') && f !== 'campos.tsx')
+    .map(f => ({ nome: `marca/${f}`, caminho: path.join(RAIZ, f) }));
+
+  return [...dentro, ...fora];
+}
 
 /** Componentes que JÁ são linha rotulada (ou embrulham uma). */
 const LINHAS = /^<(Linha|CampoCor|ListaTextoEditavel|ListaIconeTituloDescEditavel)\b/;
@@ -54,34 +77,64 @@ function filhosCrus(fonte: string): string[] {
       // Só o primeiro nível: o que está mais fundo é problema de quem embrulha.
       if (indentacao(l) !== nivel + 2) continue;
       // Continuações, fechamentos e comentários não são filhos.
-      if (/^(<\/|\{\/\*|\*|\/\*|\)\}|\/>|>$|\}\))/.test(t)) continue;
+      if (/^(<\/|\{\/\*|\*|\/\*|\)\}|\/>|>$|\}\)|\) : \(|\))/.test(t)) continue;
       if (LINHAS.test(t)) continue;
-      // `{cond && (` abre um filho condicional: o que vem dentro é que conta,
-      // e no DOM ele entra como filho direto — `:first-child` acerta sozinho.
-      if (/^\{[\w.!== ]+ && \($/.test(t)) continue;
+
+      /*
+       * CONDICIONAL NÃO É FILHO — o filho é o que está DENTRO dele.
+       *
+       * `{cond && (` e `{cond ? (` não desenham nada: no DOM, quem entra como
+       * filho direto da moldura é o elemento de dentro. Este teste antes só
+       * pulava a linha do condicional, e com isso deixava de olhar o conteúdo —
+       * foi assim que um `<ul>` sem padding ficou colado na borda da moldura
+       * dos canais sem ninguém notar. Agora desce um nível de propósito.
+       */
+      if (/^\{.+ (&&|\?) \($/.test(t)) {
+        for (let d = k + 1; d < fim; d++) {
+          const ld = linhas[d];
+          const td = ld.trim();
+          if (!td) continue;
+          const indD = indentacao(ld);
+          if (indD <= nivel + 2) break;          // saiu do condicional
+          if (indD !== nivel + 4) continue;      // mais fundo é de quem embrulha
+          if (/^(<\/|\{\/\*|\*|\/\*|\)\}|\/>|>$|\}\)|\) : \(|\))/.test(td)) continue;
+          if (LINHAS.test(td)) continue;
+          crus.push(td.slice(0, 90));
+        }
+        continue;
+      }
       crus.push(`${t.slice(0, 90)}`);
     }
   }
   return crus;
 }
 
-/** Padding explícito: `p-3`, `px-3`, `pt-2.5`… */
-const TEM_PADDING = /\bp[xytblr]?-\d/;
+/**
+ * ESPAÇAMENTO PRÓPRIO: `p-3`, `px-3`, `pt-2.5`, e também `mx-3`/`mt-2.5` —
+ * margem afasta da borda igual, e exigir só padding reprovava bloco correto.
+ *
+ * O que NÃO conta é margem NEGATIVA: `-mt-1` e `-mt-2` eram compensação do gap
+ * que a moldura tinha antes de ficar chapada. Hoje elas puxam o conteúdo PARA
+ * FORA da borda — são o defeito, não a solução. Daí exigir início, espaço ou
+ * aspa antes da letra: em `"-mt-1 …"` o `m` vem depois de um `-` e não casa.
+ */
+const TEM_PADDING = /(?:^|[\s"'{])[pm][xytblr]?-\d/;
 
 describe('moldura de linhas rotuladas', () => {
-  const arquivos = fs.readdirSync(RAIZ)
-    .filter(f => f.endsWith('.tsx') && f !== 'campos.tsx');
+  const telas = telasQueUsamAMolduraChapada();
 
-  it('há telas para conferir', () => {
+  it('há telas para conferir, e a lista inclui quem importa a moldura', () => {
     // Sem isso, o teste abaixo passa lendo uma pasta vazia.
-    expect(arquivos.length).toBeGreaterThanOrEqual(2);
-    expect(arquivos).toContain('index.tsx');
-    expect(arquivos).toContain('landing.tsx');
+    const nomes = telas.map(t => t.nome);
+    expect(nomes).toContain('marca/index.tsx');
+    expect(nomes).toContain('marca/landing.tsx');
+    // A tela que o teste antigo não olhava.
+    expect(nomes).toContain('configuracoes.tsx');
   });
 
-  for (const arq of arquivos) {
-    it(`${arq}: filho direto de moldura é linha rotulada ou tem padding`, () => {
-      const fonte = fs.readFileSync(path.join(RAIZ, arq), 'utf8');
+  for (const { nome, caminho } of telas) {
+    it(`${nome}: filho direto de moldura é linha rotulada ou tem padding`, () => {
+      const fonte = fs.readFileSync(caminho, 'utf8');
       const semPadding = filhosCrus(fonte).filter(t => !TEM_PADDING.test(t));
       expect(semPadding).toEqual([]);
     });

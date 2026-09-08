@@ -138,6 +138,7 @@ router.get('/tema', async (req, res, next) => {
       suporte_email:     await valor('suporte_email'),
       suporte_telefone:  await valor('suporte_telefone'),
       termos_url:        await valor('termos_url'),
+      politica_url:      await valor('politica_url'),
     });
   } catch (e) { next(e); }
 });

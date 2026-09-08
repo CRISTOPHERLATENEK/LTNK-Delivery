@@ -235,6 +235,8 @@ export interface TemaMarca {
   suporte_email?: string;
   suporte_telefone?: string;
   termos_url?: string;
+  /** Política de privacidade — documento separado dos termos (LGPD, art. 9º). */
+  politica_url?: string;
   /** Comparativo "sem/com a plataforma" na landing. */
   landing_comparativo_sem?: string[] | null;
   landing_comparativo_com?: string[] | null;

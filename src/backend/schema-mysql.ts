@@ -56,6 +56,22 @@ const TABELAS: string[] = [
   totp_secret        TEXT,
   totp_ativo         TINYINT NOT NULL DEFAULT 0,
   totp_backup_codes  TEXT,
+  /*
+   * ACEITE DOS TERMOS: quando, e de QUAL versão.
+   *
+   * Só a data não prova nada — se os termos mudarem, ninguém consegue dizer o
+   * que a pessoa aceitou. A versão vem da configuração termos_versao, que o
+   * admin muda quando publica documento novo.
+   *
+   * (Sem acento grave nesta linha de propósito: o schema mora dentro de um
+   * template literal, e um acento grave aqui fecharia a string.)
+   *
+   * NULO nas contas que já existiam: elas se cadastraram antes de haver
+   * qualquer termo, e preencher com a data de hoje seria inventar um aceite que
+   * não aconteceu.
+   */
+  termos_aceitos_em  VARCHAR(32),
+  termos_versao      VARCHAR(40),
   cpf_unico      VARCHAR(11)  GENERATED ALWAYS AS (NULLIF(cpf, '')) VIRTUAL,
   telefone_unico VARCHAR(20)  GENERATED ALWAYS AS (NULLIF(telefone, '')) VIRTUAL,
   UNIQUE KEY idx_usuarios_cpf (cpf_unico),
@@ -892,6 +908,18 @@ const CONFIGS_PADRAO: Array<[string, string]> = [
   ['suporte_email', ''],
   ['suporte_telefone', ''],
   ['termos_url', ''],
+  /*
+   * POLÍTICA DE PRIVACIDADE, separada dos termos.
+   *
+   * São dois documentos e dois assuntos: termos é o contrato de uso, política é
+   * o que a LGPD pede — quais dados, para quê, por quanto tempo, e como a
+   * pessoa exerce os direitos dela. Um link só, chamado "termos", não cumpre o
+   * dever de informar do art. 9º.
+   */
+  ['politica_url', ''],
+  /* Versão publicada dos documentos (ex.: '2026-09-08'). Vai gravada junto com
+     o aceite de cada pessoa. */
+  ['termos_versao', ''],
   // 0 = a plataforma NÃO cobra comissão por pedido (modelo só-mensalidade, o
   // que a landing anuncia). O motor de comissão continua existindo pra quem
   // quiser cobrar: basta o admin definir um percentual global ou por loja.

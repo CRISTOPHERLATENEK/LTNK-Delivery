@@ -84,6 +84,27 @@ const limite2fa = rateLimit({
 
 const PERFIS_PUBLICOS: Perfil[] = ['cliente', 'entregador'];
 
+/**
+ * A VERSÃO DOS DOCUMENTOS VIGENTE AGORA.
+ *
+ * Gravada junto com o aceite de cada pessoa. Sem ela, o registro diz "aceitou
+ * em tal data" e não diz o QUE aceitou — e é justamente isso que se pergunta
+ * quando os termos mudam.
+ *
+ * Vazio quando o admin ainda não publicou versão: aí o registro prova só a
+ * data, o que é melhor que nada e melhor que inventar uma versão.
+ */
+async function versaoDosTermos(): Promise<string> {
+  try {
+    const row = await db.prepare(
+      "SELECT valor FROM configuracoes WHERE chave = 'termos_versao'"
+    ).get() as { valor: string | null } | undefined;
+    return row?.valor || '';
+  } catch {
+    return '';
+  }
+}
+
 router.post('/registrar', limiteRegistro, async (req, res, next) => {
   try {
     const nome = textoLimpo(req.body.nome, 120);
@@ -136,9 +157,19 @@ router.post('/registrar', limiteRegistro, async (req, res, next) => {
     const lojaId = (ehCliente && req.body.loja_id) ? Number(req.body.loja_id) : null;
     const cpfFinal = ehCliente ? cpf : null;
     const info = await db.prepare(
-      `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, cpf, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(nome, emailFinal, senhaHash, perfil, telefone, lojaId, cpfFinal, agoraUTC());
+      `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, cpf, criado_em,
+                             termos_aceitos_em, termos_versao)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      /*
+       * O ACEITE É GRAVADO NO CADASTRO, não num passo separado.
+       *
+       * A tela diz, acima do botão, que criar a conta aceita os termos e a
+       * política — e é isso que fica registrado, com data e versão. Uma
+       * caixinha obrigatória a mais não prova mais nada e derruba cadastro;
+       * o que prova é o registro do que estava publicado no momento.
+       */
+    ).run(nome, emailFinal, senhaHash, perfil, telefone, lojaId, cpfFinal, agoraUTC(),
+          agoraUTC(), await versaoDosTermos());
 
     const novoId = Number(info.lastInsertRowid);
     const usuario = { id: novoId, nome, email: emailFinal, perfil, telefone, cpf: cpfFinal };
@@ -607,9 +638,13 @@ router.get('/oauth/:provedor/callback', async (req, res, next) => {
          */
         const inutilizavel = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
         const info = await db.prepare(
-          `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, criado_em, loja_id, oauth_provedor, oauth_sub)
-           VALUES (?, ?, ?, 'cliente', '', ?, ?, ?, ?)`
-        ).run(nomeUsavel(perfil), perfil.email, inutilizavel, agoraUTC(), estado.lojaId, provedor, perfil.sub);
+          `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, criado_em, loja_id, oauth_provedor, oauth_sub,
+                                 termos_aceitos_em, termos_versao)
+           VALUES (?, ?, ?, 'cliente', '', ?, ?, ?, ?, ?, ?)`
+          /* Entrar com o Google TAMBÉM cria conta, então registra igual. Sem
+             isto, metade dos clientes ficaria sem aceite nenhum. */
+        ).run(nomeUsavel(perfil), perfil.email, inutilizavel, agoraUTC(), estado.lojaId, provedor, perfil.sub,
+              agoraUTC(), await versaoDosTermos());
         usuarioId = Number(info.lastInsertRowid);
       } else {
         usuarioId = decisao.usuarioId;

@@ -11,11 +11,13 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError, tokenSessao } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { Secao } from './marca/campos';
+import { Secao, Quadro, Linha } from './marca/campos';
 interface ConfiguracoesGerais {
   suporte_email: string;
   suporte_telefone: string;
   termos_url: string;
+  politica_url: string;
+  termos_versao: string;
   wbapi_server: string;
   wbapi_session_id: string;
   wbapi_configurado: boolean;
@@ -35,7 +37,7 @@ function SecaoConfiguracoesGerais() {
     queryFn: () => api<ConfiguracoesGerais>('GET', '/api/admin/configuracoes-gerais'),
   });
   const [form, setForm] = useState<ConfiguracoesGerais>({
-    suporte_email: '', suporte_telefone: '', termos_url: '', wbapi_server: '', wbapi_session_id: '', wbapi_configurado: false,
+    suporte_email: '', suporte_telefone: '', termos_url: '', politica_url: '', termos_versao: '', wbapi_server: '', wbapi_session_id: '', wbapi_configurado: false,
     mercadopago_modo: 'producao', mercadopago_token_teste_mascarado: null, mercadopago_token_producao_mascarado: null,
   });
   const [wbapiApiKey, setWbapiApiKey] = useState(''); // write-only: nunca vem preenchido do servidor
@@ -53,6 +55,8 @@ function SecaoConfiguracoesGerais() {
         suporte_email: form.suporte_email,
         suporte_telefone: form.suporte_telefone,
         termos_url: form.termos_url,
+        politica_url: form.politica_url,
+        termos_versao: form.termos_versao,
         wbapi_server: form.wbapi_server,
         wbapi_session_id: form.wbapi_session_id,
         ...(wbapiApiKey.trim() ? { wbapi_api_key: wbapiApiKey.trim() } : {}),
@@ -76,68 +80,109 @@ function SecaoConfiguracoesGerais() {
     <div className="max-w-2xl space-y-4">
     <form onSubmit={salvar}>
       <Secao icone={LifeBuoy} titulo="Suporte e termos de uso">
-        <div>
-          <Label htmlFor="suporte_email">E-mail de suporte</Label>
-          <Input id="suporte_email" type="email" maxLength={200} value={form.suporte_email}
-            onChange={e => setForm(f => ({ ...f, suporte_email: e.target.value }))}
-            placeholder="suporte@suaempresa.com.br" />
-        </div>
-        <div>
-          <Label htmlFor="suporte_telefone">Telefone/WhatsApp de suporte</Label>
-          <Input id="suporte_telefone" maxLength={30} value={form.suporte_telefone}
-            onChange={e => setForm(f => ({ ...f, suporte_telefone: e.target.value }))}
-            placeholder="(11) 99999-9999" />
-        </div>
-        <div>
-          <Label htmlFor="termos_url">Link dos termos de uso</Label>
-          <Input id="termos_url" maxLength={500} value={form.termos_url}
-            onChange={e => setForm(f => ({ ...f, termos_url: e.target.value }))}
-            placeholder="https://…" />
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Vazio = a plataforma não exibe link de termos de uso.
-          </p>
-        </div>
+          <Linha rotulo="E-mail de suporte">
+            <input
+              id="suporte_email" type="email" maxLength={200} value={form.suporte_email}
+              onChange={e => setForm(f => ({ ...f, suporte_email: e.target.value }))}
+              placeholder="suporte@suaempresa.com.br"
+              className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
+          <Linha rotulo="Telefone de suporte" apoio="Também usado no WhatsApp">
+            <input
+              id="suporte_telefone" maxLength={30} value={form.suporte_telefone}
+              onChange={e => setForm(f => ({ ...f, suporte_telefone: e.target.value }))}
+              placeholder="(11) 99999-9999"
+              className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
+          <Linha rotulo="Termos de uso" apoio="Vazio = a plataforma não exibe o link">
+            <input
+              id="termos_url" maxLength={500} value={form.termos_url}
+              onChange={e => setForm(f => ({ ...f, termos_url: e.target.value }))}
+              placeholder="https://…"
+              className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
+          {/*
+            POLÍTICA SEPARADA DOS TERMOS porque são dois assuntos: termos é o
+            contrato de uso, política é o que a LGPD pede — quais dados, para
+            quê, por quanto tempo, e como a pessoa exerce os direitos dela. Um
+            link só, chamado "termos", não cumpre o dever de informar.
+          */}
+          <Linha rotulo="Política de privacidade" apoio="Vazio = a plataforma não exibe o link">
+            <input
+              id="politica_url" maxLength={500} value={form.politica_url}
+              onChange={e => setForm(f => ({ ...f, politica_url: e.target.value }))}
+              placeholder="https://…"
+              className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
+          {/*
+            A VERSÃO VAI GRAVADA NO ACEITE de cada pessoa. Sem ela, o registro
+            diz "aceitou em tal data" e não diz O QUE aceitou — que é
+            exatamente o que se pergunta quando os documentos mudam.
+          */}
+          <Linha rotulo="Versão publicada" apoio="Mude ao publicar documento novo · fica gravada em cada aceite">
+            <input
+              id="termos_versao" maxLength={40} value={form.termos_versao}
+              onChange={e => setForm(f => ({ ...f, termos_versao: e.target.value }))}
+              placeholder="2026-09-08"
+              className="adm-num h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
       </Secao>
 
       <Secao icone={MessageCircle} titulo="WhatsApp não-oficial (WBAPI)">
-        <p className="text-xs text-muted-foreground -mt-2">
+        <p className="px-3 pt-2.5 text-[11.5px] leading-snug text-muted-foreground">
           Uma sessão única de WhatsApp, compartilhada por toda a plataforma (o plano contratado não permite
           criar uma sessão por loja) — as lojas com esse método liberado usam esse mesmo número pra confirmar
           pedidos. Sem isso configurado, só o método oficial (Meta) fica disponível.
         </p>
-        <div>
-          <Label htmlFor="wbapi_server">URL do servidor WBAPI</Label>
-          <Input id="wbapi_server" maxLength={300} value={form.wbapi_server}
-            onChange={e => setForm(f => ({ ...f, wbapi_server: e.target.value }))}
-            placeholder="https://api.deeliv.app" />
-        </div>
-        <div>
-          <Label htmlFor="wbapi_session_id">Session ID</Label>
-          <Input id="wbapi_session_id" maxLength={100} value={form.wbapi_session_id}
-            onChange={e => setForm(f => ({ ...f, wbapi_session_id: e.target.value }))}
-            placeholder="ID da sessão fornecido pelo provedor" className="font-mono" />
-        </div>
-        <div>
-          <Label htmlFor="wbapi_api_key">X-Api-Key</Label>
-          <Input id="wbapi_api_key" type="password" maxLength={300} value={wbapiApiKey}
-            onChange={e => setWbapiApiKey(e.target.value)}
-            placeholder={form.wbapi_configurado ? '•••••••••••••• (preenchido — deixe em branco pra manter)' : 'Cole a chave aqui'} />
-          {form.wbapi_configurado && (
-            <p className="mt-1 flex items-center gap-1 text-[11px] text-success">
-              <CheckCircle2 className="size-3" /> Uma chave já está configurada.
-            </p>
-          )}
-        </div>
+          <Linha rotulo="URL do servidor">
+            <input
+              id="wbapi_server" maxLength={300} value={form.wbapi_server}
+              onChange={e => setForm(f => ({ ...f, wbapi_server: e.target.value }))}
+              placeholder="https://api.deeliv.app"
+              className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
+          <Linha rotulo="Session ID">
+            <input
+              id="wbapi_session_id" maxLength={100} value={form.wbapi_session_id}
+              onChange={e => setForm(f => ({ ...f, wbapi_session_id: e.target.value }))}
+              placeholder="ID da sessão fornecido pelo provedor"
+              className="adm-num h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
+          {/* O "já configurada" vai no APOIO, e não numa linha verde embaixo do
+              campo: é o estado do campo, e estado pertence ao rótulo. */}
+          <Linha rotulo="X-Api-Key" apoio={form.wbapi_configurado ? 'Uma chave já está configurada · em branco mantém' : undefined}>
+            <input
+              id="wbapi_api_key" type="password" maxLength={300} value={wbapiApiKey}
+              onChange={e => setWbapiApiKey(e.target.value)}
+              placeholder={form.wbapi_configurado ? '•••••••••••••• (deixe em branco pra manter)' : 'Cole a chave aqui'}
+              className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
       </Secao>
 
       <Secao icone={CreditCard} titulo="Mercado Pago (token da plataforma)">
-        <p className="text-xs text-muted-foreground -mt-2">
+        <p className="px-3 pt-2.5 text-[11.5px] leading-snug text-muted-foreground">
           Token usado como fallback do Pix pras lojas que não configuraram o próprio token. Guarde um token de
           teste (sandbox) e um de produção lado a lado, e escolha qual dos dois vale agora — dá pra testar o
           checkout sem risco de gerar cobrança real, e trocar pra produção só apertando o botão abaixo.
         </p>
 
-        <div className="flex overflow-hidden rounded-lg border">
+        <div className="mx-3 mt-2.5 flex overflow-hidden rounded-lg border">
           <button type="button"
             onClick={() => setForm(f => ({ ...f, mercadopago_modo: 'teste' }))}
             className={cn(
@@ -155,34 +200,40 @@ function SecaoConfiguracoesGerais() {
             <Rocket className="size-4" /> Produção
           </button>
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="px-3 pb-1 pt-1.5 text-[11.5px] leading-snug text-muted-foreground">
           {form.mercadopago_modo === 'teste'
             ? 'Ativo agora: token de TESTE — nenhum Pix gerado nessas lojas move dinheiro de verdade.'
             : 'Ativo agora: token de PRODUÇÃO — Pix gerado nessas lojas é uma cobrança real.'}
         </p>
 
-        <div>
-          <Label htmlFor="mp_token_teste">Access Token de teste (TEST-…)</Label>
-          <Input id="mp_token_teste" type="password" maxLength={300} value={tokenTeste}
-            onChange={e => setTokenTeste(e.target.value)}
-            placeholder={form.mercadopago_token_teste_mascarado || 'Cole o token TEST-… aqui'} className="font-mono" />
-          {form.mercadopago_token_teste_mascarado && (
-            <p className="mt-1 flex items-center gap-1 text-[11px] text-success">
-              <CheckCircle2 className="size-3" /> Configurado: {form.mercadopago_token_teste_mascarado}
-            </p>
-          )}
-        </div>
-        <div>
-          <Label htmlFor="mp_token_producao">Access Token de produção (APP_USR-…)</Label>
-          <Input id="mp_token_producao" type="password" maxLength={300} value={tokenProducao}
-            onChange={e => setTokenProducao(e.target.value)}
-            placeholder={form.mercadopago_token_producao_mascarado || 'Cole o token APP_USR-… aqui'} className="font-mono" />
-          {form.mercadopago_token_producao_mascarado && (
-            <p className="mt-1 flex items-center gap-1 text-[11px] text-success">
-              <CheckCircle2 className="size-3" /> Configurado: {form.mercadopago_token_producao_mascarado}
-            </p>
-          )}
-        </div>
+          <Linha
+            rotulo="Token de teste"
+            apoio={form.mercadopago_token_teste_mascarado
+              ? `Configurado: ${form.mercadopago_token_teste_mascarado}`
+              : 'Começa com TEST-'}
+          >
+            <input
+              id="mp_token_teste" type="password" maxLength={300} value={tokenTeste}
+              onChange={e => setTokenTeste(e.target.value)}
+              placeholder={form.mercadopago_token_teste_mascarado || 'Cole o token TEST-… aqui'}
+              className="adm-num h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
+          <Linha
+            rotulo="Token de produção"
+            apoio={form.mercadopago_token_producao_mascarado
+              ? `Configurado: ${form.mercadopago_token_producao_mascarado}`
+              : 'Começa com APP_USR- · cobrança real'}
+          >
+            <input
+              id="mp_token_producao" type="password" maxLength={300} value={tokenProducao}
+              onChange={e => setTokenProducao(e.target.value)}
+              placeholder={form.mercadopago_token_producao_mascarado || 'Cole o token APP_USR-… aqui'}
+              className="adm-num h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
       </Secao>
 
       <Button type="submit" disabled={enviando}>
@@ -460,14 +511,14 @@ function SecaoCanais() {
     <>
       {(consulta.data ?? []).map(c => (
         <Secao key={c.canal} titulo={`Canal ${c.rotulo}`}>
-          <p className="-mt-1 text-[12px] leading-relaxed text-muted-foreground">
+          <p className="px-3 pt-2.5 text-[12px] leading-relaxed text-muted-foreground">
             {c.descricao} · <b className="text-foreground">{c.lojas}</b>{' '}
             {c.lojas === 1 ? 'loja' : 'lojas'} neste canal.
           </p>
 
           {/* O QUE ESTE CANAL ENTREGA a mais que o anterior. */}
           {c.funcionalidades.length > 0 ? (
-            <ul className="space-y-1.5">
+            <ul className="space-y-1.5 px-3 py-2.5">
               {c.funcionalidades.map(f => (
                 <li key={f.chave} className="text-[12.5px] leading-relaxed">
                   <span className="font-medium">{f.titulo}</span>
@@ -487,15 +538,14 @@ function SecaoCanais() {
               ))}
             </ul>
           ) : (
-            <p className="text-[12.5px] text-muted-foreground">
+            <p className="px-3 py-2.5 text-[12.5px] text-muted-foreground">
               {c.canal === 'estavel'
                 ? 'Tudo que já foi promovido. Nada exclusivo deste canal.'
                 : 'Nenhuma funcionalidade exclusiva deste canal no momento.'}
             </p>
           )}
 
-          <div>
-            <Label htmlFor={`nota-${c.canal}`}>Nota para quem está neste canal</Label>
+          <Linha rotulo="Nota do canal" apoio="Aparece para os lojistas deste canal" empilhado>
             <textarea
               id={`nota-${c.canal}`}
               value={texto(c)}
@@ -514,7 +564,7 @@ function SecaoCanais() {
               </Button>
               {sujo(c) && <span className="text-[11.5px] text-muted-foreground">não salvo</span>}
             </div>
-          </div>
+            </Linha>
         </Secao>
       ))}
     </>

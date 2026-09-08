@@ -602,12 +602,42 @@ function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
 
       <div className="flex items-center gap-2.5 rounded-xl bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
         <ShieldCheck className="size-4 shrink-0 text-primary" />
-        Seus dados estão protegidos e nunca serão compartilhados.
+        {/*
+          A FRASE ANTERIOR ERA FALSA: "seus dados nunca serão compartilhados".
+          Eles são — com a loja que recebe o pedido (nome, telefone, endereço),
+          com o gateway no pagamento e com o emissor na nota fiscal, quando há
+          CPF. É assim que um pedido é entregue. Prometer o contrário na tela de
+          cadastro é a promessa que aparece impressa quando alguém reclama.
+          O que se pode dizer com verdade é PARA QUE servem e QUEM vê.
+        */}
+        <span>
+          A loja que receber seu pedido vê seu nome, telefone e endereço — é o que
+          permite entregar. Seus dados não são vendidos.
+        </span>
       </div>
 
       <Button type="submit" size="lg" variant="outline" className="w-full" disabled={enviando}>
         {enviando ? 'Criando…' : <><UserPlus className="size-4" /> Cadastrar</>}
       </Button>
+
+      {/*
+        O AVISO DE ACEITE FICA JUNTO DO BOTÃO, e é o que o servidor grava
+        (data + versão dos documentos). Sem os links publicados no painel, a
+        frase não aparece — dizer "você aceita os termos" sem ter termos para ler
+        é pior que não dizer nada.
+      */}
+      {(marca.termos_url || marca.politica_url) && (
+        <p className="text-center text-[11.5px] leading-snug text-muted-foreground">
+          Ao criar a conta, você aceita
+          {marca.termos_url && (
+            <> os <a href={marca.termos_url} target="_blank" rel="noreferrer" className="underline">Termos de uso</a></>
+          )}
+          {marca.termos_url && marca.politica_url && ' e'}
+          {marca.politica_url && (
+            <> a <a href={marca.politica_url} target="_blank" rel="noreferrer" className="underline">Política de privacidade</a></>
+          )}.
+        </p>
+      )}
     </form>
   );
 }

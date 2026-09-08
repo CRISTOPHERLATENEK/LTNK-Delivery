@@ -1311,6 +1311,7 @@ export function PaginaLanding() {
               <li><a href="#duvidas" className="text-neutral-400 hover:text-white">Dúvidas</a></li>
               <li><Link to="/lojista" className="text-neutral-400 hover:text-white">Sou lojista</Link></li>
               {marca.termos_url && <li><a href={marca.termos_url} target="_blank" rel="noreferrer" className="text-neutral-400 hover:text-white">Termos de uso</a></li>}
+              {marca.politica_url && <li><a href={marca.politica_url} target="_blank" rel="noreferrer" className="text-neutral-400 hover:text-white">Política de privacidade</a></li>}
             </ul>
           </div>
           <div>
