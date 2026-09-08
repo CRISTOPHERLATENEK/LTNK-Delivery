@@ -91,22 +91,22 @@ ssh vps-delivery 'certbot renew --nginx && systemctl reload nginx'
 ## B. A máquina sumiu
 
 **Leia isto antes de tudo:** este caminho só funciona se existir **cópia do
-backup fora da VPS**. Hoje existe **uma**, e é preciso saber o que ela cobre:
+backup fora da VPS**, e **hoje não existe nenhuma.**
 
-| Onde | O que tem | Vale para |
-|---|---|---|
-| `C:\backup-delivery` na máquina do Cristopher | as **3 gerações mais novas**, puxadas todo dia às 13:00 pela tarefa "Backup Delivery - puxar do VPS" (`infra/puxar-backup.ps1`) | VPS perdida — é o que salva |
-| `rclone` para nuvem | **não configurado** | nada ainda; o log diz `copia externa nao configurada` todo dia |
+| Onde | Estado |
+|---|---|
+| `rclone` para nuvem (R2, B2, S3) | **não configurado** — o log diz `copia externa nao configurada` todo dia |
+| cópia na máquina de mesa (`infra/puxar-backup.ps1`) | **desligada por decisão** em 08/09/2026 — o backup fica só no servidor |
 
-A cópia local resolve o caso "a VPS morreu", mas tem dois limites que a nuvem
-não tem: depende **daquela máquina estar ligada** às 13:00 (a tarefa recupera o
-dia perdido na próxima vez que ligar, mas nunca dispara se a máquina ficar dias
-desligada), e **um disco local morre também** — e o disco dessa máquina está com
-95% de uso. Ela é a primeira linha por enquanto, não a resposta final.
+Enquanto isso valer, **a máquina perdida leva o backup junto**: os 384 MB de
+dumps moram no mesmo disco da aplicação. Não há o que restaurar — nem banco,
+nem uploads, nem certificados, nem o `.env`.
 
-Se você está lendo isto no meio de um incidente, comece por
-`C:\backup-delivery` na máquina. Se lá também não houver nada, pule para
-"Se não havia cópia externa".
+Se você está lendo isto no meio de um incidente e nunca configurou nada, pule
+para "Se não havia cópia externa". E se o servidor ainda estiver de pé mas
+ameaçado, a primeira coisa a fazer é tirar uma cópia de `/opt/backup-delivery`
+para qualquer lugar fora dele — `infra/puxar-backup.ps1` faz isso numa
+execução, sem depender de conta de nuvem.
 
 ### O que você precisa ter em mãos
 
@@ -232,11 +232,12 @@ esse motivo que a cópia externa é o item mais importante desta pasta.
    entra no backup cifrado (`ambiente.tar.gz.enc`). **Falta guardar o valor no
    gerenciador de senhas** (`cat /root/.backup-senha`): enquanto ela existir só
    dentro da VPS, o `.env` cifrado é inabrível justamente no cenário da seção B.
-2. ~~Cópia fora da VPS~~ — **paliativo em pé desde 08/09/2026**: a máquina do
-   Cristopher puxa a geração mais nova todo dia às 13:00. Ver a tabela na
-   seção B para o que isso cobre e o que não cobre.
-3. `rclone config` na VPS, com o destino chamado `backup` — **ainda pendente**,
-   e é o que tira a dependência de uma máquina de mesa ligada.
+2. **Cópia fora da VPS: não existe.** O paliativo da máquina de mesa foi
+   montado e **desligado no mesmo dia, por decisão** — a opção é backup só
+   online. O script segue em `infra/puxar-backup.ps1` para o dia em que
+   precisar, e religar é uma linha (ver LEIA-ME, opção A2).
+3. `rclone config` na VPS, com o destino chamado `backup` — **é o item que
+   falta**, e o único que resolve a seção B deste documento.
 4. Rodar `restaurar-delivery.sh --testar` de vez em quando.
 
 Sem o passo 1 concluído, a seção B restaura o banco mas devolve os segredos

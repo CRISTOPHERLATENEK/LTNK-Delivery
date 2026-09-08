@@ -113,15 +113,20 @@ ssh-keygen -t ed25519 -f ~/.ssh/puxar-backup -N ''
 42 4 * * * root rsync -az --delete-excluded -e "ssh -i /root/.ssh/puxar-backup"   root@<ip-producao>:/opt/backup-delivery/ /opt/copia-delivery/   && find /opt/copia-delivery -mindepth 1 -maxdepth 1 -type d -mtime +90 -exec rm -rf {} +
 ```
 
-### Opção A2 — a máquina de mesa puxa (o que está em pé hoje)
+### Opção A2 — a máquina de mesa puxa (montada, DESLIGADA por decisão)
 
-Sem conta nova e sem credencial nova: a máquina do Cristopher usa a chave SSH
-que já tem e copia a geração mais nova para `C:\backup-delivery`.
+Existe e funciona, mas **não está rodando**: a opção foi backup só online. A
+tarefa do Windows foi removida e `C:\backup-delivery` apagado em 08/09/2026.
+O que está escrito aqui é a receita para religar quando quiser.
+
+Sem conta nova e sem credencial nova: a máquina usa a chave SSH que já tem e
+copia a geração mais nova para `C:\backup-delivery`.
 
 - Script: `infra/puxar-backup.ps1` (versionado aqui, executado de onde está).
-- Tarefa do Windows: **"Backup Delivery - puxar do VPS"**, todo dia às 13:00,
-  com `StartWhenAvailable` — se a máquina estava desligada na hora, ela recupera
-  na próxima vez que ligar.
+- Tarefa do Windows quando agendada: **"Backup Delivery - puxar do VPS"**, todo
+  dia às 13:00 e não de madrugada, porque a máquina não fica ligada à noite e
+  tarefa que nunca dispara é o mesmo que não existir. Com `StartWhenAvailable`,
+  o dia em que ela estava desligada é recuperado na próxima vez que ligar.
 - Guarda **3 gerações** (~75 MB). Não 14 como na VPS: o disco daquela máquina
   está com 95% de uso, e o script **se recusa a copiar** com menos de 1 GB
   livre — encher o disco do sistema é pior que ficar sem a cópia do dia.
@@ -129,12 +134,20 @@ que já tem e copia a geração mais nova para `C:\backup-delivery`.
   com nome de geração boa, que é o backup que engana na hora do aperto.
 - Log em `C:\backup-delivery\puxar-backup.log`.
 
-Para rodar à mão, conferir ou desligar:
+Uma execução avulsa, sem agendar nada — serve para tirar uma cópia às pressas
+se o servidor estiver ameaçado:
 
 ```powershell
-Start-ScheduledTask -TaskName 'Backup Delivery - puxar do VPS'
-Get-ScheduledTaskInfo -TaskName 'Backup Delivery - puxar do VPS'
-Unregister-ScheduledTask -TaskName 'Backup Delivery - puxar do VPS'
+& infra\puxar-backup.ps1
+```
+
+Para voltar a agendar (é o bloco que foi removido):
+
+```powershell
+$acao = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -ExecutionPolicy Bypass -File "<caminho>\infra\puxar-backup.ps1"'
+Register-ScheduledTask -TaskName 'Backup Delivery - puxar do VPS' -Action $acao `
+  -Trigger (New-ScheduledTaskTrigger -Daily -At 13:00) `
+  -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable) -Force
 ```
 
 **O que isto NÃO resolve:** máquina desligada por dias, e disco local que morre.
