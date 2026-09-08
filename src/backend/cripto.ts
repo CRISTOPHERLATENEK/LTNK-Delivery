@@ -59,28 +59,46 @@ function derivar(salt: Buffer, segredo: string): Buffer {
   return crypto.scryptSync(segredo, salt, 32);
 }
 
-export function criptografar(texto: string): string {
+/**
+ * CIFRA COM UMA CHAVE DADA — não com a do ambiente.
+ *
+ * Existe para a rotação de chave: recifrar exige ler com a chave VELHA e
+ * gravar com a NOVA, no mesmo processo, e `SEGREDO` é resolvido uma vez na
+ * carga do módulo. Sem isto, o script de rotação teria que reimplementar o
+ * formato — e formato de cifra duplicado é como se perde dado dois anos
+ * depois, quando um dos dois lados muda.
+ */
+export function cifrarCom(texto: string, segredo: string): string {
   const salt = crypto.randomBytes(16);
   const iv = crypto.randomBytes(12);
-  const chave = derivar(salt, SEGREDO);
+  const chave = derivar(salt, segredo);
   const cipher = crypto.createCipheriv('aes-256-gcm', chave, iv);
   const enc = Buffer.concat([cipher.update(texto, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
   return Buffer.concat([salt, iv, tag, enc]).toString('base64');
 }
 
-export function descriptografar(guardado: string): string {
+/** Decifra com UMA chave só. Lança se não for essa a chave. */
+export function decifrarCom(guardado: string, segredo: string): string {
   const buf = Buffer.from(guardado, 'base64');
   const salt = buf.subarray(0, 16);
   const iv = buf.subarray(16, 28);
   const tag = buf.subarray(28, 44);
   const enc = buf.subarray(44);
+  const decipher = crypto.createDecipheriv('aes-256-gcm', derivar(salt, segredo), iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+}
+
+export function criptografar(texto: string): string {
+  return cifrarCom(texto, SEGREDO);
+}
+
+export function descriptografar(guardado: string): string {
   let ultimoErro: unknown;
   for (const segredo of segredosCandidatos()) {
     try {
-      const decipher = crypto.createDecipheriv('aes-256-gcm', derivar(salt, segredo), iv);
-      decipher.setAuthTag(tag);
-      return Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+      return decifrarCom(guardado, segredo);
     } catch (e) { ultimoErro = e; /* tenta o próximo segredo */ }
   }
   throw ultimoErro instanceof Error ? ultimoErro : new Error('Falha ao descriptografar o segredo.');
