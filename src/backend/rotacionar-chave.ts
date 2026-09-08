@@ -41,7 +41,7 @@
 /* Roda como CLI, fora do servidor: carrega o .env por conta própria — senão
    não acha as credenciais do banco e falha com erro de conexão. */
 import 'dotenv/config';
-import db, { comTenant } from './db-mysql';
+import db, { comTenant, BANCO_PADRAO } from './db-mysql';
 import { listarTenants } from './tenants-mysql';
 import { cifrarCom, decifrarCom } from './cripto';
 import {
@@ -179,9 +179,17 @@ async function principal(): Promise<void> {
 
   const todas: Linha[] = [];
 
+  /*
+   * O BANCO CENTRAL TAMBÉM PRECISA DE CONTEXTO EXPLÍCITO. Fora de requisição
+   * o wrapper se recusa a rodar query sem `comTenant` — de propósito, para não
+   * existir query que cai num banco por acaso. Descobri rodando o ensaio de
+   * verdade contra produção: o script morria na primeira linha do central.
+   */
   console.log('→ banco central');
-  todas.push(...await varrerConfiguracoes(velho, novo, 'central'));
-  todas.push(...await varrerColunas(colunasCentral(), velho, novo, 'central'));
+  await comTenant(BANCO_PADRAO, async () => {
+    todas.push(...await varrerConfiguracoes(velho, novo, 'central'));
+    todas.push(...await varrerColunas(colunasCentral(), velho, novo, 'central'));
+  });
 
   const tenants = await listarTenants() as Array<{ db_nome: string; slug: string }>;
   for (const t of tenants) {
@@ -226,10 +234,10 @@ async function principal(): Promise<void> {
    */
   console.log('');
   console.log('→ gravando (central)');
-  const nCentral = await gravar(
+  const nCentral = await comTenant(BANCO_PADRAO, () => gravar(
     todas.filter(l => l.onde.startsWith('central.')),
     [...colunasCentral()],
-  );
+  ));
   console.log(`   ${nCentral} gravado(s)`);
 
   for (const t of tenants) {
