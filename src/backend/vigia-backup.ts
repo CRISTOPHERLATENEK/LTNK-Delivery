@@ -17,6 +17,7 @@
 import fs from 'fs';
 import path from 'path';
 import { enviarEmail, emailHabilitado } from './email';
+import { destinatarioDeAlerta } from './alerta-destino';
 
 const PASTA_BACKUP = process.env.BACKUP_DIR || '/opt/backup-delivery';
 
@@ -90,8 +91,15 @@ export function avaliarBackup(raiz: string, agora = Date.now()): EstadoBackup {
  * conta que envia, e portanto uma caixa que alguém lê. Mandar para ninguém
  * seria pior que não checar: daria a sensação de estar vigiado.
  */
-function destinatario(): string {
-  return (process.env.ALERTA_EMAIL || process.env.SMTP_USER || '').trim();
+/*
+ * O DESTINO MORA EM `alerta-destino.ts` desde que passou a existir um segundo
+ * vigia. Aqui era `ALERTA_EMAIL || SMTP_USER`, e em produção `ALERTA_EMAIL` não
+ * está definido — todo aviso caía no endereço da conta de ENVIO, que é caixa de
+ * saída e não caixa de quem cuida. Agora tenta o `suporte_email` do painel no
+ * meio, que é o endereço que a plataforma já declara como canal.
+ */
+async function destinatario(): Promise<string> {
+  return destinatarioDeAlerta();
 }
 
 /*
@@ -117,7 +125,7 @@ export async function verificarBackup(agora = Date.now()): Promise<EstadoBackup>
     if (estavaQuebrado) {
       estavaQuebrado = false;
       console.log(`[BACKUP] voltou a funcionar (${estado.ultimaPasta}, ${estado.arquivos} arquivos).`);
-      const para = destinatario();
+      const para = await destinatario();
       if (para && emailHabilitado()) {
         await enviarEmail(para, 'Backup voltou a funcionar',
           `<p>O backup do Delivery voltou a rodar.</p>
@@ -133,7 +141,7 @@ export async function verificarBackup(agora = Date.now()): Promise<EstadoBackup>
   const um_dia = 24 * 3_600_000;
   if (agora - ultimoAvisoEm < um_dia) return estado;
 
-  const para = destinatario();
+  const para = await destinatario();
   if (!para) {
     console.error('[BACKUP] sem ALERTA_EMAIL nem SMTP_USER — o aviso não tem para onde ir.');
     return estado;

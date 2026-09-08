@@ -38,6 +38,7 @@ import { deveEnviar, destinatariosDe } from './envio-contador';
 import { enviarPacoteAoContador } from './xml-contador';
 import { emailHabilitado } from './email';
 import { verificarBackup } from './vigia-backup';
+import { verificarSaude } from './vigia-saude';
 import { limparAuditoriaDoTenant } from './auditoria-retencao';
 import uploadRoutes from './rotas/upload';
 import pushRoutes from './rotas/push';
@@ -1178,6 +1179,19 @@ const PORT = Number(process.env.PORT) || 3000;
   verificarBackup().catch(e => console.error('[BACKUP] vigia falhou:', e));
   setInterval(() => {
     verificarBackup().catch(e => console.error('[BACKUP] vigia falhou:', e));
+  }, 6 * 60 * 60_000);
+
+  /*
+   * VIGIA DE SAÚDE: certificado a vencer, disco enchendo, nota rejeitada.
+   * Mesmo ciclo do backup — nenhuma dessas coisas muda de minuto a minuto, e
+   * verificar de hora em hora só gastaria consulta.
+   *
+   * NÃO cobre queda do servidor: vigia que roda dentro do processo não avisa
+   * que o processo morreu. Isso pede um monitor externo batendo em /api/saude.
+   */
+  verificarSaude().catch(e => console.error('[SAUDE] vigia falhou:', e));
+  setInterval(() => {
+    verificarSaude().catch(e => console.error('[SAUDE] vigia falhou:', e));
   }, 6 * 60 * 60_000);
 
   sincronizarHorarios().catch(e => console.error('[HORARIO AUTO] falha:', e));
