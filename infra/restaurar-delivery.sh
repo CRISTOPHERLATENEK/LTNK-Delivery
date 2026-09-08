@@ -13,7 +13,9 @@ DESTINO=/opt/backup-delivery
 
 listar() {
   echo "Backups disponiveis (mais recente primeiro):"
-  ls -dt "$DESTINO"/*/ 2>/dev/null | head -14 | while read -r p; do
+  TOTAL=$(ls -d "$DESTINO"/*/ 2>/dev/null | wc -l)
+  echo "  ($TOTAL geracoes no total; mostrando as 30 mais recentes)"
+  ls -dt "$DESTINO"/*/ 2>/dev/null | head -30 | while read -r p; do
     echo "  $(basename "$p")  ($(du -sh "$p" | cut -f1), $(ls "$p"/*.sql.gz 2>/dev/null | wc -l) banco(s))"
   done
 }
@@ -55,7 +57,7 @@ if [ "${1:-}" = "--testar" ]; then
   done
 
   # As pecas que NAO sao banco e sem as quais o restore nao serve de nada.
-  for PECA in uploads.tar.gz certificados.tar.gz ambiente.tar.gz.enc ambiente.tar.gz; do
+  for PECA in uploads.tar.gz certificados.tar.gz; do
     if [ -f "$PASTA/$PECA" ]; then
       echo "  ok    $PECA presente ($(du -h "$PASTA/$PECA" | cut -f1))"
     else
@@ -63,6 +65,37 @@ if [ "${1:-}" = "--testar" ]; then
       FALHAS=$((FALHAS+1))
     fi
   done
+
+  # O AMBIENTE E UM OU O OUTRO, nao os dois.
+  #
+  # Bug que este ensaio tinha: pedia `ambiente.tar.gz.enc` E `ambiente.tar.gz`
+  # na mesma lista. Sao alternativas — cifrado quando existe /root/.backup-senha,
+  # e nada quando nao existe (o backup pula o .env nesse caso). Com a senha
+  # configurada, o ensaio acusava "AUSENTE ambiente.tar.gz" e saia com codigo 1
+  # num backup perfeito. Ensaio que grita errado ensina a ignorar o ensaio.
+  #
+  # E aqui vai a conferencia que faltava: nao basta o arquivo EXISTIR, a senha
+  # de hoje tem que ABRIR o arquivo daquele dia. Se alguem trocar
+  # /root/.backup-senha sem guardar a antiga, todo backup anterior vira lixo
+  # cifrado — e sem este teste isso so apareceria no desastre.
+  SENHA_ARQ=/root/.backup-senha
+  if [ -f "$PASTA/ambiente.tar.gz.enc" ]; then
+    TAM=$(du -h "$PASTA/ambiente.tar.gz.enc" | cut -f1)
+    if [ ! -s "$SENHA_ARQ" ]; then
+      echo "  FALHA ambiente cifrado, mas $SENHA_ARQ nao existe — nao ha como abrir"
+      FALHAS=$((FALHAS+1))
+    elif openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000            -pass "file:$SENHA_ARQ" -in "$PASTA/ambiente.tar.gz.enc" 2>/dev/null          | tar -tzf - >/dev/null 2>&1; then
+      echo "  ok    ambiente.tar.gz.enc abre com $SENHA_ARQ ($TAM)"
+    else
+      echo "  FALHA ambiente.tar.gz.enc NAO abre com $SENHA_ARQ — senha trocada?"
+      FALHAS=$((FALHAS+1))
+    fi
+  elif [ -f "$PASTA/ambiente.tar.gz" ]; then
+    echo "  ok    ambiente.tar.gz presente, SEM CIFRA ($(du -h "$PASTA/ambiente.tar.gz" | cut -f1))"
+  else
+    echo "  AUSENTE ambiente (.env) — restaurar o banco devolve os segredos como lixo"
+    FALHAS=$((FALHAS+1))
+  fi
 
   rm -f /tmp/ensaio-erro.txt
   echo "=== $FALHAS problema(s) ==="
