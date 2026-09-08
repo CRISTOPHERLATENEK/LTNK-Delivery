@@ -40,3 +40,14 @@ agente-impressao/dist/
 .DS_Store
 Thumbs.db
 public/downloads/
+
+# Snapshots do deploy: o que estava no ar antes da troca, para o rollback.sh
+# voltar sem reconstruir. Nunca versionados — sao copia local do build.
+public.novo/
+public.anterior/
+public.ruim/
+public.trocando/
+dist.anterior/
+dist.ruim/
+dist.trocando/
+.deploy-anterior
