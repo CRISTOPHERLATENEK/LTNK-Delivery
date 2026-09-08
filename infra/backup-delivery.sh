@@ -17,7 +17,19 @@
 set -uo pipefail
 
 DESTINO=/opt/backup-delivery
-RETENCAO_DIAS=14
+
+# RETENCAO: 180 dias, o mesmo alcance do log de auditoria.
+#
+# Nao e numero escolhido pelo tamanho: e para os dois relatos casarem. Se a
+# auditoria diz "em marco alguem apagou o cardapio" e o backup daquela data ja
+# nao existe, saber o que aconteceu nao ajuda a desfazer. Antes eram 14 dias, o
+# que so cobre o problema notado na mesma semana.
+#
+# Custo: ~25 MB por dia, ~4,5 GB em 180 dias, num disco com 182 GB livres. O
+# arquivo grande e o uploads.tar.gz (copia cheia todo dia), entao isso cresce
+# junto com as imagens dos cardapios — vale reconferir o espaco quando a conta
+# de dias mudar de ordem de grandeza.
+RETENCAO_DIAS=180
 LOG=/var/log/backup-delivery.log
 DATA=$(date +%Y-%m-%d_%H%M)
 PASTA="$DESTINO/$DATA"

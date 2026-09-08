@@ -25,8 +25,13 @@ Todo dia às 03:12 (`/etc/cron.d/backup-delivery`), em `/opt/backup-delivery/<da
   banco (token do Mercado Pago, token do Maxx Gestão, senha do certificado).
   Restaurar o banco sem ela devolve tudo isso como lixo indecifrável — o restore
   "funciona" e o sistema não
-- **retenção de 14 dias**, limpando só DEPOIS do dump do dia (nunca fica sem
-  nenhuma cópia caso o dump de hoje falhe)
+- **retenção de 180 dias**, limpando só DEPOIS do dump do dia (nunca fica sem
+  nenhuma cópia caso o dump de hoje falhe). Seis meses é o mesmo alcance do log
+  de auditoria, de propósito: se a auditoria diz "em março alguém apagou o
+  cardápio" e o backup daquela data já não existe, saber o que aconteceu não
+  ajuda a desfazer. São ~4,5 GB num disco com 182 GB livres — o arquivo grande
+  é o `uploads.tar.gz`, cópia cheia todo dia, então isso cresce junto com as
+  imagens dos cardápios
 
 ## A senha do `.env` cifrado
 
