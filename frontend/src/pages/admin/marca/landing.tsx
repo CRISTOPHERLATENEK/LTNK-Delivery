@@ -12,7 +12,7 @@ import { useToast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { PreviewLanding, type LandingConfig } from './PreviewLanding';
-import { ICONES_DISPONIVEIS, SecaoTituloEditor, ListaTextoEditavel, ListaIconeTituloDescEditavel } from './campos';
+import { ICONES_DISPONIVEIS, SecaoTituloEditor, ListaTextoEditavel, ListaIconeTituloDescEditavel, Linha, Quadro } from './campos';
 import { ICONES_LANDING } from '@/pages/cliente/landing';
 import type { LandingRecurso, LandingDepoimento, LandingDestaque, LandingPlano, LandingFaq, LandingIconeTituloDesc, LandingStat, LandingAutomacaoItem, LandingCupomItem } from '@/types';
 /**
@@ -304,82 +304,104 @@ function EditorLanding() {
             {aba === 'hero' && (
               <div className="space-y-4">
                 <SecaoTituloEditor titulo="Topo da página (hero)" desc="A primeira coisa que o visitante vê: chamada grande, subtítulo e a imagem do produto." />
-                <div>
-                  <Label htmlFor="hero_eyebrow">Selo (texto pequeno acima do título)</Label>
-                  <Input id="hero_eyebrow" maxLength={80} value={form.hero_eyebrow}
-                    onChange={e => setForm(f => ({ ...f, hero_eyebrow: e.target.value }))}
-                    placeholder="Sistema para deliveries e restaurantes" />
-                </div>
-                <div>
-                  <Label htmlFor="hero_titulo">Título principal (chamada grande)</Label>
-                  <textarea id="hero_titulo" maxLength={120} rows={2} value={form.hero_titulo}
-                    onChange={e => setForm(f => ({ ...f, hero_titulo: e.target.value }))}
-                    placeholder="Gestão simples, fácil e eficiente para seu negócio"
-                    className="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
-                </div>
-                <div>
-                  <Label htmlFor="hero_subtitulo">Subtítulo</Label>
-                  <textarea id="hero_subtitulo" maxLength={240} rows={2} value={form.hero_subtitulo}
-                    onChange={e => setForm(f => ({ ...f, hero_subtitulo: e.target.value }))}
-                    placeholder="Cardápio, pedidos, entrega e fiscal — tudo em um só sistema."
-                    className="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
-                </div>
-                <ImageUpload label="Print do painel (dentro do notebook do topo)"
-                  value={form.hero_imagem} onChange={v => setForm(f => ({ ...f, hero_imagem: v }))} aspectRatio="wide" />
-                <ImageUpload label="Print mobile (no celular sobreposto ao notebook)"
-                  value={form.hero_imagem_mobile} onChange={v => setForm(f => ({ ...f, hero_imagem_mobile: v }))} aspectRatio="free" />
-                <div>
-                  <Label htmlFor="landing_whatsapp">WhatsApp (só números, com DDD)</Label>
-                  <Input id="landing_whatsapp" maxLength={30} value={form.whatsapp}
-                    onChange={e => setForm(f => ({ ...f, whatsapp: e.target.value }))}
-                    placeholder="47999998888" />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Usado nos botões "Falar no WhatsApp", nos planos e no botão flutuante. Em branco, cai no telefone de suporte; sem nenhum, os botões de WhatsApp somem.
-                  </p>
-                </div>
+                <Quadro>
+                  <Linha rotulo="Selo" apoio="Texto pequeno acima do título">
+                    <input id="hero_eyebrow" maxLength={80} value={form.hero_eyebrow}
+                      onChange={e => setForm(f => ({ ...f, hero_eyebrow: e.target.value }))}
+                      placeholder="Sistema para deliveries e restaurantes"
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Título principal" apoio="Chamada grande">
+                    <textarea id="hero_titulo" maxLength={120} rows={2} value={form.hero_titulo}
+                      onChange={e => setForm(f => ({ ...f, hero_titulo: e.target.value }))}
+                      placeholder="Gestão simples, fácil e eficiente para seu negócio"
+                      className="w-full resize-none px-2.5 py-2 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }} />
+                  </Linha>
+                  <Linha rotulo="Subtítulo">
+                    <textarea id="hero_subtitulo" maxLength={240} rows={2} value={form.hero_subtitulo}
+                      onChange={e => setForm(f => ({ ...f, hero_subtitulo: e.target.value }))}
+                      placeholder="Cardápio, pedidos, entrega e fiscal — tudo em um só sistema."
+                      className="w-full resize-none px-2.5 py-2 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }} />
+                  </Linha>
+                  <Linha rotulo="Print do painel" apoio="Aparece dentro do notebook do topo" empilhado>
+                    <ImageUpload label="" value={form.hero_imagem}
+                      onChange={v => setForm(f => ({ ...f, hero_imagem: v }))} aspectRatio="wide" />
+                  </Linha>
+                  <Linha rotulo="Print mobile" apoio="No celular sobreposto ao notebook" empilhado>
+                    <ImageUpload label="" value={form.hero_imagem_mobile}
+                      onChange={v => setForm(f => ({ ...f, hero_imagem_mobile: v }))} aspectRatio="free" />
+                  </Linha>
+                  <Linha rotulo="WhatsApp" apoio="Só números, com DDD">
+                    <input id="landing_whatsapp" maxLength={30} value={form.whatsapp}
+                      onChange={e => setForm(f => ({ ...f, whatsapp: e.target.value }))}
+                      placeholder="47999998888"
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                    <p className="mt-1.5 text-[11.5px] leading-snug" style={{ color: 'var(--adm-rotulo, #78716C)' }}>
+                      Usado nos botões "Falar no WhatsApp", nos planos e no botão flutuante.
+                      Em branco, cai no telefone de suporte — sem nenhum dos dois, os botões de WhatsApp somem.
+                    </p>
+                  </Linha>
+                </Quadro>
               </div>
             )}
 
             {aba === 'geral' && (
               <div className="space-y-4">
                 <SecaoTituloEditor titulo="Botão e benefícios" desc="Texto do botão principal e a listinha de benefícios com check." />
-                <div>
-                  <Label htmlFor="cta_texto">Texto do botão principal</Label>
-                  <Input id="cta_texto" maxLength={60} value={form.cta_texto}
-                    onChange={e => setForm(f => ({ ...f, cta_texto: e.target.value }))}
-                    placeholder="Ver demonstração" />
-                </div>
-                <div>
-                  <Label htmlFor="demo_url">Link do botão "Ver demonstração"</Label>
-                  <Input id="demo_url" maxLength={300} value={form.demo_url}
-                    onChange={e => setForm(f => ({ ...f, demo_url: e.target.value }))}
-                    placeholder="/demo/unimaxx" />
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Deixe em branco pra usar a 1ª loja aprovada deste cliente automaticamente.
-                    Se a loja de demo for de outro cliente (tenant), use <code>/demo/&lt;slug-do-cliente&gt;</code> —
-                    funciona sem precisar de domínio próprio configurado. Só cole uma URL completa (https://...)
-                    se a demo já tiver domínio funcionando de verdade.
-                  </p>
-                </div>
-                <ListaTextoEditavel titulo="Benefícios (check no topo e no rodapé)" max={6}
-                  itens={form.beneficios} onChange={v => setForm(f => ({ ...f, beneficios: v }))} />
+                <Quadro>
+                  <Linha rotulo="Texto do botão principal">
+                    <input id="cta_texto" maxLength={60} value={form.cta_texto}
+                      onChange={e => setForm(f => ({ ...f, cta_texto: e.target.value }))}
+                      placeholder="Ver demonstração"
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo={'Link do botão "Ver demonstração"'}>
+                    <input id="demo_url" maxLength={300} value={form.demo_url}
+                      onChange={e => setForm(f => ({ ...f, demo_url: e.target.value }))}
+                      placeholder="/demo/unimaxx"
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Deixe em branco pra usar a 1ª loja aprovada deste cliente automaticamente.
+                      Se a loja de demo for de outro cliente (tenant), use <code>/demo/&lt;slug-do-cliente&gt;</code> —
+                      funciona sem precisar de domínio próprio configurado. Só cole uma URL completa (https://...)
+                      se a demo já tiver domínio funcionando de verdade.
+                    </p>
+                  </Linha>
+                  <ListaTextoEditavel titulo="Benefícios (check no topo e no rodapé)" max={6}
+                    itens={form.beneficios} onChange={v => setForm(f => ({ ...f, beneficios: v }))} />
+                </Quadro>
               </div>
             )}
 
             {aba === 'passos' && (
               <div className="space-y-4">
                 <SecaoTituloEditor titulo="Como funciona (3 passos)" desc="A seção de passos do zero ao primeiro pedido." />
-                <div>
-                  <Label>Título da seção</Label>
-                  <Input maxLength={100} value={form.como_funciona_titulo} placeholder="Do zero ao primeiro pedido em *3 passos*"
-                    onChange={e => setForm(f => ({ ...f, como_funciona_titulo: e.target.value }))} />
-                  <p className="text-[11px] text-muted-foreground mt-1">Coloque *asteriscos* na palavra que deve ficar destacada (ex.: *3 passos*).</p>
-                </div>
-                <div>
-                  <Label>Subtítulo</Label>
-                  <Input maxLength={200} value={form.como_funciona_subtitulo} placeholder="Sem complicação, sem depender de ninguém pra configurar."
-                    onChange={e => setForm(f => ({ ...f, como_funciona_subtitulo: e.target.value }))} />
-                </div>
+                <Quadro>
+                  <Linha rotulo="Título da seção" apoio="Destaque entre *asteriscos*">
+                    <input maxLength={100} value={form.como_funciona_titulo} placeholder="Do zero ao primeiro pedido em *3 passos*"
+                      onChange={e => setForm(f => ({ ...f, como_funciona_titulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Subtítulo">
+                    <input maxLength={200} value={form.como_funciona_subtitulo} placeholder="Sem complicação, sem depender de ninguém pra configurar."
+                      onChange={e => setForm(f => ({ ...f, como_funciona_subtitulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                </Quadro>
                 <ListaIconeTituloDescEditavel itens={form.como_funciona} onUp={upComoFunciona} onAdd={adicionarComoFuncionaItem} onRemove={removerComoFuncionaItem} max={3} descMax={160} />
               </div>
             )}
@@ -406,16 +428,22 @@ function EditorLanding() {
             {aba === 'automacao' && (
               <div className="space-y-4">
                 <SecaoTituloEditor titulo="Automação de verdade" desc="Os 3 blocos de automação (Pix, notificação, avaliações). Máx. 3." />
-                <div>
-                  <Label>Título da seção</Label>
-                  <Input maxLength={100} value={form.automacao_titulo} placeholder="Automação de *verdade*, não só promessa"
-                    onChange={e => setForm(f => ({ ...f, automacao_titulo: e.target.value }))} />
-                </div>
-                <div>
-                  <Label>Subtítulo</Label>
-                  <Input maxLength={200} value={form.automacao_subtitulo} placeholder="O sistema trabalha sozinho nos detalhes que tomam seu tempo."
-                    onChange={e => setForm(f => ({ ...f, automacao_subtitulo: e.target.value }))} />
-                </div>
+                <Quadro>
+                  <Linha rotulo="Título da seção">
+                    <input maxLength={100} value={form.automacao_titulo} placeholder="Automação de *verdade*, não só promessa"
+                      onChange={e => setForm(f => ({ ...f, automacao_titulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Subtítulo">
+                    <input maxLength={200} value={form.automacao_subtitulo} placeholder="O sistema trabalha sozinho nos detalhes que tomam seu tempo."
+                      onChange={e => setForm(f => ({ ...f, automacao_subtitulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                </Quadro>
                 <div className="flex justify-end">
                   <Button type="button" variant="outline" size="sm" onClick={adicionarAutomacao} disabled={form.automacao.length >= 3}>
                     <Plus className="size-3.5" /> Adicionar bloco
@@ -447,61 +475,78 @@ function EditorLanding() {
             {aba === 'fiscal' && (
               <div className="space-y-4">
                 <SecaoTituloEditor titulo="Seção Nota fiscal (NFC-e)" desc="Textos, selo de conformidade, mini-cards e o cupom de exemplo." />
-                <div>
-                  <Label>Selo (texto pequeno acima do título)</Label>
-                  <Input maxLength={60} value={form.fiscal_eyebrow} placeholder="Emissão fiscal"
-                    onChange={e => setForm(f => ({ ...f, fiscal_eyebrow: e.target.value }))} />
-                </div>
-                <div>
-                  <Label>Título</Label>
-                  <Input maxLength={100} value={form.fiscal_titulo} placeholder="Cupom fiscal (NFC-e) *na hora da venda*"
-                    onChange={e => setForm(f => ({ ...f, fiscal_titulo: e.target.value }))} />
-                </div>
-                <div>
-                  <Label>Texto</Label>
-                  <textarea maxLength={300} rows={2} value={form.fiscal_texto} placeholder="A nota sai com itens, total, chave de acesso e QR Code…"
-                    onChange={e => setForm(f => ({ ...f, fiscal_texto: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div>
-                    <Label>Selo — título</Label>
-                    <Input maxLength={100} value={form.fiscal_selo_titulo} placeholder="100% em conformidade com a SEFAZ"
-                      onChange={e => setForm(f => ({ ...f, fiscal_selo_titulo: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>Selo — descrição</Label>
-                    <Input maxLength={160} value={form.fiscal_selo_desc} placeholder="Emissão segura, autorizada e sem complicação."
-                      onChange={e => setForm(f => ({ ...f, fiscal_selo_desc: e.target.value }))} />
-                  </div>
-                </div>
-                <div>
-                  <Label className="mb-1 block">Mini-cards (4)</Label>
-                  <ListaIconeTituloDescEditavel itens={form.fiscal_mini} onUp={upFiscalMini} onAdd={adicionarFiscalMini} onRemove={removerFiscalMini} max={4} descMax={120} />
-                </div>
-                <div className="border-t border-border pt-4">
-                  <Label className="mb-1 block">Cupom de exemplo (itens mostrados no recibo)</Label>
-                  <div className="flex justify-end">
-                    <Button type="button" variant="outline" size="sm" onClick={adicionarCupomItem} disabled={form.cupom_itens.length >= 6}>
-                      <Plus className="size-3.5" /> Adicionar item
-                    </Button>
-                  </div>
-                  <div className="mt-2 space-y-2">
-                    {form.cupom_itens.map((c, i) => (
-                      <div key={i} className="flex items-center gap-2">
-                        <Input value={String(c.q)} type="number" min={1} max={99} className="w-16 shrink-0" onChange={e => upCupomItem(i, 'q', e.target.value)} />
-                        <Input value={c.nome} maxLength={60} placeholder="Nome do item" onChange={e => upCupomItem(i, 'nome', e.target.value)} />
-                        <Input value={c.v} maxLength={10} placeholder="Valor" className="w-24 shrink-0" onChange={e => upCupomItem(i, 'v', e.target.value)} />
-                        <Button type="button" variant="ghost" size="icon" onClick={() => removerCupomItem(i)}><Trash2 className="size-4 text-destructive" /></Button>
+                <Quadro>
+                  <Linha rotulo="Selo" apoio="Texto pequeno acima do título">
+                    <input maxLength={60} value={form.fiscal_eyebrow} placeholder="Emissão fiscal"
+                      onChange={e => setForm(f => ({ ...f, fiscal_eyebrow: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Título">
+                    <input maxLength={100} value={form.fiscal_titulo} placeholder="Cupom fiscal (NFC-e) *na hora da venda*"
+                      onChange={e => setForm(f => ({ ...f, fiscal_titulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Texto">
+                    <textarea maxLength={300} rows={2} value={form.fiscal_texto} placeholder="A nota sai com itens, total, chave de acesso e QR Code…"
+                      onChange={e => setForm(f => ({ ...f, fiscal_texto: e.target.value }))}
+                      className="w-full resize-none px-2.5 py-2 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }} />
+                  </Linha>
+                  <Linha rotulo="Selo — título">
+                    <input maxLength={100} value={form.fiscal_selo_titulo} placeholder="100% em conformidade com a SEFAZ"
+                      onChange={e => setForm(f => ({ ...f, fiscal_selo_titulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Selo — descrição">
+                    <input maxLength={160} value={form.fiscal_selo_desc} placeholder="Emissão segura, autorizada e sem complicação."
+                      onChange={e => setForm(f => ({ ...f, fiscal_selo_desc: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Mini-cards" apoio={`${form.fiscal_mini.length} de 4`} empilhado>
+                    <ListaIconeTituloDescEditavel itens={form.fiscal_mini} onUp={upFiscalMini} onAdd={adicionarFiscalMini} onRemove={removerFiscalMini} max={4} descMax={120} />
+                  </Linha>
+                  <Linha rotulo="Cupom de exemplo" apoio={`Itens mostrados no recibo · ${form.cupom_itens.length} de 6`} empilhado>
+                    <div className="space-y-2">
+                      <div className="flex justify-end">
+                        <Button type="button" variant="outline" size="sm" onClick={adicionarCupomItem} disabled={form.cupom_itens.length >= 6}>
+                          <Plus className="size-3.5" /> Adicionar item
+                        </Button>
                       </div>
-                    ))}
-                  </div>
-                  <div className="mt-2">
-                    <Label>Valor total do cupom</Label>
-                    <Input maxLength={20} value={form.cupom_total} placeholder="56,00" className="w-32"
-                      onChange={e => setForm(f => ({ ...f, cupom_total: e.target.value }))} />
-                  </div>
-                </div>
+                      {form.cupom_itens.map((c, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <Input value={String(c.q)} type="number" min={1} max={99} className="w-16 shrink-0" onChange={e => upCupomItem(i, 'q', e.target.value)} />
+                          <Input value={c.nome} maxLength={60} placeholder="Nome do item" onChange={e => upCupomItem(i, 'nome', e.target.value)} />
+                          <Input value={c.v} maxLength={10} placeholder="Valor" className="w-24 shrink-0" onChange={e => upCupomItem(i, 'v', e.target.value)} />
+                          <Button type="button" variant="ghost" size="icon" onClick={() => removerCupomItem(i)}><Trash2 className="size-4 text-destructive" /></Button>
+                        </div>
+                      ))}
+                      {form.cupom_itens.length === 0 && (
+                        <p className="text-[11.5px]" style={{ color: 'var(--adm-rotulo, #78716C)' }}>
+                          Nenhum item — o recibo mostra o cupom de exemplo embutido.
+                        </p>
+                      )}
+                    </div>
+                  </Linha>
+                  {/* O total NÃO é somado dos itens: é texto, porque o recibo da
+                      landing é ilustração — quem escreve escolhe o número que
+                      quer mostrar. */}
+                  <Linha rotulo="Valor total" apoio="Do cupom de exemplo">
+                    <input
+                      maxLength={20} value={form.cupom_total} placeholder="56,00"
+                      onChange={e => setForm(f => ({ ...f, cupom_total: e.target.value }))}
+                      className="adm-num h-[34px] w-[110px] px-2 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                </Quadro>
               </div>
             )}
 
@@ -547,120 +592,157 @@ function EditorLanding() {
             {aba === 'final' && (
               <div className="space-y-4">
                 <SecaoTituloEditor titulo="CTA final, títulos de seção e rodapé" desc="Textos avulsos que aparecem espalhados pela página." />
-                <div>
-                  <Label>Título da seção de recursos</Label>
-                  <Input maxLength={100} value={form.recursos_titulo} placeholder="Tudo que uma operação de delivery *precisa*"
-                    onChange={e => setForm(f => ({ ...f, recursos_titulo: e.target.value }))} />
-                </div>
-                <div>
-                  <Label>Título "Atendimento caótico"</Label>
-                  <Input maxLength={100} value={form.atendimento_titulo} placeholder="Diga adeus ao atendimento *caótico*"
-                    onChange={e => setForm(f => ({ ...f, atendimento_titulo: e.target.value }))} />
-                </div>
-                <div>
-                  <Label>Subtítulo "Atendimento caótico"</Label>
-                  <Input maxLength={200} value={form.atendimento_subtitulo} placeholder="O futuro é integrado, rápido e automatizado."
-                    onChange={e => setForm(f => ({ ...f, atendimento_subtitulo: e.target.value }))} />
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div>
-                    <Label>Título dos planos</Label>
-                    <Input maxLength={100} value={form.planos_titulo} placeholder="Planos sem *pegadinha*"
-                      onChange={e => setForm(f => ({ ...f, planos_titulo: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>Subtítulo dos planos</Label>
-                    <Input maxLength={200} value={form.planos_subtitulo} placeholder="Sem taxa por pedido, sem fidelidade."
-                      onChange={e => setForm(f => ({ ...f, planos_subtitulo: e.target.value }))} />
-                  </div>
-                </div>
-                <div>
-                  <Label>Título das dúvidas</Label>
-                  <Input maxLength={100} value={form.duvidas_titulo} placeholder="Dúvidas *frequentes*"
-                    onChange={e => setForm(f => ({ ...f, duvidas_titulo: e.target.value }))} />
-                </div>
-                <div className="border-t border-border pt-4 space-y-3">
-                  <div>
-                    <Label>CTA final — título</Label>
-                    <Input maxLength={100} value={form.cta_titulo} placeholder="Quer ver funcionando na prática?"
-                      onChange={e => setForm(f => ({ ...f, cta_titulo: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>CTA final — subtítulo</Label>
-                    <Input maxLength={240} value={form.cta_subtitulo} placeholder="Explore uma loja de demonstração completa…"
-                      onChange={e => setForm(f => ({ ...f, cta_subtitulo: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>CTA final — texto do botão de demo</Label>
-                    <Input maxLength={40} value={form.cta_botao_demo_texto} placeholder="Abrir loja demo"
-                      onChange={e => setForm(f => ({ ...f, cta_botao_demo_texto: e.target.value }))} />
-                  </div>
-                </div>
-                <div className="border-t border-border pt-4 space-y-3">
-                  <SecaoTituloEditor titulo="Mensagens do WhatsApp" desc="Texto que já vem preenchido quando o cliente clica pra falar com você." />
-                  <div>
-                    <Label>Mensagem — botão do topo</Label>
-                    <Input maxLength={200} value={form.whatsapp_msg_hero} placeholder="Olá! Quero saber mais sobre o sistema de delivery."
-                      onChange={e => setForm(f => ({ ...f, whatsapp_msg_hero: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>Mensagem — CTA final</Label>
-                    <Input maxLength={200} value={form.whatsapp_msg_cta} placeholder="Olá! Quero falar sobre o sistema de delivery."
-                      onChange={e => setForm(f => ({ ...f, whatsapp_msg_cta: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>Mensagem — botão flutuante</Label>
-                    <Input maxLength={200} value={form.whatsapp_msg_flutuante} placeholder="Olá! Quero saber mais sobre o sistema."
-                      onChange={e => setForm(f => ({ ...f, whatsapp_msg_flutuante: e.target.value }))} />
-                  </div>
-                </div>
-                <div className="border-t border-border pt-4 grid gap-2 sm:grid-cols-2">
-                  <div>
-                    <Label>Rodapé — título da coluna de links</Label>
-                    <Input maxLength={40} value={form.footer_coluna_sistema} placeholder="O sistema"
-                      onChange={e => setForm(f => ({ ...f, footer_coluna_sistema: e.target.value }))} />
-                  </div>
-                  <div>
-                    <Label>Rodapé — título da coluna de contato</Label>
-                    <Input maxLength={40} value={form.footer_coluna_contato} placeholder="Contato"
-                      onChange={e => setForm(f => ({ ...f, footer_coluna_contato: e.target.value }))} />
-                  </div>
-                </div>
-                <div className="border-t border-border pt-4 space-y-3">
-                  <SecaoTituloEditor titulo="Rodapé — endereço e redes sociais" desc="E-mail e telefone vêm de Marca → Configurações gerais (suporte). Aqui você adiciona o endereço e os links das redes (vazio = o ícone não aparece)." />
-                  <div>
-                    <Label>Endereço</Label>
-                    <Input maxLength={200} value={form.endereco} placeholder="Rua Exemplo, 123 — Centro, Cidade/UF"
-                      onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))} />
-                  </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <div>
-                      <Label>Instagram (link)</Label>
-                      <Input maxLength={300} value={form.social_instagram} placeholder="https://instagram.com/sua_loja"
-                        onChange={e => setForm(f => ({ ...f, social_instagram: e.target.value }))} />
-                    </div>
-                    <div>
-                      <Label>Facebook (link)</Label>
-                      <Input maxLength={300} value={form.social_facebook} placeholder="https://facebook.com/sua_loja"
-                        onChange={e => setForm(f => ({ ...f, social_facebook: e.target.value }))} />
-                    </div>
-                    <div>
-                      <Label>TikTok (link)</Label>
-                      <Input maxLength={300} value={form.social_tiktok} placeholder="https://tiktok.com/@sua_loja"
-                        onChange={e => setForm(f => ({ ...f, social_tiktok: e.target.value }))} />
-                    </div>
-                    <div>
-                      <Label>YouTube (link)</Label>
-                      <Input maxLength={300} value={form.social_youtube} placeholder="https://youtube.com/@sua_loja"
-                        onChange={e => setForm(f => ({ ...f, social_youtube: e.target.value }))} />
-                    </div>
-                    <div>
-                      <Label>X / Twitter (link)</Label>
-                      <Input maxLength={300} value={form.social_x} placeholder="https://x.com/sua_loja"
-                        onChange={e => setForm(f => ({ ...f, social_x: e.target.value }))} />
-                    </div>
-                  </div>
-                </div>
+                <Quadro>
+                  <Linha rotulo="Recursos" apoio="Título da seção">
+                    <input maxLength={100} value={form.recursos_titulo} placeholder="Tudo que uma operação de delivery *precisa*"
+                      onChange={e => setForm(f => ({ ...f, recursos_titulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Atendimento" apoio="Título da seção">
+                    <input maxLength={100} value={form.atendimento_titulo} placeholder="Diga adeus ao atendimento *caótico*"
+                      onChange={e => setForm(f => ({ ...f, atendimento_titulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Atendimento" apoio="Subtítulo">
+                    <input maxLength={200} value={form.atendimento_subtitulo} placeholder="O futuro é integrado, rápido e automatizado."
+                      onChange={e => setForm(f => ({ ...f, atendimento_subtitulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Planos" apoio="Título da seção">
+                    <input maxLength={100} value={form.planos_titulo} placeholder="Planos sem *pegadinha*"
+                      onChange={e => setForm(f => ({ ...f, planos_titulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Planos" apoio="Subtítulo">
+                    <input maxLength={200} value={form.planos_subtitulo} placeholder="Sem taxa por pedido, sem fidelidade."
+                      onChange={e => setForm(f => ({ ...f, planos_subtitulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Dúvidas" apoio="Título da seção">
+                    <input maxLength={100} value={form.duvidas_titulo} placeholder="Dúvidas *frequentes*"
+                      onChange={e => setForm(f => ({ ...f, duvidas_titulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                </Quadro>
+                <SecaoTituloEditor titulo="CTA final" desc="O convite no fim da página, logo antes do rodapé." />
+                <Quadro>
+                  <Linha rotulo="Título">
+                    <input maxLength={100} value={form.cta_titulo} placeholder="Quer ver funcionando na prática?"
+                      onChange={e => setForm(f => ({ ...f, cta_titulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Subtítulo">
+                    <input maxLength={240} value={form.cta_subtitulo} placeholder="Explore uma loja de demonstração completa…"
+                      onChange={e => setForm(f => ({ ...f, cta_subtitulo: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Texto do botão" apoio="Abre a loja de demonstração">
+                    <input maxLength={40} value={form.cta_botao_demo_texto} placeholder="Abrir loja demo"
+                      onChange={e => setForm(f => ({ ...f, cta_botao_demo_texto: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                </Quadro>
+                <SecaoTituloEditor titulo="Mensagens do WhatsApp" desc="Texto que já vem preenchido quando o cliente clica pra falar com você." />
+                <Quadro>
+                  <Linha rotulo="Botão do topo">
+                    <input maxLength={200} value={form.whatsapp_msg_hero} placeholder="Olá! Quero saber mais sobre o sistema de delivery."
+                      onChange={e => setForm(f => ({ ...f, whatsapp_msg_hero: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="CTA final">
+                    <input maxLength={200} value={form.whatsapp_msg_cta} placeholder="Olá! Quero falar sobre o sistema de delivery."
+                      onChange={e => setForm(f => ({ ...f, whatsapp_msg_cta: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Botão flutuante">
+                    <input maxLength={200} value={form.whatsapp_msg_flutuante} placeholder="Olá! Quero saber mais sobre o sistema."
+                      onChange={e => setForm(f => ({ ...f, whatsapp_msg_flutuante: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                </Quadro>
+                <SecaoTituloEditor titulo="Rodapé — endereço e redes sociais" desc="E-mail e telefone vêm de Marca → Configurações gerais (suporte). Aqui você adiciona o endereço e os links das redes (vazio = o ícone não aparece)." />
+                <Quadro>
+                  <Linha rotulo="Coluna de links" apoio="Título">
+                    <input maxLength={40} value={form.footer_coluna_sistema} placeholder="O sistema"
+                      onChange={e => setForm(f => ({ ...f, footer_coluna_sistema: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Coluna de contato" apoio="Título">
+                    <input maxLength={40} value={form.footer_coluna_contato} placeholder="Contato"
+                      onChange={e => setForm(f => ({ ...f, footer_coluna_contato: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Endereço">
+                    <input maxLength={200} value={form.endereco} placeholder="Rua Exemplo, 123 — Centro, Cidade/UF"
+                      onChange={e => setForm(f => ({ ...f, endereco: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Instagram">
+                    <input maxLength={300} value={form.social_instagram} placeholder="https://instagram.com/sua_loja"
+                      onChange={e => setForm(f => ({ ...f, social_instagram: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="Facebook">
+                    <input maxLength={300} value={form.social_facebook} placeholder="https://facebook.com/sua_loja"
+                      onChange={e => setForm(f => ({ ...f, social_facebook: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="TikTok">
+                    <input maxLength={300} value={form.social_tiktok} placeholder="https://tiktok.com/@sua_loja"
+                      onChange={e => setForm(f => ({ ...f, social_tiktok: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="YouTube">
+                    <input maxLength={300} value={form.social_youtube} placeholder="https://youtube.com/@sua_loja"
+                      onChange={e => setForm(f => ({ ...f, social_youtube: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                  <Linha rotulo="X / Twitter">
+                    <input maxLength={300} value={form.social_x} placeholder="https://x.com/sua_loja"
+                      onChange={e => setForm(f => ({ ...f, social_x: e.target.value }))}
+                      className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+                    />
+                  </Linha>
+                </Quadro>
               </div>
             )}
 
@@ -701,17 +783,19 @@ function EditorLanding() {
             )}
 
             {aba === 'comparativo' && (
-              <div className="space-y-5">
+              <Quadro>
                 <ListaTextoEditavel titulo="Sem a plataforma (lado esquerdo)" max={6} placeholder="Ex.: Erros nos pedidos"
                   itens={form.comparativo_sem} onChange={v => setForm(f => ({ ...f, comparativo_sem: v }))} />
                 <ListaTextoEditavel titulo="Com a plataforma (lado direito)" max={6} placeholder="Ex.: Agilidade e organização"
                   itens={form.comparativo_com} onChange={v => setForm(f => ({ ...f, comparativo_com: v }))} />
-              </div>
+              </Quadro>
             )}
 
             {aba === 'segmentos' && (
-              <ListaTextoEditavel titulo="Tipos de negócio" max={16} placeholder="Ex.: Pizzaria"
-                itens={form.segmentos} onChange={v => setForm(f => ({ ...f, segmentos: v }))} />
+              <Quadro>
+                <ListaTextoEditavel titulo="Tipos de negócio" max={16} placeholder="Ex.: Pizzaria"
+                  itens={form.segmentos} onChange={v => setForm(f => ({ ...f, segmentos: v }))} />
+              </Quadro>
             )}
 
             {aba === 'planos' && (

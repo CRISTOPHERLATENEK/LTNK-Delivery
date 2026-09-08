@@ -315,6 +315,20 @@ label[for] {
 .adm-switch { width: 38px; height: 21px; border-radius: 4px; position: relative; flex: none; }
 .adm-switch > span { position: absolute; top: 3px; width: 15px; height: 15px; border-radius: 3px; background: #fff; }
 
+/*
+ * A MOLDURA DAS LINHAS ROTULADAS decide a divisória, não a linha.
+ *
+ * `border-top` na primeira linha desenharia uma divisória em cima da borda da
+ * moldura — dois traços colados. Quem sabe que é a primeira é o container, e
+ * `:first-child` acerta também quando a linha de cima é condicional (um campo
+ * que só aparece com o módulo ativo, por exemplo). Um prop `primeira` obriga
+ * quem escreve a manter a ordem na cabeça, e essa conta erra na primeira
+ * mudança de lugar.
+ */
+.adm-quadro > * { border-top: 1px solid var(--adm-linha3, #F5F4F1); }
+.adm-quadro > :first-child { border-top: 0; }
+
+
 /* Todo botão de altura fixa: o texto nunca quebra. */
 .adm button, .adm .adm-btn { white-space: nowrap; }
 .adm input, .adm select, .adm textarea { box-sizing: border-box; }

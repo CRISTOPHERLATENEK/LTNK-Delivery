@@ -29,14 +29,20 @@ export function ListaTextoEditavel({ titulo, itens, onChange, max, placeholder }
   titulo: string; itens: string[]; onChange: (itens: string[]) => void; max: number; placeholder?: string;
 }) {
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <Label className="mb-0">{titulo}</Label>
-        <Button type="button" variant="outline" size="sm"
-          onClick={() => itens.length < max && onChange([...itens, ''])} disabled={itens.length >= max}>
-          <Plus className="size-3.5" /> Adicionar
-        </Button>
-      </div>
+    <Linha
+      rotulo={titulo}
+      /* A CONTAGEM NO RÓTULO. Sem ela, "Adicionar" desabilitado parece defeito
+         — a pessoa clica duas vezes antes de desconfiar que chegou ao limite. */
+      apoio={`${itens.length} de ${max}`}
+      empilhado
+    >
+      <div className="space-y-2">
+        <div className="flex justify-end">
+          <Button type="button" variant="outline" size="sm"
+            onClick={() => itens.length < max && onChange([...itens, ''])} disabled={itens.length >= max}>
+            <Plus className="size-3.5" /> Adicionar
+          </Button>
+        </div>
       {itens.map((v, i) => (
         <div key={i} className="flex items-center gap-2">
           <Input value={v} maxLength={80} placeholder={placeholder}
@@ -46,8 +52,13 @@ export function ListaTextoEditavel({ titulo, itens, onChange, max, placeholder }
           </Button>
         </div>
       ))}
-      {itens.length === 0 && <p className="text-xs text-muted-foreground">Nenhum item — usando os padrões embutidos.</p>}
-    </div>
+        {itens.length === 0 && (
+          <p className="text-[11.5px]" style={{ color: 'var(--adm-rotulo, #78716C)' }}>
+            Nenhum item — usando os padrões embutidos.
+          </p>
+        )}
+      </div>
+    </Linha>
   );
 }
 
@@ -110,13 +121,66 @@ export function Secao({ titulo, children }: {
       >
         {titulo}
       </div>
-      <div
-        className="space-y-4 p-3"
-        style={{ border: '1px solid var(--adm-linha, #ECEAE6)', borderRadius: 6 }}
-      >
-        {children}
-      </div>
+      <Quadro>{children}</Quadro>
     </section>
+  );
+}
+
+/**
+ * A MOLDURA das linhas rotuladas, sem título.
+ *
+ * Para as telas que já trazem o próprio cabeçalho (a Landing tem
+ * `SecaoTituloEditor` com título e descrição em cada aba): repetir o rótulo da
+ * `Secao` ali daria dois títulos para o mesmo grupo.
+ *
+ * SEM `space-y` e SEM padding próprio — as linhas trazem o próprio espaçamento
+ * e a própria hairline. Somar o gap da moldura criava um respiro duplo entre
+ * uns campos e não entre outros, dependendo de quem estava dentro.
+ */
+export function Quadro({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="adm-quadro" style={{ border: '1px solid var(--adm-linha, #ECEAE6)', borderRadius: 6 }}>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * LINHA ROTULADA: rótulo de 150px à esquerda, controle à direita.
+ *
+ * Vive aqui e não em `../ui` porque os três editores (Marca, Landing,
+ * Configurações) já importam este arquivo, e `../ui` é o kit das telas de
+ * lista. Mesma medida e mesma aparência da `LinhaRotulada` de lá, com UMA
+ * diferença: aqui a divisória é desenhada pela moldura (`Quadro`), não pela
+ * linha — a de `../ui` continua com o prop `primeira` porque vive dentro de
+ * `PainelLateral`, que não é `Quadro`. Se um dia as duas ficarem iguais nesse
+ * ponto, é sinal de que devem virar uma só.
+ */
+export function Linha({ rotulo, apoio, children, empilhado }: {
+  rotulo: string;
+  apoio?: string;
+  children: React.ReactNode;
+  /**
+   * Controle que NÃO cabe ao lado do rótulo: upload com prévia, editor de
+   * lista, grade de ícones. Em 150px + resto, uma prévia de imagem fica do
+   * tamanho de um selo — aí o rótulo vai por cima e o controle usa a largura
+   * toda.
+   */
+  empilhado?: boolean;
+}) {
+  // A divisória entre linhas é da moldura (`.adm-quadro > *` em index.css).
+  return (
+    <div className={empilhado ? 'px-3 py-3' : 'flex flex-wrap items-center gap-3 px-3 py-2.5'}>
+      <div className={empilhado ? 'pb-2' : 'w-[150px] shrink-0'}>
+        <div className="text-[13px] font-medium">{rotulo}</div>
+        {apoio && (
+          <div className="text-[11.5px] leading-snug" style={{ color: 'var(--adm-rotulo, #78716C)' }}>
+            {apoio}
+          </div>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
   );
 }
 
@@ -124,21 +188,41 @@ export function CampoCor({ label, valor, onChange, permiteVazio }: {
   label: string; valor: string; onChange: (v: string) => void; permiteVazio?: boolean;
 }) {
   return (
-    <div>
-      <Label>{label}</Label>
-      <div className="flex items-center gap-3">
-        <input type="color" value={valor || '#000000'}
+    <Linha rotulo={label} apoio={permiteVazio ? 'Vazio = derivada da primária' : undefined}>
+      <div className="flex items-center gap-2">
+        {/*
+          O seletor de cor do sistema fica QUADRADO e menor: em 44px de altura
+          ele competia com o campo do hex, e o que se digita mais é o hex —
+          copiado da identidade da marca, não escolhido no olho.
+        */}
+        <input
+          type="color"
+          value={valor || '#000000'}
           onChange={e => onChange(e.target.value)}
-          className="h-11 w-14 rounded-xl border border-input cursor-pointer shrink-0" />
-        <Input value={valor} onChange={e => onChange(e.target.value)}
-          maxLength={7} placeholder={permiteVazio ? '— derivada da primária' : '#dc2640'}
-          className="font-mono uppercase" />
+          aria-label={`${label}: escolher no seletor`}
+          className="size-[34px] shrink-0 cursor-pointer"
+          style={{ border: '1px solid var(--adm-linha, #ECEAE6)', borderRadius: 4, padding: 2 }}
+        />
+        <input
+          value={valor}
+          onChange={e => onChange(e.target.value)}
+          maxLength={7}
+          placeholder={permiteVazio ? '—' : '#dc2640'}
+          aria-label={label}
+          className="adm-num h-[34px] w-[110px] px-2 text-[13px] uppercase outline-none"
+          style={{ border: '1px solid var(--adm-linha, #ECEAE6)', borderRadius: 4, boxSizing: 'border-box' }}
+        />
         {permiteVazio && valor && (
-          <Button type="button" variant="ghost" size="sm" onClick={() => onChange('')}>
-            Limpar
-          </Button>
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            className="h-[34px] px-2 text-[12.5px]"
+            style={{ color: 'var(--adm-rotulo, #78716C)' }}
+          >
+            limpar
+          </button>
         )}
       </div>
-    </div>
+    </Linha>
   );
 }

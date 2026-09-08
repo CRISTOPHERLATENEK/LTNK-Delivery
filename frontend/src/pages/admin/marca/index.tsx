@@ -10,10 +10,8 @@ import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Palette, Save, Eye, Type, SquareDashedBottom, Image as ImageIcon, Megaphone, Store, Code2 } from 'lucide-react';
 import { AdminLayout } from '../layout';
-import { Cabecalho } from '../ui';
+import { Cabecalho, Switch } from '../ui';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { useToast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
@@ -21,7 +19,7 @@ import { useTema, FONTES, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
 import { alturaLogo, ESCALA_PADRAO } from '@/lib/logo-escala';
 import { PreviewApp } from './PreviewApp';
-import { Secao, CampoCor } from './campos';
+import { Secao, CampoCor, Linha } from './campos';
 import type { TemaMarca, RaioMarca, FonteMarca } from '@/types';
 const RAIO_OPCOES: { valor: RaioMarca; label: string; classe: string }[] = [
   { valor: 'reto', label: 'Reto', classe: 'rounded-[3px]' },
@@ -100,23 +98,33 @@ export function TelaMarca() {
         <div className="space-y-5 order-2 lg:order-1">
           {/* Identidade */}
           <Secao icone={Store} titulo="Identidade">
-            <div>
-              <Label htmlFor="nome">Nome da marca</Label>
-              <Input id="nome" required maxLength={60} value={form.nome}
-                onChange={e => up('nome', e.target.value)} />
-            </div>
-            <div>
-              <Label htmlFor="slogan">Slogan</Label>
-              <Input id="slogan" maxLength={120} value={form.slogan}
+            <Linha rotulo="Nome da marca">
+              <input
+                id="nome" required maxLength={60} value={form.nome}
+                onChange={e => up('nome', e.target.value)}
+                className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+              />
+            </Linha>
+            <Linha rotulo="Slogan" apoio="Aparece no cabeçalho e no compartilhamento">
+              <input
+                id="slogan" maxLength={120} value={form.slogan}
                 onChange={e => up('slogan', e.target.value)}
-                placeholder="Ex.: Peça das melhores lojas da sua região" />
-            </div>
+                placeholder="Ex.: Peça das melhores lojas da sua região"
+                className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+              />
+            </Linha>
           </Secao>
 
           {/* Imagens */}
           <Secao icone={ImageIcon} titulo="Imagens">
-            <ImageUpload label="Logo" value={form.logo_url}
-              onChange={v => up('logo_url', v)} aspectRatio="square" />
+            {/* EMPILHADO: em 150px + resto, a prévia da logo fica do tamanho
+                de um selo e o upload deixa de servir para conferir o arquivo. */}
+            <Linha rotulo="Logo" apoio="PNG com fundo transparente" empilhado>
+              <ImageUpload label="" value={form.logo_url}
+                onChange={v => up('logo_url', v)} aspectRatio="square" />
+            </Linha>
 
             {/*
               TAMANHO DA LOGO numa barra de 0 a 100.
@@ -129,15 +137,15 @@ export function TelaMarca() {
               altura em px — a barra sozinha não diz nada sobre o resultado.
             */}
             {form.logo_url && (
-              <div className="rounded-xl border border-border p-3">
-                <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor="logo-escala" className="mb-0">Tamanho da logo</Label>
-                  <span className="font-mono text-xs text-muted-foreground">
-                    {escalaLogo} · {alturaLogo(44, escalaLogo)}px
-                  </span>
-                </div>
-
-                <div className="mt-2 flex items-center gap-3">
+              <Linha
+                rotulo="Tamanho da logo"
+                /* O NÚMERO NO APOIO, não flutuando ao lado da barra: é o dado
+                   que se compara com a prévia, e no rótulo ele não se move
+                   quando a barra muda de largura. */
+                apoio={`${escalaLogo} · ${alturaLogo(44, escalaLogo)}px de altura`}
+                empilhado
+              >
+                <div className="flex items-center gap-3">
                   <span className="text-xs text-muted-foreground">0</span>
                   <input
                     id="logo-escala"
@@ -179,7 +187,7 @@ export function TelaMarca() {
                     </button>
                   )}
                 </div>
-              </div>
+              </Linha>
             )}
 
             {/*
@@ -190,56 +198,64 @@ export function TelaMarca() {
               diferentes, se a logo e o cadastro não combinarem.
             */}
             {form.logo_url && (
-              <button
-                type="button"
-                onClick={() => up('mostrar_nome', !(form.mostrar_nome !== false))}
-                className="flex w-full items-start gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:bg-accent/40"
+              <Linha
+                rotulo="Mostrar o nome ao lado da logo"
+                /* O APOIO MUDA COM O ESTADO: as duas situações são comuns e
+                   opostas — logo só de símbolo precisa do nome ao lado, e logo
+                   com o nome escrito (wordmark) fica repetindo, ou pior,
+                   mostrando dois nomes diferentes se a logo e o cadastro não
+                   combinarem. Quem lê precisa saber o que o desligado faz. */
+                apoio={form.mostrar_nome !== false
+                  ? 'Desligue se a sua logo já traz o nome escrito'
+                  : 'Só a logo aparece no cabeçalho'}
               >
-                <span className={cn('relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors',
-                  form.mostrar_nome !== false ? 'bg-primary' : 'bg-muted-foreground/30')}>
-                  <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-all',
-                    form.mostrar_nome !== false ? 'left-[19px]' : 'left-[3px]')} />
-                </span>
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold">Mostrar o nome ao lado da logo</span>
-                  <span className="block text-xs text-muted-foreground">
-                    {form.mostrar_nome !== false
-                      ? 'Desligue se a sua logo já traz o nome escrito — senão ele aparece duas vezes.'
-                      : 'Só a logo aparece no cabeçalho. Bom pra logo que já tem o nome.'}
-                  </span>
-                </span>
-              </button>
+                <Switch
+                  ligado={form.mostrar_nome !== false}
+                  aoMudar={v => up('mostrar_nome', v)}
+                  rotulo="Mostrar o nome ao lado da logo"
+                />
+              </Linha>
             )}
-            <ImageUpload label="Favicon (ícone da aba)" value={form.favicon_url}
-              onChange={v => up('favicon_url', v)} aspectRatio="square" />
-            <div>
-              <ImageUpload label="Banner da tela de login" value={form.login_banner_url}
+            <Linha rotulo="Favicon" apoio="Ícone da aba do navegador" empilhado>
+              <ImageUpload label="" value={form.favicon_url}
+                onChange={v => up('favicon_url', v)} aspectRatio="square" />
+            </Linha>
+            <Linha
+              rotulo="Banner do login"
+              apoio="No topo do card de /conta · vazio = ilustração padrão · ideal ~1200×480"
+              empilhado
+            >
+              <ImageUpload label="" value={form.login_banner_url}
                 onChange={v => up('login_banner_url', v)} aspectRatio="wide" />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Aparece no topo do card de login (/conta). Vazio = usa a ilustração padrão. Ideal ~1200×480px.
-              </p>
-            </div>
+            </Linha>
           </Secao>
 
           {/* Cores */}
           <Secao icone={Palette} titulo="Cores">
             <CampoCor label="Cor primária" valor={form.cor_primaria}
               onChange={v => up('cor_primaria', v)} />
-            <div className={cn(
-              'rounded-lg px-3 py-2 text-xs flex items-center gap-2',
-              contrasteClaro ? 'bg-foreground text-background' : 'bg-foreground/5'
-            )}>
-              <span className="inline-flex size-4 items-center justify-center rounded-full"
-                style={{ background: form.cor_primaria, color: `hsl(${corFg})` }}>A</span>
-              Texto sobre a cor será <b>{contrasteClaro ? 'branco' : 'escuro'}</b> (contraste automático).
-            </div>
+            {/* NÃO é campo: é o resultado da cor escolhida. Fica na mesma
+                tabela porque é a resposta à pergunta que a cor primária abre
+                — "e o texto em cima dela, dá pra ler?". */}
+            <Linha rotulo="Texto sobre a cor" apoio="Contraste automático">
+              <div className="flex items-center gap-2 text-[13px]">
+                <span
+                  className="inline-flex size-[22px] items-center justify-center text-[12px] font-medium"
+                  style={{ background: form.cor_primaria, color: `hsl(${corFg})`, borderRadius: 4 }}
+                >A</span>
+                {contrasteClaro ? 'Branco' : 'Escuro'}
+              </div>
+            </Linha>
             <CampoCor label="Cor secundária (opcional)" valor={form.cor_secundaria}
               onChange={v => up('cor_secundaria', v)} permiteVazio />
           </Secao>
 
           {/* Cantos */}
           <Secao icone={SquareDashedBottom} titulo="Cantos">
-            <div className="flex gap-2">
+            {/* Sem rótulo de linha: o título da seção já diz "Cantos", e
+                repetir o nome ao lado de três botões que se explicam sozinhos
+                só gasta os 150px da coluna. Só o padding da moldura. */}
+            <div className="flex gap-2 p-3">
               {RAIO_OPCOES.map(op => (
                 <button key={op.valor} type="button" onClick={() => up('raio', op.valor)}
                   className={cn(
@@ -256,7 +272,7 @@ export function TelaMarca() {
 
           {/* Tipografia */}
           <Secao icone={Type} titulo="Tipografia">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-2 p-3 sm:grid-cols-3">
               {(Object.keys(FONTES) as FonteMarca[]).map(f => (
                 <button key={f} type="button" onClick={() => up('fonte', f)}
                   style={{ fontFamily: FONTES[f].stack }}
@@ -273,16 +289,26 @@ export function TelaMarca() {
 
           {/* SEO / Compartilhamento */}
           <Secao icone={Megaphone} titulo="SEO e compartilhamento">
-            <div>
-              <Label htmlFor="descricao">Descrição (Google e redes sociais)</Label>
-              <textarea id="descricao" rows={2} maxLength={200} value={form.descricao}
+            <Linha
+              rotulo="Descrição"
+              /* O CONTADOR NO APOIO: 200 é o limite do que o Google mostra, e
+                 quem escreve precisa ver quanto falta ANTES de estourar — não
+                 depois, quando já pensou a frase inteira. */
+              apoio={`Google e redes sociais · ${form.descricao.length}/200`}
+              empilhado
+            >
+              <textarea
+                id="descricao" rows={2} maxLength={200} value={form.descricao}
                 onChange={e => up('descricao', e.target.value)}
                 placeholder="Uma frase que descreve a plataforma. Aparece no Google e ao compartilhar o link."
-                className="w-full px-3 py-2.5 rounded-xl border border-input bg-background text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring" />
-              <p className="text-xs text-muted-foreground mt-1">{form.descricao.length}/200</p>
-            </div>
-            <ImageUpload label="Imagem de compartilhamento (Open Graph)"
-              value={form.og_image} onChange={v => up('og_image', v)} aspectRatio="wide" />
+                className="w-full resize-none px-2.5 py-2 text-[13px] outline-none"
+                style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+              />
+            </Linha>
+            <Linha rotulo="Imagem de compartilhamento" apoio="Open Graph · aparece ao colar o link" empilhado>
+              <ImageUpload label="" value={form.og_image}
+                onChange={v => up('og_image', v)} aspectRatio="wide" />
+            </Linha>
           </Secao>
 
           {/*
@@ -292,53 +318,67 @@ export function TelaMarca() {
             a marca dele quer o nome dele ali. Vazio = não aparece nada.
           */}
           <Secao icone={Code2} titulo="Crédito no rodapé">
-            <p className="text-xs text-muted-foreground">
+            <p className="px-3 pt-2.5 text-[11.5px] leading-snug" style={{ color: 'var(--adm-rotulo, #78716C)' }}>
               Aparece no fim do painel de quem contratou. Deixe o texto vazio para não mostrar nada.
             </p>
-            <div>
-              <Label htmlFor="rodape-texto">Texto</Label>
-              <Input id="rodape-texto" maxLength={60}
+            <Linha rotulo="Texto">
+              <input
+                id="rodape-texto" maxLength={60}
                 value={form.rodape_credito_texto || ''}
                 onChange={e => up('rodape_credito_texto', e.target.value)}
-                placeholder="Ex.: Desenvolvido por" />
-            </div>
-            <ImageUpload label="Logo abaixo do texto (opcional)"
-              value={form.rodape_credito_logo_url || ''}
-              onChange={v => up('rodape_credito_logo_url', v)} aspectRatio="wide" />
-            <div>
-              <Label htmlFor="rodape-url">Link (opcional)</Label>
-              <Input id="rodape-url" maxLength={300}
+                placeholder="Ex.: Desenvolvido por"
+                className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+              />
+            </Linha>
+            <Linha rotulo="Logo do rodapé" apoio="Opcional · aparece abaixo do texto" empilhado>
+              <ImageUpload label=""
+                value={form.rodape_credito_logo_url || ''}
+                onChange={v => up('rodape_credito_logo_url', v)} aspectRatio="wide" />
+            </Linha>
+            <Linha rotulo="Link" apoio="Opcional · abre em outra aba, para não tirar o lojista do painel">
+              <input
+                id="rodape-url" maxLength={300}
                 value={form.rodape_credito_url || ''}
                 onChange={e => up('rodape_credito_url', e.target.value)}
-                placeholder="https://seusite.com.br" />
-              <p className="mt-1 text-xs text-muted-foreground">Abre em outra aba, pra não tirar o lojista do painel.</p>
-            </div>
-            <div>
-              <Label htmlFor="rodape-botao">Texto do botão (opcional)</Label>
-              <Input id="rodape-botao" maxLength={60}
+                placeholder="https://seusite.com.br"
+                className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+              />
+            </Linha>
+            {/* O AVISO VAI NO APOIO, e muda de texto conforme o estado: sem
+                link, o botão não leva a lugar nenhum — melhor dizer aqui do que
+                deixar o lojista achando que salvou e não apareceu. */}
+            <Linha
+              rotulo="Texto do botão"
+              apoio={form.rodape_credito_botao && !form.rodape_credito_url
+                ? 'Preencha o link acima, senão o botão não aparece'
+                : 'Opcional · só aparece se o link estiver preenchido'}
+            >
+              <input
+                id="rodape-botao" maxLength={60}
                 value={form.rodape_credito_botao || ''}
                 onChange={e => up('rodape_credito_botao', e.target.value)}
-                placeholder="Ex.: Conheça a Unimaxx" />
-              {/* Sem link o botão não leva a lugar nenhum — melhor avisar aqui do
-                  que deixar o lojista achando que salvou e não apareceu. */}
-              <p className="mt-1 text-xs text-muted-foreground">
-                {form.rodape_credito_botao && !form.rodape_credito_url
-                  ? 'Preencha o link acima, senão o botão não aparece.'
-                  : 'Só aparece se o link estiver preenchido.'}
-              </p>
-            </div>
-            <div>
-              <Label htmlFor="rodape-copy">Linha de copyright (opcional)</Label>
-              <Input id="rodape-copy" maxLength={160}
+                placeholder="Ex.: Conheça a Unimaxx"
+                className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+              />
+            </Linha>
+            <Linha rotulo="Copyright" apoio="Opcional">
+              <input
+                id="rodape-copy" maxLength={160}
                 value={form.rodape_credito_copyright || ''}
                 onChange={e => up('rodape_credito_copyright', e.target.value)}
-                placeholder="© 2026 Sua Empresa LTDA — CNPJ 00.000.000/0001-00" />
-            </div>
+                placeholder="© 2026 Sua Empresa LTDA — CNPJ 00.000.000/0001-00"
+                className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+              />
+            </Linha>
           </Secao>
 
           {/* Modo de exibição: loja única (white label) ou marketplace */}
           <Secao icone={Eye} titulo="Modo de exibição">
-            <div className="space-y-2">
+            <div className="space-y-2 p-3">
               {/* Landing page do produto */}
               <button type="button" onClick={() => up('loja_id', 0)}
                 className={cn('w-full flex items-start gap-3 rounded-xl border-2 p-3 text-left transition-colors',
