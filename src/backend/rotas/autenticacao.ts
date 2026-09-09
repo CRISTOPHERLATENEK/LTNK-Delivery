@@ -36,6 +36,7 @@ import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, telefoneDigit
 import { enviarEmail, emailRedefinirSenha, emailHabilitado } from '../email';
 import { criptografar, descriptografar } from '../cripto';
 import { Perfil, Usuario } from '../../tipos/modelos';
+import { VERSAO_DOCUMENTOS } from '../documentos-legais';
 
 /** Perfis que exigem 2FA (TOTP) obrigatório pra logar. */
 const PERFIS_2FA: Perfil[] = ['lojista', 'admin'];
@@ -99,9 +100,18 @@ async function versaoDosTermos(): Promise<string> {
     const row = await db.prepare(
       "SELECT valor FROM configuracoes WHERE chave = 'termos_versao'"
     ).get() as { valor: string | null } | undefined;
-    return row?.valor || '';
+    /*
+     * VAZIO CAI NA VERSAO PUBLICADA, nao em string vazia.
+     *
+     * `termos_versao` nasce vazio, e nenhuma instalacao tinha preenchido: o
+     * aceite de todo mundo estava sendo gravado como aceite da versao "" — data
+     * de aceite sem documento, que nao prova o que a pessoa concordou. O padrao
+     * agora e a versao que viaja com o codigo, e o campo do admin continua
+     * ganhando de quem publica documento proprio.
+     */
+    return row?.valor || VERSAO_DOCUMENTOS;
   } catch {
-    return '';
+    return VERSAO_DOCUMENTOS;
   }
 }
 

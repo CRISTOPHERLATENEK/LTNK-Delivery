@@ -968,6 +968,17 @@ const CONFIGS_PADRAO: Array<[string, string]> = [
   /* Versão publicada dos documentos (ex.: '2026-09-08'). Vai gravada junto com
      o aceite de cada pessoa. */
   ['termos_versao', ''],
+  /*
+   * ENCARREGADO PELO TRATAMENTO DE DADOS (LGPD art. 41).
+   *
+   * A lei manda indicar E divulgar publicamente. Sao tres campos e nao um texto
+   * so porque a pagina de privacidade monta a linha ("Nome — e-mail — telefone")
+   * e o telefone e opcional; texto livre viraria formato diferente em cada
+   * lugar que exibe. Vazio = a pagina nao inventa canal nenhum.
+   */
+  ['encarregado_nome', ''],
+  ['encarregado_email', ''],
+  ['encarregado_telefone', ''],
   // 0 = a plataforma NÃO cobra comissão por pedido (modelo só-mensalidade, o
   // que a landing anuncia). O motor de comissão continua existindo pra quem
   // quiser cobrar: basta o admin definir um percentual global ou por loja.

@@ -35,6 +35,10 @@ const PainelCozinha = lazySeguro(() => import('@/pages/cozinha/painel').then(m =
 const TelaAdmin = lazySeguro(() => import('@/pages/admin').then(m => ({ default: m.TelaAdmin })));
 const TelaMarca = lazySeguro(() => import('@/pages/admin/marca').then(m => ({ default: m.TelaMarca })));
 const TelaLanding = lazySeguro(() => import('@/pages/admin/marca/landing').then(m => ({ default: m.TelaLanding })));
+/* Documentos legais: texto longo que quase ninguem abre, entao entram por lazy
+   em vez de pesar o pacote inicial de toda visita a vitrine. */
+const PaginaTermos = lazySeguro(() => import('@/pages/legal').then(m => ({ default: m.Termos })));
+const PaginaPrivacidade = lazySeguro(() => import('@/pages/legal').then(m => ({ default: m.Privacidade })));
 const TelaConfiguracoes = lazySeguro(() => import('@/pages/admin/configuracoes').then(m => ({ default: m.TelaConfiguracoes })));
 const TelaAdmins = lazySeguro(() => import('@/pages/admin/admins').then(m => ({ default: m.TelaAdmins })));
 const TelaLojistas = lazySeguro(() => import('@/pages/admin/lojistas').then(m => ({ default: m.TelaLojistas })));
@@ -172,6 +176,14 @@ export default function App() {
           quanto um redirect pra /:id (que aí sim usa o layout de compras). */}
       <Route path="/" element={<PaginaVitrine />} />
       <Route path="/demo/:slug" element={<PaginaDemo />} />
+      {/*
+        ANTES de `/:id`, que casa qualquer segmento e e a URL da loja. Depois
+        dele, /termos viraria "loja de slug termos" e cairia no 404 da vitrine.
+        Os dois nomes tambem entraram em SLUGS_RESERVADOS no servidor, senao um
+        lojista poderia registrar o slug e sequestrar o documento legal.
+      */}
+      <Route path="/termos" element={<PaginaTermos />} />
+      <Route path="/privacidade" element={<PaginaPrivacidade />} />
       <Route path="/:id" element={<ClienteLayout><PaginaLoja /></ClienteLayout>} />
       <Route path="/carrinho" element={<ClienteLayout><PaginaCarrinho /></ClienteLayout>} />
       <Route path="/pedidos" element={<ClienteLayout><PaginaPedidos /></ClienteLayout>} />

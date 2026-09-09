@@ -11,6 +11,7 @@ import { ehMaster, lerRodapeCredito } from '../tenants-mysql';
 import { montarLandingPublica } from '../landing-campos';
 import { lojaIdDoHost } from '../dominios';
 import { GrupoComOpcoes, Loja, OpcaoItem, Produto } from '../../tipos/modelos';
+import { CAMINHO_POLITICA, CAMINHO_TERMOS, VERSAO_DOCUMENTOS, enderecoDoDocumento } from '../documentos-legais';
 
 const router = Router();
 
@@ -137,8 +138,26 @@ router.get('/tema', async (req, res, next) => {
       // Usados no rodapé da landing — mesmos campos já editáveis em Marca → Configurações gerais.
       suporte_email:     await valor('suporte_email'),
       suporte_telefone:  await valor('suporte_telefone'),
-      termos_url:        await valor('termos_url'),
-      politica_url:      await valor('politica_url'),
+      /*
+       * O PADRAO DEIXOU DE SER "NADA". Vazio aqui significava link nenhum, e a
+       * tela do cliente escondia a frase de aceite — a plataforma rodava sem
+       * cumprir o dever de informar do art. 9. Agora o padrao e a pagina que o
+       * proprio app serve; o campo do admin continua ganhando de quem hospeda
+       * o documento em outro lugar.
+       */
+      termos_url:        enderecoDoDocumento(await valor('termos_url'), CAMINHO_TERMOS),
+      politica_url:      enderecoDoDocumento(await valor('politica_url'), CAMINHO_POLITICA),
+      /* A versao vem daqui e nao esta duplicada na tela: e a MESMA que vai
+         gravada no aceite de cada pessoa, e duas fontes divergiriam. */
+      termos_versao:     await valor('termos_versao') || VERSAO_DOCUMENTOS,
+      /*
+       * ENCARREGADO (LGPD art. 41): nome e canal, divulgados publicamente. Sao
+       * campos de configuracao e nao texto fixo porque quem responde pelos
+       * dados muda, e um nome errado na pagina e pior que nenhum.
+       */
+      encarregado_nome:     await valor('encarregado_nome'),
+      encarregado_email:    await valor('encarregado_email'),
+      encarregado_telefone: await valor('encarregado_telefone'),
     });
   } catch (e) { next(e); }
 });

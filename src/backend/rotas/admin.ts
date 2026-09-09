@@ -45,6 +45,7 @@ import { geocodificarTexto } from '../geo';
 const BANCO_CENTRAL = process.env.MYSQL_DATABASE_CENTRAL || process.env.MYSQL_DATABASE || '';
 import zlib from 'zlib';
 import { Banner } from '../../tipos/modelos';
+import { CAMINHO_POLITICA, CAMINHO_TERMOS, VERSAO_DOCUMENTOS } from '../documentos-legais';
 
 const router = Router();
 router.use(autenticar, exigirPerfil('admin'));
@@ -2038,6 +2039,16 @@ router.get('/configuracoes-gerais', async (_req, res, next) => {
       termos_url:       await valor('termos_url'),
       politica_url:     await valor('politica_url'),
       termos_versao:    await valor('termos_versao'),
+      /* Encarregado (LGPD art. 41) — nome e canal do titular. */
+      encarregado_nome:     await valor('encarregado_nome'),
+      encarregado_email:    await valor('encarregado_email'),
+      encarregado_telefone: await valor('encarregado_telefone'),
+      /* O que a plataforma serve por conta propria quando os campos de URL
+         estao vazios: a tela mostra isso como o link em vigor, em vez de
+         deixar o super admin achando que nao ha documento nenhum. */
+      termos_url_padrao:    CAMINHO_TERMOS,
+      politica_url_padrao:  CAMINHO_POLITICA,
+      termos_versao_padrao: VERSAO_DOCUMENTOS,
       wbapi_server:      await valorCentral('wbapi_server'),
       wbapi_session_id:  await valorCentral('wbapi_session_id'),
       // A chave nunca é devolvida — só se está configurada ou não (mesmo padrão do token oficial da Meta).
@@ -2077,6 +2088,22 @@ router.put('/configuracoes-gerais', exigirSuperAdmin, async (req, res, next) => 
     }
     if (req.body.termos_versao !== undefined) {
       await upsert('termos_versao', textoLimpo(req.body.termos_versao, 40));
+    }
+    /*
+     * ENCARREGADO. O nome vem antes do canal de propósito na validação: canal
+     * sem nome ainda serve de contato, mas nome sem canal é uma pessoa apontada
+     * publicamente sem como ser procurada — o pior dos dois.
+     */
+    if (req.body.encarregado_nome !== undefined) {
+      await upsert('encarregado_nome', textoLimpo(req.body.encarregado_nome, 120));
+    }
+    if (req.body.encarregado_email !== undefined) {
+      const v = textoLimpo(req.body.encarregado_email, 200);
+      if (v && !emailValido(v)) throw erroHttp(400, 'E-mail do encarregado inválido.');
+      await upsert('encarregado_email', v);
+    }
+    if (req.body.encarregado_telefone !== undefined) {
+      await upsert('encarregado_telefone', textoLimpo(req.body.encarregado_telefone, 30));
     }
     if (req.body.termos_url !== undefined) {
       const v = textoLimpo(req.body.termos_url, 500);

@@ -13,6 +13,9 @@
 export const SLUGS_RESERVADOS: readonly string[] = [
   // Rotas do app do cliente.
   'carrinho', 'conta', 'esqueci-senha', 'pedido', 'pedidos', 'redefinir-senha', 'revenda', 'demo',
+  /* Documentos legais que a plataforma serve por conta propria. Loja com slug
+     `privacidade` responderia no endereco da politica de privacidade. */
+  'termos', 'privacidade',
   // Áreas (cada uma tem o próprio prefixo de rota).
   'cozinha', 'entregador', 'lojista', 'painel-admin',
   // Servidor.

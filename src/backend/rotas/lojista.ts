@@ -77,6 +77,10 @@ import { GrupoOpcao, Loja, OpcaoItem, Pedido, Produto, StatusPedido } from '../.
 const SLUGS_RESERVADOS = new Set([
   'demo', 'carrinho', 'pedidos', 'pedido', 'conta', 'esqueci-senha',
   'redefinir-senha', 'lojista', 'entregador', 'cozinha', 'painel-admin', 'api',
+  /* Documentos legais servidos pelo proprio app. Sem isto, um lojista poderia
+     registrar o slug 'privacidade' e a loja dele passaria a responder no lugar
+     da politica de privacidade da plataforma. */
+  'termos', 'privacidade',
 ]);
 
 /** Pasta protegida do certificado de uma loja (namespeada por tenant). */

@@ -239,6 +239,15 @@ export interface TemaMarca {
   termos_url?: string;
   /** Política de privacidade — documento separado dos termos (LGPD, art. 9º). */
   politica_url?: string;
+  /** Versão publicada dos documentos, exibida no topo deles e gravada no aceite. */
+  termos_versao?: string;
+  /**
+   * Encarregado pelo tratamento de dados (LGPD, art. 41) — a lei manda indicar
+   * E divulgar publicamente. Vazio = a página não inventa canal nenhum.
+   */
+  encarregado_nome?: string;
+  encarregado_email?: string;
+  encarregado_telefone?: string;
   /** Comparativo "sem/com a plataforma" na landing. */
   landing_comparativo_sem?: string[] | null;
   landing_comparativo_com?: string[] | null;

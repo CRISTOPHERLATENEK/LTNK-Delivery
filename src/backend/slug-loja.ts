@@ -21,6 +21,7 @@
 export const SLUGS_RESERVADOS = new Set([
   'demo', 'carrinho', 'pedidos', 'pedido', 'conta', 'esqueci-senha',
   'redefinir-senha', 'lojista', 'entregador', 'cozinha', 'painel-admin', 'api',
+  'termos', 'privacidade',
 ]);
 
 /** Formato aceito pelo painel do lojista — mantido idêntico de propósito. */

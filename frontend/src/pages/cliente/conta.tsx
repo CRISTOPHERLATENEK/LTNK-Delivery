@@ -647,9 +647,14 @@ function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
 
       {/*
         O AVISO DE ACEITE FICA JUNTO DO BOTÃO, e é o que o servidor grava
-        (data + versão dos documentos). Sem os links publicados no painel, a
-        frase não aparece — dizer "você aceita os termos" sem ter termos para ler
-        é pior que não dizer nada.
+        (data + versão dos documentos).
+
+        A GUARDA CONTINUA AQUI mesmo agora que a plataforma serve os dois
+        documentos por conta própria (`/termos` e `/privacidade` são o padrão
+        quando o admin não aponta pra fora). Ela deixou de disparar no uso
+        normal, mas o motivo dela não mudou: dizer "você aceita os termos" sem
+        ter termos para ler é pior que não dizer nada, e ela é o que segura essa
+        frase se alguém apagar o padrão.
       */}
       {(marca.termos_url || marca.politica_url) && (
         <p className="text-center text-[11.5px] leading-snug text-muted-foreground">

@@ -18,6 +18,15 @@ interface ConfiguracoesGerais {
   termos_url: string;
   politica_url: string;
   termos_versao: string;
+  encarregado_nome: string;
+  encarregado_email: string;
+  encarregado_telefone: string;
+  /* Somente leitura: o que a plataforma serve por conta propria quando os
+     campos de URL ficam vazios. Sem isto a tela sugeria que vazio = sem
+     documento, que era verdade antes e deixou de ser. */
+  termos_url_padrao?: string;
+  politica_url_padrao?: string;
+  termos_versao_padrao?: string;
   wbapi_server: string;
   wbapi_session_id: string;
   wbapi_configurado: boolean;
@@ -37,7 +46,7 @@ function SecaoConfiguracoesGerais() {
     queryFn: () => api<ConfiguracoesGerais>('GET', '/api/admin/configuracoes-gerais'),
   });
   const [form, setForm] = useState<ConfiguracoesGerais>({
-    suporte_email: '', suporte_telefone: '', termos_url: '', politica_url: '', termos_versao: '', wbapi_server: '', wbapi_session_id: '', wbapi_configurado: false,
+    suporte_email: '', suporte_telefone: '', termos_url: '', politica_url: '', termos_versao: '', encarregado_nome: '', encarregado_email: '', encarregado_telefone: '', wbapi_server: '', wbapi_session_id: '', wbapi_configurado: false,
     mercadopago_modo: 'producao', mercadopago_token_teste_mascarado: null, mercadopago_token_producao_mascarado: null,
   });
   const [wbapiApiKey, setWbapiApiKey] = useState(''); // write-only: nunca vem preenchido do servidor
@@ -57,6 +66,9 @@ function SecaoConfiguracoesGerais() {
         termos_url: form.termos_url,
         politica_url: form.politica_url,
         termos_versao: form.termos_versao,
+        encarregado_nome: form.encarregado_nome,
+        encarregado_email: form.encarregado_email,
+        encarregado_telefone: form.encarregado_telefone,
         wbapi_server: form.wbapi_server,
         wbapi_session_id: form.wbapi_session_id,
         ...(wbapiApiKey.trim() ? { wbapi_api_key: wbapiApiKey.trim() } : {}),
@@ -98,7 +110,8 @@ function SecaoConfiguracoesGerais() {
               style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
             />
           </Linha>
-          <Linha rotulo="Termos de uso" apoio="Vazio = a plataforma não exibe o link">
+          <Linha rotulo="Termos de uso"
+            apoio={`Vazio = usa a página da plataforma (${form.termos_url_padrao || '/termos'})`}>
             <input
               id="termos_url" maxLength={500} value={form.termos_url}
               onChange={e => setForm(f => ({ ...f, termos_url: e.target.value }))}
@@ -113,7 +126,8 @@ function SecaoConfiguracoesGerais() {
             quê, por quanto tempo, e como a pessoa exerce os direitos dela. Um
             link só, chamado "termos", não cumpre o dever de informar.
           */}
-          <Linha rotulo="Política de privacidade" apoio="Vazio = a plataforma não exibe o link">
+          <Linha rotulo="Política de privacidade"
+            apoio={`Vazio = usa a página da plataforma (${form.politica_url_padrao || '/privacidade'})`}>
             <input
               id="politica_url" maxLength={500} value={form.politica_url}
               onChange={e => setForm(f => ({ ...f, politica_url: e.target.value }))}
@@ -127,7 +141,8 @@ function SecaoConfiguracoesGerais() {
             diz "aceitou em tal data" e não diz O QUE aceitou — que é
             exatamente o que se pergunta quando os documentos mudam.
           */}
-          <Linha rotulo="Versão publicada" apoio="Mude ao publicar documento novo · fica gravada em cada aceite">
+          <Linha rotulo="Versão publicada"
+            apoio={`Vazio = ${form.termos_versao_padrao || 'a versão que vem no código'} · fica gravada em cada aceite`}>
             <input
               id="termos_versao" maxLength={40} value={form.termos_versao}
               onChange={e => setForm(f => ({ ...f, termos_versao: e.target.value }))}
@@ -136,6 +151,53 @@ function SecaoConfiguracoesGerais() {
               style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
             />
           </Linha>
+          {/*
+            ENCARREGADO (LGPD art. 41): a lei manda indicar E DIVULGAR
+            publicamente. Fica aqui, e nao num texto fixo no codigo, porque
+            quem responde pelos dados muda de pessoa — e nome errado numa
+            pagina de privacidade e pior que nome nenhum.
+
+            Vazio nao inventa canal: o bloco simplesmente nao aparece na
+            politica, e a obrigacao aparece como ausencia em vez de virar um
+            "entre em contato" sem endereco.
+          */}
+          <Linha rotulo="Encarregado (LGPD)" apoio="Nome divulgado na política de privacidade · art. 41">
+            <input
+              id="encarregado_nome" maxLength={120} value={form.encarregado_nome}
+              onChange={e => setForm(f => ({ ...f, encarregado_nome: e.target.value }))}
+              placeholder="Nome da pessoa responsável"
+              className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
+          <Linha rotulo="E-mail do encarregado" apoio="Canal do titular para exercer direitos">
+            <input
+              id="encarregado_email" maxLength={200} value={form.encarregado_email}
+              onChange={e => setForm(f => ({ ...f, encarregado_email: e.target.value }))}
+              placeholder="privacidade@suaempresa.com.br"
+              className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
+          <Linha rotulo="Telefone do encarregado" apoio="Opcional">
+            <input
+              id="encarregado_telefone" maxLength={30} value={form.encarregado_telefone}
+              onChange={e => setForm(f => ({ ...f, encarregado_telefone: e.target.value }))}
+              placeholder="(47) 2018-3000"
+              className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+              style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+            />
+          </Linha>
+          {/*
+            O AVISO QUE IMPORTA: nome sem canal e uma pessoa apontada
+            publicamente sem como ser procurada — o pior dos dois estados.
+          */}
+          {form.encarregado_nome.trim() && !form.encarregado_email.trim() && (
+            <p className="px-3 pb-2.5 text-[11.5px] leading-snug text-amber-600">
+              Encarregado nomeado sem e-mail: a política mostra o nome mas não dá
+              como falar com ele. Informe o canal.
+            </p>
+          )}
       </Secao>
 
       <Secao icone={MessageCircle} titulo="WhatsApp não-oficial (WBAPI)">
