@@ -325,10 +325,16 @@ export async function fecharDocumentoNoErp(pedidoId: number, opcoes: OpcoesMaxxG
       method: 'POST',
       body: JSON.stringify({ status: 'E' }),
     });
-    console.log(`[erp] pedido ${pedidoId}: documento ${documento} marcado como Emitido — a nota saiu do delivery`);
+    /*
+     * MENSAGEM NEUTRA porque agora há DOIS chamadores com significados
+     * diferentes: o envio do pedido (marca E porque todo pedido vai emitido) e
+     * a emissão da nota pelo nosso emissor (marca E porque a nota saiu daqui).
+     * A frase antiga afirmava a segunda em todo caso.
+     */
+    console.log(`[erp] pedido ${pedidoId}: documento ${documento} marcado como Emitido (status E)`);
     return true;
   } catch (e) {
-    console.log(`[erp] pedido ${pedidoId}: nota emitida aqui, mas não consegui fechar o documento ${documento} no ERP: ${(e as Error).message}`);
+    console.log(`[erp] pedido ${pedidoId}: não consegui marcar o documento ${documento} como Emitido no ERP: ${(e as Error).message}`);
     return false;
   }
 }
@@ -636,31 +642,38 @@ export async function enviarPedidoAoErp(
   console.log(`[erp] pedido ${pedidoId}: enviado ao Maxx Gestão como documento ${documento} em ${Date.now() - comecou}ms`);
 
   /*
-   * TODO PEDIDO QUE VAI PARA O ERP TEM QUE IR EMITIDO. Regra do negócio.
+   * TODO PEDIDO VAI COM STATUS EMITIDO — e "emitido" aqui é o STATUS do
+   * PEDIDO DE VENDA, não uma NFC-e.
    *
-   * Antes a emissão era OPT-IN e desligada por padrão — o documento subia como
-   * rascunho e ficava lá. O resultado em produção: 8 pedidos enviados, nenhum
-   * com chave, e a guarda de emissão manual bloqueando com "esta venda já é o
-   * documento nº X no Maxx Gestão". Dois caminhos fechados, venda sem
-   * documento fiscal, e nada dizendo.
+   * Eu li errado a primeira vez e liguei `transformar` + `emitir` por padrão:
+   * aquilo CONVERTE o Pedido de Venda em NFC-e (modelo 65), consome numeração
+   * fiscal e vai à SEFAZ — que recusa por `infIntermed`. Não é o que se pede
+   * aqui. O documento continua sendo Pedido de Venda (`PA`); o que muda é o
+   * status, de R (rascunho) para E (emitido), num POST direto de status.
    *
-   * `maxxgestao_auto_emitir` continua existindo como DESLIGAR explícito, para
-   * quem fatura em lote na mão no ERP — mas o padrão inverteu: quem não
-   * configurou nada agora emite.
+   * Por que importa: rascunho no ERP é documento que ninguém fatura e que não
+   * aparece nos relatórios de venda de lá. Era o estado dos 8 pedidos que
+   * subiram — todos em R.
+   *
+   * Isto NÃO é opcional e NÃO passa por `maxxgestao_auto_emitir`: aquela chave
+   * governa a emissão de NFC-e pelo ERP, que é outro assunto e segue desligada
+   * por padrão.
    */
-  const desligado = Number(loja?.maxxgestao_auto_emitir ?? 1) === 0;
-  if (desligado) {
-    await registrarResultado(pedidoId, false, 'emissão automática desligada nesta loja');
-    return { emitiu: true, documento };
-  }
+  const marcou = await fecharDocumentoNoErp(pedidoId, opcoes);
+  await registrarResultado(pedidoId, marcou,
+    marcou ? '' : 'o documento subiu, mas não deu para marcar como Emitido no ERP');
 
   /*
-   * E O RESULTADO É GRAVADO. Antes esta chamada era `await` e o retorno
-   * IGNORADO: transformar podia falhar, a SEFAZ podia recusar, e o motivo ia
-   * para um console.log que ninguém lê. Agora "não saiu" é dado, com o porquê.
+   * EMITIR NFC-e PELO ERP é outra coisa, e continua opt-in desligada: emitir
+   * não tem volta, e hoje a SEFAZ recusa por falta de `infIntermed` — dado que
+   * é montado do lado do ERP.
    */
-  const r = await emitirDocumentoNoErp(token, documento, pedidoId, opcoes);
-  await registrarResultado(pedidoId, r.emitiu, r.emitiu ? '' : (r.motivo || 'a emissão não foi concluída'));
+  if (Number(loja?.maxxgestao_auto_emitir ?? 0) === 1) {
+    const r = await emitirDocumentoNoErp(token, documento, pedidoId, opcoes);
+    if (!r.emitiu) {
+      await registrarResultado(pedidoId, false, r.motivo || 'a emissão da NFC-e não foi concluída');
+    }
+  }
 
   return { emitiu: true, documento };
 

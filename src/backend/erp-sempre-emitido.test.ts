@@ -43,26 +43,60 @@ describe('emitir passou a ser o padrão', () => {
   });
 
   /*
-   * O PADRÃO INVERTEU: `?? 1` em vez de `?? 0`. Loja que nunca configurou nada
-   * agora emite, e só quem DESLIGOU explicitamente não emite.
+   * "EMITIDO" É O STATUS DO PEDIDO DE VENDA, NÃO UMA NFC-e.
+   *
+   * ERRO MEU, corrigido no mesmo dia. Eu li "todo pedido tem que ir com status
+   * de emitido" como "emitir a nota fiscal", e liguei `transformar` + `emitir`
+   * por padrão. Aquilo CONVERTE o Pedido de Venda em NFC-e (modelo 65), consome
+   * numeração fiscal e vai à SEFAZ — que recusa por `infIntermed`. Não era o
+   * pedido: o documento continua `PA`, muda só o status de R para E.
+   *
+   * O que o status E resolve: rascunho no ERP é documento que ninguém fatura e
+   * que não aparece nos relatórios de venda de lá. Era o estado dos 8 que
+   * subiram.
    */
-  it('quem não configurou nada emite', () => {
-    expect(exec(emitir)).toContain('maxxgestao_auto_emitir ?? 1');
-    expect(exec(emitir)).not.toContain('maxxgestao_auto_emitir ?? 0');
+  it('marca o status E no envio, e isso não é opcional', () => {
+    expect(exec(emitir)).toMatch(/const marcou = await fecharDocumentoNoErp\(pedidoId, opcoes\)/);
+    /*
+     * ORDEM, não janela de caracteres. Minha primeira versão olhava os 300
+     * caracteres seguintes e pegava o bloco OPCIONAL da NFC-e que vem depois —
+     * armadilha de janela, a mesma que eu já consertei em outro teste hoje.
+     *
+     * O que se afirma é: o status E acontece ANTES e FORA de qualquer
+     * condicional da chave de auto-emissão.
+     */
+    const codigo = exec(emitir);
+    const iStatus = codigo.indexOf('const marcou = await fecharDocumentoNoErp');
+    const iOpcional = codigo.indexOf('maxxgestao_auto_emitir ?? 0');
+    expect(iStatus).toBeGreaterThan(0);
+    expect(iOpcional).toBeGreaterThan(iStatus);
   });
 
-  it('o desligar explícito continua existindo, e fica registrado no pedido', () => {
-    expect(exec(emitir)).toMatch(/const desligado/);
-    expect(exec(emitir)).toContain('emissão automática desligada nesta loja');
+  it('o status E é POST de status, não transformar nem emitir', () => {
+    const fn = emitir.slice(emitir.indexOf('export async function fecharDocumentoNoErp'));
+    const corpo = fn.slice(0, fn.indexOf('\n}\n'));
+    expect(corpo).toContain('/status/v1');
+    expect(corpo).toContain("status: 'E'");
+    expect(corpo).not.toContain('transformar');
+    expect(corpo).not.toContain('/emitir');
   });
 
   /*
-   * O RESULTADO É GRAVADO. Sem isto, "não saiu" continua sendo uma linha de log
-   * — e log é onde a informação vai morar quando não há ninguém lendo.
+   * E A NFC-e PELO ERP VOLTOU A SER OPT-IN DESLIGADA. Emitir não tem volta, e
+   * hoje a SEFAZ recusa por falta de `infIntermed` — dado montado do lado do
+   * ERP. Ligar por padrão era converter todo pedido em nota recusada.
    */
-  it('o retorno da emissão não é mais ignorado', () => {
-    expect(exec(emitir)).toMatch(/const r = await emitirDocumentoNoErp/);
-    expect(exec(emitir)).toMatch(/registrarResultado\(pedidoId, r\.emitiu/);
+  it('emitir NFC-e pelo ERP segue desligado por padrão', () => {
+    expect(exec(emitir)).toContain('maxxgestao_auto_emitir ?? 0');
+    expect(exec(emitir)).not.toContain('maxxgestao_auto_emitir ?? 1');
+  });
+
+  /*
+   * O RESULTADO É GRAVADO. Sem isto, "não marcou" continua sendo uma linha de
+   * log — e log é onde a informação vai morar quando não há ninguém lendo.
+   */
+  it('o resultado da marcação é gravado no pedido', () => {
+    expect(exec(emitir)).toMatch(/registrarResultado\(pedidoId, marcou/);
   });
 
   it('o motivo da recusa é gravado no pedido', () => {

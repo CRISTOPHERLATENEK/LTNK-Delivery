@@ -333,29 +333,31 @@ describe('o funil da nota', () => {
     expect(marca).toBeGreaterThan(criacao);
   });
 
-  it('emite por padrão, e só não emite quem desligou', () => {
+  it('NFC-e pelo ERP continua opt-in; o status E é que é sempre', () => {
     /*
-     * ESTE TESTE MUDOU DE LADO PELA TERCEIRA VEZ, e a sequência é a história
-     * da decisão:
+     * ESTE TESTE FOI PARA O LADO ERRADO E VOLTOU, no mesmo dia, e o motivo é
+     * meu — não uma mudança de regra.
      *
-     *  1º  nunca emitir  — "a parte fiscal a gente resolve lá no ERP";
-     *  2º  emitir opt-in, desligado por padrão — emitir não tem volta, então
-     *      quem liga precisa ter decidido;
-     *  3º  emitir por PADRÃO — regra do dono: "todos os pedidos que forem para
-     *      o Maxx Gestão têm que ir com status de emitido".
+     * O pedido foi: "todos os pedidos que forem para o Maxx Gestão têm que ir
+     * com status de emitido". Eu li "emitido" como NOTA FISCAL e liguei
+     * `transformar` + `emitir` por padrão. Aquilo converte o Pedido de Venda em
+     * NFC-e (modelo 65), consome numeração fiscal e vai à SEFAZ — que hoje
+     * recusa por `infIntermed`. Ou seja: eu transformei "marque o status" em
+     * "emita nota", e o padrão novo teria virado todo pedido numa nota recusada.
      *
-     * O que fez a 2ª virar 3ª não foi opinião: com o opt-in desligado, produção
-     * acumulou 8 pedidos com documento no ERP e NENHUM com chave. Rascunho que
-     * ninguém fatura é venda sem documento fiscal, e o padrão que produz isso
-     * está errado por mais cuidadoso que pareça.
+     * O que se pedia era o STATUS do documento: continua `PA`, sai de R
+     * (rascunho) para E (emitido). Isso é um POST em /status/v1 e não passa por
+     * chave nenhuma — ver `erp-sempre-emitido.test.ts`.
      *
-     * O `desligar` continua existindo para quem fatura em lote na mão — mas
-     * agora é uma decisão explícita, e ela fica registrada no pedido.
+     * Então aqui volta a valer o de sempre: emitir NFC-e pelo ERP é opt-in e
+     * nasce desligado, porque emitir não tem volta.
      */
     const f = fonte('maxxgestao-emitir.ts');
-    expect(f).toContain('maxxgestao_auto_emitir ?? 1');
-    expect(f).not.toContain('maxxgestao_auto_emitir ?? 0');
-    expect(f.indexOf('emitirDocumentoNoErp(token, documento, pedidoId')).toBeGreaterThan(0);
+    expect(f).toContain('maxxgestao_auto_emitir ?? 0');
+    expect(f).not.toContain('maxxgestao_auto_emitir ?? 1');
+    /* E a marcação de status acontece antes, fora do condicional. */
+    expect(f.indexOf('fecharDocumentoNoErp(pedidoId, opcoes)'))
+      .toBeLessThan(f.indexOf('maxxgestao_auto_emitir ?? 0'));
   });
 });
 
@@ -555,10 +557,10 @@ describe('a emissão automática no ERP', () => {
     expect(schema).toContain("maxxgestao_auto_emitir TINYINT NOT NULL DEFAULT 0");
   });
 
-  /* Mudou de lado junto com o de cima — ver o motivo lá. */
-  it('roda por padrão; quem desligou é que não emite', () => {
-    expect(emitir).toContain('maxxgestao_auto_emitir ?? 1');
-    expect(emitir).toContain('const desligado');
+  /* Voltou junto com o de cima — ver o motivo lá: eu confundi "status
+     emitido" com "emitir nota". */
+  it('só roda quando a loja ligou', () => {
+    expect(emitir).toContain('maxxgestao_auto_emitir ?? 0');
   });
 
   it('falha na emissão NÃO desfaz o envio do pedido', () => {
