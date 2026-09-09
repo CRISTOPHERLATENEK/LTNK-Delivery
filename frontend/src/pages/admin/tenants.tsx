@@ -21,6 +21,7 @@ import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { ImageUpload } from '@/components/ui/image-upload';
 import { api, ApiError, tokenSessao, entrarComoLojista as entrarNoPainelDoLojista } from '@/lib/api';
+import { SEGMENTOS_SUGERIDOS, ID_LISTA_SEGMENTOS } from '@/lib/segmentos';
 import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
 import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import { cn } from '@/lib/utils';
@@ -299,13 +300,13 @@ export function TelaTenants() {
                 <div>
                   <Label>Categoria da loja</Label>
                   <Input
-                    list="categorias-loja-sugestoes"
+                    list={ID_LISTA_SEGMENTOS}
                     value={form.categoria}
                     onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}
                     placeholder="Ex.: Pizzaria"
                   />
-                  <datalist id="categorias-loja-sugestoes">
-                    {['Pizzaria', 'Hamburgueria', 'Açaiteria', 'Padaria', 'Sorveteria', 'Sushiteria', 'Restaurante', 'Lanchonete', 'Marmitaria', 'Doceria'].map(c => (
+                  <datalist id={ID_LISTA_SEGMENTOS}>
+                    {SEGMENTOS_SUGERIDOS.map(c => (
                       <option key={c} value={c} />
                     ))}
                   </datalist>

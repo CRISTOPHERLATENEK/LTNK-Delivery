@@ -50,13 +50,19 @@ export function PaginaCarrinho() {
 
   const infoLoja = useQuery({
     queryKey: ['loja-checkout', carrinho?.loja_id],
-    queryFn: () => api<{ loja: { minimo_pedido_centavos?: number; aceita_retirada?: 0 | 1; endereco?: string }; zonas: { bairro: string; taxa_centavos: number }[] }>(
+    queryFn: () => api<{ loja: { minimo_pedido_centavos?: number; aceita_retirada?: 0 | 1; pagamento_online?: 0 | 1; endereco?: string }; zonas: { bairro: string; taxa_centavos: number }[] }>(
       'GET', `/api/lojas/${carrinho!.loja_id}`),
     enabled: !!carrinho?.loja_id,
   });
   const minimoPedido = infoLoja.data?.loja.minimo_pedido_centavos || 0;
   const zonas = infoLoja.data?.zonas || [];
   const aceitaRetirada = !!infoLoja.data?.loja.aceita_retirada;
+  /*
+   * PAGAMENTO ONLINE DA LOJA. `undefined` conta como LIGADO — é o padrão da
+   * coluna, e enquanto a resposta não chega é melhor mostrar as opções e o
+   * servidor recusar do que esconder de uma loja que aceita.
+   */
+  const pagamentoOnline = infoLoja.data?.loja.pagamento_online !== 0;
   const lojaEndereco = infoLoja.data?.loja.endereco || '';
 
   const subtotal = carrinho?.itens.reduce((s, i) => s + i.preco_centavos * i.quantidade, 0) || 0;
@@ -289,6 +295,7 @@ export function PaginaCarrinho() {
           zonas={zonas}
           fretePadrao={carrinho.taxa_entrega_centavos}
           aceitaRetirada={aceitaRetirada}
+          pagamentoOnline={pagamentoOnline}
           lojaEndereco={lojaEndereco}
           bloqueado={abaixoMinimo}
           cupomCodigo={desconto > 0 ? cupom?.codigo : undefined}
@@ -619,7 +626,7 @@ function PixPagamento({
 
 function Checkout({
   subtotal: _subtotal, total, cupomCodigo, onPedido, onPix, onCartao, onPedidoCriadoSemNavegar,
-  zonas, fretePadrao, aceitaRetirada, lojaEndereco, bloqueado, onFreteChange,
+  zonas, fretePadrao, aceitaRetirada, pagamentoOnline, lojaEndereco, bloqueado, onFreteChange,
 }: {
   subtotal: number; total: number; cupomCodigo?: string;
   onPedido: (id: number) => void;
@@ -630,6 +637,7 @@ function Checkout({
   zonas: { bairro: string; taxa_centavos: number }[];
   fretePadrao: number;
   aceitaRetirada: boolean;
+  pagamentoOnline: boolean;
   lojaEndereco: string;
   bloqueado: boolean;
   onFreteChange: (centavos: number | null) => void;
@@ -644,7 +652,27 @@ function Checkout({
 
   const [tipoEntrega, setTipoEntrega] = useState<'entrega' | 'retirada'>('entrega');
   const [enderecoId, setEnderecoId] = useState<number | 'novo' | null>(null);
-  const [pagamento, setPagamento] = useState<FormaPagamento>('pix');
+  /*
+   * AS FORMAS OFERECIDAS, não as que existem.
+   *
+   * A lista era fixa: as quatro sempre, em toda loja. Só que "pagar agora" só
+   * faz sentido onde a loja RECEBE online — e o servidor recusa quando não
+   * recebe. Oferecer e recusar depois é o pior dos dois mundos: o cliente
+   * escolhe, preenche tudo e leva erro no fim, quando já decidiu comprar.
+   */
+  const formasOferecidas = pagamentoOnline
+    ? PAGAMENTOS
+    : PAGAMENTOS.filter(p => p.id !== 'pix' && p.id !== 'cartao_online');
+
+  /*
+   * A ESCOLHA INICIAL SEGUE O QUE ESTÁ OFERECIDO. Nascia em `'pix'` fixo — numa
+   * loja sem pagamento online, o pedido sairia com uma forma que nem aparece na
+   * tela, e o cliente veria "escolha uma forma válida" sem entender o que
+   * escolheu errado.
+   */
+  const [pagamento, setPagamento] = useState<FormaPagamento>(
+    pagamentoOnline ? 'pix' : 'dinheiro',
+  );
   const [troco, setTroco] = useState('');
   const [obs, setObs] = useState('');
   const [enviando, setEnviando] = useState(false);
@@ -894,7 +922,7 @@ function Checkout({
             Forma de pagamento
           </h2>
           <div className="grid grid-cols-3 gap-2">
-            {PAGAMENTOS.map(p => (
+            {formasOferecidas.map(p => (
               <button
                 key={p.id}
                 onClick={() => setPagamento(p.id)}

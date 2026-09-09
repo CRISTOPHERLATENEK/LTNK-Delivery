@@ -119,6 +119,19 @@ const TABELAS: string[] = [
   nota_qtd              INT NOT NULL DEFAULT 0,
   comissao_percentual   DOUBLE,
   aceita_retirada       TINYINT NOT NULL DEFAULT 0,
+  /*
+   * PAGAMENTO ONLINE (Pix e cartao) LIGADO OU DESLIGADO NESTA LOJA.
+   *
+   * DEFAULT 1 de proposito: quem ja vende online continua vendendo. Nascer
+   * desligado quebraria toda loja existente no primeiro deploy.
+   *
+   * Existe porque "tem credencial" nao e o mesmo que "quer receber online". O
+   * token do Mercado Pago da PLATAFORMA serve de reserva para qualquer loja
+   * (ver getTokenMP), entao uma conveniencia que so cobra na entrega passava a
+   * oferecer Pix online sem ter pedido isso -- e o dinheiro cairia na conta da
+   * plataforma, nao na dela.
+   */
+  pagamento_online      TINYINT NOT NULL DEFAULT 1,
   categoria_estilo      VARCHAR(20) NOT NULL DEFAULT 'cards',
   categoria_formato     VARCHAR(20) NOT NULL DEFAULT 'circulo',
   categoria_tamanho     VARCHAR(10) NOT NULL DEFAULT 'medio',
@@ -1068,6 +1081,9 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * que não têm balcão.
      */
     ['lojas', 'aceita_retirada', 'aceita_retirada TINYINT NOT NULL DEFAULT 0'],
+    /* Ligado por padrão: quem já vende online continua vendendo. O CREATE é
+       IF NOT EXISTS e não alcança banco que já existe. */
+    ['lojas', 'pagamento_online', 'pagamento_online TINYINT NOT NULL DEFAULT 1'],
     /*
      * XML DO EVENTO DE CANCELAMENTO, em coluna própria.
      *

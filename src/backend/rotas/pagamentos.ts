@@ -87,7 +87,33 @@ async function credenciaisProprias(lojaId: number): Promise<{ token: string; mod
 }
 
 /** Cartão online só existe com RECEBEDOR PRÓPRIO configurado — ver `tokenProprioMP`. */
+/**
+ * A LOJA QUER RECEBER ONLINE?
+ *
+ * Interruptor da loja (`lojas.pagamento_online`), separado de "tem credencial".
+ * Os dois eram a mesma coisa, e não são: o token do Mercado Pago da PLATAFORMA
+ * serve de reserva para qualquer loja (ver `getTokenMP`), então uma conveniência
+ * que só cobra na entrega passava a oferecer Pix online sem ter pedido — e o
+ * dinheiro cairia na conta da plataforma, não na dela.
+ *
+ * Ligado por padrão: quem já vende online continua vendendo.
+ *
+ * ESTE É O PONTO DE VERDADE, não a tela. A tela deixa de OFERECER o que está
+ * desligado (senão o cliente escolhe e leva erro no fim), mas quem RECUSA é
+ * aqui — requisição forjada com `forma_pagamento: pix` numa loja que não recebe
+ * online geraria cobrança na conta errada.
+ */
+export async function lojaQuerPagamentoOnline(lojaId: number): Promise<boolean> {
+  const row = await db.prepare('SELECT pagamento_online FROM lojas WHERE id = ?').get(lojaId) as
+    { pagamento_online: number | null } | undefined;
+  /* Loja inexistente devolve `false`: quem não existe não recebe. E ausência da
+     coluna (banco sem a migração) conta como LIGADO, que é o padrão dela. */
+  if (!row) return false;
+  return Number(row.pagamento_online ?? 1) === 1;
+}
+
 export async function cartaoOnlineAtivo(lojaId: number): Promise<boolean> {
+  if (!await lojaQuerPagamentoOnline(lojaId)) return false;
   return !!(await tokenProprioMP(lojaId));
 }
 
@@ -150,6 +176,8 @@ export async function credenciaisOnzDaLoja(lojaId: number): Promise<onz.Credenci
  *  - onz: precisa de credencial da loja OU da plataforma.
  */
 export async function pagamentoOnlineAtivo(lojaId: number): Promise<boolean> {
+  /* O interruptor da loja vem PRIMEIRO: desligado, nem consulta o gateway. */
+  if (!await lojaQuerPagamentoOnline(lojaId)) return false;
   const gateway = await gatewayDaLoja(lojaId);
   if (gateway === 'onz') return onz.cashInDisponivel(await credenciaisOnzDaLoja(lojaId));
   return !!(await getTokenMP(lojaId));

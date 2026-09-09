@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, encerrarSessao } from '@/lib/api';
+import { SEGMENTOS_SUGERIDOS, ID_LISTA_SEGMENTOS } from '@/lib/segmentos';
 import { cn } from '@/lib/utils';
 import { brl, dataLocal, tempoRelativo } from '@/lib/format';
 import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
@@ -27,6 +28,7 @@ export function LojaConfiguracao() {
     nome: '', descricao: '', categoria: '', endereco: '',
     taxa_entrega: '', tempo_estimado_min: '', horario_funcionamento: '', minimo_pedido: '',
     aceita_retirada: false,
+    pagamento_online: true,
     slug: '', dominio_personalizado: '',
   });
   const [enviando, setEnviando] = useState(false);
@@ -86,6 +88,9 @@ export function LojaConfiguracao() {
         slug: (l as any).slug || '',
         dominio_personalizado: (l as any).dominio_personalizado || '',
         aceita_retirada: !!(l as { aceita_retirada?: number }).aceita_retirada,
+        /* Ausente conta como LIGADO: é o padrão da coluna, e um banco sem a
+           migração não deve aparecer como "loja que não recebe online". */
+        pagamento_online: (l as { pagamento_online?: number }).pagamento_online !== 0,
       });
       marcarSalvo();
     }).catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar os dados da loja.' }));
@@ -110,6 +115,7 @@ export function LojaConfiguracao() {
         horario_funcionamento: form.horario_funcionamento,
         minimo_pedido: form.minimo_pedido === '' ? 0 : Number(form.minimo_pedido),
         aceita_retirada: form.aceita_retirada,
+        pagamento_online: form.pagamento_online,
         slug: form.slug.trim() || null,
         dominio_personalizado: form.dominio_personalizado.trim() || null,
       });
@@ -244,9 +250,23 @@ export function LojaConfiguracao() {
               <Input required value={form.nome} onChange={campo('nome')} placeholder="Nome visível para os clientes" />
             </div>
 
+            {/*
+              MESMA SUGESTÃO DO CADASTRO (lib/segmentos.ts). Aqui era só um
+              `placeholder` com três exemplos de comida — o que fazia esta tela
+              e a do admin discordarem sobre o que a plataforma atende, e uma
+              conveniência não achar como se chamar.
+            */}
             <div>
               <Label>Categoria</Label>
-              <Input value={form.categoria} onChange={campo('categoria')} placeholder="Ex.: Pizzaria, Hamburguer, Sushi" />
+              <Input
+                list={ID_LISTA_SEGMENTOS}
+                value={form.categoria}
+                onChange={campo('categoria')}
+                placeholder="Ex.: Pizzaria, Conveniência, Adega"
+              />
+              <datalist id={ID_LISTA_SEGMENTOS}>
+                {SEGMENTOS_SUGERIDOS.map(c => <option key={c} value={c} />)}
+              </datalist>
             </div>
 
             {/*
@@ -406,6 +426,38 @@ export function LojaConfiguracao() {
                   {form.aceita_retirada
                     ? 'O cliente pode escolher buscar na loja, sem taxa de entrega.'
                     : 'Só entrega. O cliente não vê a opção de retirar.'}
+                </span>
+              </span>
+            </button>
+
+            {/*
+              PAGAMENTO ONLINE — ligado por padrão, porque a maioria quer.
+              Existe porque "ter credencial" não é o mesmo que "querer receber
+              online": o token do Mercado Pago da PLATAFORMA serve de reserva
+              para qualquer loja, então uma conveniência que só cobra na entrega
+              passava a oferecer Pix online sem ter pedido — e o dinheiro cairia
+              na conta da plataforma, não na dela.
+
+              Desligado, o cliente NÃO VÊ Pix online nem cartão online; sobram
+              dinheiro e cartão na entrega. O servidor também recusa, então
+              pedido forjado não passa (ver `lojaQuerPagamentoOnline`).
+            */}
+            <button
+              type="button"
+              onClick={() => setForm(f => ({ ...f, pagamento_online: !f.pagamento_online }))}
+              className="flex w-full items-start gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:bg-accent/40"
+            >
+              <span className={cn('relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors',
+                form.pagamento_online ? 'bg-primary' : 'bg-muted-foreground/30')}>
+                <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-all',
+                  form.pagamento_online ? 'left-[19px]' : 'left-[3px]')} />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold">Aceitar pagamento online</span>
+                <span className="block text-xs text-muted-foreground">
+                  {form.pagamento_online
+                    ? 'O cliente pode pagar antes, por Pix ou cartão.'
+                    : 'Só na entrega ou na retirada: dinheiro e cartão na hora.'}
                 </span>
               </span>
             </button>
