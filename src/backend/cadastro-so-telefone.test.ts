@@ -114,8 +114,23 @@ describe('o cadastro público', () => {
     expect(rota.length).toBeGreaterThan(500);
   });
 
+  /*
+   * VALIDA O VALOR CRU DO CORPO, e a asserção é sobre isso.
+   *
+   * Descoberto contra produção DEPOIS de eu consertar a função: `telefoneDigitos`
+   * corta em 11, e a rota valida o resultado do corte. Doze dígitos passavam
+   * pela validação e morriam na checagem de unicidade — a pessoa recebia "já
+   * existe conta com esses dados" por causa de um dígito a mais. Consertar a
+   * função não alcançava a rota; a rota tinha que parar de entregar o valor
+   * cortado para a validação.
+   */
+  it('valida o telefone do corpo, não a versão cortada', () => {
+    expect(rota).toContain('telefoneValido(req.body.telefone)');
+    expect(rota).not.toContain('telefoneValido(telefone)');
+  });
+
   it('exige telefone válido', () => {
-    expect(rota).toContain('if (!telefoneValido(telefone))');
+    expect(rota).toContain('if (!telefoneValido(req.body.telefone))');
     expect(rota).toContain('Informe um telefone válido com DDD.');
   });
 
@@ -188,7 +203,7 @@ describe('o cadastro feito pela equipe segue a mesma regra', () => {
   });
 
   it('exige telefone e não exige CPF', () => {
-    expect(rota).toContain('if (!telefoneValido(telefone))');
+    expect(rota).toContain('if (!telefoneValido(req.body.telefone))');
     expect(rota).not.toContain('if (!cpfValido(cpf))');
     expect(rota).toContain('if (cpf && !cpfValido(cpf))');
   });

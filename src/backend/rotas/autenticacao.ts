@@ -149,7 +149,17 @@ router.post('/registrar', limiteRegistro, async (req, res, next) => {
     const CONFLITO = 'Não foi possível concluir o cadastro com esses dados. Se você já tem conta, faça login; senão, confira CPF/telefone/e-mail informados.';
     const ehCliente = perfil === 'cliente';
     if (ehCliente) {
-      if (!telefoneValido(telefone)) {
+      /*
+       * VALIDA O VALOR CRU DO CORPO, não a variável já cortada.
+       *
+       * `telefoneDigitos` corta em 11 dígitos. Validando a variável, doze
+       * dígitos passavam: o corte descartava o último e sobrava um número
+       * válido — e a pessoa recebia "já existe conta com esses dados", que é
+       * uma mentira sobre um erro de digitação. Medido contra produção depois
+       * de eu já ter "consertado" isto na função: o conserto não alcançava a
+       * rota, porque o corte acontece antes dela chamar.
+       */
+      if (!telefoneValido(req.body.telefone)) {
         throw erroHttp(400, 'Informe um telefone válido com DDD.');
       }
       if (email && !emailValido(email)) throw erroHttp(400, 'E-mail inválido.');

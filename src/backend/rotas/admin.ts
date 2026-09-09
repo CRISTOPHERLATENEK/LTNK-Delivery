@@ -948,7 +948,9 @@ router.post('/usuarios', exigirSuperAdmin, async (req, res, next) => {
      * exigindo do cliente ao telefone um documento que o site não pede — e o
      * comentário desta rota, que promete "mesma validação", passaria a mentir.
      */
-    if (!telefoneValido(telefone)) throw erroHttp(400, 'Informe um telefone válido com DDD.');
+    /* O valor CRU do corpo, não a variável já cortada por `telefoneDigitos`:
+       validar a cortada deixava doze dígitos passarem. Ver a rota pública. */
+    if (!telefoneValido(req.body.telefone)) throw erroHttp(400, 'Informe um telefone válido com DDD.');
     if (email && !emailValido(email)) throw erroHttp(400, 'E-mail inválido.');
     if (cpf && !cpfValido(cpf)) throw erroHttp(400, 'Informe um CPF válido ou deixe em branco.');
 
