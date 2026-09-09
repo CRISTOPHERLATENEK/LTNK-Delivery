@@ -115,6 +115,76 @@ describe('a limpeza do lixo antigo', () => {
   });
 });
 
+describe('o service worker cura 404 envenenado', () => {
+  const sw = fs.readFileSync(path.join(RAIZ, 'public', 'sw.js'), 'utf8');
+  const swFonte = fs.readFileSync(path.join(RAIZ, 'frontend', 'public', 'sw.js'), 'utf8');
+  /*
+   * SÓ O QUE EXECUTA, para contar ocorrência.
+   *
+   * A primeira versão contava `cache: 'reload'` no arquivo inteiro e achava
+   * DUAS: uma no código e uma no comentário que explica o conserto. É a quinta
+   * vez nesta sessão que uma asserção minha acusa a minha própria documentação —
+   * contar precisa olhar o código, não o texto sobre ele.
+   */
+  const swExec = sw.split('\n')
+    .filter(l => {
+      const t = l.trimStart();
+      return !t.startsWith('*') && !t.startsWith('//') && !t.startsWith('/*');
+    })
+    .join('\n');
+
+  /*
+   * FECHAR A JANELA NÃO LIMPA QUEM JÁ FOI ENVENENADO.
+   *
+   * A publicação sem janela impede novos 404, e o `no-store` impede que um 404
+   * deixe marca. Nenhum dos dois alcança o navegador que JÁ guardou um — e
+   * enquanto essa entrada existir, o app não sobe naquele aparelho. Sem esta
+   * cura, cada pessoa precisaria de um Ctrl+Shift+R que ninguém vai pedir a ela.
+   */
+  it('tenta a rede ignorando o cache quando o asset dá 404', () => {
+    expect(sw).toContain("fetch(req, { cache: 'reload' })");
+    const i = sw.indexOf("r.status === 404 || r.status === 410");
+    expect(i).toBeGreaterThan(0);
+    /* Dentro do ramo de asset imutável — é lá que vive o chunk com hash. */
+    const iImutavel = sw.indexOf('if (ehImutavel(url))');
+    expect(iImutavel).toBeGreaterThan(0);
+    expect(iImutavel).toBeLessThan(i);
+  });
+
+  /* UMA tentativa, e só em 404/410: repetir 5xx seria insistir contra um
+     servidor que já está sofrendo. */
+  it('só repete em 404/410, e uma vez', () => {
+    const i = swExec.indexOf("cache: 'reload'");
+    const bloco = swExec.slice(Math.max(0, i - 400), i + 400);
+    expect(bloco).not.toContain('status >= 500');
+    expect((swExec.match(/cache: 'reload'/g) ?? []).length).toBe(1);
+  });
+
+  /* E o resultado bom é guardado, para a próxima visita não pagar de novo. */
+  it('guarda o que veio da rede', () => {
+    const i = swExec.indexOf("cache: 'reload'");
+    expect(swExec.slice(i, i + 300)).toContain('c.put(req, copia)');
+  });
+
+  /*
+   * O NOME DO CACHE MUDOU. O `activate` apaga todo cache com nome diferente do
+   * atual — sem o bump, o SW novo conviveria com o conteúdo guardado pelo
+   * antigo.
+   */
+  it('o nome do cache foi bumpado', () => {
+    expect(sw).toMatch(/const CACHE = 'delivery-app-v([6-9]|\d{2,})'/);
+  });
+
+  /*
+   * AS DUAS CÓPIAS ANDAM JUNTAS. `frontend/public/sw.js` é a fonte que o vite
+   * copia; `public/sw.js` é o que está servido. Consertar uma e esquecer a outra
+   * faz o conserto sobreviver até o próximo build — e depois desaparecer.
+   */
+  it('as duas cópias do sw.js são idênticas', () => {
+    expect(swFonte).toBe(sw);
+  });
+});
+
 describe('o que já valia e não pode regredir', () => {
   const codigo = exec(deploy);
 

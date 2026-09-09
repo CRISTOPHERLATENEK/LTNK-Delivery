@@ -4,7 +4,9 @@
  * - Navegação network-first com fallback ao cache (abre offline).
  * - Nunca cacheia /api (dados sempre frescos).
  */
-const CACHE = 'delivery-app-v5';
+/* v6: o SW passou a curar 404 envenenado de asset com hash (ver o fetch
+   abaixo). O nome muda para o `activate` apagar o cache da versão anterior. */
+const CACHE = 'delivery-app-v6';
 const ESSENCIAIS = ['/'];
 
 /**
@@ -79,7 +81,40 @@ self.addEventListener('fetch', (e) => {
       caches.match(req).then((cached) => {
         if (cached) return cached;
         return fetch(req)
-          .then((r) => {
+          .then(async (r) => {
+            /*
+             * 404 NUM ASSET COM HASH É MENTIRA DO CACHE ATÉ PROVA EM CONTRÁRIO.
+             *
+             * O nome tem hash: se o index.html está pedindo este arquivo, ele
+             * existe no servidor. Um 404 aqui quase sempre vem do cache HTTP do
+             * NAVEGADOR, não da rede — e ele é durável.
+             *
+             * De onde vinha: a publicação tinha uma janela em que a pasta
+             * servida não existia, e o 404 dela saía sem `Cache-Control`. O
+             * navegador guardava e passava a responder 404 sozinho, sem tocar no
+             * servidor. Um chunk envenenado (o `utils`) deixa o app sem subir:
+             * tela branca. Medido: `only-if-cached` devolvia 404 e `reload`
+             * devolvia 200, no mesmo instante, para o mesmo arquivo.
+             *
+             * A janela foi fechada no deploy.sh e o 404 agora sai `no-store`.
+             * Isto aqui é para os navegadores que JÁ estão envenenados: uma
+             * tentativa com `cache: 'reload'` ignora a cópia local, substitui a
+             * entrada podre e o app sobe. Sem isto, cada pessoa precisaria de um
+             * Ctrl+Shift+R que ninguém vai pedir a ela.
+             *
+             * UMA tentativa só, e só em 404/410: repetir 5xx aqui seria insistir
+             * contra um servidor que já está sofrendo.
+             */
+            if (r && (r.status === 404 || r.status === 410)) {
+              try {
+                const daRede = await fetch(req, { cache: 'reload' });
+                if (daRede && daRede.ok) {
+                  const copia = daRede.clone();
+                  caches.open(CACHE).then((c) => c.put(req, copia)).catch(() => {});
+                  return daRede;
+                }
+              } catch (_) { /* sem rede: devolve o 404 original abaixo */ }
+            }
             if (r && r.ok) {
               const copia = r.clone();
               caches.open(CACHE).then((c) => c.put(req, copia)).catch(() => {});
