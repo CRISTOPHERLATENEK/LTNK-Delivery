@@ -37,6 +37,7 @@ import {
 } from '../sefaz';
 import { criptografar, descriptografar } from '../cripto';
 import { itensSemProduto, descrever, comoResolver } from '../ifood-sem-produto';
+import { sugerirCardapio, SemChaveIA } from '../cardapio-ia';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
 import { consultarEmpresa, formatarCnpj, chamarMaxxGestao, LimiteMaxxGestao } from '../maxxgestao-cliente';
 import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarCatalogos, precosDaTabela, LETRAS_VARREDURA } from '../maxxgestao-catalogo';
@@ -1190,6 +1191,38 @@ function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProdut
     vendidoPor, codigoBarras, controlaEstoque, estoque,
   };
 }
+
+/**
+ * MONTA UMA PROPOSTA DE CARDÁPIO A PARTIR DE TEXTO.
+ *
+ * Só PROPÕE. Não grava nada — quem grava é a tela, chamando os endpoints que já
+ * existem (`POST /produtos`, `/produtos/:id/grupos`, `/grupos/:id/opcoes`), com
+ * as mesmas checagens de posse e validação de sempre. Nenhum caminho de escrita
+ * novo foi criado para isto, de propósito: cardápio é preço, e preço é dinheiro.
+ */
+router.post('/cardapio/sugerir', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const descricao = textoLimpo(req.body?.descricao, 4000);
+
+    /*
+     * As categorias que a loja JÁ tem vão no pedido para o modelo reusar as
+     * palavras do lojista, em vez de criar "Bebidas" ao lado de "Beb." que ele
+     * já usava. Cardápio com duas categorias sinônimas é confuso pro cliente e
+     * chato de arrumar depois.
+     */
+    const linhas = await db.prepare(
+      `SELECT DISTINCT categoria FROM produtos
+        WHERE loja_id = ? AND excluido = 0 AND categoria <> '' ORDER BY categoria`
+    ).all(loja.id) as Array<{ categoria: string }>;
+
+    const proposta = await sugerirCardapio(descricao, linhas.map(l => l.categoria));
+    res.json(proposta);
+  } catch (e) {
+    if (e instanceof SemChaveIA) return next(erroHttp(503, e.message));
+    next(e);
+  }
+});
 
 router.post('/produtos', async (req, res, next) => {
   try {

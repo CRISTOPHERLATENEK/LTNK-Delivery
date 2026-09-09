@@ -446,7 +446,7 @@ const PASSOS_ASSISTENTE = [
   { chave: 'cliente', label: 'Cliente', icone: Building2 },
   { chave: 'endereco', label: 'Endereço', icone: MapPin },
   { chave: 'visual', label: 'Visual', icone: Palette },
-  { chave: 'fiscal', label: 'Fiscal', icone: FileText },
+  { chave: 'fiscal', label: 'Fiscal (opcional)', icone: FileText },
 ] as const;
 
 function Estepes({ atual }: { atual: typeof PASSOS_ASSISTENTE[number]['chave'] }) {
@@ -717,6 +717,23 @@ function EtapaFiscal({ tenantId, lojaId, email, onVoltar, onConcluir }: {
 
   return (
     <div className="space-y-4">
+      {/*
+        ESTE PASSO SEMPRE FOI OPCIONAL — o código só envia o fiscal se houver
+        CNPJ, e existe "Pular e concluir". Mas a tela não dizia isso: o passo se
+        chama "Fiscal", o CNPJ é o primeiro campo, e o pular era um botão
+        fantasma ao lado de um "Concluir" sólido. Quem cadastra MEI ou CPF
+        concluía que precisava do CNPJ — e desistia ou inventava número.
+        A capacidade não mudou; o que mudou é a tela parar de mentir por omissão.
+      */}
+      <div className="rounded-xl border border-border bg-muted/40 px-3 py-2.5">
+        <p className="text-[12.5px] font-medium">Este passo é opcional.</p>
+        <p className="mt-0.5 text-[11.5px] leading-snug text-muted-foreground">
+          Só preencha se esta loja for emitir nota fiscal. MEI ou CPF pode começar sem
+          nada aqui e completar depois, em <strong>Admin → Lojas</strong> — a loja já
+          vende, recebe pedido e imprime cupom sem isso.
+        </p>
+      </div>
+
       <label className="flex items-center gap-2 cursor-pointer">
         <button type="button" onClick={() => setAtivo(v => !v)}
           className={cn('relative h-5 w-9 rounded-full transition-colors shrink-0', ativo ? 'bg-primary' : 'bg-muted-foreground/30')}>
@@ -727,7 +744,7 @@ function EtapaFiscal({ tenantId, lojaId, email, onVoltar, onConcluir }: {
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div>
-          <Label>CNPJ</Label>
+          <Label>CNPJ <span className="font-normal text-muted-foreground">— opcional, preenche o resto sozinho</span></Label>
           <div className="relative">
             <Input value={formatarCnpj(cnpj)} onChange={e => aoDigitarCnpj(e.target.value)} maxLength={18} className="font-mono" placeholder="00.000.000/0000-00" />
             {buscando && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 size-4 animate-spin text-muted-foreground" />}
@@ -750,11 +767,22 @@ function EtapaFiscal({ tenantId, lojaId, email, onVoltar, onConcluir }: {
         Certificado A1, CSC e os campos fiscais dos produtos ficam pra depois — em <strong>Admin → Lojas</strong>, clicando nessa loja.
       </p>
 
-      <div className="flex gap-2 pt-2">
-        <Button type="button" onClick={concluir} disabled={salvando}>
-          {salvando ? 'Salvando…' : 'Concluir'} <Check className="size-4" />
+      {/*
+        OS DOIS CAMINHOS COM O MESMO PESO. Concluir sem fiscal é o caso COMUM
+        (quem não emite nota), e ele estava desenhado como desistência — botão
+        fantasma ao lado de um sólido. Agora o sólido é o que corresponde ao que
+        a pessoa preencheu: com CNPJ, "Salvar e concluir"; sem, "Concluir".
+      */}
+      <div className="flex flex-wrap gap-2 pt-2">
+        <Button type="button" onClick={cnpj ? concluir : onConcluir} disabled={salvando}>
+          {salvando ? 'Salvando…' : cnpj ? 'Salvar e concluir' : 'Concluir sem fiscal'}
+          <Check className="size-4" />
         </Button>
-        <Button type="button" variant="ghost" onClick={onConcluir}><SkipForward className="size-4" /> Pular e concluir</Button>
+        {cnpj && (
+          <Button type="button" variant="outline" onClick={onConcluir}>
+            <SkipForward className="size-4" /> Concluir sem salvar o fiscal
+          </Button>
+        )}
         <Button type="button" variant="outline" onClick={onVoltar}><ArrowLeft className="size-4" /> Voltar</Button>
       </div>
     </div>

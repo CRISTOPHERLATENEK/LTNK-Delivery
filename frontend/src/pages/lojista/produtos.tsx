@@ -4,7 +4,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Ajuda } from '@/components/ui/ajuda';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Image as ImageIcon, Layers, Minus, Pencil, Plus, Rows3, Rows4, Search, Square, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
+import { MontarCardapioIA } from './cardapio-ia';
+import { Check, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Image as ImageIcon, Layers, Minus, Pencil, Plus, Rows3, Rows4, Search, Square, Sparkles, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
 import { reordenar } from '@/lib/ordem-cardapio';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -198,6 +199,7 @@ const regraDoModelo = (t: Modelo) => rotuloRegra(t.obrigatorio, t.tipo, t.max_es
 
 /* ─────────────────────── componente principal ──────────────────────── */
 export function ProdutosLoja() {
+  const [montandoIA, setMontandoIA] = useState(false);
   const [editando, setEditando] = useState<number | 'novo' | null>(null);
   const [form, setForm] = useState<FormProduto>(FORM_VAZIO);
 
@@ -854,6 +856,17 @@ export function ProdutosLoja() {
             )}
             {/* Sombra na cor da marca só aqui: é a ação principal da tela, e é o único
                 lugar (com os interruptores e o anel de foco) onde a cor entra. */}
+            {/* SECUNDÁRIO ao lado do principal: montar por texto é o caminho
+                rápido, mas quem já tem cardápio vem aqui para criar UM item —
+                e o botão principal tem que continuar sendo esse. */}
+            <Button
+              variant="outline"
+              onClick={() => setMontandoIA(true)}
+              disabled={editando !== null || modoSelecao}
+              className="h-11 rounded-[11px]"
+            >
+              <Sparkles className="size-4" /> Montar escrevendo
+            </Button>
             <Button
               onClick={abrirNovo}
               disabled={editando !== null || modoSelecao}
@@ -864,7 +877,13 @@ export function ProdutosLoja() {
           </div>
         </div>
 
-        {/* Barra flutuante de ações em massa */}
+        <MontarCardapioIA
+        aberto={montandoIA}
+        aoFechar={() => setMontandoIA(false)}
+        aoCriar={() => void qc.refetchQueries({ queryKey: ['lojista-produtos'] })}
+      />
+
+      {/* Barra flutuante de ações em massa */}
         {modoSelecao && selecionados.size > 0 && (
           <div className="sticky top-2 z-20 flex items-center gap-2 rounded-2xl border border-primary/30 bg-card px-4 py-2.5 shadow-lg">
             <span className="shrink-0 text-sm font-bold">{selecionados.size} selecionado{selecionados.size > 1 ? 's' : ''}</span>
@@ -1634,9 +1653,23 @@ export function ProdutosLoja() {
           <CardContent className="p-10 text-center space-y-3">
             <UtensilsCrossed className="mx-auto size-12 text-muted-foreground/50" strokeWidth={1.5} />
             <p className="font-semibold text-muted-foreground">Nenhum produto ainda</p>
+            {/*
+              AQUI é onde montar por texto vale mais: loja com zero produto tem
+              o cardápio todo na cabeça do dono e nada digitado. Oferecer "Novo
+              produto" e mais nada é pedir que ele digite trinta itens à mão —
+              e é exatamente aí que se desiste do cadastro.
+            */}
             <p className="text-sm text-muted-foreground">
-              Clique em "Novo produto" para montar seu cardápio.
+              Escreva o que você vende e a gente monta a lista — ou cadastre um por um.
             </p>
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+              <Button onClick={() => setMontandoIA(true)}>
+                <Sparkles className="size-4" /> Montar escrevendo
+              </Button>
+              <Button variant="outline" onClick={abrirNovo}>
+                <Plus className="size-4" /> Novo produto
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
