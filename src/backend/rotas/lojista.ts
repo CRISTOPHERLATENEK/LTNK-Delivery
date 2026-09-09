@@ -36,6 +36,7 @@ import {
   montarInutilizacao, transmitirInutilizacao,
 } from '../sefaz';
 import { criptografar, descriptografar } from '../cripto';
+import { itensSemProduto, descrever, comoResolver } from '../ifood-sem-produto';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
 import { consultarEmpresa, formatarCnpj, chamarMaxxGestao, LimiteMaxxGestao } from '../maxxgestao-cliente';
 import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarCatalogos, precosDaTabela, LETRAS_VARREDURA } from '../maxxgestao-catalogo';
@@ -4501,6 +4502,26 @@ router.put('/ifood', async (req, res, next) => {
 /** Lê o cardápio do iFood e traduz, SEM gravar nada. */
 
 /** Prévia: o que existe lá e o que aconteceria. NÃO grava. */
+/**
+ * ITENS DO IFOOD QUE NÃO BAIXARAM ESTOQUE.
+ *
+ * Antes isso existia só numa linha de log de erro que ninguém lê, e o estoque
+ * ia divergindo do físico em silêncio. Ver `ifood-sem-produto.ts`.
+ */
+router.get('/ifood/sem-produto', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const itens = await itensSemProduto(loja.id);
+    res.json({
+      itens: itens.map(i => ({
+        ...i,
+        resumo: descrever(i),
+        como_resolver: comoResolver(i),
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
 router.get('/ifood/cardapio', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);

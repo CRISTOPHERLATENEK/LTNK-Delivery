@@ -41,6 +41,8 @@ export interface DadosPedido {
   gatewayId: string;
   itens: Array<{
     produtoId: number | null;
+    /** `externalCode` do iFood — vazio quando o item não trouxe código. */
+    codigoExterno: string;
     nome: string;
     precoUnitCentavos: number;
     quantidade: number;
@@ -119,6 +121,9 @@ export async function gravarPedidoIfood(
     if (produtoId === null) semCasar.push(`${i.nome}${i.codigoExterno ? ` (${i.codigoExterno})` : ''}`);
     itens.push({
       produtoId,
+      /* Vai junto mesmo quando casou: é o que permite descobrir depois QUAL
+         código o iFood mandou para o item que não baixou estoque. */
+      codigoExterno: i.codigoExterno || '',
       nome: i.nome,
       precoUnitCentavos: i.precoUnitCentavos,
       quantidade: i.quantidade,

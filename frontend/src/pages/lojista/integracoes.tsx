@@ -76,6 +76,17 @@ interface EstadoIfood {
 }
 
 /** Interruptor desenhado à mão, como no resto do painel. */
+interface ItemSemProduto {
+  nome: string;
+  /** `externalCode` do iFood — é o que se cola no código de barras do produto. */
+  codigo: string;
+  vezes: number;
+  unidades: number;
+  ultimoEm: string;
+  resumo: string;
+  como_resolver: string;
+}
+
 function Chave({ ativo, onAlternar, disabled }: {
   ativo: boolean; onAlternar: () => void; disabled?: boolean;
 }) {
@@ -101,6 +112,16 @@ export function IntegracoesLoja() {
   const [aberta, setAberta] = useState<'ifood' | 'whatsapp' | 'tef' | 'impressao' | 'erp' | null>(null);
 
   const [ifood, setIfood] = useState<EstadoIfood | null>(null);
+  /*
+   * ITENS DO IFOOD QUE NÃO BAIXARAM ESTOQUE.
+   *
+   * Pedido do iFood com item que não casa com nenhum produto daqui entra sem
+   * baixar estoque — de propósito, porque o cliente já pagou lá e recusar
+   * viraria pedido perdido. O que estava errado é que a perda vivia SÓ numa
+   * linha de log de erro: o estoque divergia do físico em silêncio até alguém
+   * contar prateleira.
+   */
+  const [semProduto, setSemProduto] = useState<ItemSemProduto[]>([]);
   const [merchantId, setMerchantId] = useState('');
   const [carregado, setCarregado] = useState(false);
   const [enviando, setEnviando] = useState(false);
@@ -122,6 +143,9 @@ export function IntegracoesLoja() {
   const [agente, setAgente] = useState<{ ligado: boolean; impressora: string } | null>(null);
 
   useEffect(() => {
+    api<{ itens: ItemSemProduto[] }>('GET', '/api/lojista/ifood/sem-produto')
+      .then(r => setSemProduto(r.itens))
+      .catch(() => { /* lista informativa: falhar aqui não pode derrubar a tela */ });
     api<EstadoIfood>('GET', '/api/lojista/ifood')
       .then(r => { setIfood(r); if (!carregado) { setMerchantId(r.merchant_id); setCarregado(true); } })
       .catch(() => {});
@@ -539,6 +563,41 @@ export function IntegracoesLoja() {
                       </div>
                     )}
                   </Linha>
+                )}
+
+                {semProduto.length > 0 && (
+                  /*
+                   * FICA ACIMA da sanfona explicativa e SEMPRE ABERTO: é a
+                   * única coisa nesta tela que representa dinheiro escorrendo
+                   * agora. Dentro de uma sanfona ninguém abriria.
+                   */
+                  <div
+                    className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-3"
+                  >
+                    <p className="text-[13px] font-semibold">
+                      {semProduto.length} item(ns) do iFood não estão baixando estoque
+                    </p>
+                    <p className="mt-0.5 text-[12px] text-muted-foreground">
+                      Estes itens chegam nos pedidos e são preparados normalmente, mas o
+                      sistema não sabe qual produto daqui eles são — então o estoque não
+                      diminui, e vai divergindo do físico.
+                    </p>
+                    <ul className="mt-2.5 space-y-2">
+                      {semProduto.map(i => (
+                        <li key={`${i.nome}-${i.codigo}`} className="border-t border-border pt-2 first:border-0 first:pt-0">
+                          <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                            <b className="text-[12.5px]">{i.nome}</b>
+                            {/* O NÚMERO EM UNIDADES, não em pedidos: "12 unidades"
+                                é o tamanho do buraco no estoque; "3 pedidos" não. */}
+                            <span className="text-[11.5px] text-muted-foreground">{i.resumo}</span>
+                          </div>
+                          <p className="mt-0.5 text-[11.5px] leading-snug text-muted-foreground">
+                            {i.como_resolver}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 )}
 
                 <Sanfona titulo="Como funciona a sincronização">

@@ -347,6 +347,15 @@ const TABELAS: string[] = [
   opcoes_texto         TEXT,
   opcoes_ids           TEXT,
   observacao           VARCHAR(160) NOT NULL DEFAULT '',
+  /*
+   * O CÓDIGO QUE VEIO DE FORA (externalCode do iFood).
+   *
+   * Guardado mesmo quando o produto CASOU, e principalmente quando não casou:
+   * item do iFood sem produto correspondente entra no pedido sem baixar
+   * estoque, e sem o código ninguém consegue descobrir QUAL produto cadastrar
+   * para parar de acontecer. Antes isso vivia só numa linha de log.
+   */
+  codigo_externo       VARCHAR(60) NOT NULL DEFAULT '',
   KEY idx_itens_pedido (pedido_id),
   FOREIGN KEY (pedido_id) REFERENCES pedidos(id),
   FOREIGN KEY (produto_id) REFERENCES produtos(id)
@@ -1186,6 +1195,9 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * qualquer termo, e preencher com a data de hoje seria inventar um aceite
      * que não aconteceu. Daí sem DEFAULT.
      */
+    /* Ver o comentário da coluna no CREATE de itens_pedido. Entra aqui também
+       porque o CREATE é IF NOT EXISTS e não alcança banco que já existe. */
+    ['itens_pedido', 'codigo_externo', "codigo_externo VARCHAR(60) NOT NULL DEFAULT ''"],
     ['usuarios', 'termos_aceitos_em', 'termos_aceitos_em VARCHAR(32) NULL'],
     ['usuarios', 'termos_versao', 'termos_versao VARCHAR(40) NULL'],
     /*

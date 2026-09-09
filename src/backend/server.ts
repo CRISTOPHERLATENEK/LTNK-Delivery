@@ -908,9 +908,10 @@ async function processarEventoIfood(loja: LojaIfood, evento: { code?: string; fu
         for (const i of d.itens) {
           await tx.prepare(
             `INSERT INTO itens_pedido (pedido_id, produto_id, nome_produto, preco_unit_centavos,
-                                       quantidade, opcoes_texto, observacao)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`
-          ).run(pedidoId, i.produtoId, i.nome, i.precoUnitCentavos, i.quantidade, i.opcoesTexto, i.observacao);
+                                       quantidade, opcoes_texto, observacao, codigo_externo)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          ).run(pedidoId, i.produtoId, i.nome, i.precoUnitCentavos, i.quantidade, i.opcoesTexto, i.observacao,
+                i.codigoExterno || '');
         }
         return pedidoId;
       }),
