@@ -97,6 +97,39 @@ describe('o cabeçalho de /api', () => {
   });
 
   /*
+   * E O 404 DE ARQUIVO ESTÁTICO TAMBÉM NÃO PODE SER GUARDADO.
+   *
+   * Mesma família de defeito, descoberta na mesma tarde: o 404 vinha do Express
+   * sem `Cache-Control`, e 404 sem instrução é heuristicamente cacheável. O
+   * `deploy.sh` troca a pasta com dois `mv` e existe uma janela de
+   * milissegundos em que todo arquivo dá 404 — quem carregar a página nessa
+   * janela guarda o 404 do chunk novo e a loja fica EM BRANCO para essa pessoa
+   * até o cache expirar, com o arquivo já no lugar no servidor.
+   *
+   * Medido: `index-Dmcv9H2K.js` dava 404 na aba e 200 no `curl`, existindo em
+   * disco. Aba nova não resolvia, limpar o service worker não resolvia — o 404
+   * morava no cache HTTP do navegador.
+   */
+  it('404 de arquivo estático manda no-store', () => {
+    const i = codigo.indexOf("if (req.method !== 'GET' || req.path.startsWith('/api')) return next();");
+    expect(i).toBeGreaterThan(0);
+    const bloco = codigo.slice(i, i + 260);
+    expect(bloco).toContain("'Cache-Control', 'private, no-store'");
+    expect(bloco).toContain('res.status(404)');
+  });
+
+  /* E vem ANTES do 404 de /api, senão o de /api nunca responde JSON. */
+  it('o 404 estático não engole o 404 de /api', () => {
+    const iEstatico = codigo.indexOf("res.status(404).type('text/plain')");
+    const iApi = codigo.indexOf("res.status(404).json({ erro: 'Rota não encontrada.' })");
+    expect(iEstatico).toBeGreaterThan(0);
+    expect(iApi).toBeGreaterThan(iEstatico);
+    /* A guarda que garante isso: o handler estático devolve o controle para
+       quem vem depois quando o caminho é de API. */
+    expect(codigo).toContain("req.path.startsWith('/api')) return next();");
+  });
+
+  /*
    * E NÃO ENCOSTA NO QUE NÃO É /api. O `private, no-cache` do material de
    * treinamento (ajuda) é outra decisão, medida, e continua valendo: ali
    * guardar e revalidar é o que se quer.

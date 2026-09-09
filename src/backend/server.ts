@@ -563,6 +563,35 @@ app.use((req, res, next) => {
   });
 });
 
+/**
+ * ARQUIVO ESTÁTICO QUE NÃO EXISTE RESPONDE UM 404 QUE NÃO PODE SER GUARDADO.
+ *
+ * Sem isto o 404 vinha do Express, SEM `Cache-Control` — e 404 sem instrução é
+ * heuristicamente cacheável. O navegador guardava, e passava a responder 404
+ * sozinho, sem perguntar mais nada.
+ *
+ * O que isso produz na prática, medido hoje: o `deploy.sh` troca a pasta com
+ * dois `mv`, e entre eles existe uma janela de milissegundos em que `public`
+ * não existe e TODO arquivo dá 404. Quem carregar a página exatamente nessa
+ * janela guarda um 404 do chunk novo — e a loja fica em BRANCO para essa
+ * pessoa até o cache dela expirar, mesmo com o arquivo já no lugar no
+ * servidor. Foi o que aconteceu com o meu navegador: `index-Dmcv9H2K.js` e
+ * `utils-DrWn0Qow.js` davam 404 na aba e 200 no `curl`, os dois existindo em
+ * disco. Aba nova não resolvia, limpar service worker não resolvia — porque o
+ * 404 estava no cache HTTP do navegador, não no do app.
+ *
+ * `no-store` num 404 custa nada (não há o que guardar de útil) e evita que uma
+ * falha de milissegundos vire uma loja quebrada por horas.
+ *
+ * Isto NÃO conserta a janela do deploy, só impede que ela deixe marca. A janela
+ * em si pede troca atômica por symlink no `deploy.sh`.
+ */
+app.use((req, res, next) => {
+  if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.status(404).type('text/plain').send('Arquivo não encontrado.');
+});
+
 app.use('/api', (_req, res) => {
   res.status(404).json({ erro: 'Rota não encontrada.' });
 });
