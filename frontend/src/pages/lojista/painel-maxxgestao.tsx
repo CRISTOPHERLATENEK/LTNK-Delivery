@@ -109,6 +109,7 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
   const [empresa, setEmpresa] = useState<EmpresaErp | null>(null);
 
   const [catalogos, setCatalogos] = useState<CatalogoErp[] | null>(null);
+  const [erroCatalogos, setErroCatalogos] = useState('');
   const [catalogo, setCatalogo] = useState(0);
   const [importando, setImportando] = useState(false);
   const [andamento, setAndamento] = useState('');
@@ -136,8 +137,21 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
     if (!estado?.configurado || catalogos) return;
     let vivo = true;
     api<{ catalogos: CatalogoErp[] }>('GET', '/api/lojista/erp/catalogos')
-      .then(r => { if (vivo) setCatalogos(r.catalogos); })
-      .catch(() => { if (vivo) setCatalogos([]); });
+      .then(r => { if (vivo) { setCatalogos(r.catalogos); setErroCatalogos(''); } })
+      /*
+       * FALHA NÃO PODE VIRAR "NENHUM CATÁLOGO".
+       *
+       * O `.catch` antes só zerava a lista, e lista vazia esconde o seletor — a
+       * tela ficava idêntica à de uma empresa sem catálogo nenhum. Quem lê
+       * conclui que não há o que escolher e importa a empresa inteira.
+       */
+      .catch(err => {
+        if (!vivo) return;
+        setCatalogos([]);
+        setErroCatalogos(err instanceof ApiError
+          ? err.message
+          : 'Não consegui ler os catálogos do Maxx Gestão.');
+      });
     return () => { vivo = false; };
   }, [estado?.configurado, catalogos]);
 
@@ -267,6 +281,7 @@ Ligar assim mesmo?`,
         /* Sem avanço não insiste: repetir a mesma lista de letras seria laço
            infinito com cara de progresso. */
         if (!r.restantes?.length) {
+          setAndamento('');
           mostrar({ tipo: 'erro', titulo: 'A importação parou de avançar. Tente de novo.' });
           return;
         }
@@ -285,9 +300,28 @@ Ligar assim mesmo?`,
           }
         }
       }
+      setAndamento('');
       mostrar({ tipo: 'erro', titulo: 'A importação passou do limite de tentativas.' });
     } catch (err) {
-      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+      /*
+       * O ANDAMENTO NÃO SOBREVIVE À FALHA, e a falha nunca é silenciosa.
+       *
+       * Antes o texto ficava na tela para sempre depois de um erro: o painel
+       * dizia "Lendo o cadastro do Maxx Gestão…" com nada acontecendo, e o
+       * botão voltava a "Trazer" — as duas coisas ao mesmo tempo. Foi assim que
+       * o 400 do dia 09/09 apareceu.
+       *
+       * E o `if (err instanceof ApiError)` sozinho deixava passar em branco
+       * tudo que não é resposta do servidor: internet caindo no meio, sessão
+       * expirada, erro de rede. Nenhuma mensagem, nenhum sinal.
+       */
+      setAndamento('');
+      mostrar({
+        tipo: 'erro',
+        titulo: err instanceof ApiError
+          ? err.message
+          : 'Não consegui falar com o servidor. Confira a internet e tente de novo.',
+      });
     } finally {
       setImportando(false);
     }
@@ -416,6 +450,17 @@ Ligar assim mesmo?`,
           mercadorias da empresa. Com um catálogo escolhido nada é pausado —
           produto de outro cardápio apareceria como ausente e sairia do ar.
         */}
+        {/*
+          E QUANDO A LISTA NÃO PUDER SER LIDA, a tela diz isso — em vez de
+          esconder o seletor e parecer uma empresa sem catálogo. Sem catálogo
+          escolhido a importação traz a empresa inteira e pausa o que não estiver
+          lá, então "não deu para ler" é informação que muda a decisão.
+        */}
+        {erroCatalogos && (
+          <p className="mt-2 text-[12.5px] leading-relaxed text-destructive">
+            {erroCatalogos} Sem a lista, o que vier é a empresa inteira.
+          </p>
+        )}
         {catalogos && catalogos.length > 0 && (
           <div className="mt-2">
             <select

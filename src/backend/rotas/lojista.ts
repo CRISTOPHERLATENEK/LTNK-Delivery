@@ -4210,7 +4210,25 @@ router.get('/erp/catalogos', async (req, res, next) => {
     const token = await tokenMaxxGestaoDaLoja(loja.id);
     if (!token) return res.status(400).json({ erro: 'Cole o token do Maxx Gestão primeiro.' });
 
-    const catalogos = await listarCatalogos(token);
+    /*
+     * FALHA DO ERP AQUI VIRA MENSAGEM, não 500.
+     *
+     * Sem este try, um tropeço do Maxx Gestão subia como erro interno: o
+     * navegador recebia 500 sem texto, a tela caía no `.catch` que zera a lista
+     * e o resultado era um painel dizendo "nenhum catálogo" — indistinguível de
+     * uma empresa que realmente não tem catálogo. Medido em 09/09: o ERP passou
+     * três minutos sem responder e foi exatamente isso que apareceu.
+     */
+    let catalogos: Awaited<ReturnType<typeof listarCatalogos>>;
+    try {
+      catalogos = await listarCatalogos(token);
+    } catch (e) {
+      const erro = e as { message?: string; httpStatus?: number };
+      console.log(`[erp] loja ${loja.id}: falha listando catalogos (${erro.httpStatus ?? '-'}): ${erro.message}`);
+      return res.status(400).json({
+        erro: erro.message || 'Não consegui ler os catálogos do Maxx Gestão.',
+      });
+    }
     const fora: Array<{ codigo: number; descricao: string; ativo: boolean; itens: number }> = [];
     for (const c of catalogos) {
       let itens = 0;
@@ -4222,6 +4240,32 @@ router.get('/erp/catalogos', async (req, res, next) => {
     res.json({ catalogos: fora });
   } catch (e) { next(e); }
 });
+
+/**
+ * FALHA DE LEITURA NO ERP: transitória PEDE OUTRA RODADA, definitiva para tudo.
+ *
+ * `httpStatus` 0 é INDEFINIDO — a chamada não chegou a ter resposta — e 5xx é
+ * problema do lado deles. Nos dois casos a leitura é repetível (ela não escreve
+ * nada no ERP) e o preâmbulo é guardado em pedaços, então tentar de novo
+ * AVANÇA em vez de recomeçar.
+ *
+ * Medido em 09/09: o Maxx Gestão passou três minutos sem responder, a rota
+ * devolveu 400, e a tela desistiu de uma importação que voltaria a funcionar
+ * sozinha — com o texto "Lendo o cadastro…" parado na tela.
+ *
+ * 401 e 4xx continuam definitivos: token errado não melhora com espera, e
+ * insistir gastaria a janela de 20 chamadas por minuto do cliente à toa.
+ *
+ * O 429 é a exceção entre os 4xx, e é exceção de verdade: ele diz "cedo demais",
+ * não "errado". Ele quase sempre vem pelo `LimiteMaxxGestao`, que tem caminho
+ * próprio com a espera que eles pedem — mas quando escapa por fora, desistir
+ * seria desistir por causa de pressa nossa.
+ */
+export function leituraDoErpFalhouDeVez(status: number | undefined): boolean {
+  const s = Number(status ?? 0);
+  if (s === 429) return false;
+  return s > 0 && s < 500;
+}
 
 router.post('/erp/importar', async (req, res, next) => {
   try {
@@ -4283,6 +4327,11 @@ router.post('/erp/importar', async (req, res, next) => {
         }
         const erro = e as { message?: string; httpStatus?: number };
         console.log(`[erp] loja ${loja.id}: falha lendo os codigos (${erro.httpStatus ?? '-'}): ${erro.message}`);
+        /* Cinco segundos: tempo de um tropeço passar, curto o bastante para a
+           tela não parecer parada. O teto de voltas é da tela. */
+        if (!leituraDoErpFalhouDeVez(erro.httpStatus)) {
+          return continuar(`${erro.message || 'O Maxx Gestão não respondeu.'} Tentando de novo…`, 5_000, pedidas);
+        }
         return res.status(400).json({ erro: erro.message || 'Não consegui ler o cadastro do Maxx Gestão.' });
       }
       return continuar(`Cadastro lido: ${guardado.ids.length} produtos no ERP. Buscando preços…`, 0, pedidas);
@@ -4309,6 +4358,9 @@ router.post('/erp/importar', async (req, res, next) => {
         }
         const erro = e as { message?: string; httpStatus?: number };
         console.log(`[erp] loja ${loja.id}: falha lendo precos/categorias (${erro.httpStatus ?? '-'}): ${erro.message}`);
+        if (!leituraDoErpFalhouDeVez(erro.httpStatus)) {
+          return continuar(`${erro.message || 'O Maxx Gestão não respondeu.'} Tentando de novo…`, 5_000, pedidas);
+        }
         return res.status(400).json({ erro: erro.message || 'Não consegui ler o cadastro do Maxx Gestão.' });
       }
       return continuar(
@@ -4350,6 +4402,17 @@ router.post('/erp/importar', async (req, res, next) => {
         }
         const erro = e as { message?: string; httpStatus?: number };
         console.log(`[erp] loja ${loja.id}: falha ao ler o cardapio (${erro.httpStatus ?? '-'}): ${erro.message}`);
+        /*
+         * Tropeço deles é tratado COMO O LIMITE: a letra volta para a próxima
+         * rodada e o que já foi lido é gravado. Desistir aqui jogava fora as
+         * letras anteriores desta mesma requisição — trabalho feito, perdido
+         * por causa de uma chamada que falhou.
+         */
+        if (!leituraDoErpFalhouDeVez(erro.httpStatus)) {
+          esperar = 5_000;
+          restantes.push(...pedidas.slice(k));
+          break;
+        }
         return res.status(400).json({ erro: erro.message || 'Não consegui ler o cardápio do Maxx Gestão.' });
       }
     }
