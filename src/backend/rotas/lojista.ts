@@ -3413,9 +3413,9 @@ router.get('/pagamentos', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const row = await db.prepare(
-      'SELECT mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo, pagamento_gateway FROM lojas WHERE id = ?'
+      'SELECT mercadopago_token_teste, mercadopago_token_producao, mercadopago_modo, pagamento_gateway, pagamento_online FROM lojas WHERE id = ?'
     ).get(loja.id) as
-      { mercadopago_token_teste: string | null; mercadopago_token_producao: string | null; mercadopago_modo: string; pagamento_gateway: string | null } | undefined;
+      { mercadopago_token_teste: string | null; mercadopago_token_producao: string | null; mercadopago_modo: string; pagamento_gateway: string | null; pagamento_online: number | null } | undefined;
     const modo: 'teste' | 'producao' = row?.mercadopago_modo === 'teste' ? 'teste' : 'producao';
     const descriptografarOuNulo = (c: string | null) => {
       if (!c) return null;
@@ -3443,6 +3443,15 @@ router.get('/pagamentos', async (req, res, next) => {
          FROM pedidos WHERE loja_id = ? AND pagamento_status = 'aprovado'`
     ).get(loja.id) as { primeiro: string | null; ultimo: string | null } | undefined;
     res.json({
+      /*
+       * O INTERRUPTOR VEM NESTE PAYLOAD porque é esta tela que decide se mostra
+       * a configuração de Pix e cartão. Sem ele aqui, a tela mostraria "Pix não
+       * configurado" e todo o formulário numa loja que não recebe online — e o
+       * lojista ia configurar uma coisa que o checkout dele não oferece.
+       *
+       * Nulo conta como LIGADO: é o padrão da coluna.
+       */
+      pagamento_online: Number(row?.pagamento_online ?? 1) === 1,
       gateway,
       // Pix ONZ está utilizável? (conta da loja ou, na falta, a da plataforma)
       onz_disponivel: onzDisponivel,

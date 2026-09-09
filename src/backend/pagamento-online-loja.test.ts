@@ -125,13 +125,62 @@ describe('a tela deixa de oferecer o que seria recusado', () => {
 });
 
 describe('o interruptor no painel do lojista', () => {
+  /*
+   * ELE MORA NA TELA DE PAGAMENTOS, e mudou de lugar depois de eu errar.
+   *
+   * Nasceu ao lado de "Aceitar retirada no local", na seção de ENTREGA — outro
+   * assunto. O resultado: a tela de Pagamentos mostrava "Pix não configurado" e
+   * o formulário de credencial inteiro numa loja que não recebe online, sem
+   * dizer por quê nem onde mudar. Convite para colar um token do Mercado Pago e
+   * descobrir depois que o checkout nunca ofereceu Pix.
+   */
   it('existe e diz o que muda', () => {
     expect(config).toContain('Aceitar pagamento online');
-    expect(config).toContain('Só na entrega ou na retirada');
+    expect(config).toContain('só paga na entrega ou na retirada');
   });
 
-  it('sai no salvamento', () => {
-    expect(exec(config)).toContain('pagamento_online: form.pagamento_online');
+  it('está na tela de Pagamentos, antes da configuração', () => {
+    const codigo = exec(config);
+    const iTela = codigo.indexOf('export function PagamentosLoja()');
+    const iInterruptor = codigo.indexOf('<InterruptorPagamentoOnline');
+    const iAbas = codigo.indexOf("id: 'pix' as const");
+    expect(iTela).toBeGreaterThan(0);
+    expect(iInterruptor).toBeGreaterThan(iTela);
+    expect(iInterruptor).toBeLessThan(iAbas);
+  });
+
+  /* E NÃO ficou também na seção de entrega: dois interruptores para a mesma
+     coluna no mesmo painel é a próxima confusão. */
+  it('saiu da seção de entrega', () => {
+    const codigo = exec(config);
+    expect(codigo).not.toContain('pagamento_online: form.pagamento_online');
+    expect(codigo).not.toContain('f.pagamento_online');
+  });
+
+  /*
+   * DESLIGADO, A CONFIGURAÇÃO NEM APARECE. É o pedido do lojista, e a razão é
+   * concreta: configurar o que o checkout não oferece é trabalho jogado fora.
+   */
+  it('desligado, esconde a configuração de Pix e cartão', () => {
+    const codigo = exec(config);
+    expect(codigo).toContain('{!estado.pagamento_online ? null : (<>');
+    /* A porta vem ANTES das abas de Pix/cartão. */
+    const iPorta = codigo.indexOf('{!estado.pagamento_online ? null : (<>');
+    expect(iPorta).toBeLessThan(codigo.indexOf("id: 'pix' as const"));
+  });
+
+  /* A tela precisa RECEBER a flag, senão ela adivinha. */
+  it('o payload de pagamentos devolve a flag', () => {
+    expect(exec(lojista)).toContain('pagamento_online: Number(row?.pagamento_online ?? 1) === 1');
+  });
+
+  /* Salva na hora: interruptor de duas posições com efeito imediato no
+     checkout não combina com um "Salvar" separado. */
+  it('salva no clique, sem botão de salvar', () => {
+    const fn = config.slice(config.indexOf('function InterruptorPagamentoOnline'));
+    const corpo = fn.slice(0, fn.indexOf('\n}\n'));
+    expect(corpo).toContain("api('PUT', '/api/lojista/loja', { pagamento_online: novo })");
+    expect(corpo).toContain('if (!novo && !window.confirm(');
   });
 
   /*

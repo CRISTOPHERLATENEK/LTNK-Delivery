@@ -28,7 +28,6 @@ export function LojaConfiguracao() {
     nome: '', descricao: '', categoria: '', endereco: '',
     taxa_entrega: '', tempo_estimado_min: '', horario_funcionamento: '', minimo_pedido: '',
     aceita_retirada: false,
-    pagamento_online: true,
     slug: '', dominio_personalizado: '',
   });
   const [enviando, setEnviando] = useState(false);
@@ -88,9 +87,6 @@ export function LojaConfiguracao() {
         slug: (l as any).slug || '',
         dominio_personalizado: (l as any).dominio_personalizado || '',
         aceita_retirada: !!(l as { aceita_retirada?: number }).aceita_retirada,
-        /* Ausente conta como LIGADO: é o padrão da coluna, e um banco sem a
-           migração não deve aparecer como "loja que não recebe online". */
-        pagamento_online: (l as { pagamento_online?: number }).pagamento_online !== 0,
       });
       marcarSalvo();
     }).catch(() => mostrar({ tipo: 'erro', titulo: 'Não foi possível carregar os dados da loja.' }));
@@ -115,7 +111,6 @@ export function LojaConfiguracao() {
         horario_funcionamento: form.horario_funcionamento,
         minimo_pedido: form.minimo_pedido === '' ? 0 : Number(form.minimo_pedido),
         aceita_retirada: form.aceita_retirada,
-        pagamento_online: form.pagamento_online,
         slug: form.slug.trim() || null,
         dominio_personalizado: form.dominio_personalizado.trim() || null,
       });
@@ -426,38 +421,6 @@ export function LojaConfiguracao() {
                   {form.aceita_retirada
                     ? 'O cliente pode escolher buscar na loja, sem taxa de entrega.'
                     : 'Só entrega. O cliente não vê a opção de retirar.'}
-                </span>
-              </span>
-            </button>
-
-            {/*
-              PAGAMENTO ONLINE — ligado por padrão, porque a maioria quer.
-              Existe porque "ter credencial" não é o mesmo que "querer receber
-              online": o token do Mercado Pago da PLATAFORMA serve de reserva
-              para qualquer loja, então uma conveniência que só cobra na entrega
-              passava a oferecer Pix online sem ter pedido — e o dinheiro cairia
-              na conta da plataforma, não na dela.
-
-              Desligado, o cliente NÃO VÊ Pix online nem cartão online; sobram
-              dinheiro e cartão na entrega. O servidor também recusa, então
-              pedido forjado não passa (ver `lojaQuerPagamentoOnline`).
-            */}
-            <button
-              type="button"
-              onClick={() => setForm(f => ({ ...f, pagamento_online: !f.pagamento_online }))}
-              className="flex w-full items-start gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:bg-accent/40"
-            >
-              <span className={cn('relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors',
-                form.pagamento_online ? 'bg-primary' : 'bg-muted-foreground/30')}>
-                <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-all',
-                  form.pagamento_online ? 'left-[19px]' : 'left-[3px]')} />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold">Aceitar pagamento online</span>
-                <span className="block text-xs text-muted-foreground">
-                  {form.pagamento_online
-                    ? 'O cliente pode pagar antes, por Pix ou cartão.'
-                    : 'Só na entrega ou na retirada: dinheiro e cartão na hora.'}
                 </span>
               </span>
             </button>
@@ -1265,6 +1228,12 @@ interface EstadoTef {
 }
 
 interface EstadoPagamentos {
+  /**
+   * A loja aceita pagamento online? Desligado, esta tela não mostra a
+   * configuração de Pix nem de cartão — configurar o que o checkout não oferece
+   * é trabalho que só serve para confundir depois.
+   */
+  pagamento_online: boolean;
   /** Gateway do Pix online: Mercado Pago ou Pix via ONZ/Planner. */
   gateway: 'mercadopago' | 'onz';
   /** O Pix ONZ está utilizável (conta desta loja ou, na falta, da plataforma)? */
@@ -1350,6 +1319,82 @@ function Passo({ n, children }: { n: number; children: React.ReactNode }) {
       </span>
       <span className="text-xs leading-relaxed text-muted-foreground">{children}</span>
     </li>
+  );
+}
+
+/**
+ * ACEITAR PAGAMENTO ONLINE — o interruptor que manda na tela de Pagamentos.
+ *
+ * MUDOU DE LUGAR. Nasceu ao lado de "Aceitar retirada no local", na seção de
+ * entrega, que é outro assunto — e o resultado foi uma tela de Pagamentos
+ * mostrando "Pix não configurado" e todo o formulário de credencial numa loja
+ * que não recebe online, sem dizer por quê nem onde mudar. Convite para colar
+ * um token do Mercado Pago e descobrir depois que o checkout nunca ofereceu
+ * Pix.
+ *
+ * Aqui ele é a primeira coisa da tela e a pergunta que manda no resto: sem
+ * pagamento online não existe Pix nem cartão para configurar.
+ *
+ * SALVA NA HORA, sem botão. É um interruptor de duas posições e o efeito é
+ * imediato no checkout; um "Salvar" separado só criaria o estado "mudei e
+ * esqueci de salvar" numa decisão que vale dinheiro.
+ */
+function InterruptorPagamentoOnline(
+  { ativo, onTrocado }: { ativo: boolean; onTrocado: () => void },
+) {
+  const { mostrar } = useToast();
+  const [salvando, setSalvando] = useState(false);
+
+  async function alternar() {
+    const novo = !ativo;
+    /*
+     * Só DESLIGAR pergunta. Ligar não tira nada de ninguém; desligar remove
+     * duas formas de pagamento do checkout de uma loja que pode estar vendendo
+     * neste minuto.
+     */
+    if (!novo && !window.confirm(
+      `Desligar o pagamento online?
+
+O cliente deixa de ver Pix e cartão online no checkout. Sobram dinheiro e cartão na entrega.`,
+    )) return;
+    setSalvando(true);
+    try {
+      await api('PUT', '/api/lojista/loja', { pagamento_online: novo });
+      mostrar({
+        tipo: 'sucesso',
+        titulo: novo ? 'Pagamento online ligado' : 'Pagamento online desligado',
+      });
+      onTrocado();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setSalvando(false); }
+  }
+
+  return (
+    <Card className={ativo ? undefined : 'border-amber-500/40 bg-amber-50/60 dark:bg-amber-500/10'}>
+      <CardContent className="p-5">
+        <button
+          type="button"
+          onClick={() => void alternar()}
+          disabled={salvando}
+          className="flex w-full items-start gap-3 text-left disabled:opacity-60"
+        >
+          <span className={cn('relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors',
+            ativo ? 'bg-primary' : 'bg-muted-foreground/30')}>
+            <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-all',
+              ativo ? 'left-[19px]' : 'left-[3px]')} />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-sm font-bold">Aceitar pagamento online</span>
+            <span className="mt-0.5 block text-xs text-muted-foreground">
+              {ativo
+                ? 'O cliente pode pagar antes de receber, por Pix ou cartão.'
+                : 'Desligado: o cliente só paga na entrega ou na retirada, em dinheiro ou cartão. Nada de Pix nem cartão online no checkout.'}
+            </span>
+          </span>
+        </button>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1550,6 +1595,29 @@ export function PagamentosLoja() {
   return (
     <div className="mx-auto max-w-[720px] space-y-4">
       <CabecalhoSecao titulo="Pagamentos" ajuda="pagamentos" />
+
+      {/*
+        O INTERRUPTOR MORA AQUI, e é a primeira coisa da tela.
+
+        Estava junto de "Aceitar retirada no local", na seção de entrega — que é
+        outro assunto. Aqui ele é a pergunta que manda em tudo o que vem abaixo:
+        sem pagamento online, não existe Pix nem cartão para configurar.
+      */}
+      <InterruptorPagamentoOnline
+        ativo={estado.pagamento_online}
+        onTrocado={() => carregar()}
+      />
+
+      {/*
+        DESLIGADO, A CONFIGURAÇÃO NEM APARECE.
+
+        Antes a tela mostrava "Pix não configurado", "Por onde o Pix entra" e o
+        formulário de credencial numa loja que não recebe online. Era convite
+        para o lojista colar um token do Mercado Pago e depois descobrir que o
+        checkout dele nunca ofereceu Pix — trabalho jogado fora, e a impressão
+        de que o sistema ignorou o que ele configurou.
+      */}
+      {!estado.pagamento_online ? null : (<>
 
       {/*
         ABAS EM FORMATO DE CARD, cada uma carregando o próprio status.
@@ -2100,6 +2168,8 @@ export function PagamentosLoja() {
       </>)}
 
       {/* ───────────────────── ABA MAQUININHA (TEF) ───────────────────── */}
+
+      </>)}
     </div>
   );
 }
