@@ -487,6 +487,19 @@ const PAGAMENTOS: { id: FormaPagamento; label: string; icon: React.ReactNode; de
     desc: 'Pague agora com crédito',
   },
   {
+    /*
+     * PIX NA ENTREGA — pago direto para a loja, na porta ou no balcão.
+     *
+     * Não é pagamento online: nada passa pelo gateway, então ela continua
+     * disponível na loja que desligou o Pix online. Era o que faltava para uma
+     * conveniência que recebe Pix na mão mas não quer cobrar antes.
+     */
+    id: 'pix_entrega',
+    label: 'Pix na entrega',
+    icon: <QrCode className="size-5" />,
+    desc: 'Pague na hora, direto para a loja',
+  },
+  {
     id: 'cartao_entrega',
     label: 'Cartão na entrega',
     icon: <CreditCard className="size-5" />,
@@ -662,6 +675,9 @@ function Checkout({
    */
   const formasOferecidas = pagamentoOnline
     ? PAGAMENTOS
+    /* `pix_entrega` NÃO SAI da lista: ela é paga na porta, sem gateway. Filtrar
+       por "tem pix no nome" tiraria justamente a forma que a loja sem pagamento
+       online mais usa. */
     : PAGAMENTOS.filter(p => p.id !== 'pix' && p.id !== 'cartao_online');
 
   const [pagamento, setPagamento] = useState<FormaPagamento>(

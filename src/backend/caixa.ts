@@ -116,7 +116,15 @@ export function somarVendas(vendas: Array<{ forma_pagamento: FormaPagamento | st
   const r: VendasDoTurno = { dinheiro_centavos: 0, cartao_centavos: 0, pix_centavos: 0, quantidade: vendas.length };
   for (const v of vendas) {
     if (v.forma_pagamento === 'dinheiro') r.dinheiro_centavos += v.total_centavos;
-    else if (v.forma_pagamento === 'pix') r.pix_centavos += v.total_centavos;
+    /*
+     * `pix_entrega` ENTRA AQUI, junto do Pix online. O `else` final é cartão, e
+     * sem esta forma na conta o Pix pago na porta apareceria como cartão no
+     * fechamento do caixa — dinheiro no lugar errado, conferência batendo por
+     * acidente e o lojista procurando um cartão que ninguém passou.
+     */
+    else if (v.forma_pagamento === 'pix' || v.forma_pagamento === 'pix_entrega') {
+      r.pix_centavos += v.total_centavos;
+    }
     else r.cartao_centavos += v.total_centavos;
   }
   return r;

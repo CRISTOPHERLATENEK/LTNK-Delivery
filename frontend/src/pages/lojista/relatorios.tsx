@@ -86,6 +86,7 @@ const LABEL: Record<Periodo, string> = {
 const NOME_PAGAMENTO: Record<string, string> = {
   pix: 'Pix', dinheiro: 'Dinheiro',
   cartao_entrega: 'Cartão na entrega', cartao_online: 'Cartão online',
+  pix_entrega: 'Pix na entrega',
 };
 
 /** Canal de venda. `app` é o delivery do próprio cardápio. */

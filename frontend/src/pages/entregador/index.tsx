@@ -44,7 +44,7 @@ interface Corrida {
   entrega_lon?: number | null;
   taxa_entrega_centavos: number;
   total_centavos: number;
-  forma_pagamento: 'pix' | 'dinheiro' | 'cartao_entrega';
+  forma_pagamento: 'pix' | 'dinheiro' | 'cartao_entrega' | 'cartao_online' | 'pix_entrega';
   troco_para_centavos?: number | null;
   loja_nome: string;
   loja_endereco: string;
@@ -270,9 +270,14 @@ function CorridasDisponiveis() {
               <div>
                 <div className="font-bold">#{String(c.id).padStart(4, '0')} · {c.loja_nome}</div>
                 <div className="text-xs text-muted-foreground mt-0.5">
-                  {c.forma_pagamento === 'pix' && '🔑 Pix'}
+                  {/* `pix` e o do gateway: JA PAGO, nao cobrar. `pix_entrega` e
+                      na porta, a cobrar. Rotulo igual nos dois seria o
+                      entregador cobrando de novo um pedido pago. */}
+                  {c.forma_pagamento === 'pix' && '🔑 Pix (pago online)'}
+                  {c.forma_pagamento === 'cartao_online' && '💳 Cartão (pago online)'}
+                  {c.forma_pagamento === 'pix_entrega' && '🔑 Pix na entrega — COBRAR'}
                   {c.forma_pagamento === 'dinheiro' && `💵 Dinheiro${c.troco_para_centavos ? ` · troco para ${brl(c.troco_para_centavos)}` : ''}`}
-                  {c.forma_pagamento === 'cartao_entrega' && '💳 Cartão na entrega'}
+                  {c.forma_pagamento === 'cartao_entrega' && '💳 Cartão na entrega — COBRAR'}
                 </div>
               </div>
               <div className="text-right">
@@ -655,9 +660,11 @@ function EntregaAtiva() {
               {brl(p.taxa_entrega_centavos)}
             </div>
             <div className="text-xs text-muted-foreground mt-0.5">
-              {p.forma_pagamento === 'pix' && 'Pagamento via Pix'}
+              {p.forma_pagamento === 'pix' && 'Pago online via Pix'}
+              {p.forma_pagamento === 'cartao_online' && 'Pago online no cartão'}
               {p.forma_pagamento === 'dinheiro' && 'Pagamento em dinheiro'}
-              {p.forma_pagamento === 'cartao_entrega' && 'Pagamento na entrega'}
+              {p.forma_pagamento === 'pix_entrega' && 'Pix na entrega'}
+              {p.forma_pagamento === 'cartao_entrega' && 'Cartão na entrega'}
             </div>
           </div>
           <div className="flex flex-1 flex-wrap items-center gap-x-6 gap-y-2 justify-end">
@@ -782,8 +789,10 @@ function EntregaAtiva() {
               <div className="flex justify-between text-muted-foreground">
                 <span>Pagamento</span>
                 <span className="font-semibold text-foreground">
-                  {p.forma_pagamento === 'pix' && 'Pix'}
+                  {p.forma_pagamento === 'pix' && 'Pix (pago)'}
+                  {p.forma_pagamento === 'cartao_online' && 'Cartão (pago)'}
                   {p.forma_pagamento === 'dinheiro' && 'Dinheiro'}
+                  {p.forma_pagamento === 'pix_entrega' && 'Pix na entrega'}
                   {p.forma_pagamento === 'cartao_entrega' && 'Cartão'}
                 </span>
               </div>

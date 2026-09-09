@@ -58,6 +58,7 @@ function imprimirPedido(p: PedidoComItens) {
     : p.forma_pagamento === 'cartao_online' ? 'Cartão (pago online)'
     : p.forma_pagamento === 'dinheiro' ? `Dinheiro${p.troco_para_centavos ? ` / troco ${fmt(p.troco_para_centavos)}` : ''}`
     : p.forma_pagamento === 'cartao_entrega' ? 'Cartão na entrega — COBRAR'
+    : p.forma_pagamento === 'pix_entrega' ? 'Pix na entrega — COBRAR'
     : 'A combinar';
   // Via `abrirEImprimir` (iframe oculto) e não `window.open`: popup same-origin
   // compartilha o event loop desta aba, então o print() dele travava o painel
@@ -594,6 +595,7 @@ function CardPedidoDash({
                 : p.forma_pagamento === 'cartao_online' ? 'Cartão (pago)'
                 : p.forma_pagamento === 'dinheiro' ? 'Dinheiro'
                 : p.forma_pagamento === 'cartao_entrega' ? 'Cartão na entrega'
+                : p.forma_pagamento === 'pix_entrega' ? 'Pix na entrega'
                 : p.forma_pagamento}
             </div>
           </div>

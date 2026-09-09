@@ -65,8 +65,11 @@ export interface ContextoLancamento {
 /**
  * O dinheiro já entrou antes de o pedido sair?
  *
- * Estas duas formas são cobradas no app, no ato. `dinheiro` e `cartao_entrega`
- * são recebidas na porta, e por isso não entram aqui.
+ * Estas duas formas são cobradas no app, no ato. `dinheiro`, `cartao_entrega` e
+ * `pix_entrega` são recebidas na porta, e por isso não entram aqui — inclusive o
+ * `pix_entrega`, que é Pix de verdade mas pago direto para a loja, sem passar
+ * pelo nosso gateway. Confundi-lo com `pix` marcaria como já pago um pedido que
+ * ninguém cobrou.
  */
 export function ehPagoOnline(formaPagamento: string): boolean {
   return formaPagamento === 'pix' || formaPagamento === 'cartao_online';

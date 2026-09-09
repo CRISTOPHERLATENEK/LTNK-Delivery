@@ -933,6 +933,7 @@ function imprimirPedidoPainel(p: PedidoComItens, config?: { largura?: '80' | '58
     : p.forma_pagamento === 'cartao_online' ? 'Cartão (pago online)'
     : p.forma_pagamento === 'dinheiro' ? `Dinheiro${p.troco_para_centavos ? ` / troco ${fmt(p.troco_para_centavos)}` : ''}`
     : p.forma_pagamento === 'cartao_entrega' ? 'Cartão na entrega — COBRAR'
+    : p.forma_pagamento === 'pix_entrega' ? 'Pix na entrega — COBRAR'
     : 'A combinar';
   const itensHtml = (p.itens || []).map(i => {
     /* Uma linha por complemento, igual ao ESC/POS logo abaixo: o HTML é o
@@ -1436,6 +1437,7 @@ function CardPedidoLojista({ pedido, aoAtualizar, agora }: {
                 {pedido.forma_pagamento === 'pix' && 'Pix'}
                 {pedido.forma_pagamento === 'dinheiro' && 'Dinheiro'}
                 {pedido.forma_pagamento === 'cartao_entrega' && 'Cartão na entrega'}
+                {pedido.forma_pagamento === 'pix_entrega' && 'Pix na entrega'}
                 {pedido.forma_pagamento === 'cartao_online' && 'Cartão (pago)'}
               </span>
             </div>

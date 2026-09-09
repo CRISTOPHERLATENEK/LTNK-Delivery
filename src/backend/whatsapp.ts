@@ -124,6 +124,9 @@ const ROTULO_PAGAMENTO: Record<string, string> = {
   dinheiro: 'Dinheiro',
   cartao_entrega: 'Cartão na entrega',
   cartao_online: 'Cartão (pago online)',
+  /* `pix` sem sufixo é o do gateway, já pago. Este é o da porta, a cobrar — a
+     mensagem que o cliente recebe não pode confundir os dois. */
+  pix_entrega: 'Pix na entrega',
 };
 
 /**

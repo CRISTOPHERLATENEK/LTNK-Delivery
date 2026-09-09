@@ -416,6 +416,7 @@ export function PaginaPedido() {
                   {pedido.forma_pagamento === 'pix' && 'Pix'}
                   {pedido.forma_pagamento === 'dinheiro' && 'Dinheiro'}
                   {pedido.forma_pagamento === 'cartao_entrega' && 'Cartão na entrega'}
+                  {pedido.forma_pagamento === 'pix_entrega' && 'Pix na entrega'}
                 </span>
               </div>
               <div className="flex items-center justify-between font-extrabold text-base pt-1.5 border-t">
@@ -453,6 +454,7 @@ export function PaginaPedido() {
                       {pedido.forma_pagamento === 'pix' && 'Pix'}
                       {pedido.forma_pagamento === 'dinheiro' && 'Dinheiro'}
                       {pedido.forma_pagamento === 'cartao_entrega' && 'Cartão na entrega'}
+                      {pedido.forma_pagamento === 'pix_entrega' && 'Pix na entrega'}
                       {!!pedido.troco_para_centavos && ` · troco para ${brl(pedido.troco_para_centavos)}`}
                     </span>
                   </div>

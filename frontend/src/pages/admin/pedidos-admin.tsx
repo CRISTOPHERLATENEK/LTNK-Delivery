@@ -342,8 +342,19 @@ function DetalhePedido({ id, tenantId }: { id: number; tenantId?: number }) {
   if (consulta.isLoading) return <Skeleton className="h-40 rounded-xl" />;
   if (!consulta.data) return null;
   const { pedido, itens, historico } = consulta.data;
-  const pagamento = pedido.forma_pagamento === 'pix' ? 'Pix'
-    : pedido.forma_pagamento === 'dinheiro' ? 'Dinheiro' : 'Cartão na entrega';
+  /*
+   * "Cartão na entrega" NÃO PODE SER O FALLBACK. Esta linha era um ternário de
+   * três casos com `pix`, `dinheiro` e todo o resto virando cartão na entrega —
+   * então tanto `cartao_online` (JÁ PAGO) quanto `pix_entrega` apareciam para o
+   * suporte como maquininha na porta. Cada forma tem seu texto, e o caso
+   * desconhecido sai neutro em vez de sair errado.
+   */
+  const pagamento = pedido.forma_pagamento === 'pix' ? 'Pix (pago online)'
+    : pedido.forma_pagamento === 'cartao_online' ? 'Cartão (pago online)'
+    : pedido.forma_pagamento === 'dinheiro' ? 'Dinheiro'
+    : pedido.forma_pagamento === 'pix_entrega' ? 'Pix na entrega'
+    : pedido.forma_pagamento === 'cartao_entrega' ? 'Cartão na entrega'
+    : 'A combinar';
 
   return (
     // Uma coluna: no drawer de 640px, duas colunas espremiam o endereço e a

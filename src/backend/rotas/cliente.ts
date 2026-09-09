@@ -325,7 +325,15 @@ router.post('/pedidos', async (req, res, next) => {
 
     if (!lojaId) throw erroHttp(400, 'Loja inválida.');
     if (itens.length === 0) throw erroHttp(400, 'O carrinho está vazio.');
-    if (!['pix', 'dinheiro', 'cartao_entrega', 'cartao_online'].includes(formaPagamento)) {
+    /*
+     * `pix_entrega` É PAGAMENTO NA PORTA, não pelo gateway.
+     *
+     * O cliente paga por Pix direto para a loja ao receber (ou ao retirar), com
+     * a chave dela. Para o sistema é como dinheiro: nada é cobrado aqui, nada
+     * depende de credencial, e por isso ela continua disponível na loja que
+     * desligou o pagamento ONLINE — que é justamente o caso da conveniência.
+     */
+    if (!['pix', 'dinheiro', 'cartao_entrega', 'cartao_online', 'pix_entrega'].includes(formaPagamento)) {
       throw erroHttp(400, 'Escolha uma forma de pagamento válida.');
     }
     // 'pix' = Pix online (gera cobrança no Mercado Pago). A disponibilidade da

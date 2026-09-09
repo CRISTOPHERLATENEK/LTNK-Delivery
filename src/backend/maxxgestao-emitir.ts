@@ -204,6 +204,14 @@ const APELIDOS: Record<string, string[]> = {
   cartao_online: ['cartao de credito', 'cartão de crédito', 'credito', 'crédito', 'cartao', 'cartão'],
   dinheiro: ['dinheiro', 'especie', 'espécie'],
   /*
+   * `pix_entrega` USA A MESMA LISTA DO PIX, e não é descuido.
+   *
+   * Pix pago na porta é Pix recebido manualmente — exatamente o que
+   * "PIX - MANUAL" descreve. Diferente de `cartao_entrega`, aqui não há palpite
+   * nenhum a dar: o cliente disse Pix, o dinheiro entrou como Pix.
+   */
+  pix_entrega: ['pix - manual', 'pix manual', 'pix', 'pix - infopago', 'pixei - pix'],
+  /*
    * `cartao_entrega` NÃO ENTRA, de propósito.
    *
    * O cliente escolheu "cartão na entrega" e ninguém registrou se passou

@@ -333,7 +333,7 @@ const TABELAS: string[] = [
                                           'em_entrega','entregue','cancelado','recusado')),
   endereco_entrega      TEXT NOT NULL,
   tipo_entrega          VARCHAR(10) NOT NULL DEFAULT 'entrega',
-  forma_pagamento       VARCHAR(20) NOT NULL CHECK (forma_pagamento IN ('pix','dinheiro','cartao_entrega','cartao_online')),
+  forma_pagamento       VARCHAR(20) NOT NULL CHECK (forma_pagamento IN ('pix','dinheiro','cartao_entrega','cartao_online','pix_entrega')),
   troco_para_centavos   INT,
   observacoes           TEXT NOT NULL,
   subtotal_centavos     INT NOT NULL,
@@ -1594,7 +1594,8 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
    *     (declarado junto da coluna, como aqui): roda sem erro e não muda nada.
    * Redefinir a coluna leva a nova cláusula junto, e funciona nos dois bancos.
    *
-   * Idempotente: só mexe se a cláusula atual não tiver 'cartao_online'.
+   * Idempotente: só mexe se a cláusula atual não tiver a forma MAIS NOVA da
+   * lista (hoje 'pix_entrega'). Ver a nota junto da verificação.
    */
   try {
     const [checks] = await pool.query(
@@ -1606,14 +1607,18 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
         WHERE cc.CONSTRAINT_SCHEMA = DATABASE() AND tc.TABLE_NAME = 'pedidos'
           AND cc.CHECK_CLAUSE LIKE '%forma_pagamento%'`,
     );
+    /* A verificação olha a forma MAIS NOVA da lista: `cartao_online` já está em
+       todo banco, então checá-la faria a migração nunca rodar de novo — e
+       `pix_entrega` ficaria de fora, com todo pedido nessa forma sendo recusado
+       pelo banco. Ao acrescentar uma forma, é este nome que muda. */
     const desatualizado = (checks as Array<{ clausula: string }>)
-      .some(c => !c.clausula.includes('cartao_online'));
+      .some(c => !c.clausula.includes('pix_entrega'));
     if (desatualizado) {
       await pool.query(
         "ALTER TABLE pedidos MODIFY forma_pagamento VARCHAR(20) NOT NULL "
-        + "CHECK (forma_pagamento IN ('pix','dinheiro','cartao_entrega','cartao_online'))",
+        + "CHECK (forma_pagamento IN ('pix','dinheiro','cartao_entrega','cartao_online','pix_entrega'))",
       );
-      console.log('[schema] CHECK de forma_pagamento atualizado (cartao_online liberado).');
+      console.log('[schema] CHECK de forma_pagamento atualizado (pix_entrega liberado).');
     }
   } catch (e) {
     console.warn('[schema] não deu pra atualizar o CHECK de forma_pagamento:', (e as Error).message);

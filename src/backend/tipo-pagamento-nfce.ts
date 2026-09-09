@@ -28,6 +28,16 @@ export function tipoPagamentoNfce(
 ): { tipo: TipoPagNfce; ehPalpite: boolean } {
   if (formaPagamento === 'dinheiro') return { tipo: 'dinheiro', ehPalpite: false };
   if (formaPagamento === 'pix') return { tipo: 'pix', ehPalpite: false };
+  /*
+   * PIX NA ENTREGA TAMBÉM É PIX (tPag 17), e não é palpite: o dinheiro entra por
+   * Pix, só não passa pelo nosso gateway.
+   *
+   * Sem esta linha ele cairia no `return` final e sairia declarado como CARTÃO
+   * DE CRÉDITO na nota — exatamente o defeito que este arquivo foi criado para
+   * consertar, repetido numa forma nova. Código válido, SEFAZ autoriza, e o erro
+   * só aparece na fiscalização.
+   */
+  if (formaPagamento === 'pix_entrega') return { tipo: 'pix', ehPalpite: false };
 
   if (formaPagamento === 'cartao_online') {
     switch (tipoGateway) {
