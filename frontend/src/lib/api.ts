@@ -230,9 +230,19 @@ export async function entrarComoLojista(
     /* `replace` e não `href`: a aba em branco não merece uma entrada no
        histórico de volta. */
     aba.location.replace(url);
+    /*
+     * E TRAZ A ABA PARA A FRENTE, com aviso na tela de onde ela foi.
+     *
+     * Sem isto, o pior caso é indistinguível de falha: a aba abre atrás, a tela
+     * do admin não muda, e quem clicou conclui que nada aconteceu — e clica de
+     * novo. Foi medido: nove emissões de token na auditoria, em pares separados
+     * por segundos, e um painel que tinha carregado direito numa aba que a
+     * pessoa não estava olhando.
+     */
+    aba.focus();
+    opcoes.avisar?.('Abri o painel do lojista numa aba nova.');
     return;
   }
-
   /*
    * Pop-up bloqueado de verdade. Não dá para abrir aba nenhuma, então a escolha
    * é avisar e ir na própria aba — nunca sumir em silêncio, que era o defeito.

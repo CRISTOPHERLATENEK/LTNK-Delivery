@@ -84,6 +84,20 @@ describe('o retorno de window.open é olhado', () => {
     expect(corpo).toContain('window.location.assign(url)');
   });
 
+  /*
+   * E O SUCESSO TAMBÉM APARECE, com a aba trazida para a frente.
+   *
+   * Aba que abre ATRÁS é indistinguível de falha: a tela do admin não muda, e
+   * quem clicou clica de novo. Medido: nove emissões de token na auditoria, em
+   * pares separados por segundos, e um painel que havia carregado direito numa
+   * aba que a pessoa não estava olhando.
+   */
+  it('a aba é trazida para a frente e o sucesso é dito', () => {
+    expect(corpo).toContain('aba.focus()');
+    expect(corpo).toMatch(/aba\.location\.replace\(url\);[\s\S]{0,80}aba\.focus\(\)/);
+    expect(api).toContain('Abri o painel do lojista numa aba nova.');
+  });
+
   it('o aviso diz o que aconteceu e o que vai acontecer', () => {
     expect(api).toContain('O navegador bloqueou a aba nova. Abrindo o painel nesta aba.');
   });

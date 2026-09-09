@@ -354,6 +354,51 @@ app.use((req, res, next) => {
   })().catch(next);
 });
 
+/**
+ * NADA DE /api É GUARDADO PELO NAVEGADOR.
+ *
+ * Conserto de um bug que custou uma tarde de investigação. Sintoma: "Entrar
+ * como lojista" parou de funcionar para um cliente e continuou funcionando para
+ * outro, sem nada em comum. O log do nginx mostrou o que estava acontecendo: em
+ * seis tentativas seguidas, a chamada de validação `/api/auth/eu` NÃO APARECIA.
+ * Não dava erro — ela nunca saía do navegador.
+ *
+ * A causa, medida: as respostas de /api saíam com `ETag` e SEM `Cache-Control`.
+ * Sem instrução explícita, o navegador aplica frescor heurístico e reaproveita
+ * a resposta por conta própria; e a Cloudflare, com o Browser Cache TTL fixo em
+ * 4h, estampa `max-age` no que ela considera cacheável (ver o comentário do
+ * material de treinamento, mais abaixo — foi a mesma armadilha). Resultado: a
+ * resposta de "quem sou eu" de UMA sessão ficava guardada horas e era servida
+ * para a próxima, com outro token.
+ *
+ * Num sistema multi-cliente isso é pior que um cache errado: a MESMA URL
+ * devolve dados diferentes por sessão e por tenant. Resposta autenticada
+ * guardada é resposta de um usuário entregue a outro.
+ *
+ * `no-store` e não `no-cache`: `no-cache` ainda permite guardar e revalidar, e
+ * revalidação de resposta autenticada é exatamente o que não se quer. O
+ * `private` está aí pelo motivo medido em produção — sem ele a Cloudflare
+ * sobrescreve o header da origem.
+ *
+ * O ETag também sai. Ele não tem função com `no-store`, e deixá-lo é convidar
+ * revalidação condicional para uma resposta que não deveria ter cópia nenhuma.
+ *
+ * O custo é tráfego: toda chamada vai ao servidor. É o que já se esperava de
+ * uma API de dados vivos — cardápio muda, pedido muda, estoque muda.
+ */
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.removeHeader('ETag');
+  /* `removeHeader` antes da resposta não basta: o Express calcula o ETag na
+     hora de enviar. Ganchar o `writeHead` é o que alcança esse momento. */
+  const enviarCabecalhos = res.writeHead.bind(res);
+  res.writeHead = ((...args: Parameters<typeof res.writeHead>) => {
+    res.removeHeader('ETag');
+    return enviarCabecalhos(...args);
+  }) as typeof res.writeHead;
+  next();
+});
+
 app.use('/api/auth', autenticacaoRoutes);
 app.use('/api', publicoRoutes);
 app.use('/api/cliente', clienteRoutes);
