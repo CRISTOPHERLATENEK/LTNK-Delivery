@@ -244,6 +244,43 @@ describe('conferirAssinatura com segredo exigido', () => {
 
 /* A regra só vale se a ROTA passar o `exigirSegredo`. Sem isto, tudo acima
    passaria com a rota chamando a conferência como antes. */
+/*
+ * O AVISO DE BOOT NÃO PODE AFIRMAR O QUE NÃO SABE.
+ *
+ * Ele lia a falta de `MERCADOPAGO_WEBHOOK_SECRET` no `.env` e concluía "a
+ * validação de assinatura está DESLIGADA" — falso para loja com conta própria,
+ * que valida com o segredo dela (obrigatório em produção desde hoje). Apareceu
+ * 1.189 vezes no log de erro dizendo isso.
+ *
+ * Aviso de segurança falso repetido a cada boot é o melhor jeito de ensinar
+ * alguém a ignorar aviso de segurança — e aí o próximo, que é de verdade,
+ * passa também.
+ */
+describe('o aviso de boot sobre o segredo do webhook', () => {
+  const boot = fs.readFileSync(path.join(__dirname, 'boot-diagnostico.ts'), 'utf8');
+  const fn = boot.slice(boot.indexOf('function avisarProtecaoDesligada'));
+  const corpo = fn.slice(0, fn.indexOf('\n}\n'));
+  /*
+   * SEM COMENTÁRIO. O comentário DENTRO da função cita a frase antiga para
+   * explicar o que foi corrigido — e a asserção negativa batia nele em vez do
+   * código. Terceira vez que essa armadilha aparece nesta base: asserção
+   * negativa contra fonte tem que rodar sobre o que EXECUTA.
+   */
+  const exec = corpo.split('\n')
+    .filter(l => { const t = l.trimStart(); return !t.startsWith('*') && !t.startsWith('//') && !t.startsWith('/*'); })
+    .join('\n');
+
+  it('não afirma que a validação está desligada', () => {
+    /* A frase antiga, que valia para todas as lojas. */
+    expect(exec).not.toMatch(/está DESLIGADA/);
+  });
+
+  it('diz A QUEM aquilo se aplica: só a conta da plataforma', () => {
+    expect(exec).toMatch(/DA PLATAFORMA/);
+    expect(exec).toMatch(/conta própria usa/);
+  });
+});
+
 describe('a rota do webhook usa a exigência', () => {
   const fonte = fs.readFileSync(path.join(__dirname, 'rotas', 'pagamentos.ts'), 'utf8');
   const rota = fonte.slice(fonte.indexOf("router.post('/webhook/mercadopago'"));

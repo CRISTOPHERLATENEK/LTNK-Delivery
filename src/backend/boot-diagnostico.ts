@@ -72,14 +72,31 @@ process.on('unhandledRejection', (e) => {
  * sem ninguém perceber. Um aviso no boot é barato e resolve isso.
  */
 function avisarProtecaoDesligada(): void {
-  // Só avisa se o Mercado Pago está de fato em uso — senão vira ruído.
+  /*
+   * ESTE AVISO DIZIA MAIS DO QUE SABE, e foi corrigido depois de aparecer
+   * 1.189 vezes no log de erro afirmando algo falso.
+   *
+   * Ele lia a falta de `MERCADOPAGO_WEBHOOK_SECRET` e concluía "a validação de
+   * assinatura está DESLIGADA". Não é verdade: o segredo do `.env` é o da
+   * aplicação DA PLATAFORMA, e o Mercado Pago assina por aplicação. Loja com
+   * conta própria valida com o segredo DELA — que, em produção, passou a ser
+   * obrigatório (`exigeSegredoWebhook`). Para essas lojas, o `.env` é
+   * irrelevante.
+   *
+   * O que a falta do segredo realmente significa: as lojas que usam a conta da
+   * PLATAFORMA ficam sem validação. Se não houver nenhuma, não há nada a
+   * avisar — e um aviso de segurança falso repetido a cada boot é o melhor jeito
+   * de ensinar alguém a ignorar avisos de segurança.
+   */
   if (process.env.MERCADOPAGO_ACCESS_TOKEN && !process.env.MERCADOPAGO_WEBHOOK_SECRET) {
     console.warn(
-      '⚠️  [SEGURANCA] MERCADOPAGO_WEBHOOK_SECRET ausente — a validação de assinatura ' +
-      '(x-signature) do webhook está DESLIGADA: quem descobrir a URL consegue POSTar ' +
-      'uma notificação forjada. O impacto é limitado (o status é sempre reconsultado ' +
-      'na API do MP antes de valer), mas o certo é pegar o segredo em Mercado Pago → ' +
-      'Suas integrações → Webhooks e definir no .env.',
+      'ℹ️  [MERCADO PAGO] MERCADOPAGO_WEBHOOK_SECRET não definido. Isso afeta ' +
+      'SOMENTE as lojas que usam a conta de Mercado Pago DA PLATAFORMA: para elas, ' +
+      'a assinatura do webhook não é conferida (o impacto é limitado — o status é ' +
+      'sempre reconsultado na API do MP antes de valer). Loja com conta própria usa ' +
+      'o segredo dela, que em produção é obrigatório. Para cobrir também as lojas da ' +
+      'conta da plataforma, pegue o segredo em Mercado Pago → Suas integrações → ' +
+      'Webhooks e defina no .env.',
     );
   }
 }
