@@ -53,6 +53,25 @@ export async function itensSemProduto(lojaId: number, agora = Date.now()): Promi
         AND p.origem = 'ifood'
         AND ip.produto_id IS NULL
         AND p.criado_em >= ?
+        /*
+         * PEDIDO CANCELADO OU RECUSADO NÃO CONTA.
+         *
+         * Ele não deveria baixar estoque de jeito nenhum — fluxoPedido.ts
+         * DEVOLVE ao estoque o que havia sido reservado quando o pedido morre.
+         * (Sem acento grave nesta linha: o SQL vive dentro de um template
+         * literal, e um acento grave aqui fecharia a string -- pela segunda
+         * vez hoje.)
+         * Então item de pedido cancelado não representa perda alguma, e
+         * contá-lo aqui inventa um problema.
+         *
+         * Isto não é hipótese: o único pedido de iFood que existe em produção é
+         * o de homologação do Developer Portal ("PEDIDO DE TESTE", "NÃO
+         * ENTREGAR"), e está cancelado. Sem este filtro, a primeira coisa que o
+         * lojista veria nesta lista seria um problema fantasma — e lista que
+         * mostra problema falso na estreia é lista que ninguém volta a olhar.
+         */
+
+        AND p.status NOT IN ('cancelado', 'recusado')
       GROUP BY ip.nome_produto, ip.codigo_externo
       ORDER BY unidades DESC, vezes DESC`
   ).all(lojaId, corte) as Array<{

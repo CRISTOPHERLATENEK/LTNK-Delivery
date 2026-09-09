@@ -95,6 +95,21 @@ describe('a consulta e a fiação', () => {
     expect(fonte).not.toMatch(/CREATE TABLE/);
   });
 
+  /*
+   * PEDIDO MORTO NÃO CONTA — e este era um defeito da primeira versão desta
+   * consulta, achado ao olhar o que ela devolvia em produção.
+   *
+   * Pedido cancelado ou recusado devolve ao estoque o que havia reservado
+   * (`fluxoPedido`), então item dele não representa perda nenhuma. O único
+   * pedido de iFood que existe em produção é o de homologação do Developer
+   * Portal, cancelado — sem o filtro, a estreia da lista seria um problema
+   * fantasma, e lista que mostra problema falso na estreia é lista que ninguém
+   * volta a olhar.
+   */
+  it('ignora pedido cancelado ou recusado', () => {
+    expect(fonte).toMatch(/p\.status NOT IN \('cancelado', 'recusado'\)/);
+  });
+
   /* Agrupa pelo código também: dois itens com nomes parecidos e códigos
      diferentes são dois problemas de cadastro, não um. */
   it('agrupa por nome E código', () => {
