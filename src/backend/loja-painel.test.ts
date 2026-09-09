@@ -284,8 +284,19 @@ describe('nada do painel antigo se perdeu', () => {
   });
 
   it('impersonar usa a rota do TENANT, que é a que existe', () => {
-    /* Não existe `/lojas/:id/impersonar`. Chamá-la daria 404 no clique. */
-    expect(tela).toContain('/api/admin/tenants/${tenantId}/impersonar');
+    /*
+     * Não existe `/lojas/:id/impersonar`. Chamá-la daria 404 no clique.
+     *
+     * A ASSERÇÃO MUDOU DE LUGAR, não de intenção. A montagem da URL saiu desta
+     * tela e foi para `lib/api.ts`: as três telas do admin tinham a mesma
+     * implementação copiada, e o mesmo defeito nas três (a aba nova bloqueada
+     * pelo navegador, sem aviso). O que esta tela ainda tem que provar é que
+     * ela passa o tenant — e é isso que se afirma abaixo.
+     */
+    const api = fs.readFileSync(
+      path.join(__dirname, '..', '..', 'frontend', 'src', 'lib', 'api.ts'), 'utf8');
+    expect(api).toContain('/api/admin/tenants/${tenantId}/impersonar');
     expect(admin).toContain("router.post('/tenants/:id/impersonar'");
+    expect(tela).toContain('entrarNoPainelDoLojista(tenantId');
   });
 });

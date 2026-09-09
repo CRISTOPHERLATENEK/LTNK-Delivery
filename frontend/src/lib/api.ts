@@ -158,6 +158,89 @@ export function destinoImpersonacao(redirecionar: string | null | undefined, tok
   return `${redirecionar.replace(/\/+$/, '')}/lojista#sessao=${encodeURIComponent(token)}`;
 }
 
+/**
+ * "ENTRAR COMO LOJISTA" INTEIRO, num lugar só.
+ *
+ * Existia três vezes copiado (admin/tenants, admin/lojas, admin/loja-detalhe) e
+ * as três cópias tinham o MESMO defeito, que é o motivo desta função existir:
+ *
+ *   window.open(destino, '_blank');   // ← e o retorno nunca era olhado
+ *
+ * `window.open` só abre aba enquanto vale a ATIVAÇÃO do clique, e ela é curta.
+ * A chamada vinha depois de um `await fetch` (às vezes dois), então o navegador
+ * bloqueava a aba e devolvia `null` — sem lançar erro. Resultado na tela: nada.
+ * Nenhum aviso, nenhum toast, e o botão pronto para ser clicado de novo.
+ * Medido em produção: seis tokens emitidos e registrados na auditoria, quatro
+ * deles em onze minutos, todos do mesmo admin — a assinatura de alguém clicando
+ * repetidamente numa coisa que não responde.
+ *
+ * O CONSERTO É ABRIR A ABA NO CLIQUE, antes de qualquer espera, e só depois
+ * mandá-la para o destino. A aba em branco existe durante a requisição, que é
+ * rápida; se der erro, ela é fechada.
+ *
+ * E QUANDO NEM ASSIM ABRIR — o navegador pode ter bloqueio total de pop-up para
+ * o site —, isto AVISA e navega na própria aba, em vez de continuar sem dizer
+ * nada. Perder a página do admin é pior que uma aba nova; ficar sem resposta é
+ * pior que os dois.
+ */
+export async function entrarComoLojista(
+  /* `number | string` porque um dos chamadores tira o id da query string da
+     URL e ele chega texto. Converter aqui com `Number` trocaria um id
+     inesperado por `NaN`, que viraria uma URL sem sentido; passando adiante, é
+     o servidor que valida e responde 400 com mensagem. */
+  tenantId: number | string,
+  opcoes: { avisar?: (mensagem: string) => void } = {},
+): Promise<void> {
+  /* PRIMEIRA COISA, ainda dentro do clique: pedir a aba. Qualquer `await` antes
+     daqui é o bug de volta. */
+  const aba = window.open('about:blank', '_blank');
+
+  let corpo: { token?: string; redirecionar?: string | null; erro?: string };
+  try {
+    const token = tokenSessao();
+    const resp = await fetch(`/api/admin/tenants/${tenantId}/impersonar`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    corpo = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(corpo.erro || `Falha ao entrar (HTTP ${resp.status}).`);
+    if (!corpo.token) throw new Error('O servidor não devolveu a sessão de lojista.');
+  } catch (e) {
+    /* Aba em branco sem destino é lixo na cara do usuário. */
+    aba?.close();
+    throw e;
+  }
+
+  /*
+   * Loja em OUTRO domínio: o token viaja no fragmento, porque localStorage não
+   * atravessa origem. Mesmo domínio: grava a sessão aqui, que a aba nova lê.
+   */
+  const destino = destinoImpersonacao(corpo.redirecionar, corpo.token);
+  if (!destino) {
+    try {
+      await abrirSessaoLojistaImpersonada(corpo.token);
+    } catch (e) {
+      aba?.close();
+      throw e;
+    }
+  }
+  const url = destino ?? '/lojista';
+
+  if (aba) {
+    /* `replace` e não `href`: a aba em branco não merece uma entrada no
+       histórico de volta. */
+    aba.location.replace(url);
+    return;
+  }
+
+  /*
+   * Pop-up bloqueado de verdade. Não dá para abrir aba nenhuma, então a escolha
+   * é avisar e ir na própria aba — nunca sumir em silêncio, que era o defeito.
+   */
+  opcoes.avisar?.('O navegador bloqueou a aba nova. Abrindo o painel nesta aba.');
+  window.location.assign(url);
+}
+
 /** Lê (e consome) o token de sessão impersonada vindo no fragmento da URL — ver destinoImpersonacao. */
 export function lerRepasseImpersonacao(): string | null {
   if (!window.location.hash.startsWith('#')) return null;

@@ -20,7 +20,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { ImageUpload } from '@/components/ui/image-upload';
-import { api, ApiError, tokenSessao, abrirSessaoLojistaImpersonada, destinoImpersonacao } from '@/lib/api';
+import { api, ApiError, tokenSessao, entrarComoLojista as entrarNoPainelDoLojista } from '@/lib/api';
 import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
 import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import { cn } from '@/lib/utils';
@@ -808,20 +808,13 @@ function TenantCard({ t, onToggle, onSalvarDominio, revendedores, onSalvarRevend
   async function entrarComoLojista() {
     setEntrando(true);
     try {
-      const token = tokenSessao();
-      const resp = await fetch(`/api/admin/tenants/${t.id}/impersonar`, {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      /* Toda a mecânica (abrir a aba no clique, trocar de domínio quando
+         preciso, avisar se o pop-up for bloqueado) vive em lib/api.ts — era
+         copiada aqui, em lojas.tsx e em loja-detalhe.tsx, com o mesmo defeito
+         nas três. */
+      await entrarNoPainelDoLojista(t.id, {
+        avisar: msg => mostrar({ tipo: 'info', titulo: msg }),
       });
-      const corpo = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(corpo.erro || `Falha ao entrar (HTTP ${resp.status}).`);
-      // Loja com domínio próprio: abre já lá, com o token no fragmento da URL
-      // (ver destinoImpersonacao). Sem domínio próprio: grava a sessão aqui
-      // mesmo (mesma origem) ANTES de abrir a aba — sem jogar o token na URL.
-      const destino = destinoImpersonacao(corpo.redirecionar, corpo.token);
-      if (destino) { window.open(destino, '_blank'); return; }
-      await abrirSessaoLojistaImpersonada(corpo.token);
-      window.open('/lojista', '_blank');
     } catch (err) {
       mostrar({ tipo: 'erro', titulo: err instanceof Error ? err.message : 'Falha ao entrar como lojista.' });
     } finally {

@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { api, ApiError, ehSuperAdmin, tokenSessao, abrirSessaoLojistaImpersonada, destinoImpersonacao } from '@/lib/api';
+import { api, ApiError, ehSuperAdmin, entrarComoLojista as entrarNoPainelDoLojista } from '@/lib/api';
 import { brl, dataLocal } from '@/lib/format';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
@@ -244,16 +244,9 @@ export function TelaLojaDetalhe() {
   async function entrarComoLojista() {
     if (!tenantId) return;
     try {
-      const token = tokenSessao();
-      const resp = await fetch(`/api/admin/tenants/${tenantId}/impersonar`, {
-        method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {},
+      await entrarNoPainelDoLojista(tenantId, {
+        avisar: msg => mostrar({ tipo: 'info', titulo: msg }),
       });
-      const corpo = await resp.json().catch(() => ({}));
-      if (!resp.ok) throw new Error(corpo.erro || `Falha ao entrar (HTTP ${resp.status}).`);
-      const destino = destinoImpersonacao(corpo.redirecionar, corpo.token);
-      if (destino) { window.open(destino, '_blank'); return; }
-      await abrirSessaoLojistaImpersonada(corpo.token);
-      window.open('/lojista', '_blank');
     } catch (e) {
       mostrar({ tipo: 'erro', titulo: e instanceof Error ? e.message : 'Falha ao entrar como lojista.' });
     }
