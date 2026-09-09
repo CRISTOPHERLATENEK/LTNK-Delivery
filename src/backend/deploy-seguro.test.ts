@@ -81,9 +81,21 @@ describe('deploy.sh: build fora do ar, troca no fim', () => {
     expect(copia).toBeLessThan(reset);
   });
 
-  it('troca o public DEPOIS do build e ANTES do reload', () => {
+  /*
+   * O LOCALIZADOR MUDOU, A INTENÇÃO NÃO.
+   *
+   * A publicação era `mv public.novo public` — uma troca de pasta que tinha uma
+   * janela em que a pasta servida não existia, e todo pedido nela levava 404
+   * (que o navegador guardava, deixando o app em branco por horas). Agora ela é
+   * aditiva: assets primeiro, index.html por último num rename atômico. Ver
+   * deploy-sem-janela.test.ts.
+   *
+   * Este teste continua afirmando O MESMO: publicar acontece depois do build e
+   * antes do reload. Só deixou de reconhecer a publicação pelo comando antigo.
+   */
+  it('publica o public DEPOIS do build e ANTES do reload', () => {
     const build = onde(deploy, /vite build --outDir/);
-    const troca = onde(deploy, /mv public\.novo public/);
+    const troca = onde(deploy, /mv -T public\/\.index\.html\.novo public\/index\.html/);
     const reload = onde(deploy, /pm2 reload/);
     expect(build).toBeGreaterThan(-1);
     expect(build).toBeLessThan(troca);
@@ -95,8 +107,9 @@ describe('deploy.sh: build fora do ar, troca no fim', () => {
    * pasta vazia. Trocar nesse caso publica o problema em vez de segurá-lo.
    */
   it('confere que o build produziu algo antes de trocar', () => {
-    const checagem = onde(deploy, /public\.novo\/index\.html/);
-    const troca = onde(deploy, /mv public\.novo public/);
+    const checagem = onde(deploy, /\[ -s public\.novo\/index\.html \]/);
+    /* Mesma troca de localizador do teste acima. */
+    const troca = onde(deploy, /cp -a public\.novo\/app-assets\/\./);
     expect(checagem).toBeGreaterThan(-1);
     expect(checagem).toBeLessThan(troca);
     expect(deploy).toMatch(/app-assets/);
@@ -127,7 +140,9 @@ describe('rollback.sh: voltar não pode depender de build', () => {
   });
 
   it('restaura os arquivos servidos e o backend compilado', () => {
-    expect(rollback).toMatch(/cp -a public\.anterior public/);
+    /* Aditivo agora, pelo mesmo motivo do deploy: o `cp -a public.anterior
+       public` antigo levava SEGUNDOS com a pasta servida ausente. */
+    expect(rollback).toMatch(/cp -a public\.anterior\/app-assets\/\./);
     expect(rollback).toMatch(/cp -a dist\.anterior dist/);
   });
 
@@ -135,7 +150,7 @@ describe('rollback.sh: voltar não pode depender de build', () => {
      errada, dá para vir de novo para cá sem reconstruir. */
   it('guarda o estado retirado', () => {
     const guarda = onde(rollback, /cp -a public public\.ruim/);
-    const restaura = onde(rollback, /cp -a public\.anterior public/);
+    const restaura = onde(rollback, /cp -a public\.anterior\/app-assets\/\./);
     expect(guarda).toBeGreaterThan(-1);
     expect(guarda).toBeLessThan(restaura);
   });

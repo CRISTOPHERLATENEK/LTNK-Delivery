@@ -55,11 +55,37 @@ cp -a public public.ruim
 echo "→ Voltando o código para $ALVO"
 git reset --hard "$ALVO"
 
+# ---------------------------------------------------------------------------
+# RESTAURAÇÃO SEM JANELA, mesma lógica do deploy.
+#
+# Era `mv public public.trocando` seguido de `cp -a public.anterior public` — e
+# a cópia leva SEGUNDOS, durante os quais a pasta servida não existe e todo
+# pedido leva 404. Pior que a janela do deploy, que era de milissegundos, e no
+# pior momento possível: rollback acontece quando algo já está quebrado.
+#
+# E 404 deixa marca: o navegador guarda e passa a responder 404 sozinho, então
+# um segundo de indisponibilidade virava app em branco por horas para quem
+# carregou naquele instante (ver o bloco 4 do deploy.sh).
+#
+# Aditivo e ordenado: assets primeiro, index.html por último num rename.
+# ---------------------------------------------------------------------------
 echo "→ Restaurando os arquivos servidos e o backend compilado"
-rm -rf public.trocando
-mv public public.trocando
-cp -a public.anterior public
-rm -rf public.trocando
+mkdir -p public/app-assets
+cp -a public.anterior/app-assets/. public/app-assets/ 2>/dev/null || true
+for item in public.anterior/*; do
+  nome=$(basename "$item")
+  [ "$nome" = "app-assets" ] && continue
+  [ "$nome" = "index.html" ] && continue
+  if [ -d "$item" ]; then
+    mkdir -p "public/$nome"
+    cp -a "$item/." "public/$nome/"
+  else
+    cp -a "$item" "public/$nome"
+  fi
+done
+# Por último e de uma vez: é ele que aponta para os hashes que voltaram.
+cp -a public.anterior/index.html public/.index.html.volta
+mv -T public/.index.html.volta public/index.html
 if [ -d dist.anterior ]; then
   rm -rf dist.trocando
   mv dist dist.trocando
