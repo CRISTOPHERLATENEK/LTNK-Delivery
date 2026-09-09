@@ -1273,6 +1273,19 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['pedidos', 'maxxgestao_documento_id', 'maxxgestao_documento_id INT NOT NULL DEFAULT 0'],
     ['pedidos', 'maxxgestao_emitido_em',   "maxxgestao_emitido_em VARCHAR(32) NOT NULL DEFAULT ''"],
+    /*
+     * QUANDO O DOCUMENTO SUBIU, que NÃO é quando a nota saiu.
+     *
+     * `maxxgestao_emitido_em` era gravada no momento em que o Pedido de Venda
+     * era criado no ERP — antes de qualquer tentativa de emitir. O nome dizia
+     * "emitido" e o valor dizia "enviado", e o banco ficou com 8 pedidos
+     * parecendo emitidos e nenhum com chave. Agora `emitido_em` só é preenchida
+     * quando a nota é AUTORIZADA (tem chave), e o envio mora aqui.
+     */
+    ['pedidos', 'maxxgestao_enviado_em',   "maxxgestao_enviado_em VARCHAR(32) NOT NULL DEFAULT ''"],
+    /* Por que a nota NÃO saiu. Vazio quando saiu. Sem isto, o motivo da recusa
+       da SEFAZ existe só num console.log e ninguém descobre o que corrigir. */
+    ['pedidos', 'maxxgestao_motivo',       "maxxgestao_motivo VARCHAR(300) NOT NULL DEFAULT ''"],
     /* A chave de 44 dígitos da NFC-e emitida pelo ERP. Sem ela o pedido fica
        com um número de documento que só existe dentro do Maxx Gestão, e quem
        precisa achar a nota depois não tem por onde começar. */

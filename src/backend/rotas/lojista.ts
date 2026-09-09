@@ -5210,8 +5210,29 @@ router.post('/nfce/emitir/:pedidoId', async (req, res, next) => {
      */
     const emissor = String(loja.nfce_emissor ?? 'sistema');
     if (emissor === 'erp' && pedido.maxxgestao_documento_id) {
-      throw erroHttp(409, `Esta venda já é o documento nº ${pedido.maxxgestao_documento_id} no Maxx Gestão — `
-        + 'a nota dela sai de lá. Emitir aqui criaria uma segunda nota para a mesma venda.');
+      /*
+       * A GUARDA CONTINUA FECHADA — mas a MENSAGEM parou de afirmar que a nota
+       * saiu.
+       *
+       * Ela dizia "a nota dela sai de lá" para qualquer documento existente. E
+       * documento existir NÃO é nota emitida: em produção havia 8 pedidos com
+       * documento no ERP e NENHUM com chave. O lojista era bloqueado aqui com
+       * uma frase que soava como "está resolvido", e a venda ficava sem
+       * documento fiscal com os dois caminhos fechados.
+       *
+       * Abrir a guarda seria pior: emitir daqui com o pedido aberto lá gera
+       * DUAS notas para a mesma venda, e desfazer custa cancelamento — já
+       * aconteceu com os pedidos 107, 108 e 109. Então a saída não é liberar, é
+       * dizer a verdade e apontar onde resolver.
+       */
+      const emitida = String(pedido.maxxgestao_emitido_em || '').trim() !== '';
+      const motivo = String(pedido.maxxgestao_motivo || '').trim();
+      throw erroHttp(409, emitida
+        ? `Esta venda já é o documento nº ${pedido.maxxgestao_documento_id} no Maxx Gestão, e a nota `
+          + 'dela já foi emitida lá. Emitir aqui criaria uma segunda nota para a mesma venda.'
+        : `Esta venda é o documento nº ${pedido.maxxgestao_documento_id} no Maxx Gestão, mas a nota `
+          + `AINDA NÃO FOI EMITIDA${motivo ? ` — ${motivo}` : ''}. Emitir aqui criaria uma segunda nota `
+          + 'para a mesma venda, então resolva no Maxx Gestão: abra o documento e emita por lá.');
     }
     if (emissor === 'maquininha' && pedido.tef_lancado_em) {
       throw erroHttp(409, 'Esta venda já foi lançada na maquininha — a nota dela sai de lá. '

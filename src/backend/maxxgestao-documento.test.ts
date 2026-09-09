@@ -333,23 +333,29 @@ describe('o funil da nota', () => {
     expect(marca).toBeGreaterThan(criacao);
   });
 
-  it('não transforma nem emite SEM a loja ter ligado', () => {
+  it('emite por padrão, e só não emite quem desligou', () => {
     /*
-     * ESTE TESTE MUDOU DE LADO, e vale registrar por quê.
+     * ESTE TESTE MUDOU DE LADO PELA TERCEIRA VEZ, e a sequência é a história
+     * da decisão:
      *
-     * Ele garantia que `transformar` e `emitir` NUNCA fossem chamados — era a
-     * decisão de então: "a parte fiscal a gente resolve lá". Depois veio o
-     * pedido oposto: emitir automático ao enviar. As duas coisas convivem
-     * porque a emissão passou a ser OPCIONAL e nasce desligada.
+     *  1º  nunca emitir  — "a parte fiscal a gente resolve lá no ERP";
+     *  2º  emitir opt-in, desligado por padrão — emitir não tem volta, então
+     *      quem liga precisa ter decidido;
+     *  3º  emitir por PADRÃO — regra do dono: "todos os pedidos que forem para
+     *      o Maxx Gestão têm que ir com status de emitido".
      *
-     * O que continua garantido é o essencial: nada é emitido sem alguém ter
-     * ligado, e o padrão é o pedido chegar no ERP para ser faturado lá.
+     * O que fez a 2ª virar 3ª não foi opinião: com o opt-in desligado, produção
+     * acumulou 8 pedidos com documento no ERP e NENHUM com chave. Rascunho que
+     * ninguém fatura é venda sem documento fiscal, e o padrão que produz isso
+     * está errado por mais cuidadoso que pareça.
+     *
+     * O `desligar` continua existindo para quem fatura em lote na mão — mas
+     * agora é uma decisão explícita, e ela fica registrada no pedido.
      */
     const f = fonte('maxxgestao-emitir.ts');
-    const iCondicao = f.indexOf('Number(loja?.maxxgestao_auto_emitir ?? 0) === 1');
-    const iChamada = f.indexOf('emitirDocumentoNoErp(token, documento, pedidoId');
-    expect(iCondicao).toBeGreaterThan(0);
-    expect(iChamada).toBeGreaterThan(iCondicao);
+    expect(f).toContain('maxxgestao_auto_emitir ?? 1');
+    expect(f).not.toContain('maxxgestao_auto_emitir ?? 0');
+    expect(f.indexOf('emitirDocumentoNoErp(token, documento, pedidoId')).toBeGreaterThan(0);
   });
 });
 
@@ -549,8 +555,10 @@ describe('a emissão automática no ERP', () => {
     expect(schema).toContain("maxxgestao_auto_emitir TINYINT NOT NULL DEFAULT 0");
   });
 
-  it('só roda quando a loja ligou', () => {
-    expect(emitir).toContain("Number(loja?.maxxgestao_auto_emitir ?? 0) === 1");
+  /* Mudou de lado junto com o de cima — ver o motivo lá. */
+  it('roda por padrão; quem desligou é que não emite', () => {
+    expect(emitir).toContain('maxxgestao_auto_emitir ?? 1');
+    expect(emitir).toContain('const desligado');
   });
 
   it('falha na emissão NÃO desfaz o envio do pedido', () => {
@@ -558,10 +566,21 @@ describe('a emissão automática no ERP', () => {
      * O documento já existe no ERP. Propagar o erro faria a próxima tentativa
      * querer CRIAR outro documento para a mesma venda.
      */
+    /*
+     * ASSERÇÃO SEM JANELA DE CARACTERES. A versão anterior olhava os 120
+     * caracteres seguintes à chamada, e quebrou quando entrou UMA linha no meio
+     * (a que grava o resultado da emissão) — sem que o invariante tivesse
+     * mudado. Janela fixa em cima de código é asserção que falha por
+     * formatação.
+     *
+     * O que importa é o caminho DEPOIS da chamada: devolve sucesso do envio, e
+     * não relança.
+     */
     const i = emitir.indexOf('emitirDocumentoNoErp(token, documento, pedidoId, opcoes)');
     expect(i).toBeGreaterThan(0);
-    const depois = emitir.slice(i, i + 120);
+    const depois = emitir.slice(i, emitir.indexOf('\n}\n', i));
     expect(depois).toContain('return { emitiu: true, documento }');
+    expect(depois).not.toContain('throw');
   });
 
   it('a chave só é aceita com 44 dígitos', () => {

@@ -356,7 +356,23 @@ export function chaveDaResposta(resposta: unknown): string {
  * para o lojista faturar na mão, o que é recuperável. Propagar o erro faria a
  * próxima tentativa querer CRIAR outro documento para a mesma venda.
  */
-export async function emitirDocumentoNoErp(
+export /**
+ * Grava no pedido se a nota saiu, e por que não saiu.
+ *
+ * Nunca lança: falhar ao REGISTRAR uma falha não pode derrubar o fluxo do
+ * pedido — a venda já aconteceu e o cliente está esperando.
+ */
+async function registrarResultado(pedidoId: number, emitiu: boolean, motivo: string): Promise<void> {
+  try {
+    await db.prepare(
+      'UPDATE pedidos SET maxxgestao_emitido_em = ?, maxxgestao_motivo = ? WHERE id = ?'
+    ).run(emitiu ? agoraUTC() : '', motivo.slice(0, 300), pedidoId);
+  } catch (e) {
+    console.error(`[erp] pedido ${pedidoId}: não deu para registrar o resultado da emissão:`, e);
+  }
+}
+
+async function emitirDocumentoNoErp(
   token: string,
   documento: number,
   pedidoId: number,
@@ -607,22 +623,44 @@ export async function enviarPedidoAoErp(
 
   /* MARCA O DOCUMENTO. Ele existe: sem gravar, uma segunda passada criaria
      outro para a mesma venda. */
-  await db.prepare('UPDATE pedidos SET maxxgestao_documento_id = ?, maxxgestao_emitido_em = ? WHERE id = ?')
+  /*
+   * ENVIADO ≠ EMITIDO. Isto marca que o documento SUBIU; `maxxgestao_emitido_em`
+   * só é preenchida quando a nota volta autorizada, com chave.
+   *
+   * Antes as duas coisas gravavam na mesma coluna chamada `emitido_em`, e o
+   * banco ficou com 8 pedidos parecendo emitidos e nenhum com chave.
+   */
+  await db.prepare('UPDATE pedidos SET maxxgestao_documento_id = ?, maxxgestao_enviado_em = ? WHERE id = ?')
     .run(documento, agoraUTC(), pedidoId);
 
   console.log(`[erp] pedido ${pedidoId}: enviado ao Maxx Gestão como documento ${documento} em ${Date.now() - comecou}ms`);
 
   /*
-   * A EMISSÃO AUTOMÁTICA É OPCIONAL E DESLIGADA POR PADRÃO.
+   * TODO PEDIDO QUE VAI PARA O ERP TEM QUE IR EMITIDO. Regra do negócio.
    *
-   * Ligada, o gatilho da nota passa a ser o clique de "Já entreguei" — sem
-   * ninguém revisar o documento antes. Emitir não tem volta, então quem liga
-   * precisa ter decidido isso; e falhar aqui NÃO desfaz o envio: o documento
-   * fica no ERP para ser faturado na mão.
+   * Antes a emissão era OPT-IN e desligada por padrão — o documento subia como
+   * rascunho e ficava lá. O resultado em produção: 8 pedidos enviados, nenhum
+   * com chave, e a guarda de emissão manual bloqueando com "esta venda já é o
+   * documento nº X no Maxx Gestão". Dois caminhos fechados, venda sem
+   * documento fiscal, e nada dizendo.
+   *
+   * `maxxgestao_auto_emitir` continua existindo como DESLIGAR explícito, para
+   * quem fatura em lote na mão no ERP — mas o padrão inverteu: quem não
+   * configurou nada agora emite.
    */
-  if (Number(loja?.maxxgestao_auto_emitir ?? 0) === 1) {
-    await emitirDocumentoNoErp(token, documento, pedidoId, opcoes);
+  const desligado = Number(loja?.maxxgestao_auto_emitir ?? 1) === 0;
+  if (desligado) {
+    await registrarResultado(pedidoId, false, 'emissão automática desligada nesta loja');
+    return { emitiu: true, documento };
   }
+
+  /*
+   * E O RESULTADO É GRAVADO. Antes esta chamada era `await` e o retorno
+   * IGNORADO: transformar podia falhar, a SEFAZ podia recusar, e o motivo ia
+   * para um console.log que ninguém lê. Agora "não saiu" é dado, com o porquê.
+   */
+  const r = await emitirDocumentoNoErp(token, documento, pedidoId, opcoes);
+  await registrarResultado(pedidoId, r.emitiu, r.emitiu ? '' : (r.motivo || 'a emissão não foi concluída'));
 
   return { emitiu: true, documento };
 
