@@ -6,7 +6,7 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
-import { autenticar, exigirPerfil } from '../auth';
+import { autenticar, exigirPerfil, gerarTokenConvidado } from '../auth';
 import { agoraUTC, textoLimpo, inteiroPositivo, reaisParaCentavos, telefoneDigitos, erroHttp, normalizarBairro, dataBrasilia} from '../util';
 import { precoVigente } from '../preco-produto';
 import { agregarEstoque, type InfoEstoque } from '../estoque-combo';
@@ -23,9 +23,53 @@ import { validarOpcoesDoItem, type ResultadoOpcoes } from '../opcoes-item';
 import { criarCobrancaPix, pagamentoOnlineAtivo, cartaoOnlineAtivo, conferirPagamentoAgora, publicKeyMP, criarPagamentoCartao, aplicarResultadoCartao } from './pagamentos';
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 import { dadosAnonimos, ehAnonimizado, ENDERECO_ANONIMO, TEXTO_ANONIMO } from '../anonimizacao';
+import { convidadoPodeAlcancar } from '../convidado-alcance';
 
 const router = Router();
 router.use(autenticar, exigirPerfil('cliente'));
+
+/**
+ * A GUARDA DA SESSÃO DE CONVIDADO.
+ *
+ * Só age quando a sessão é de convidado (pedido sem criar conta); para cliente
+ * logado é como se não existisse. A regra de o que passa está em
+ * `convidado-alcance.ts`, separada para poder ser testada sem subir servidor.
+ *
+ * VEM AQUI, no topo do router, e não em cada rota: privacidade que depende de
+ * alguém lembrar de repetir a checagem em vinte lugares já vazou.
+ */
+router.use((req, res, next) => {
+  if (!req.convidado) return next();
+  const veredito = convidadoPodeAlcancar(req.method, req.path, req.convidado.pedido);
+  if (!veredito.pode) return next(erroHttp(403, veredito.motivo));
+
+  /*
+   * O TOKEN DA SESSÃO É REEMITIDO COM O PEDIDO, na resposta que o cria.
+   *
+   * A sessão de convidado nasce sem pedido (precisa poder criar um) e, nesse
+   * estado, não alcança NENHUM pedido — nem o que acabou de criar. O token novo
+   * é o que abre o acompanhamento, e só daquele.
+   *
+   * FEITO AQUI E NÃO NAS ROTAS: `POST /pedidos` tem QUATRO saídas que devolvem
+   * `pedido_id` (idempotência, Pix, cartão e o caminho normal), e uma quinta
+   * aparece no dia em que alguém acrescentar outra forma de pagamento.
+   * Depender de alguém lembrar de reemitir em cada uma é o defeito esperando
+   * acontecer — e o sintoma seria o pior possível: pedido feito, cobrado, e a
+   * pessoa sem conseguir acompanhar.
+   */
+  if (req.convidado.pedido === null) {
+    const original = res.json.bind(res);
+    res.json = ((corpo: unknown) => {
+      const c = corpo as { pedido_id?: number } | null;
+      const novo = Number(c?.pedido_id ?? 0);
+      if (novo > 0) {
+        return original({ ...(c as object), token: gerarTokenConvidado(req.usuario!.id, novo) });
+      }
+      return original(corpo);
+    }) as typeof res.json;
+  }
+  next();
+});
 
 // ----- Endereços -----------------------------------------------------------
 

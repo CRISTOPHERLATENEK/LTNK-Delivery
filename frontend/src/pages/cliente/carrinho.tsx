@@ -9,7 +9,8 @@ import { Minus, Plus, ShoppingBag, MapPin, Bike, CreditCard, Ticket, X, AlertTri
 import { useCarrinho, mudarQuantidade, limparCarrinho } from '@/lib/carrinho';
 import { rotaInicioCliente } from '@/lib/loja-atual';
 import { useTema } from '@/lib/tema';
-import { api, ApiError, sessaoUsuario } from '@/lib/api';
+import { api, ApiError, sessaoUsuario, salvarSessao } from '@/lib/api';
+import { telefoneDigitos, formatarTelefone, telefoneValido } from '@/lib/telefone';
 import { brl } from '@/lib/format';
 import { buscarCep, formatarCep, cepDigitos, normalizarBairro } from '@/lib/cep';
 import { Card, CardContent } from '@/components/ui/card';
@@ -20,7 +21,7 @@ import { useToast } from '@/components/ui/toast';
 import { cn } from '@/lib/utils';
 import { PagamentoConfirmado } from './pagamento-confirmado';
 import { CartaoBrick } from '@/components/cartao-brick';
-import type { Endereco, FormaPagamento } from '@/types';
+import type { Endereco, FormaPagamento, UsuarioSessao } from '@/types';
 
 export function PaginaCarrinho() {
   const carrinho = useCarrinho();
@@ -280,14 +281,7 @@ export function PaginaCarrinho() {
       </Card>
 
       {!usuario ? (
-        <Card className="p-6 text-center space-y-3">
-          <div className="text-3xl">🔐</div>
-          <p className="font-semibold">Entre para finalizar o pedido</p>
-          <p className="text-sm text-muted-foreground">Faça login ou crie uma conta gratuitamente.</p>
-          <Button asChild size="lg" className="w-full rounded-2xl">
-            <Link to="/conta">Entrar na minha conta</Link>
-          </Button>
-        </Card>
+        <FormConvidado lojaId={carrinho.loja_id} />
       ) : (
         <Checkout
           subtotal={subtotal}
@@ -306,6 +300,98 @@ export function PaginaCarrinho() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * FINALIZAR SEM CRIAR CONTA — nome e WhatsApp, e pronto.
+ *
+ * Substituiu um cartão que dizia "Entre para finalizar o pedido" com um botão
+ * para a tela de login. Aquilo era uma parede no fim do funil: a pessoa
+ * escolheu os itens, viu o total, e a última coisa que o app pediu foi inventar
+ * uma senha. Muita gente não quer conta — quer a pizza.
+ *
+ * O LOGIN CONTINUA ALI, embaixo e sem destaque: quem já tem conta quer os
+ * endereços salvos, e para essa pessoa entrar é o caminho mais rápido, não o
+ * mais lento. O que mudou é qual dos dois é o padrão.
+ *
+ * A sessão que isso abre vale só para ESTE pedido (ver /auth/convidado no
+ * servidor): nada de histórico nem de endereço salvo, porque o telefone sozinho
+ * não prova que a pessoa é quem diz ser — e endereço de entrega alheio é
+ * endereço de casa alheio.
+ */
+function FormConvidado({ lojaId }: { lojaId: number }) {
+  const [nome, setNome] = useState('');
+  const [telefone, setTelefone] = useState('');
+  const [enviando, setEnviando] = useState(false);
+  const { mostrar } = useToast();
+
+  async function continuar(e: React.FormEvent) {
+    e.preventDefault();
+    if (nome.trim().length < 2) {
+      mostrar({ tipo: 'erro', titulo: 'Informe seu nome.' });
+      return;
+    }
+    if (!telefoneValido(telefone)) {
+      mostrar({ tipo: 'erro', titulo: 'Informe um WhatsApp válido com DDD.' });
+      return;
+    }
+    setEnviando(true);
+    try {
+      const r = await api<{ token: string; usuario: UsuarioSessao }>(
+        'POST', '/api/auth/convidado',
+        { nome: nome.trim(), telefone: telefoneDigitos(telefone), loja_id: lojaId },
+      );
+      /*
+       * `lembrar: false` — a sessão vive no sessionStorage e morre com a aba.
+       *
+       * Deliberado: o token de convidado vale 2 horas e quem pede sem conta
+       * costuma estar num aparelho que não é só dele (o celular da mesa, o
+       * computador do trabalho). Guardar isso no localStorage deixaria a
+       * próxima pessoa abrir o acompanhamento do pedido de outra.
+       */
+      salvarSessao(r.token, r.usuario, undefined, false);
+      /* Recarrega para o carrinho reavaliar a sessão e mostrar o checkout. */
+      window.location.reload();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <Card className="p-6">
+      <form onSubmit={continuar} className="space-y-3">
+        <div>
+          <p className="font-semibold">Finalizar o pedido</p>
+          <p className="text-sm text-muted-foreground">Só o nome e o WhatsApp — não precisa criar conta.</p>
+        </div>
+        <div>
+          <Label htmlFor="conv-nome">Seu nome</Label>
+          <Input id="conv-nome" autoComplete="name" placeholder="Como a loja te chama"
+            required value={nome} onChange={e => setNome(e.target.value)} className="mt-1.5" />
+        </div>
+        <div>
+          <Label htmlFor="conv-tel">WhatsApp</Label>
+          <Input id="conv-tel" type="tel" inputMode="numeric" autoComplete="tel"
+            placeholder="(11) 99999-9999" required value={telefone}
+            onChange={e => setTelefone(formatarTelefone(e.target.value))} className="mt-1.5" />
+        </div>
+        <Button type="submit" size="lg" disabled={enviando} className="w-full rounded-2xl">
+          {enviando ? 'Um instante…' : 'Continuar'}
+        </Button>
+        {/*
+          O login fica DEPOIS e discreto — e continua existindo por um motivo
+          concreto: quem tem conta tem endereço salvo, e para essa pessoa entrar
+          economiza digitação em vez de custar.
+        */}
+        <p className="pt-1 text-center text-sm text-muted-foreground">
+          Já tem conta?{' '}
+          <Link to="/conta" className="font-semibold text-primary hover:underline">Entrar</Link>
+        </p>
+      </form>
+    </Card>
   );
 }
 
@@ -615,6 +701,9 @@ function Checkout({
       const r = await api<{
         pedido_id: number; pix?: PixData;
         cartao?: { public_key: string; total_centavos: number };
+        /* Só na sessão de CONVIDADO: o token que nasceu sem pedido volta
+           apontando para este, e é ele que abre o acompanhamento. */
+        token?: string;
       }>('POST', '/api/cliente/pedidos', {
         loja_id: carrinho.loja_id,
         itens: carrinho.itens.map(i => ({ produto_id: i.produto_id, quantidade: i.quantidade, opcoes: i.opcoes, observacao: i.observacao })),
@@ -627,6 +716,18 @@ function Checkout({
         chave_idem: chaveIdemRef.current,
       });
       chaveIdemRef.current = ''; // pedido criado: a próxima compra é outra tentativa
+      /*
+       * SESSÃO DE CONVIDADO: TROCA O TOKEN PELO QUE APONTA PARA ESTE PEDIDO.
+       *
+       * O token com que o convidado chegou aqui não alcança pedido nenhum (ele
+       * nasceu antes de existir pedido). Sem esta troca, a pessoa paga e cai
+       * numa tela de acompanhamento que responde 403 — pedido feito, cobrado, e
+       * sem como acompanhar. É o pior desfecho possível desta tela.
+       */
+      if (r.token) {
+        const u = sessaoUsuario();
+        if (u) salvarSessao(r.token, u, undefined, false);
+      }
       /*
        * Cartão: o formulário abre AQUI, sem sair da loja.
        *

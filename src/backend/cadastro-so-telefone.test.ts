@@ -155,7 +155,20 @@ describe('o cadastro público', () => {
    * login.
    */
   it('a unicidade do telefone é conferida sem condicional', () => {
-    expect(rota).toMatch(/const telExiste = await db\.prepare\('SELECT id FROM usuarios WHERE telefone = \?'\)/);
+    /*
+     * A ASSERÇÃO SOLTOU A STRING EXATA DO SQL, não a intenção.
+     *
+     * Ela exigia `SELECT id FROM usuarios WHERE telefone = ?` literal, e
+     * quebrou quando a consulta passou a trazer `sem_senha` também (o pedido
+     * sem cadastro precisa saber se a conta é de convidado). O teste estava
+     * medindo a redação da query em vez do que importa: que a checagem exista e
+     * NÃO esteja dentro de um `if (telefone)` — que era a forma antiga, de
+     * quando o telefone era opcional.
+     *
+     * Agora afirma o `WHERE telefone = ?` e a ausência do condicional, e deixa
+     * a lista de colunas livre.
+     */
+    expect(rota).toMatch(/const telExiste = await db\.prepare\(\s*'SELECT [^']*FROM usuarios WHERE telefone = \?'/);
     const iTel = rota.indexOf('const telExiste');
     const iCond = rota.indexOf('if (telefone) {');
     expect(iTel).toBeGreaterThan(0);

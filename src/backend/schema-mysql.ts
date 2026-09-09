@@ -48,6 +48,20 @@ const TABELAS: string[] = [
   super_admin TINYINT NOT NULL DEFAULT 0,
   loja_id     INT,
   cpf         VARCHAR(11),
+  /*
+   * CONTA NASCIDA DE UM PEDIDO SEM CADASTRO (convidado).
+   *
+   * A coluna senha_hash e NOT NULL, entao a conta de convidado guarda o hash de
+   * bytes aleatorios: ninguem conhece a senha, nem nos. Esta coluna existe
+   * porque "hash que nao abre" e indistinguivel de "senha esquecida" olhando o
+   * banco -- sem ela, o login responderia "senha invalida" a quem nunca teve
+   * senha, e a pessoa ficaria tentando adivinhar uma que nao existe.
+   *
+   * SEM CRASE E SEM ACENTO NESTE COMENTARIO DE PROPOSITO: ele vive dentro de um
+   * template literal de SQL, e uma crase aqui FECHA a string. Foi o que
+   * aconteceu na primeira versao.
+   */
+  sem_senha   TINYINT NOT NULL DEFAULT 0,
   reset_token_hash   TEXT,
   reset_token_expira VARCHAR(32),
   nota_media  DOUBLE NOT NULL DEFAULT 0,
@@ -1243,6 +1257,10 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
        cadastro do lojista, e ele descobriria pelo cadastro inchado em vez de um
        erro. Zero = ainda não foi espelhado. */
     ['usuarios', 'maxxgestao_pessoa_id', 'maxxgestao_pessoa_id INT NOT NULL DEFAULT 0'],
+    /* Conta de convidado (pedido sem cadastro). O CREATE é IF NOT EXISTS e não
+       alcança banco que já existe — sem esta linha, o cadastro de convidado
+       quebraria em produção e funcionaria no meu banco novo. */
+    ['usuarios', 'sem_senha', 'sem_senha TINYINT NOT NULL DEFAULT 0'],
     /* O vínculo do produto com a mercadoria do Maxx Gestão. É este número que o
        documento fiscal exige em `mercadoriaLista[].idMercadoriaVariacao`, então
        é ele que guardamos — e não o código de barras, que em restaurante quase

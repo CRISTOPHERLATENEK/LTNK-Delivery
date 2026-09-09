@@ -30,7 +30,7 @@ import {
   perfilDoCodigo, decidirVinculo, nomeUsavel, type ProvedorOauth,
 } from '../oauth';
 import { listarTenants, urlDoTenant, poolCentral, Tenant } from '../tenants-mysql';
-import { gerarToken, gerarTokenPreAuth, autenticar, autenticarPreAuth, gerarTokenRevendedor } from '../auth';
+import { gerarToken, gerarTokenPreAuth, gerarTokenConvidado, autenticar, autenticarPreAuth, gerarTokenRevendedor } from '../auth';
 import { registrarAcesso } from '../ultimo-acesso';
 import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, telefoneDigitos, telefoneValido, erroHttp } from '../util';
 import { enviarEmail, emailRedefinirSenha, emailHabilitado } from '../email';
@@ -105,6 +105,92 @@ async function versaoDosTermos(): Promise<string> {
   }
 }
 
+/**
+ * PEDIDO SEM CRIAR CONTA — só nome e WhatsApp.
+ *
+ * Abre uma sessão de CONVIDADO: a pessoa fecha o pedido e acompanha a entrega
+ * sem inventar senha. Existe porque criar conta antes da primeira compra é
+ * atrito no pior momento possível — a pessoa ainda não sabe se gosta da loja.
+ *
+ * COMO ISSO NÃO VIRA UM BURACO DE PRIVACIDADE:
+ *
+ * O pedido precisa de `cliente_id`, então uma conta é criada de verdade — e o
+ * telefone é único no banco, então um número que já pediu antes REUSA a conta
+ * existente, com o endereço e o histórico dela. Se a sessão de convidado
+ * enxergasse isso, qualquer pessoa que digitasse o número de outra veria onde
+ * ela mora. Num app de entrega, endereço de casa.
+ *
+ * Por isso a sessão vale para UM PEDIDO e nada mais (ver `gerarTokenConvidado`
+ * e a guarda em rotas/cliente.ts): ela pode criar pedido e endereço, e depois
+ * ler e pagar o pedido que criou. Não lista histórico, não lista endereços
+ * salvos, não abre a conta. Quem quiser histórico e endereço salvo cria senha —
+ * e aí é login normal.
+ *
+ * A CONTA NÃO GANHA SENHA. `senha_hash` é NOT NULL, então guarda o hash de 32
+ * bytes aleatórios: não existe senha que abra, nem para nós. `sem_senha = 1`
+ * marca isso, para o login poder dizer a verdade em vez de "senha inválida" a
+ * quem nunca teve uma.
+ */
+router.post('/convidado', limiteRegistro, async (req, res, next) => {
+  try {
+    const nome = textoLimpo(req.body.nome, 120);
+    const telefone = telefoneDigitos(req.body.telefone);
+
+    if (nome.length < 2) throw erroHttp(400, 'Informe seu nome.');
+    /* O valor CRU: `telefoneDigitos` corta em 11 e um dígito a mais viraria
+       outro número válido. Mesma razão do cadastro. */
+    if (!telefoneValido(req.body.telefone)) {
+      throw erroHttp(400, 'Informe um WhatsApp válido com DDD.');
+    }
+
+    const lojaId = req.body.loja_id ? Number(req.body.loja_id) : null;
+
+    const existente = await db.prepare(
+      "SELECT id, perfil, bloqueado FROM usuarios WHERE telefone = ?"
+    ).get(telefone) as { id: number; perfil: string; bloqueado: number } | undefined;
+
+    /*
+     * TELEFONE DE LOJISTA/ENTREGADOR/ADMIN NÃO ABRE SESSÃO DE CONVIDADO.
+     *
+     * Sem esta guarda, digitar o telefone do dono da loja devolveria um token
+     * com o `sub` dele. A guarda de rotas/cliente.ts limitaria o alcance, mas
+     * apoiar a segurança numa segunda camada quando a primeira dá para fechar
+     * é escolher o risco de graça.
+     */
+    if (existente && existente.perfil !== 'cliente') {
+      throw erroHttp(409, 'Esse número já é usado por uma conta da loja. Faça login para continuar.');
+    }
+    if (existente?.bloqueado) {
+      throw erroHttp(403, 'Esse número está bloqueado. Fale com o suporte.');
+    }
+
+    let usuarioId: number;
+    if (existente) {
+      usuarioId = existente.id;
+      /* NÃO atualiza o nome do cadastro com o que foi digitado agora: a conta
+         pode ser de alguém que já se cadastrou de verdade, e um pedido de
+         convidado não tem autoridade para renomear ninguém. */
+    } else {
+      /* Senha impossível: 32 bytes aleatórios que ninguém vê, nem guarda. */
+      const senhaImpossivel = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
+      const info = await db.prepare(
+        `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, cpf,
+                               criado_em, sem_senha, termos_aceitos_em, termos_versao)
+         VALUES (?, ?, ?, 'cliente', ?, ?, NULL, ?, 1, ?, ?)`
+      ).run(nome, `${telefone}@cliente.local`, senhaImpossivel, telefone,
+            lojaId, agoraUTC(), agoraUTC(), await versaoDosTermos());
+      usuarioId = Number(info.lastInsertRowid);
+    }
+
+    /* Nasce SEM pedido: neste estado a sessão só pode criar. */
+    res.status(201).json({
+      token: gerarTokenConvidado(usuarioId, null),
+      usuario: { id: usuarioId, nome, email: '', perfil: 'cliente', telefone, cpf: null },
+      convidado: true,
+    });
+  } catch (e) { next(e); }
+});
+
 router.post('/registrar', limiteRegistro, async (req, res, next) => {
   try {
     const nome = textoLimpo(req.body.nome, 120);
@@ -166,8 +252,36 @@ router.post('/registrar', limiteRegistro, async (req, res, next) => {
       /* CPF só é validado quando vem preenchido: vazio é resposta legítima, mas
          CPF ERRADO não — ele iria para a nota fiscal de alguém. */
       if (cpf && !cpfValido(cpf)) throw erroHttp(400, 'Informe um CPF válido ou deixe em branco.');
-      const telExiste = await db.prepare('SELECT id FROM usuarios WHERE telefone = ?').get(telefone);
-      if (telExiste) throw erroHttp(409, CONFLITO);
+      /*
+       * TELEFONE JÁ USADO POR UM CONVIDADO NÃO É BECO SEM SAÍDA.
+       *
+       * Quem pediu sem cadastro deixou uma conta sem senha com o telefone dela.
+       * Sem este ramo, essa mesma pessoa voltando para se cadastrar de verdade
+       * levava "não foi possível concluir o cadastro" e não tinha o que fazer:
+       * não consegue logar (não tem senha) e não consegue cadastrar (telefone
+       * ocupado). Foi um beco que eu mesmo criaria ao ligar o pedido sem conta.
+       *
+       * A saída é SOLTAR o telefone da conta de convidado, não entregá-la. Ela
+       * fica com os pedidos que fez (o lojista precisa deles no histórico da
+       * loja) e perde o telefone e o e-mail sintético; a conta nova nasce
+       * limpa, com o número.
+       *
+       * ADOTAR a conta antiga seria o caminho cômodo e é justamente o furo que
+       * a sessão de convidado limitada existe para evitar: quem soubesse o
+       * número de outra pessoa se cadastraria com ele e herdaria os endereços
+       * de entrega dela. Aqui ninguém herda nada.
+       */
+      const telExiste = await db.prepare(
+        'SELECT id, sem_senha FROM usuarios WHERE telefone = ?'
+      ).get(telefone) as { id: number; sem_senha: number } | undefined;
+      if (telExiste && Number(telExiste.sem_senha ?? 0) === 1) {
+        await db.prepare(
+          "UPDATE usuarios SET telefone = NULL, email = ? WHERE id = ? AND sem_senha = 1"
+        ).run(`convidado-${telExiste.id}@cliente.local`, telExiste.id);
+        console.log(`[cadastro] telefone ${telefone} liberado da conta de convidado #${telExiste.id}`);
+      } else if (telExiste) {
+        throw erroHttp(409, CONFLITO);
+      }
       if (cpf) {
         const cpfExiste = await db.prepare('SELECT id FROM usuarios WHERE cpf = ?').get(cpf);
         if (cpfExiste) throw erroHttp(409, CONFLITO);
@@ -298,6 +412,34 @@ router.post('/login', limiteLogin, async (req, res, next) => {
         if (rev.bloqueado) throw erroHttp(403, 'Seu acesso está bloqueado. Fale com o suporte.');
         return res.json({ token: gerarTokenRevendedor(rev.id), perfil: 'revendedor' });
       }
+    }
+
+    /*
+     * QUEM NUNCA TEVE SENHA OUVE ISSO, e não "senha incorreta".
+     *
+     * Conta nascida de pedido sem cadastro guarda o hash de bytes aleatórios —
+     * nenhuma senha abre. Sem esta mensagem a pessoa recebe "e-mail ou senha
+     * incorretos" e passa a tentar adivinhar uma senha que nunca existiu, ou
+     * pede redefinição de uma conta que ela não sabe que tem.
+     *
+     * Vem ANTES do `compare` de propósito: depois dele, o resultado já é
+     * indistinguível de senha errada.
+     *
+     * NÃO revela se o telefone tem conta para quem só digitou um número
+     * qualquer: só chega aqui quem acertou um identificador existente, que é a
+     * mesma informação que "senha incorreta" já dava.
+     */
+    if (usuario && Number((usuario as unknown as { sem_senha?: number }).sem_senha ?? 0) === 1) {
+      /*
+       * NÃO manda "Esqueci minha senha": a redefinição vai por e-mail, e conta
+       * de convidado tem e-mail SINTÉTICO (telefone@cliente.local), que não
+       * recebe nada. Prometer um caminho que não existe é pior que não
+       * prometer nada — a pessoa espera um e-mail que nunca chega.
+       *
+       * O caminho que funciona é criar conta, e o cadastro sabe lidar com o
+       * telefone já usado por um convidado (ver /registrar).
+       */
+      throw erroHttp(409, 'Esse número foi usado num pedido sem cadastro, e não tem senha. Crie sua conta para ter senha, histórico e endereços salvos.');
     }
 
     if (!usuario || !await bcrypt.compare(senha, usuario.senha_hash)) {

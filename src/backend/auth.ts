@@ -46,6 +46,15 @@ declare global {
     interface Request {
       usuario?: UsuarioAutenticado;
       cozinha?: CozinhaAutenticada;
+      /**
+       * Presente SÓ em sessão de convidado (pedido sem criar conta).
+       *
+       * `pedido` é o único pedido que essa sessão pode ler: nulo enquanto o
+       * pedido ainda não existe (a sessão nasce antes dele, para poder criá-lo)
+       * e preenchido depois. Ver `gerarTokenConvidado` e a guarda em
+       * rotas/cliente.ts.
+       */
+      convidado?: { pedido: number | null };
       /** true quando o Host NÃO casou com nenhum tenant (domínio da plataforma). */
       hostEhDaPlataforma?: boolean;
     }
@@ -128,6 +137,40 @@ export function gerarToken(
  * que valida o token, antes de carregar o usuário. Só emitido pelo super
  * admin (ver POST /api/admin/tenants/:id/impersonar); expira rápido.
  */
+/**
+ * TOKEN DE CONVIDADO — pedido sem criar conta.
+ *
+ * É um token de CLIENTE de verdade (tem `perfil`, não tem `tipo`), então
+ * `autenticar` o aceita e todas as rotas de cliente funcionam sem duplicar
+ * nada. O que o diferencia é a marca `convidado`, que a guarda de
+ * rotas/cliente.ts usa para limitar o que ele alcança.
+ *
+ * `pedido` é o PONTO da decisão de privacidade. Um telefone que já pediu antes
+ * tem endereço e histórico salvos; se a sessão de convidado desse acesso a
+ * isso, qualquer pessoa que digitasse o número de outra veria onde ela mora.
+ * Então a sessão vale para UM pedido:
+ *
+ *   - nasce com `pedido: null`, e nesse estado só pode CRIAR pedido e endereço;
+ *   - depois de criar, é reemitida com o id do pedido, e passa a poder ler e
+ *     pagar aquele — e nenhum outro.
+ *
+ * DUAS HORAS. Tempo de fechar o pedido e acompanhar a entrega, não de ficar
+ * valendo no aparelho de quem usou o celular emprestado da loja.
+ */
+export function gerarTokenConvidado(usuarioId: number, pedidoId: number | null): string {
+  return jwt.sign(
+    {
+      sub: usuarioId,
+      perfil: 'cliente',
+      tenant: bancoTenantAtual(),
+      convidado: true,
+      pedido: pedidoId,
+    },
+    JWT_SECRET as string,
+    { expiresIn: '2h' },
+  );
+}
+
 export function gerarTokenImpersonado(usuario: Pick<Usuario, 'id' | 'perfil'>, dbNomeTenant: string): string {
   return jwt.sign(
     { sub: usuario.id, perfil: usuario.perfil, tenant: dbNomeTenant },
@@ -234,6 +277,16 @@ export const autenticar: RequestHandler = async (req, _res, next) => {
     if (usuario.bloqueado) return next(erroHttp(403, 'Sua conta está bloqueada. Fale com o suporte.'));
 
     req.usuario = usuario;
+    /*
+     * A MARCA VIAJA NO TOKEN, não no banco. Sessão de convidado é uma
+     * propriedade da SESSÃO, não da conta: a mesma pessoa pode ter um pedido
+     * feito como convidado e, depois de criar senha, entrar normalmente — e a
+     * segunda sessão não deve carregar a limitação da primeira.
+     */
+    if (dados.convidado === true) {
+      const p = Number(dados.pedido ?? 0);
+      req.convidado = { pedido: p > 0 ? p : null };
+    }
     next();
   };
 
