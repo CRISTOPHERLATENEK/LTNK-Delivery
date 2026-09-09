@@ -364,15 +364,20 @@ function FormCliente({ lojaId, tenantId, onCancelar, onSalvo }: { lojaId: number
             <Label>Nome *</Label>
             <Input required value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} />
           </div>
+          {/*
+            TELEFONE ANTES DO CPF, e é a mudança: ele é o obrigatório e a
+            identidade da conta (é por ele que o cliente entra). O CPF virou
+            opcional — sem ele a nota sai como consumidor final, que é legal.
+          */}
           <div>
-            <Label>CPF *</Label>
-            <Input required value={form.cpf} maxLength={11} inputMode="numeric"
-              onChange={e => setForm(f => ({ ...f, cpf: e.target.value.replace(/\D/g, '') }))} />
+            <Label>Telefone com DDD *</Label>
+            <Input required value={form.telefone} inputMode="numeric" maxLength={11}
+              onChange={e => setForm(f => ({ ...f, telefone: e.target.value.replace(/\D/g, '') }))} />
           </div>
           <div>
-            <Label>Telefone</Label>
-            <Input value={form.telefone} inputMode="numeric"
-              onChange={e => setForm(f => ({ ...f, telefone: e.target.value.replace(/\D/g, '') }))} />
+            <Label>CPF (opcional)</Label>
+            <Input value={form.cpf} maxLength={11} inputMode="numeric"
+              onChange={e => setForm(f => ({ ...f, cpf: e.target.value.replace(/\D/g, '') }))} />
           </div>
           <div>
             <Label>E-mail (opcional)</Label>

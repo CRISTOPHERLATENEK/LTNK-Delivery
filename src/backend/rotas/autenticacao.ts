@@ -32,7 +32,7 @@ import {
 import { listarTenants, urlDoTenant, poolCentral, Tenant } from '../tenants-mysql';
 import { gerarToken, gerarTokenPreAuth, autenticar, autenticarPreAuth, gerarTokenRevendedor } from '../auth';
 import { registrarAcesso } from '../ultimo-acesso';
-import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, telefoneDigitos, erroHttp } from '../util';
+import { agoraUTC, textoLimpo, emailValido, cpfValido, cpfDigitos, telefoneDigitos, telefoneValido, erroHttp } from '../util';
 import { enviarEmail, emailRedefinirSenha, emailHabilitado } from '../email';
 import { criptografar, descriptografar } from '../cripto';
 import { Perfil, Usuario } from '../../tipos/modelos';
@@ -123,39 +123,68 @@ router.post('/registrar', limiteRegistro, async (req, res, next) => {
     }
     if (!PERFIS_PUBLICOS.includes(perfil)) throw erroHttp(400, 'Perfil inválido.');
 
-    // Cliente entra por e-mail ou telefone (CPF continua sendo aceito no
-    // login como fallback silencioso, mas some da tela — ver /login). CPF
-    // ainda é obrigatório no CADASTRO (dado fiscal, usado na NFC-e).
-    // Lojista/entregador continuam só por e-mail, sem CPF.
-    // Mensagem de conflito GENÉRICA de propósito, igual pra CPF/telefone/
-    // e-mail: mensagens distintas por campo davam pra descobrir se um CPF ou
-    // telefone específico já tem conta na plataforma só tentando cadastrar
-    // (enumeração de conta — sensível pra CPF, que é dado de identidade).
+    /*
+     * DO CLIENTE, SÓ O TELEFONE É OBRIGATÓRIO — CPF e e-mail são opcionais.
+     *
+     * Antes o CPF era exigido, "dado fiscal, usado na NFC-e". Só que ele NÃO É
+     * necessário para a nota: sem CPF a venda sai como consumidor final, que é
+     * legal e é como a maioria das vendas de balcão sai. O que o CPF obrigatório
+     * fazia de verdade era pedir documento de identidade a quem só quer pedir
+     * uma pizza — o atrito mais caro que existe, porque acontece antes da
+     * primeira compra, quando a pessoa ainda não tem motivo nenhum para
+     * confiar. Quem quiser o CPF na nota preenche; quem não quiser, compra.
+     *
+     * O TELEFONE, EM TROCA, PASSOU A SER EXIGIDO — e não é simetria: é o que a
+     * loja precisa para falar com quem pediu (entrega, troco, produto que
+     * faltou) e é por ele que a pessoa entra na conta depois (o login já aceita
+     * telefone; ver /login). Ele deixou de ser um "seria bom ter" e virou a
+     * identidade, então é validado de verdade agora — telefone errado é conta
+     * que ninguém recupera.
+     *
+     * Mensagem de conflito GENÉRICA de propósito, igual pra CPF/telefone/
+     * e-mail: mensagens distintas por campo davam pra descobrir se um CPF ou
+     * telefone específico já tem conta na plataforma só tentando cadastrar
+     * (enumeração de conta — sensível pra CPF, que é dado de identidade).
+     */
     const CONFLITO = 'Não foi possível concluir o cadastro com esses dados. Se você já tem conta, faça login; senão, confira CPF/telefone/e-mail informados.';
     const ehCliente = perfil === 'cliente';
     if (ehCliente) {
-      if (!cpfValido(cpf)) throw erroHttp(400, 'Informe um CPF válido.');
+      if (!telefoneValido(telefone)) {
+        throw erroHttp(400, 'Informe um telefone válido com DDD.');
+      }
       if (email && !emailValido(email)) throw erroHttp(400, 'E-mail inválido.');
-      const cpfExiste = await db.prepare('SELECT id FROM usuarios WHERE cpf = ?').get(cpf);
-      if (cpfExiste) throw erroHttp(409, CONFLITO);
-      if (telefone) {
-        const telExiste = await db.prepare('SELECT id FROM usuarios WHERE telefone = ?').get(telefone);
-        if (telExiste) throw erroHttp(409, CONFLITO);
+      /* CPF só é validado quando vem preenchido: vazio é resposta legítima, mas
+         CPF ERRADO não — ele iria para a nota fiscal de alguém. */
+      if (cpf && !cpfValido(cpf)) throw erroHttp(400, 'Informe um CPF válido ou deixe em branco.');
+      const telExiste = await db.prepare('SELECT id FROM usuarios WHERE telefone = ?').get(telefone);
+      if (telExiste) throw erroHttp(409, CONFLITO);
+      if (cpf) {
+        const cpfExiste = await db.prepare('SELECT id FROM usuarios WHERE cpf = ?').get(cpf);
+        if (cpfExiste) throw erroHttp(409, CONFLITO);
       }
     } else if (!emailValido(email)) {
       throw erroHttp(400, 'Informe um e-mail válido.');
     }
 
-    // A coluna email é NOT NULL UNIQUE: se o cliente não informou, gera um
-    // sintético a partir do CPF (não é usado pra login, só satisfaz o schema).
-    const emailFinal = email || (ehCliente ? `${cpf}@cliente.local` : '');
+    /*
+     * A coluna email é NOT NULL UNIQUE: sem e-mail informado, gera um sintético
+     * (não serve para login, só satisfaz o schema).
+     *
+     * A BASE PASSOU A SER O TELEFONE, não o CPF — que agora pode não existir. E
+     * o telefone serve melhor: ele é único por índice no banco
+     * (`telefone_unico`), então o e-mail sintético herda essa unicidade em vez
+     * de depender de um campo opcional.
+     */
+    const emailFinal = email || (ehCliente ? `${telefone}@cliente.local` : '');
     const jaExiste = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(emailFinal);
     if (jaExiste) throw erroHttp(409, CONFLITO);
 
     const senhaHash = await bcrypt.hash(senha, 10);
     // Clientes podem ser associados a uma loja específica (white label)
     const lojaId = (ehCliente && req.body.loja_id) ? Number(req.body.loja_id) : null;
-    const cpfFinal = ehCliente ? cpf : null;
+    /* Vazio vira NULL, não string vazia: o índice único já usa NULLIF, mas um
+       CPF "presente e em branco" mentiria em toda consulta que lê a coluna. */
+    const cpfFinal = ehCliente && cpf ? cpf : null;
     const info = await db.prepare(
       `INSERT INTO usuarios (nome, email, senha_hash, perfil, telefone, loja_id, cpf, criado_em,
                              termos_aceitos_em, termos_versao)

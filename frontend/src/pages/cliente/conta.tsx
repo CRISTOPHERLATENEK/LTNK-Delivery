@@ -23,7 +23,7 @@ import { useCarrinho } from '@/lib/carrinho';
 import { lojaAtualId } from '@/lib/loja-atual';
 import { buscarCep, formatarCep, cepDigitos } from '@/lib/cep';
 import { formatarCpf, cpfDigitos, cpfValido } from '@/lib/cpf';
-import { telefoneDigitos, formatarTelefone } from '@/lib/telefone';
+import { telefoneDigitos, formatarTelefone, telefoneValido as telefoneValidoNaTela } from '@/lib/telefone';
 import type { UsuarioSessao, Endereco } from '@/types';
 
 export function PaginaConta() {
@@ -551,7 +551,21 @@ function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
-    if (!cpfValido(cpf)) { mostrar({ tipo: 'erro', titulo: 'Informe um CPF válido.' }); return; }
+    /*
+     * O TELEFONE É O CAMPO EXIGIDO; o CPF só é conferido se vier preenchido.
+     *
+     * A conferência do telefone é a mesma do servidor (10 ou 11 dígitos, DDD
+     * que não começa em zero, celular com o nono dígito) — aqui ela existe para
+     * a pessoa saber ANTES de enviar, não para o servidor confiar nela.
+     */
+    if (!telefoneValidoNaTela(telefone)) {
+      mostrar({ tipo: 'erro', titulo: 'Informe um telefone válido com DDD.' });
+      return;
+    }
+    if (cpf.trim() && !cpfValido(cpf)) {
+      mostrar({ tipo: 'erro', titulo: 'Informe um CPF válido ou deixe o campo em branco.' });
+      return;
+    }
     setEnviando(true);
     try {
       const r = await api<{ token: string; usuario: UsuarioSessao }>(
@@ -576,21 +590,34 @@ function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
           <CampoIcone icone={User} id="cad-nome" autoComplete="name" placeholder="Seu nome completo"
             required value={nome} onChange={e => setNome((e.target as HTMLInputElement).value)} className="mt-1.5" />
         </div>
-        <div>
-          <Label htmlFor="cad-cpf">CPF</Label>
-          <CampoIcone icone={User} id="cad-cpf" inputMode="numeric" placeholder="000.000.000-00" required
-            value={cpf} onChange={e => setCpf(formatarCpf((e.target as HTMLInputElement).value))} className="mt-1.5" />
-        </div>
+        {/*
+          O TELEFONE VEM ANTES DO CPF, e a ordem é a mudança.
+          Ele é o campo obrigatório e a identidade da conta; o CPF desceu para
+          depois do e-mail porque só serve a quem quer o próprio CPF na nota.
+          Campo obrigatório embaixo de opcional ensina a ordem errada de ler.
+        */}
         <div>
           <Label htmlFor="cad-tel">Telefone / WhatsApp</Label>
-          <CampoIcone icone={Phone} id="cad-tel" type="tel" placeholder="(11) 99999-9999"
+          <CampoIcone icone={Phone} id="cad-tel" type="tel" placeholder="(11) 99999-9999" required
             value={telefone} onChange={e => setTelefone(formatarTelefone((e.target as HTMLInputElement).value))} className="mt-1.5" />
-          <p className="mt-1 text-[11px] text-muted-foreground">Também pode ser usado pra entrar na sua conta.</p>
+          <p className="mt-1 text-[11px] text-muted-foreground">É por ele que a loja fala com você e que você entra na conta.</p>
         </div>
         <div>
           <Label htmlFor="cad-email">E-mail <span className="font-normal text-muted-foreground">(opcional)</span></Label>
           <CampoIcone icone={Mail} id="cad-email" type="email" autoComplete="email" placeholder="seu@email.com"
             value={email} onChange={e => setEmail((e.target as HTMLInputElement).value)} className="mt-1.5" />
+        </div>
+        {/*
+          O CPF DIZ PARA QUE SERVE, não só que é opcional.
+          "Opcional" sozinho deixa a dúvida, e na dúvida a pessoa preenche —
+          que é exatamente o atrito que se quis tirar. Dizendo que serve para a
+          nota fiscal, quem precisa preenche e quem não precisa passa.
+        */}
+        <div>
+          <Label htmlFor="cad-cpf">CPF <span className="font-normal text-muted-foreground">(opcional)</span></Label>
+          <CampoIcone icone={User} id="cad-cpf" inputMode="numeric" placeholder="000.000.000-00"
+            value={cpf} onChange={e => setCpf(formatarCpf((e.target as HTMLInputElement).value))} className="mt-1.5" />
+          <p className="mt-1 text-[11px] text-muted-foreground">Só se você quiser seu CPF na nota fiscal.</p>
         </div>
       </div>
       <div>

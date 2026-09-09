@@ -19,7 +19,7 @@ import {
   CAMPOS_LOJA_LISTA as CAMPOS_LOJA_LISTA_NOMES, CAMPOS_SO_PARA_DERIVAR,
 } from '../quem-emite';
 import { dataValida, inicioUtcDaData, fimUtcDaData } from '../periodo';
-import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, inicioDoDiaBR, dataBrasilia, emailValido, cpfValido, cpfDigitos, telefoneDigitos, reaisParaCentavos, filtroOrigemDelivery } from '../util';
+import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, inicioDoDiaBR, dataBrasilia, emailValido, cpfValido, cpfDigitos, telefoneDigitos, telefoneValido, reaisParaCentavos, filtroOrigemDelivery } from '../util';
 import { criptografar, descriptografar } from '../cripto';
 import { lerPartes, montarEnderecoTexto, temAlgumaParte, semearFiscal } from '../endereco-loja';
 import { montarLandingAdmin, salvarLanding } from '../landing-campos';
@@ -923,8 +923,9 @@ router.get('/usuarios', async (_req, res, next) => {
 /**
  * POST /api/admin/usuarios — cria uma conta de cliente pelo admin (super
  * admin). Mesma validação do autocadastro público (POST /auth/registrar):
- * CPF obrigatório e válido, e-mail opcional (gera um sintético se vazio,
- * já que a coluna é NOT NULL UNIQUE), telefone único se informado.
+ * TELEFONE obrigatório e único (é a identidade da conta), CPF e e-mail
+ * opcionais — sem e-mail, gera um sintético a partir do telefone, já que a
+ * coluna é NOT NULL UNIQUE.
  * loja_id opcional isola o cliente numa loja específica (white label).
  */
 router.post('/usuarios', exigirSuperAdmin, async (req, res, next) => {
@@ -938,16 +939,26 @@ router.post('/usuarios', exigirSuperAdmin, async (req, res, next) => {
 
     if (nome.length < 2) throw erroHttp(400, 'Informe o nome do cliente.');
     if (senha.length < 6) throw erroHttp(400, 'Senha mínima de 6 caracteres.');
-    if (!cpfValido(cpf)) throw erroHttp(400, 'Informe um CPF válido.');
+    /*
+     * TELEFONE OBRIGATÓRIO, CPF OPCIONAL — igual ao autocadastro público.
+     *
+     * As duas rotas criam a MESMA coisa, e a regra mudou lá: o CPF não é
+     * necessário para a nota (sem ele a venda sai como consumidor final) e o
+     * telefone é a identidade da conta. Mudar só o público deixaria a equipe
+     * exigindo do cliente ao telefone um documento que o site não pede — e o
+     * comentário desta rota, que promete "mesma validação", passaria a mentir.
+     */
+    if (!telefoneValido(telefone)) throw erroHttp(400, 'Informe um telefone válido com DDD.');
     if (email && !emailValido(email)) throw erroHttp(400, 'E-mail inválido.');
+    if (cpf && !cpfValido(cpf)) throw erroHttp(400, 'Informe um CPF válido ou deixe em branco.');
 
-    const cpfExiste = await db.prepare('SELECT id FROM usuarios WHERE cpf = ?').get(cpf);
-    if (cpfExiste) throw erroHttp(409, 'Já existe uma conta com este CPF.');
-    if (telefone) {
-      const telExiste = await db.prepare('SELECT id FROM usuarios WHERE telefone = ?').get(telefone);
-      if (telExiste) throw erroHttp(409, 'Já existe uma conta com este telefone.');
+    const telExiste = await db.prepare('SELECT id FROM usuarios WHERE telefone = ?').get(telefone);
+    if (telExiste) throw erroHttp(409, 'Já existe uma conta com este telefone.');
+    if (cpf) {
+      const cpfExiste = await db.prepare('SELECT id FROM usuarios WHERE cpf = ?').get(cpf);
+      if (cpfExiste) throw erroHttp(409, 'Já existe uma conta com este CPF.');
     }
-    const emailFinal = email || `${cpf}@cliente.local`;
+    const emailFinal = email || `${telefone}@cliente.local`;
     const emailExiste = await db.prepare('SELECT id FROM usuarios WHERE email = ?').get(emailFinal);
     if (emailExiste) throw erroHttp(409, 'Já existe uma conta com este e-mail.');
 

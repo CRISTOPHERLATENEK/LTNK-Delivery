@@ -103,6 +103,49 @@ export function telefoneDigitos(telefone: unknown): string {
   return typeof telefone === 'string' ? telefone.replace(/\D/g, '').slice(0, 11) : '';
 }
 
+/**
+ * TELEFONE BRASILEIRO COM DDD: 10 dígitos (fixo) ou 11 (celular).
+ *
+ * Passou a existir quando o telefone virou o ÚNICO campo obrigatório do
+ * cadastro de cliente. Antes ele era opcional, e campo opcional pode aceitar
+ * qualquer coisa: quem digitasse errado só perdia o WhatsApp. Agora ele é a
+ * IDENTIDADE — é por ele que a pessoa entra na conta — e telefone errado é uma
+ * conta que ninguém consegue acessar de volta.
+ *
+ * O que rejeita, e por quê:
+ *
+ *  - menos de 10 ou mais de 11 dígitos: não existe telefone brasileiro assim;
+ *  - DDD começando em 0: nenhum DDD começa com zero (a lista vai de 11 a 99);
+ *  - 11 dígitos sem o 9 na frente do número: celular no Brasil tem o nono
+ *    dígito desde 2016, e 11 dígitos sem ele é dígito digitado a mais;
+ *  - um dígito repetido do começo ao fim: é o que se digita para passar por um
+ *    campo obrigatório sem informar nada.
+ *
+ * NÃO valida se o DDD existe de verdade (não há 23, por exemplo). A lista muda
+ * com o tempo e errar para o lado de aceitar é melhor: um DDD inexistente não
+ * impede a pessoa de usar o app, e uma lista velha impediria.
+ */
+export function telefoneValido(telefone: unknown): boolean {
+  /*
+   * OS DÍGITOS CRUS, não os de `telefoneDigitos` — que CORTA em 11.
+   *
+   * Achado pelo teste: `telefoneValido('119999999999')` (doze dígitos) dava
+   * true, porque o corte descartava o último e sobrava um número válido. Para
+   * um campo de máscara isso é conveniência; para a IDENTIDADE da conta é
+   * grave — a pessoa digita doze dígitos e a conta nasce com onze, num número
+   * que ela não digitou e não vai reconhecer quando precisar entrar.
+   *
+   * Validar sobre o cru transforma "dígito a mais" em erro na tela, que é o
+   * que ele é.
+   */
+  const d = typeof telefone === 'string' ? telefone.replace(/\D/g, '') : '';
+  if (d.length !== 10 && d.length !== 11) return false;
+  if (d[0] === '0') return false;
+  if (d.length === 11 && d[2] !== '9') return false;
+  if (/^(\d)\1+$/.test(d)) return false;
+  return true;
+}
+
 /** Valida CPF pelos dígitos verificadores (rejeita sequências iguais). */
 export function cpfValido(cpf: unknown): boolean {
   const d = cpfDigitos(cpf);
