@@ -3,8 +3,8 @@
  * dedicadas (lojista, entregador, admin).
  */
 import { useEffect, Suspense } from 'react';
-import { Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
-import { Home, ShoppingBag, Receipt, User } from 'lucide-react';
+import { Routes, Route, Navigate, Outlet, useLocation, Link } from 'react-router-dom';
+import { Home, ShoppingBag, Receipt, User, Compass } from 'lucide-react';
 import { AppLayout, NavBadge } from '@/components/app-layout';
 import { useCarrinho, totalItensCarrinho } from '@/lib/carrinho';
 import { rotaInicioCliente, corLojaAtual } from '@/lib/loja-atual';
@@ -51,6 +51,36 @@ const TelaTenants = lazySeguro(() => import('@/pages/admin/tenants').then(m => (
 const TelaAssinaturas = lazySeguro(() => import('@/pages/admin/assinaturas').then(m => ({ default: m.TelaAssinaturas })));
 const TelaAuditoria = lazySeguro(() => import('@/pages/admin/auditoria').then(m => ({ default: m.TelaAuditoria })));
 const TelaMinhaConta = lazySeguro(() => import('@/pages/admin/minha-conta').then(m => ({ default: m.TelaMinhaConta })));
+
+/**
+ * ENDEREÇO QUE NÃO EXISTE.
+ *
+ * Não é enfeite: sem ela, caminho fora das rotas renderizava uma página PRETA —
+ * nenhum texto, nenhum código, nenhum caminho de volta. Quem cai aqui já está
+ * perdido; a tela tem que dizer isso e oferecer a saída.
+ *
+ * Mesma linguagem visual de "Loja não encontrada" (pages/cliente/loja.tsx), que
+ * é a irmã desta tela e já existia.
+ */
+function PaginaNaoEncontrada() {
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-background px-6 text-center">
+      <div className="flex size-14 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+        <Compass className="size-7" />
+      </div>
+      <h1 className="text-lg font-bold">Página não encontrada</h1>
+      <p className="max-w-sm text-sm text-muted-foreground">
+        Esse endereço não existe por aqui. Confira o link ou volte para o início.
+      </p>
+      <Link
+        to="/"
+        className="mt-1 inline-flex h-11 items-center justify-center rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground transition-all hover:bg-primary/90 active:scale-[0.98]"
+      >
+        Voltar ao início
+      </Link>
+    </div>
+  );
+}
 
 /** Fallback enquanto o chunk do painel baixa. */
 function CarregandoPainel() {
@@ -192,6 +222,21 @@ export default function App() {
         {/* Admin — TelaAdmin gerencia seu próprio login */}
         <Route path="/painel-admin/*" element={<TelaAdmin />} />
       </Route>
+
+      {/*
+        ENDEREÇO QUE NÃO EXISTE PRECISA DIZER ISSO.
+
+        Sem esta rota, caminho que não casa nenhuma das de cima renderiza NADA:
+        o `<Routes>` não escolhe elemento e a página fica preta, sem 404, sem
+        mensagem, sem jeito de voltar. Não é hipótese — foi assim que um link
+        errado do painel (`/loja/<slug>`, que nunca existiu: a loja é `/:id`, de
+        um segmento) virou uma aba preta na cara do dono da plataforma, sem
+        nenhuma pista de que o link estava errado.
+
+        Um caminho de um segmento só continua caindo em `/:id`, que já sabe
+        dizer "Loja não encontrada". Esta rota é para o resto.
+      */}
+      <Route path="*" element={<PaginaNaoEncontrada />} />
     </Routes>
     </Suspense>
   );

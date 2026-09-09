@@ -1589,33 +1589,41 @@ function LoginLojista() {
   const escopo = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    /*
+     * NENHUM TWEEN ANIMA OPACIDADE. SÓ POSIÇÃO.
+     *
+     * `gsap.from` com `opacity: 0` escreve opacidade zero no elemento AGORA e
+     * conta com o tween TERMINAR para revelá-lo. Se um frame não chega — aba em
+     * segundo plano (e "Entrar como lojista" abre exatamente isso: uma aba nova,
+     * que nasce atrás), carga pesada, `requestAnimationFrame` estrangulado — o
+     * elemento fica parado no estado inicial. Invisível, para sempre.
+     *
+     * ISSO JÁ HAVIA ACONTECIDO com o botão "Entrar", e o conserto de então foi
+     * tirar a opacidade DELE só. O resto da tela ficou com o defeito, e ele
+     * voltou pior: `data-anim="campo"` está nos WRAPPERS do título, do subtítulo
+     * e de cada campo, então um tween congelado não esconde um enfeite — esconde
+     * o formulário inteiro. Medido na tela do lojista da Galderio: os `div` de
+     * campo com `opacity: 0; transform: translate(0px, 18px)` no estilo inline,
+     * `document.getAnimations()` vazio, e um "Entrar" solto no meio do nada.
+     *
+     * A conclusão é a mesma daquele comentário, agora aplicada a tudo: conteúdo
+     * que precisa ser LIDO não pode depender de um tween completar. Animando só
+     * `y`, a pior falha possível é o texto aparecer 18px fora do lugar — legível
+     * e clicável. Perde-se o fade; ganha-se uma tela que nunca desaparece.
+     */
     const ctx = gsap.context(() => {
-      gsap.from('[data-anim="logo"]', { y: -14, opacity: 0, duration: 0.6, ease: 'power3.out' });
+      gsap.from('[data-anim="logo"]', { y: -14, duration: 0.6, ease: 'power3.out' });
       gsap.from('[data-anim="palavra"]', {
-        y: '0.9em', opacity: 0, duration: 0.7, ease: 'power3.out', stagger: 0.08, delay: 0.15,
+        y: '0.9em', duration: 0.7, ease: 'power3.out', stagger: 0.08, delay: 0.15,
       });
       gsap.from('[data-anim="apoio"]', {
-        y: 22, opacity: 0, duration: 0.6, ease: 'power3.out', stagger: 0.09, delay: 0.55,
+        y: 22, duration: 0.6, ease: 'power3.out', stagger: 0.09, delay: 0.55,
       });
       gsap.from('[data-anim="campo"]', {
-        y: 18, opacity: 0, duration: 0.55, ease: 'power3.out', stagger: 0.07, delay: 0.25,
+        y: 18, duration: 0.55, ease: 'power3.out', stagger: 0.07, delay: 0.25,
       });
-      /*
-       * O BOTÃO DE ENVIAR ANIMA SÓ A POSIÇÃO, NUNCA A OPACIDADE.
-       *
-       * `gsap.from` com opacity esconde o elemento e conta com o tween TERMINAR pra
-       * revelá-lo. Se um frame não chega — aba em segundo plano, carga pesada,
-       * `requestAnimationFrame` estrangulado —, o elemento fica parado no estado
-       * inicial. Foi o que aconteceu: o botão ficou com `opacity: 0;
-       * transform: translate(0px, 18px)` no estilo inline e o lojista viu um buraco
-       * onde devia estar "Entrar".
-       *
-       * Num texto decorativo isso é um defeito visual. No botão que ENVIA O
-       * FORMULÁRIO é a tela inteira inutilizada. Animando só `y`, a pior falha
-       * possível é ele aparecer 18px fora do lugar — e clicável.
-       *
-       * Delay 0.67 = 0.25 + 0.07×6, a posição que ele teria no stagger dos campos.
-       */
+      /* Delay 0.67 = 0.25 + 0.07×6, a posição que o botão teria no stagger dos
+         campos. */
       gsap.from('[data-anim="botao"]', { y: 18, duration: 0.55, ease: 'power3.out', delay: 0.67 });
     }, escopo);
     return () => ctx.revert();

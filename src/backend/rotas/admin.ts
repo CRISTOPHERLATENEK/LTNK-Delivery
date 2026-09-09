@@ -31,7 +31,7 @@ import multer from 'multer';
 import { spawn } from 'child_process';
 import path from 'path';
 import os from 'os';
-import { Tenant, lerRodapeCredito, salvarRodapeCredito, listarTenants, criarTenant, atualizarTenant, tenantPorId, removerTenant, ehMaster, urlDoTenant, problemaNoSlugTenant, poolCentral } from '../tenants-mysql';
+import { Tenant, lerRodapeCredito, salvarRodapeCredito, listarTenants, criarTenant, atualizarTenant, tenantPorId, tenantPorDbNome, removerTenant, ehMaster, urlDoTenant, problemaNoSlugTenant, poolCentral } from '../tenants-mysql';
 import {
   listarAssinaturas, salvarAssinatura, registrarPagamento, historicoPagamentos,
   processarVencimentos, statusCalculado, diasDeAtraso, ErroPagamentoDuplicado } from '../assinaturas';
@@ -692,8 +692,30 @@ router.get('/lojas/:id/painel', async (req, res, next) => {
       "SELECT valor FROM configuracoes WHERE chave = 'comissao_percentual'"
     ).get() as { valor: string } | undefined;
 
+    /*
+     * O ENDEREÇO PÚBLICO DA LOJA VEM DAQUI, e isso é conserto de bug.
+     *
+     * A tela montava `/loja/${slug}` na mão, e aquilo estava errado duas vezes:
+     *
+     *  1. o caminho NÃO EXISTE. A página da loja é `/:id`, de um segmento só.
+     *     Com dois, não casa rota nenhuma — e o app não tem rota de "não
+     *     encontrado", então o navegador ficava com uma aba PRETA, sem 404 e
+     *     sem uma palavra.
+     *  2. era RELATIVO, então abria no domínio do painel. A loja de um cliente
+     *     vive no banco DELE; procurá-la no domínio da plataforma não acha nada
+     *     nem no dia em que o caminho estiver certo.
+     *
+     * Montar aqui é o único jeito de acertar o domínio: é aqui que se sabe qual
+     * tenant é, e `urlDoTenant` já resolve domínio próprio e subdomínio.
+     */
+    const tenantDaLoja = await tenantPorDbNome(bancoTenantAtual());
+    const base = loja.dominio_personalizado
+      ? `https://${loja.dominio_personalizado}`
+      : (tenantDaLoja ? urlDoTenant(tenantDaLoja) : null);
+    const urlPublica = base && loja.slug ? `${base}/${loja.slug}` : '';
+
     res.json({
-      loja,
+      loja: { ...loja, url_publica: urlPublica },
       periodo_dias: dias,
       resumo: {
         ...entregues,

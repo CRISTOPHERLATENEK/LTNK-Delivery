@@ -38,6 +38,9 @@ interface LojaPainel {
   id: number; nome: string; slug: string | null; categoria: string; endereco: string;
   aberta: 0 | 1; auto_horario: 0 | 1; status_aprovacao: string; criado_em: string;
   dominio_personalizado: string | null; comissao_percentual: number | null;
+  /* Montada no servidor (ver `url_publica` em rotas/admin.ts): é o único
+     lugar que sabe o domínio do tenant. Vazia quando a loja não tem slug. */
+  url_publica: string;
   fiscal_liberado: 0 | 1; vendas_liberado: 0 | 1; canal_versao: string | null;
   nfce_ativo: 0 | 1; nfce_municipio: string | null; nfce_uf: string | null;
   nfce_razao_social: string | null; nfce_cnpj: string | null; nfce_ie: string | null;
@@ -289,9 +292,15 @@ export function TelaLojaDetalhe() {
 
   const l = d.loja;
   const r = d.resumo;
-  const url = l.dominio_personalizado
-    ? `https://${l.dominio_personalizado}`
-    : l.slug ? `/loja/${l.slug}` : '';
+  /*
+   * O ENDEREÇO VEM DO SERVIDOR, montado onde o tenant é sabido.
+   *
+   * Aqui a tela montava `/loja/${l.slug}`, e aquilo abria uma aba PRETA: a
+   * página da loja é `/:id` (um segmento), então `/loja/x` não casava rota
+   * nenhuma — e por ser relativo, ainda ia para o domínio do painel, onde a
+   * loja de um cliente não existe. Ver `url_publica` em rotas/admin.ts.
+   */
+  const url = l.url_publica || '';
   const taxaCancelamento = r.total > 0 ? Math.round((r.cancelados / r.total) * 100) : 0;
 
   /*
