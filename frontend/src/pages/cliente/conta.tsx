@@ -591,16 +591,13 @@ function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
             required value={nome} onChange={e => setNome((e.target as HTMLInputElement).value)} className="mt-1.5" />
         </div>
         {/*
-          O TELEFONE VEM ANTES DO CPF, e a ordem é a mudança.
-          Ele é o campo obrigatório e a identidade da conta; o CPF desceu para
-          depois do e-mail porque só serve a quem quer o próprio CPF na nota.
+          O TELEFONE VEM ANTES DO CPF: é o obrigatório e a identidade da conta.
           Campo obrigatório embaixo de opcional ensina a ordem errada de ler.
         */}
         <div>
           <Label htmlFor="cad-tel">Telefone / WhatsApp</Label>
           <CampoIcone icone={Phone} id="cad-tel" type="tel" placeholder="(11) 99999-9999" required
             value={telefone} onChange={e => setTelefone(formatarTelefone((e.target as HTMLInputElement).value))} className="mt-1.5" />
-          <p className="mt-1 text-[11px] text-muted-foreground">É por ele que a loja fala com você e que você entra na conta.</p>
         </div>
         <div>
           <Label htmlFor="cad-email">E-mail <span className="font-normal text-muted-foreground">(opcional)</span></Label>
@@ -608,16 +605,17 @@ function FormCadastro({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
             value={email} onChange={e => setEmail((e.target as HTMLInputElement).value)} className="mt-1.5" />
         </div>
         {/*
-          O CPF DIZ PARA QUE SERVE, não só que é opcional.
-          "Opcional" sozinho deixa a dúvida, e na dúvida a pessoa preenche —
-          que é exatamente o atrito que se quis tirar. Dizendo que serve para a
-          nota fiscal, quem precisa preenche e quem não precisa passa.
+          O "(opcional)" no rótulo é tudo o que a tela diz sobre o CPF.
+          Eu havia posto uma linha embaixo explicando que serve para a nota
+          fiscal, e outra embaixo do telefone. Saíram: o formulário tem cinco
+          campos, e cada linha de apoio empurra o botão de cadastrar para
+          longe — num formulário de entrada, altura é atrito, que é o que esta
+          mudança inteira queria remover.
         */}
         <div>
           <Label htmlFor="cad-cpf">CPF <span className="font-normal text-muted-foreground">(opcional)</span></Label>
           <CampoIcone icone={User} id="cad-cpf" inputMode="numeric" placeholder="000.000.000-00"
             value={cpf} onChange={e => setCpf(formatarCpf((e.target as HTMLInputElement).value))} className="mt-1.5" />
-          <p className="mt-1 text-[11px] text-muted-foreground">Só se você quiser seu CPF na nota fiscal.</p>
         </div>
       </div>
       <div>

@@ -249,12 +249,26 @@ describe('as telas', () => {
   });
 
   /*
-   * O CPF DIZ PARA QUE SERVE. "Opcional" sozinho deixa a dúvida, e na dúvida a
-   * pessoa preenche — que é justamente o atrito que se quis tirar.
+   * O RÓTULO DIZ "(opcional)", e é só isso que a tela diz sobre o CPF.
+   *
+   * Eu havia posto uma linha de apoio embaixo do campo ("Só se você quiser seu
+   * CPF na nota fiscal") e outra embaixo do telefone. O lojista pediu para
+   * tirar as duas, e tem razão: o formulário tem cinco campos, e cada linha de
+   * apoio empurra o botão de cadastrar para longe — num formulário de entrada,
+   * altura é atrito, e era atrito que a mudança inteira queria remover.
+   *
+   * O que continua obrigatório dizer é qual campo é opcional, e isso o rótulo
+   * já faz.
    */
-  it('o CPF explica que serve para a nota', () => {
-    expect(conta).toContain('Só se você quiser seu CPF na nota fiscal.');
+  it('o CPF é marcado como opcional no rótulo, e sem linha de apoio', () => {
     expect(conta).toMatch(/CPF <span[^>]*>\(opcional\)/);
+    expect(conta).not.toContain('Só se você quiser seu CPF na nota fiscal.');
+  });
+
+  it('o telefone também não tem linha de apoio', () => {
+    expect(conta).not.toContain('É por ele que a loja fala com você');
+    /* A que existia antes da mudança toda também não volta. */
+    expect(conta).not.toContain('Também pode ser usado pra entrar na sua conta.');
   });
 
   /* O obrigatório vem ANTES do opcional: ordem ensina o que preencher. */
