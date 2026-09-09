@@ -832,6 +832,9 @@ router.get('/pedidos/:id', async (req, res, next) => {
       `SELECT p.*, l.nome AS loja_nome,
               COALESCE(NULLIF(p.tempo_estimado_min, 0), l.tempo_estimado_min) AS tempo_estimado_min,
               l.cor_marca AS loja_cor_marca, l.cor_secundaria AS loja_cor_secundaria,
+              /* Decide se o acompanhamento diz "Preparando" ou "Em separação"
+                 (ver rotulo-preparo.ts). Nulo = ligado, o padrão da coluna. */
+              COALESCE(l.kds_liberado, 1) AS loja_kds,
               u.nome AS entregador_nome, u.telefone AS entregador_telefone,
               u.nota_media AS entregador_nota_media, u.nota_qtd AS entregador_nota_qtd,
               u.entregador_chat_metodo

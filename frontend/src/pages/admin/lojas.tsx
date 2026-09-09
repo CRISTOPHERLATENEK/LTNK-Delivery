@@ -642,6 +642,18 @@ export function ModulosDaLoja({ loja }: { loja: Loja }) {
       aviso: 'A aba Vendas some do painel dele e o PDV, as mesas e o caixa param de funcionar.',
     },
     {
+      /*
+       * KDS: nem toda loja tem cozinha. Numa conveniência é uma tela que nunca
+       * abre — e desligá-la também muda o que o CLIENTE lê no acompanhamento:
+       * "Em separação" em vez de "Preparando" (ver rotulo-preparo.ts).
+       */
+      chave: 'kds' as const,
+      titulo: 'Cozinha (KDS)',
+      ligado: 'O lojista vê a aba Cozinha e o pedido passa por "Preparando".',
+      desligado: 'A aba Cozinha não aparece e o cliente lê "Em separação" no acompanhamento.',
+      aviso: 'A aba Cozinha some do painel dele, o login do KDS para de entrar, e o acompanhamento do cliente passa a dizer "Em separação" em vez de "Preparando".',
+    },
+    {
       chave: 'fiscal' as const,
       titulo: 'Fiscal (NFC-e)',
       ligado: 'O lojista vê a aba Fiscal e pode emitir NFC-e.',
@@ -650,7 +662,7 @@ export function ModulosDaLoja({ loja }: { loja: Loja }) {
     },
   ];
 
-  async function alternar(chave: 'vendas' | 'fiscal', aviso: string) {
+  async function alternar(chave: 'vendas' | 'fiscal' | 'kds', aviso: string) {
     if (!estado) return;
     const novo = estado[chave] ? 0 : 1;
     /*
@@ -775,6 +787,7 @@ const DESCRICAO_CANAL: Record<Canal, string> = {
 interface EstadoModulos {
   vendas: 0 | 1;
   fiscal: 0 | 1;
+  kds: 0 | 1;
   canal: Canal;
   funcionalidades: { chave: string; titulo: string; canal: Canal; porque: string }[];
 }

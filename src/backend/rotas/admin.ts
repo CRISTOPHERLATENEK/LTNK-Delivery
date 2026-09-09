@@ -619,6 +619,7 @@ router.get('/lojas/:id/painel', async (req, res, next) => {
               l.status_aprovacao, l.criado_em, l.dominio_personalizado,
               l.comissao_percentual, l.fiscal_liberado, l.vendas_liberado,
               l.pagamento_online,
+              l.kds_liberado,
               l.canal_versao, l.nfce_ativo, l.nfce_municipio, l.nfce_uf,
               l.nfce_razao_social, l.nfce_cnpj, l.nfce_ie, l.nfce_crt,
               l.nfce_cmun, l.nfce_ambiente, l.nfce_serie, l.nfce_proximo_numero,
@@ -1492,6 +1493,13 @@ router.get('/lojas/:id/fiscal', exigirSuperAdmin, async (req, res, next) => {
 const COLUNA_DO_MODULO: Record<string, string> = {
   vendas: 'vendas_liberado',
   fiscal: 'fiscal_liberado',
+  /*
+   * O KDS É MÓDULO de verdade, diferente de `pagamento_online`: é uma TELA que a
+   * loja tem ou não tem, com login próprio, e desligá-la some do painel dela —
+   * exatamente como vendas e fiscal. Por isso entra no mapa, e o pagamento
+   * online não entrou (aquele é ajuste que o lojista também muda).
+   */
+  kds: 'kds_liberado',
 };
 
 /**
@@ -1613,15 +1621,18 @@ router.put('/canais/:canal/nota', exigirSuperAdmin, async (req, res, next) => {
 router.get('/lojas/:id/modulos', exigirSuperAdmin, async (req, res, next) => {
   try {
     const l = await db.prepare(
-      'SELECT vendas_liberado, fiscal_liberado, canal_versao FROM lojas WHERE id = ?'
+      'SELECT vendas_liberado, fiscal_liberado, kds_liberado, canal_versao FROM lojas WHERE id = ?'
     ).get(req.params.id) as {
-      vendas_liberado: number; fiscal_liberado: number; canal_versao: string | null;
+      vendas_liberado: number; fiscal_liberado: number; kds_liberado: number; canal_versao: string | null;
     } | undefined;
     if (!l) throw erroHttp(404, 'Loja não encontrada.');
     const canal = canalValido(l.canal_versao);
     res.json({
       vendas: l.vendas_liberado ? 1 : 0,
       fiscal: l.fiscal_liberado ? 1 : 0,
+      /* Nulo conta como LIGADO: é o padrão da coluna, e banco sem a migração não
+         deve aparecer como loja sem KDS. */
+      kds: Number(l.kds_liberado ?? 1) === 1 ? 1 : 0,
       canal,
       /* As funcionalidades que este canal abre, com o motivo de ainda não serem
          estáveis — para o admin saber o que está entregando ao mudar o canal, em

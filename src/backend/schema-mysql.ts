@@ -132,6 +132,18 @@ const TABELAS: string[] = [
    * plataforma, nao na dela.
    */
   pagamento_online      TINYINT NOT NULL DEFAULT 1,
+  /*
+   * KDS (painel de cozinha) LIBERADO PARA ESTA LOJA.
+   *
+   * DEFAULT 1: a tela ja existe para todo mundo, e nascer desligada tiraria um
+   * painel em uso no primeiro deploy.
+   *
+   * Existe porque nem toda loja tem cozinha. Numa conveniencia ninguem
+   * "prepara" nada -- separa da prateleira -- e um painel de cozinha ali e uma
+   * tela que nunca abre, alem de mudar o que o cliente le no acompanhamento
+   * (ver rotuloPreparando).
+   */
+  kds_liberado          TINYINT NOT NULL DEFAULT 1,
   categoria_estilo      VARCHAR(20) NOT NULL DEFAULT 'cards',
   categoria_formato     VARCHAR(20) NOT NULL DEFAULT 'circulo',
   categoria_tamanho     VARCHAR(10) NOT NULL DEFAULT 'medio',
@@ -1084,6 +1096,9 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
     /* Ligado por padrão: quem já vende online continua vendendo. O CREATE é
        IF NOT EXISTS e não alcança banco que já existe. */
     ['lojas', 'pagamento_online', 'pagamento_online TINYINT NOT NULL DEFAULT 1'],
+    /* KDS liberado por padrão: a tela já existe para todo mundo. O CREATE é
+       IF NOT EXISTS e não alcança banco que já existe. */
+    ['lojas', 'kds_liberado', 'kds_liberado TINYINT NOT NULL DEFAULT 1'],
     /*
      * XML DO EVENTO DE CANCELAMENTO, em coluna própria.
      *

@@ -6,13 +6,14 @@ import { useState, useEffect, useRef, Suspense } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Bike, MapPin, MessageSquare, CreditCard, Check, Clock, Star, Package, ChefHat, CheckCircle2, Truck, Bell, BellRing, Phone, MessagesSquare, ChevronDown, ChevronUp, XCircle, LifeBuoy } from 'lucide-react';
+import { ArrowLeft, Bike, MapPin, MessageSquare, CreditCard, Check, Clock, Star, Package, ChefHat, ShoppingBag, CheckCircle2, Truck, Bell, BellRing, Phone, MessagesSquare, ChevronDown, ChevronUp, XCircle, LifeBuoy } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import { brl, dataLocal, tempoRelativo, posicaoAtrasada } from '@/lib/format';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusBadge, ROTULOS_STATUS } from '@/components/ui/status-badge';
+import { rotuloPreparando } from '@/lib/rotulo-preparo';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { tocarAlerta } from '@/lib/alerta-pedido';
@@ -145,6 +146,21 @@ export function PaginaPedido() {
   }
   if (!consulta.data) return null;
   const { pedido, itens, historico, avaliacao, avaliacaoEntregador } = consulta.data;
+  /*
+   * "PREPARANDO" PRESSUPÕE COZINHA, e não toda loja tem uma.
+   *
+   * Numa conveniência ninguém prepara nada — separa da prateleira. O cliente
+   * lendo "preparando seu pedido" para uma garrafa de cerveja fica esperando um
+   * preparo que não existe. A pergunta que decide é a mesma que decide o painel
+   * de cozinha: a loja tem KDS? (ver lib/rotulo-preparo.ts)
+   *
+   * `loja_kds` vem no pedido; ausente conta como LIGADO, o padrão da coluna.
+   */
+  const temKds = Number((pedido as unknown as { loja_kds?: number } | undefined)?.loja_kds ?? 1) === 1;
+  const rotulos = { ...ROTULOS_STATUS, preparando: rotuloPreparando(temKds) };
+  /* O ícone acompanha a palavra: chapéu de cozinheiro contradiz "Em separação"
+     na mesma linha. */
+  const icones = { ...ICONES_STATUS, preparando: temKds ? ChefHat : ShoppingBag };
 
   const horarios: Partial<Record<StatusPedido, string>> = {};
   for (const h of historico) horarios[h.status] = h.criado_em;
@@ -197,7 +213,7 @@ export function PaginaPedido() {
             )}
           >
             {(() => {
-              const IconeHero = ICONES_STATUS[pedido.status as StatusPedido] || Clock;
+              const IconeHero = icones[pedido.status as StatusPedido] || Clock;
               return <IconeHero className="size-8" strokeWidth={2} />;
             })()}
           </motion.div>
@@ -280,7 +296,7 @@ export function PaginaPedido() {
         <Card>
           <CardContent className="p-5">
             <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive text-center">
-              Pedido {ROTULOS_STATUS[pedido.status].toLowerCase()}
+              Pedido {rotulos[pedido.status].toLowerCase()}
               {pedido.motivo_recusa && `: ${pedido.motivo_recusa}`}
             </div>
           </CardContent>
@@ -300,7 +316,7 @@ export function PaginaPedido() {
               <div className="space-y-0">
                 {FLUXO.map((s, i) => {
                   const estado = i < indiceAtual ? 'feito' : i === indiceAtual ? 'atual' : 'futuro';
-                  const Icone = ICONES_STATUS[s] || Clock;
+                  const Icone = icones[s] || Clock;
                   const isLast = i === FLUXO.length - 1;
 
                   return (
@@ -356,7 +372,7 @@ export function PaginaPedido() {
                           estado === 'futuro' && 'text-muted-foreground',
                           estado === 'atual' && 'text-primary',
                         )}>
-                          {ROTULOS_STATUS[s]}
+                          {rotulos[s]}
                           {estado === 'atual' && ehAtivo && (
                             <span className="ml-2 text-xs font-normal text-primary/70 animate-pulse">em andamento…</span>
                           )}

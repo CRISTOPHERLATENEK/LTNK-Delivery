@@ -10,6 +10,7 @@
 import db from './db-mysql';
 import { agoraUTC } from './util';
 import { enviarPush } from './push';
+import { avisoPreparando } from './rotulo-preparo';
 
 type ConteudoEvento = { id: number; cliente_id: number; cliente_nome: string; telefone: string | null };
 
@@ -40,14 +41,30 @@ function canalConfigurado(): string {
 
 /** Registra um evento de notificação na fila (chamado pela máquina de estados). */
 export async function registrarEvento(pedidoId: number, evento: string): Promise<void> {
+  /*
+   * `kds_liberado` VEM NA MESMA CONSULTA porque muda o TEXTO do aviso.
+   *
+   * Loja sem KDS não prepara nada: separa. "Está sendo preparado" para uma
+   * garrafa de cerveja deixa o cliente esperando um preparo que não existe —
+   * ver `rotulo-preparo.ts`. Nulo conta como LIGADO, o padrão da coluna.
+   */
   const pedido = await db.prepare(
-    `SELECT p.id, p.cliente_id, u.nome AS cliente_nome, u.telefone
-       FROM pedidos p JOIN usuarios u ON u.id = p.cliente_id WHERE p.id = ?`
-  ).get(pedidoId) as ConteudoEvento | undefined;
+    `SELECT p.id, p.cliente_id, u.nome AS cliente_nome, u.telefone,
+            COALESCE(l.kds_liberado, 1) AS kds_liberado
+       FROM pedidos p
+       JOIN usuarios u ON u.id = p.cliente_id
+       JOIN lojas l ON l.id = p.loja_id
+      WHERE p.id = ?`
+  ).get(pedidoId) as (ConteudoEvento & { kds_liberado: number }) | undefined;
   if (!pedido) return;
 
+  const temKds = Number(pedido.kds_liberado ?? 1) === 1;
   const fnMensagem = MENSAGENS[evento];
-  const texto = fnMensagem ? fnMensagem(pedido) : `Atualização do pedido #${pedido.id}`;
+  const texto = evento === 'pedido_preparando'
+    ? (temKds
+      ? `Seu pedido #${pedido.id} está sendo preparado. 👨‍🍳`
+      : `Seu pedido #${pedido.id} está sendo separado. 🛍️`)
+    : (fnMensagem ? fnMensagem(pedido) : `Atualização do pedido #${pedido.id}`);
 
   await db.prepare(
     `INSERT INTO eventos_notificacao (pedido_id, evento, canal, payload, criado_em)
@@ -58,7 +75,9 @@ export async function registrarEvento(pedidoId: number, evento: string): Promise
   }), agoraUTC());
 
   // Web Push para o cliente (fire-and-forget; o "estou chegando" tem disparo próprio).
-  const titulo = TITULOS_PUSH[evento];
+  const titulo = evento === 'pedido_preparando'
+    ? avisoPreparando(temKds)
+    : TITULOS_PUSH[evento];
   if (titulo) {
     enviarPush(pedido.cliente_id, {
       titulo,

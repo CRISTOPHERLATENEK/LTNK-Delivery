@@ -177,6 +177,18 @@ export function PainelLojista() {
   const temVendas = Number((lojaQ.data?.loja as any)?.vendas_liberado ?? 0) === 1;
 
   /*
+   * A ABA COZINHA (KDS) SÓ EXISTE PARA QUEM TEM O MÓDULO.
+   *
+   * Mesma natureza de `vendas_liberado`: decisão da plataforma, no painel
+   * admin. Esconder aqui é cortesia — o bloqueio de verdade está no login da
+   * cozinha, no servidor, porque o tablet entra por lá com conta própria.
+   *
+   * `?? 1` e não `?? 0`: o KDS nasce LIGADO (a tela já existia para todo
+   * mundo), então banco sem a migração não deve esconder a aba de ninguém.
+   */
+  const temKds = Number((lojaQ.data?.loja as any)?.kds_liberado ?? 1) === 1;
+
+  /*
    * O AVISO DE CANAL, para quem NÃO está no recomendado.
    *
    * Uma loja em Beta era idêntica a qualquer outra por dentro. Quando ela abria
@@ -219,7 +231,7 @@ export function PainelLojista() {
         { rota: '/lojista/categorias', icone: Tag, rotulo: 'Categorias' },
         { rota: '/lojista/clientes', icone: Users, rotulo: 'Clientes' },
         { rota: '/lojista/avaliacoes', icone: Star, rotulo: 'Avaliações' },
-        { rota: '/lojista/cozinha-equipe', icone: ChefHat, rotulo: 'Cozinha (KDS)' },
+        ...(temKds ? [{ rota: '/lojista/cozinha-equipe', icone: ChefHat, rotulo: 'Cozinha (KDS)' }] : []),
       ],
     },
     {
@@ -676,6 +688,18 @@ function NfceDeliveryLoja() {
 
 /* ── "Mais": tudo que não cabe na nav principal, agrupado por intenção ── */
 function MenuMais() {
+  /*
+   * O "Mais" também respeita o módulo. Ele é outro componente, com a própria
+   * lista — deixar só a sidebar filtrando esconderia a aba num lugar e a
+   * ofereceria no outro, que é pior que não esconder em nenhum.
+   */
+  const lojaQ = useQuery({
+    queryKey: ['minha-loja-cfg'],
+    queryFn: () => api<{ loja: Record<string, unknown> }>('GET', '/api/lojista/loja'),
+    staleTime: 60_000,
+  });
+  const temKds = Number((lojaQ.data?.loja as { kds_liberado?: number } | undefined)?.kds_liberado ?? 1) === 1;
+
   const grupos = [
     {
       titulo: 'Operação',
@@ -684,7 +708,7 @@ function MenuMais() {
         { rota: '/lojista/categorias', icone: Tag, rotulo: 'Categorias', desc: 'Ícone, ordem e estilo na vitrine' },
         { rota: '/lojista/clientes', icone: Users, rotulo: 'Clientes', desc: 'Quem já comprou de você' },
         { rota: '/lojista/avaliacoes', icone: Star, rotulo: 'Avaliações', desc: 'Notas e respostas dos clientes' },
-        { rota: '/lojista/cozinha-equipe', icone: ChefHat, rotulo: 'Cozinha (KDS)', desc: 'Logins do painel de cozinha' },
+        ...(temKds ? [{ rota: '/lojista/cozinha-equipe', icone: ChefHat, rotulo: 'Cozinha (KDS)', desc: 'Logins do painel de cozinha' }] : []),
       ],
     },
     {

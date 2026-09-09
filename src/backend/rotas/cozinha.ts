@@ -36,15 +36,31 @@ router.post('/login', limiteLogin, async (req, res, next) => {
     const senha = typeof req.body.senha === 'string' ? req.body.senha : '';
 
     const conta = await db.prepare(
-      `SELECT c.id, c.nome, c.email, c.senha_hash, c.bloqueado, c.loja_id, l.nome AS loja_nome
+      `SELECT c.id, c.nome, c.email, c.senha_hash, c.bloqueado, c.loja_id, l.nome AS loja_nome,
+              COALESCE(l.kds_liberado, 1) AS kds_liberado
          FROM cozinha_contas c JOIN lojas l ON l.id = c.loja_id
         WHERE c.email = ?`
-    ).get(email) as ContaRow | undefined;
+    ).get(email) as (ContaRow & { kds_liberado: number }) | undefined;
 
     if (!conta || !await bcrypt.compare(senha, conta.senha_hash)) {
       throw erroHttp(401, 'E-mail ou senha incorretos.');
     }
     if (conta.bloqueado) throw erroHttp(403, 'Este acesso da cozinha foi desativado.');
+
+    /*
+     * O MÓDULO DESLIGADO FECHA A PORTA AQUI, não só esconde a aba.
+     *
+     * Esconder no painel do lojista é cortesia — o tablet da cozinha entra por
+     * esta rota, com login próprio, e continuaria entrando. Loja que desligou o
+     * KDS não deve ter um tablet mostrando pedido.
+     *
+     * A mensagem diz que foi a LOJA que desligou, e não "e-mail ou senha
+     * incorretos": quem está no tablet não tem como adivinhar isso, e ia ficar
+     * tentando a senha.
+     */
+    if (Number(conta.kds_liberado ?? 1) !== 1) {
+      throw erroHttp(403, 'O painel de cozinha está desativado para esta loja.');
+    }
 
     res.json({
       token: gerarTokenCozinha(conta),
