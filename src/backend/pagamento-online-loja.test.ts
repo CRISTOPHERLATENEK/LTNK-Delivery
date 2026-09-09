@@ -107,8 +107,33 @@ describe('a tela deixa de oferecer o que seria recusado', () => {
    * tela, e o cliente veria "escolha uma forma válida" sem saber o que escolheu
    * errado.
    */
-  it('a forma inicial não é uma que a loja não aceita', () => {
-    expect(exec(carrinho)).toContain("pagamentoOnline ? 'pix' : 'dinheiro'");
+  /*
+   * O `useState` SOZINHO NÃO RESOLVE, e foi o defeito que chegou como "não
+   * consigo pedir".
+   *
+   * O inicializador roda UMA VEZ, na primeira renderização — e nela a resposta
+   * da loja ainda não chegou, então `pagamentoOnline` é o padrão `true` e a
+   * escolha nasce `'pix'`. Quando a resposta chega dizendo que a loja não recebe
+   * online, a lista perde o Pix mas a ESCOLHA continua nele: nenhum botão
+   * aparece marcado e finalizar manda uma forma que o servidor recusa.
+   *
+   * Estado derivado de dado que chega depois precisa de correção depois.
+   */
+  it('a escolha é corrigida quando a resposta da loja chega', () => {
+    const codigo = exec(carrinho);
+    expect(codigo).toContain('if (formasOferecidas.some(f => f.id === pagamento)) return;');
+    expect(codigo).toContain("setPagamento(formasOferecidas[0]?.id ?? 'dinheiro')");
+    /* Dentro de um efeito, não no corpo do render: `setState` no render é laço. */
+    const iEfeito = codigo.indexOf('useEffect(() => {\n    if (formasOferecidas.some');
+    expect(iEfeito).toBeGreaterThan(0);
+  });
+
+  /* E o clique do cliente NÃO é desfeito: o efeito só age quando a escolha
+     atual saiu da lista. */
+  it('não sobrescreve a escolha do cliente', () => {
+    const codigo = exec(carrinho);
+    const i = codigo.indexOf('if (formasOferecidas.some(f => f.id === pagamento)) return;');
+    expect(codigo.slice(i, i + 200)).toContain('return;');
   });
 
   /*

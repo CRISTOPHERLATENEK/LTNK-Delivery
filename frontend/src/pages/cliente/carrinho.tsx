@@ -664,15 +664,31 @@ function Checkout({
     ? PAGAMENTOS
     : PAGAMENTOS.filter(p => p.id !== 'pix' && p.id !== 'cartao_online');
 
-  /*
-   * A ESCOLHA INICIAL SEGUE O QUE ESTÁ OFERECIDO. Nascia em `'pix'` fixo — numa
-   * loja sem pagamento online, o pedido sairia com uma forma que nem aparece na
-   * tela, e o cliente veria "escolha uma forma válida" sem entender o que
-   * escolheu errado.
-   */
   const [pagamento, setPagamento] = useState<FormaPagamento>(
     pagamentoOnline ? 'pix' : 'dinheiro',
   );
+
+  /*
+   * A ESCOLHA SEGUE O QUE ESTÁ OFERECIDO — E O `useState` ACIMA NÃO BASTA.
+   *
+   * Erro meu, e o sintoma foi "não consigo pedir". O inicializador do `useState`
+   * roda UMA VEZ, na primeira renderização — e nela a resposta da loja ainda não
+   * chegou, então `pagamentoOnline` é o padrão `true` e a escolha nasce `'pix'`.
+   * Quando a resposta chega dizendo que a loja não recebe online, a lista perde
+   * o Pix mas a ESCOLHA continua nele: nenhum botão aparece marcado, e quem
+   * clicar em finalizar manda uma forma que o servidor recusa.
+   *
+   * Estado derivado de dado que chega depois precisa de correção depois. O
+   * efeito só age quando a escolha atual saiu da lista — clique do cliente não é
+   * desfeito.
+   */
+  useEffect(() => {
+    if (formasOferecidas.some(f => f.id === pagamento)) return;
+    setPagamento(formasOferecidas[0]?.id ?? 'dinheiro');
+    /* `formasOferecidas` é recriada a cada render; a dependência real é a
+       resposta da loja. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagamentoOnline, pagamento]);
   const [troco, setTroco] = useState('');
   const [obs, setObs] = useState('');
   const [enviando, setEnviando] = useState(false);
