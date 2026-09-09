@@ -84,13 +84,21 @@ export function descrever(item: ItemSemProduto): string {
 /**
  * O que fazer, em uma frase, para ESTE item.
  *
- * Sem código não há conserto por cadastro: o item chegou do iFood sem
- * `externalCode`, então não existe chave para casar. Dizer "cadastre o
- * código" nesse caso manda a pessoa procurar algo que não existe — o conserto
- * é do lado do iFood, no cardápio de lá.
+ * COM CÓDIGO é direto: cola no `codigo_barras` do produto e o próximo pedido
+ * baixa estoque.
+ *
+ * SEM CÓDIGO a mensagem não pode afirmar POR QUE está sem. Eu escrevi
+ * primeiro "este item chegou do iFood sem código" — e ao rodar em produção os
+ * dois itens existentes apareceram sem código porque são de ANTES da coluna
+ * existir, não porque o iFood não mandou. A frase mandaria a pessoa consertar
+ * o cardápio do iFood, que talvez já esteja certo.
+ *
+ * Então diz o que se sabe ("não temos o código registrado") e dá o caminho que
+ * funciona nos dois casos: conferir o código no cardápio de lá e cadastrar o
+ * mesmo aqui.
  */
 export function comoResolver(item: ItemSemProduto): string {
   return item.codigo
     ? `Cadastre o código ${item.codigo} no campo "código de barras" do produto correspondente.`
-    : 'Este item chegou do iFood sem código. Preencha o "código externo" dele no cardápio do iFood e depois cadastre o mesmo código no produto aqui.';
+    : 'Não temos o código deste item registrado. Veja o "código externo" dele no cardápio do iFood e cadastre o mesmo no campo "código de barras" do produto aqui.';
 }

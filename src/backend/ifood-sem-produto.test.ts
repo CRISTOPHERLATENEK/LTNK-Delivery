@@ -54,16 +54,24 @@ describe('comoResolver: instrução acionável, ou a verdade de que não dá', (
   });
 
   /*
-   * SEM CÓDIGO, NÃO EXISTE CHAVE PARA CASAR — e mandar "cadastre o código"
-   * nesse caso manda a pessoa procurar algo que não existe. O conserto é do
-   * outro lado, no cardápio do iFood.
+   * SEM CÓDIGO, A MENSAGEM NÃO PODE AFIRMAR O MOTIVO.
+   *
+   * A primeira versão dizia "este item chegou do iFood sem código". Ao rodar
+   * em produção, os dois itens existentes apareceram sem código porque são de
+   * ANTES da coluna existir — não porque o iFood não mandou. A frase mandaria
+   * consertar um cardápio que talvez já esteja certo.
    */
-  it('sem código, diz que o conserto é no cardápio do iFood', () => {
+  it('sem código, não afirma de quem é a culpa', () => {
     const t = comoResolver(item({ codigo: '' }));
-    expect(t).toMatch(/sem c[óo]digo/i);
+    expect(t).toMatch(/n[ãa]o temos o c[óo]digo/i);
+    /* A afirmação que foi removida: */
+    expect(t).not.toMatch(/chegou do iFood sem c[óo]digo/i);
+  });
+
+  it('sem código, ainda dá um caminho que serve nos dois casos', () => {
+    const t = comoResolver(item({ codigo: '' }));
     expect(t).toMatch(/card[áa]pio do iFood/);
-    /* E não pede para cadastrar um código que não veio. */
-    expect(t).not.toMatch(/Cadastre o código \s*$/);
+    expect(t).toMatch(/c[óo]digo de barras/i);
   });
 });
 
