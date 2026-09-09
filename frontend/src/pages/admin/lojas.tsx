@@ -5,6 +5,7 @@ import {
   Store, CheckCircle2, XCircle, Clock, Search, Building2, Trash2,
   ChevronDown, ChevronRight, TrendingUp, Receipt, Ticket, Activity,
   FileText, ShieldCheck, Upload, Package, Save, ChevronUp, Globe, Loader2, LogIn,
+  CreditCard,
 } from 'lucide-react';
 import { AdminLayout } from './layout';
 import {
@@ -360,6 +361,81 @@ const TOM_NOTA: Record<string, Tom> = {
 /* ──────────────────── Comissão customizada por loja ──────────────────── */
 
 /* ──────────────────── Domínio próprio (definido pelo admin) ──────────────────── */
+
+/**
+ * PAGAMENTO ONLINE DESTA LOJA, ligado ou desligado pelo admin.
+ *
+ * Fora do bloco "Módulos contratados" de propósito: aquele é decisão comercial
+ * da plataforma (o que o cliente contratou) e o painel do lojista mostra
+ * "bloqueado". Isto é um AJUSTE DA LOJA — o lojista também muda no painel dele,
+ * os dois escrevem a mesma coluna e o último vale. É o certo para um ajuste
+ * compartilhado: o admin desliga a pedido do cliente, e o cliente religa quando
+ * decidir aceitar Pix.
+ *
+ * O TEXTO DIZ QUE O LOJISTA TAMBÉM MEXE. Sem isso, quem desliga aqui espera que
+ * fique desligado para sempre, e vai achar que o sistema desobedeceu no dia em
+ * que o cliente religar.
+ */
+export function PagamentoOnlineEditor(
+  { loja, ativo, onSalvo }: { loja: Loja; ativo: boolean; onSalvo: () => void },
+) {
+  const { mostrar } = useToast();
+  const [salvando, setSalvando] = useState(false);
+
+  async function alternar() {
+    const novo = !ativo;
+    /*
+     * Só DESLIGAR pergunta. Ligar não tira nada de ninguém; desligar remove
+     * duas formas de pagamento do checkout de uma loja que pode estar vendendo
+     * agora — e quem clica no painel do admin costuma estar vendo a loja de
+     * fora, sem saber se tem pedido em andamento.
+     */
+    if (!novo && !window.confirm(
+      `Desligar o pagamento online de ${loja.nome}?
+
+O cliente deixa de ver Pix online e cartão online no checkout. Sobram dinheiro e cartão na entrega.`,
+    )) return;
+    setSalvando(true);
+    try {
+      await api('PUT', comTenant(`/api/admin/lojas/${loja.id}/pagamento-online`, loja), { ativo: novo });
+      mostrar({ tipo: 'sucesso', titulo: novo ? 'Pagamento online ligado' : 'Pagamento online desligado' });
+      onSalvo();
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally { setSalvando(false); }
+  }
+
+  return (
+    <div className="mt-3 border-t pt-3 space-y-2">
+      <Label className="flex items-center gap-1.5"><CreditCard className="size-3.5" /> Pagamento online</Label>
+      <button
+        type="button"
+        onClick={() => void alternar()}
+        disabled={salvando}
+        className="flex w-full items-start gap-3 rounded-xl border border-border p-3 text-left transition-colors hover:bg-accent/40 disabled:opacity-60"
+      >
+        <span className={cn('relative mt-0.5 h-[22px] w-[38px] shrink-0 rounded-full transition-colors',
+          ativo ? 'bg-primary' : 'bg-muted-foreground/30')}>
+          <span className={cn('absolute top-[3px] size-4 rounded-full bg-white shadow-sm transition-all',
+            ativo ? 'left-[19px]' : 'left-[3px]')} />
+        </span>
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold">
+            {ativo ? 'Aceita Pix e cartão online' : 'Só na entrega ou na retirada'}
+          </span>
+          <span className="block text-xs text-muted-foreground">
+            {ativo
+              ? 'O cliente pode pagar antes de receber. Desligado, essas duas formas somem do checkout.'
+              : 'Pix online e cartão online não aparecem no checkout desta loja.'}
+          </span>
+        </span>
+      </button>
+      <p className="text-[11.5px]" style={{ color: 'var(--adm-dado)' }}>
+        O lojista também liga e desliga isto no painel dele — o último a mexer vale.
+      </p>
+    </div>
+  );
+}
 
 export function DominioLojaEditor({ loja, onSalvo }: { loja: Loja; onSalvo: () => void }) {
   const { mostrar } = useToast();

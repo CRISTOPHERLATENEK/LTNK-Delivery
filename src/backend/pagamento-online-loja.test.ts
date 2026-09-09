@@ -149,6 +149,74 @@ describe('o interruptor no painel do lojista', () => {
   });
 });
 
+describe('o interruptor no painel do ADMIN', () => {
+  const admin = fs.readFileSync(path.join(BACKEND, 'rotas', 'admin.ts'), 'utf8');
+  const lojas = fs.readFileSync(path.join(RAIZ, 'frontend', 'src', 'pages', 'admin', 'lojas.tsx'), 'utf8');
+  const detalhe = fs.readFileSync(path.join(RAIZ, 'frontend', 'src', 'pages', 'admin', 'loja-detalhe.tsx'), 'utf8');
+
+  /*
+   * O DONO DA PLATAFORMA PRECISA DESLIGAR SEM ENTRAR COMO LOJISTA. Só no painel
+   * do lojista, atender um pedido de cliente exigiria impersonar a loja dele.
+   */
+  it('existe rota própria, só para super admin', () => {
+    expect(exec(admin)).toContain("router.put('/lojas/:id/pagamento-online', exigirSuperAdmin");
+  });
+
+  /*
+   * ROTA PRÓPRIA, E NÃO UMA ENTRADA NO MAPA DE MÓDULOS. `vendas` e `fiscal` são
+   * decisão comercial (o que o cliente contratou) e o painel dele mostra
+   * "bloqueado". Pagamento online é ajuste da loja. No mapa, o log diria
+   * "módulo bloqueado" para algo que ninguém contratou, e o bloco "Módulos
+   * contratados" passaria a mentir sobre o que lista.
+   */
+  it('não entra no mapa de módulos', () => {
+    const i = exec(admin).indexOf('const COLUNA_DO_MODULO');
+    const mapa = exec(admin).slice(i, i + 260);
+    expect(mapa).toContain("vendas: 'vendas_liberado'");
+    expect(mapa).not.toContain('pagamento_online');
+  });
+
+  it('grava a coluna e registra na auditoria', () => {
+    const codigo = exec(admin);
+    expect(codigo).toContain("UPDATE lojas SET pagamento_online = ? WHERE id = ?");
+    expect(codigo).toContain("'loja.pagamento_online'");
+  });
+
+  /* O painel da loja precisa DEVOLVER o valor, senão o interruptor não sabe em
+     que estado nasce. */
+  it('o painel da loja devolve a flag', () => {
+    expect(exec(admin)).toContain('l.pagamento_online,');
+  });
+
+  it('a tela tem o interruptor na aba de configuração', () => {
+    expect(lojas).toContain('export function PagamentoOnlineEditor');
+    expect(detalhe).toContain('<PagamentoOnlineEditor');
+    expect(detalhe).toContain('ativo={l.pagamento_online !== 0}');
+  });
+
+  /*
+   * SÓ DESLIGAR PERGUNTA. Ligar não tira nada de ninguém; desligar remove duas
+   * formas de pagamento de uma loja que pode estar vendendo agora — e quem
+   * clica no admin está vendo a loja de fora, sem saber se tem pedido em
+   * andamento.
+   */
+  it('desligar pede confirmação', () => {
+    const fn = lojas.slice(lojas.indexOf('export function PagamentoOnlineEditor'));
+    const corpo = fn.slice(0, fn.indexOf('\n}\n'));
+    expect(corpo).toContain('if (!novo && !window.confirm(');
+    expect(corpo).toContain('Desligar o pagamento online de');
+  });
+
+  /*
+   * E A TELA DIZ QUE O LOJISTA TAMBÉM MEXE. Sem isso, quem desliga aqui espera
+   * que fique desligado para sempre, e vai achar que o sistema desobedeceu no
+   * dia em que o cliente religar.
+   */
+  it('avisa que os dois painéis escrevem a mesma coisa', () => {
+    expect(lojas).toContain('O lojista também liga e desliga isto no painel dele');
+  });
+});
+
 describe('a coluna nova tem migração', () => {
   /* O CREATE é IF NOT EXISTS e não alcança banco que já existe. */
   it('pagamento_online está no laço de ALTER, ligado por padrão', () => {

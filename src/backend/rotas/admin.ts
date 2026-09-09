@@ -618,6 +618,7 @@ router.get('/lojas/:id/painel', async (req, res, next) => {
       `SELECT l.id, l.nome, l.slug, l.categoria, l.endereco, l.aberta, l.auto_horario,
               l.status_aprovacao, l.criado_em, l.dominio_personalizado,
               l.comissao_percentual, l.fiscal_liberado, l.vendas_liberado,
+              l.pagamento_online,
               l.canal_versao, l.nfce_ativo, l.nfce_municipio, l.nfce_uf,
               l.nfce_razao_social, l.nfce_cnpj, l.nfce_ie, l.nfce_crt,
               l.nfce_cmun, l.nfce_ambiente, l.nfce_serie, l.nfce_proximo_numero,
@@ -1492,6 +1493,37 @@ const COLUNA_DO_MODULO: Record<string, string> = {
   vendas: 'vendas_liberado',
   fiscal: 'fiscal_liberado',
 };
+
+/**
+ * PAGAMENTO ONLINE DA LOJA, ligado ou desligado pelo admin.
+ *
+ * ROTA PRÓPRIA, e não uma entrada no mapa de módulos, de propósito. `vendas` e
+ * `fiscal` são MÓDULOS: decisão comercial da plataforma sobre o que o cliente
+ * contratou, e o painel dele mostra "bloqueado". Pagamento online não é isso —
+ * é um AJUSTE DA LOJA, que o próprio lojista também muda no painel dele.
+ * Enfiá-lo no mapa faria o log dizer "módulo bloqueado" para uma coisa que
+ * ninguém contratou, e o bloco "Módulos contratados" passaria a mentir sobre o
+ * que ele lista.
+ *
+ * OS DOIS ESCREVEM A MESMA COLUNA e o último vale. É o certo para um ajuste
+ * compartilhado: o admin desliga a pedido do cliente, e o cliente pode religar
+ * quando decidir aceitar Pix. Nada de "o admin trancou" — se um dia isso for
+ * preciso, é outra coluna e outra conversa.
+ */
+router.put('/lojas/:id/pagamento-online', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    const loja = await db.prepare('SELECT id, nome FROM lojas WHERE id = ?')
+      .get(req.params.id) as { id: number; nome: string } | undefined;
+    if (!loja) throw erroHttp(404, 'Loja não encontrada.');
+    const ativo = req.body?.ativo === true ? 1 : 0;
+    await db.prepare('UPDATE lojas SET pagamento_online = ? WHERE id = ?').run(ativo, loja.id);
+    console.log(`[pagamento] loja ${loja.id} (${loja.nome}): online ${ativo ? 'LIGADO' : 'DESLIGADO'}`);
+    await registrarAuditoria(req, 'loja.pagamento_online', {
+      alvoTipo: 'loja', alvoId: loja.id, alvoDesc: `${loja.nome}: ${ativo ? 'ligado' : 'desligado'}`,
+    });
+    res.json({ ativo });
+  } catch (e) { next(e); }
+});
 
 router.put('/lojas/:id/modulo/:modulo', exigirSuperAdmin, async (req, res, next) => {
   try {

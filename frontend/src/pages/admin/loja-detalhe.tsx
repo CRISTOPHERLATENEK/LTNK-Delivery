@@ -31,6 +31,7 @@ import { MarcaX } from './marca-x';
  */
 import {
   DominioLojaEditor, WhatsAppPermissoesEditor, ModulosDaLoja, FiscalLojaAdmin,
+  PagamentoOnlineEditor,
   type Loja,
 } from './lojas';
 
@@ -42,6 +43,8 @@ interface LojaPainel {
      lugar que sabe o domínio do tenant. Vazia quando a loja não tem slug. */
   url_publica: string;
   fiscal_liberado: 0 | 1; vendas_liberado: 0 | 1; canal_versao: string | null;
+  /* Ajuste da loja, não módulo: o lojista também muda no painel dele. */
+  pagamento_online: 0 | 1;
   nfce_ativo: 0 | 1; nfce_municipio: string | null; nfce_uf: string | null;
   nfce_razao_social: string | null; nfce_cnpj: string | null; nfce_ie: string | null;
   nfce_crt: number; nfce_cmun: string | null; nfce_ambiente: number;
@@ -686,6 +689,14 @@ export function TelaLojaDetalhe() {
                 <ModulosDaLoja loja={comoLoja(l, tenantId)} />
               </section>
             )}
+
+            <section>
+              <PagamentoOnlineEditor
+                loja={comoLoja(l, tenantId)}
+                ativo={l.pagamento_online !== 0}
+                onSalvo={() => void consulta.refetch()}
+              />
+            </section>
 
             <section>
               <DominioLojaEditor loja={comoLoja(l, tenantId)} onSalvo={() => void consulta.refetch()} />
