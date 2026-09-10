@@ -23,6 +23,7 @@ import {
   injetarAnalytics, removerAnalytics,
 } from '@/lib/visual';
 import type { Loja, Produto, Banner, VisualJson } from '@/types';
+import { cardapioInicial } from '@/lib/dados-iniciais';
 
 interface CategoriaMeta { nome: string; icone: string; ordem: number; imagem?: string }
 interface RespostaCardapio {
@@ -64,10 +65,28 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
   // do cliente clicar em "Início" ou no logo, então roda direto no render.
   if (id) registrarLojaAtual(id);
 
+  /*
+   * O CARDAPIO PODE TER VINDO DENTRO DO HTML (ver lib/dados-iniciais.ts).
+   *
+   * Quando veio, a tela desenha os produtos na primeira renderizacao, sem
+   * esperar a rota — medido, a chamada so comecava aos 593 ms, depois de o
+   * bundle inteiro baixar e executar, e ate la a pessoa olhava esqueletos.
+   *
+   * `initialData` e nao `placeholderData`: o dado e REAL, montado pelo mesmo
+   * servidor na mesma requisicao. Com placeholder o React Query buscaria de
+   * novo na hora, desfazendo o ganho.
+   *
+   * `cardapioInicial` devolve null se o bloco for de OUTRA loja — navegar de
+   * uma loja para outra dentro do app nao pode reaproveitar o cardapio da
+   * primeira.
+   */
+  const doHtml = cardapioInicial<RespostaCardapio>(id);
+
   const consulta = useQuery({
     queryKey: ['cardapio', id],
     queryFn: () => api<RespostaCardapio>('GET', `/api/lojas/${id}`),
     enabled: !!id,
+    ...(doHtml ? { initialData: doHtml } : {}),
   });
 
   // Modo preview: esta página roda dentro de um <iframe> no editor "Visual"

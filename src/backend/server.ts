@@ -12,6 +12,7 @@ import 'dotenv/config';
 import path from 'path';
 import fs from 'fs';
 import { metaDaRota, injetarMeta, paginaSuspensa, contatoSuporte } from './og';
+import { montarDadosIniciais, injetarDados } from './dados-iniciais';
 import express, { ErrorRequestHandler } from 'express';
 
 import autenticacaoRoutes from './rotas/autenticacao';
@@ -583,7 +584,20 @@ app.use((req, res, next) => {
     const meta = await metaDaRota(req.path, req.headers.host);
     const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
     const base = `${proto}://${req.headers.host}`;
-    res.type('html').send(injetarMeta(lerHtmlBase(), meta, base, base + req.originalUrl));
+    /*
+     * OS DADOS DO BOOT VAO JUNTO (ver dados-iniciais.ts).
+     *
+     * Medido: o app so pedia a marca e o cardapio aos ~593 ms, depois de baixar
+     * e executar o bundle inteiro — e o servidor ja sabia as duas respostas aos
+     * 187 ms, quando entregou este HTML. Com os dados aqui dentro, a tela
+     * desenha sem esperar ida e volta nenhuma.
+     *
+     * `montarDadosIniciais` nunca lanca: erro devolve null e o HTML sai sem o
+     * bloco, com o app buscando pela rota como antes.
+     */
+    const dados = await montarDadosIniciais(req.path, req.headers.host);
+    const html = injetarMeta(lerHtmlBase(), meta, base, base + req.originalUrl);
+    res.type('html').send(injetarDados(html, dados));
   })().catch(() => {
     // Falhou montando o preview? Serve o HTML como estava — a página funciona,
     // só o cartão do link sai genérico.

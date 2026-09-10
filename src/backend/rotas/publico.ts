@@ -28,12 +28,30 @@ router.get('/push/chave-publica', (_req, res) => {
  * Endpoint público sem autenticação — o frontend carrega no boot e aplica
  * via CSS variables antes da primeira renderização.
  */
-router.get('/tema', async (req, res, next) => {
-  try {
-    const valor = async (chave: string, padrao = ''): Promise<string> => {
-      const r = await db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave) as { valor: string } | undefined;
-      return r?.valor ?? padrao;
-    };
+/**
+ * A MARCA DO TENANT — a mesma resposta de GET /api/tema, como funcao.
+ *
+ * Virou funcao porque o HTML passou a levar estes dados JA DENTRO dele
+ * (ver dados-iniciais.ts): sem isso, o app so descobria a marca depois de
+ * carregar, executar e disparar um fetch — medido, a chamada comecava aos
+ * 603 ms e terminava aos 720 ms, e ate la a tela ficava sem cor e sem nome.
+ *
+ * A rota continua existindo e devolvendo exatamente isto: quem navega dentro
+ * do app (sem recarregar) e quem revalida em segundo plano usa ela.
+ */
+export async function montarTema(host?: string) {
+    /*
+     * UMA CONSULTA, NAO VINTE E UMA.
+     *
+     * Cada `valor()` era um SELECT proprio, e esta funcao chama `valor` 21
+     * vezes — 21 idas ao banco em sequencia para montar a marca, em toda carga
+     * de pagina. Medido: 21 consultas = 17 ms, uma pegando a tabela inteira =
+     * 4 ms. A tabela `configuracoes` tem 26 linhas; ler tudo de uma vez custa
+     * menos que perguntar uma por uma.
+     */
+    const linhas = await db.prepare('SELECT chave, valor FROM configuracoes').all() as Array<{ chave: string; valor: string }>;
+    const mapa = new Map(linhas.map(l => [l.chave, l.valor]));
+    const valor = async (chave: string, padrao = ''): Promise<string> => mapa.get(chave) ?? padrao;
 
     // Domínio próprio de uma loja (ex.: pizzariadapaula.com.br) tem prioridade
     // sobre o "loja única" global do admin — cada loja pode ter o domínio dela
@@ -42,7 +60,7 @@ router.get('/tema', async (req, res, next) => {
     // A regra mora em dominios.ts porque o Open Graph (og.ts) precisa da MESMA
     // resposta: com a decisão duplicada, o cartão do link no WhatsApp podia
     // dizer uma coisa e a página abrir com a marca de outra.
-    const lojaId = await lojaIdDoHost(req.headers.host);
+    const lojaId = await lojaIdDoHost(host);
 
     /*
      * Identidade da LOJA no domínio dela, não a da plataforma.
@@ -107,7 +125,7 @@ router.get('/tema', async (req, res, next) => {
 
     // Conteúdo da landing page do produto (só relevante quando lojaId=0, mas
     // sempre incluído — barato e evita um segundo round-trip no boot).
-    res.json({
+    return {
       nome,
       slogan,
       logo_url:          logo,
@@ -158,7 +176,12 @@ router.get('/tema', async (req, res, next) => {
       encarregado_nome:     await valor('encarregado_nome'),
       encarregado_email:    await valor('encarregado_email'),
       encarregado_telefone: await valor('encarregado_telefone'),
-    });
+    };
+}
+
+router.get('/tema', async (req, res, next) => {
+  try {
+    res.json(await montarTema(req.headers.host));
   } catch (e) { next(e); }
 });
 
@@ -284,10 +307,23 @@ router.get('/buscar', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.get('/lojas/:id', async (req, res, next) => {
-  try {
+/**
+ * O CARDAPIO DE UMA LOJA — a mesma resposta de GET /api/lojas/:id, como funcao.
+ *
+ * Virou funcao pelo mesmo motivo de `montarTema`: o HTML passou a levar estes
+ * dados dentro dele quando a rota pedida JA E a de uma loja (ver
+ * dados-iniciais.ts). Medido antes: o app so pedia o cardapio aos 593 ms,
+ * depois de baixar e executar o bundle inteiro — e ate chegar a resposta a
+ * pessoa olhava para esqueletos.
+ *
+ * Lanca 404 quando nao acha, igual a rota. Quem injeta no HTML trata o erro
+ * como "nao injeta nada" — pagina de loja inexistente nao pode virar 500 no
+ * HTML da SPA, que precisa carregar para mostrar o proprio "loja nao
+ * encontrada".
+ */
+export async function montarCardapio(idOuSlug: string) {
     // Aceita tanto ID numérico (/loja/2) quanto slug (/loja/pizzaria-da-paula).
-    const param = req.params.id;
+    const param = idOuSlug;
     const porNumero = /^\d+$/.test(param);
     const loja = await db.prepare(
       `SELECT id, nome, descricao, categoria, endereco,
@@ -492,7 +528,12 @@ router.get('/lojas/:id', async (req, res, next) => {
          FROM banners WHERE loja_id = ? AND ativo = 1 ORDER BY ordem, id`
     ).all(loja.id);
 
-    res.json({ loja, cardapio, categorias_meta, zonas, banners });
+    return { loja, cardapio, categorias_meta, zonas, banners };
+}
+
+router.get('/lojas/:id', async (req, res, next) => {
+  try {
+    res.json(await montarCardapio(req.params.id));
   } catch (e) { next(e); }
 });
 

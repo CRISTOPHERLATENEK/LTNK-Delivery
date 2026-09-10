@@ -9,6 +9,7 @@
  */
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import type { TemaMarca, RaioMarca, FonteMarca } from '@/types';
+import { temaInicial } from './dados-iniciais';
 
 const PADRAO: TemaMarca = {
   nome: 'Delivery Já',
@@ -307,11 +308,18 @@ export function aplicarMarca(m: TemaMarca) {
 /* ───────────────────────── hook do provider ───────────────────────── */
 
 export function useTemaProvider(): TemaCtx {
+  /*
+   * O SERVIDOR JA MANDOU A MARCA DENTRO DO HTML (ver lib/dados-iniciais.ts).
+   * Quando ela veio, a tela nasce com a cor e o nome certos — sem pisca, sem
+   * esperar ida e volta. Nao veio (navegacao dentro do app, HTML antigo em
+   * cache): cai no cache do dominio e depois no padrao, como antes.
+   */
+  const doHtml = temaInicial<TemaMarca>();
   // Inicializador preguiçoso: usa o tema cacheado do domínio (se houver) já
   // na primeira renderização, em vez de sempre nascer no PADRAO — evita o
   // "pisca pra landing" num F5 num domínio já amarrado a uma loja, antes do
   // /api/tema (assíncrono) responder de verdade.
-  const [marca, setMarca] = useState<TemaMarca>(() => lerTemaCacheado() ?? PADRAO);
+  const [marca, setMarca] = useState<TemaMarca>(() => (doHtml ? { ...PADRAO, ...doHtml } : lerTemaCacheado() ?? PADRAO));
   /*
    * O CACHE RESOLVE O F5; A PRIMEIRA VISITA NÃO TINHA SAÍDA.
    *
@@ -324,7 +332,7 @@ export function useTemaProvider(): TemaCtx {
    * `resolvido` diz se `/api/tema` já respondeu. Nasce `true` quando havia
    * cache: aí a decisão já é confiável e nada precisa esperar.
    */
-  const [resolvido, setResolvido] = useState(() => lerTemaCacheado() !== null);
+  const [resolvido, setResolvido] = useState(() => doHtml !== null || lerTemaCacheado() !== null);
 
   const aplicarCorPrimaria = useCallback((hex: string | undefined | null, corSecundaria?: string | null) => {
     if (!hex) return;
@@ -366,7 +374,26 @@ export function useTemaProvider(): TemaCtx {
     }
   }, []);
 
-  useEffect(() => { recarregar(); }, [recarregar]);
+  /*
+   * NAO REVALIDA QUANDO O DADO VEIO DO HTML.
+   *
+   * O bloco foi montado pelo MESMO servidor, milissegundos atras, na mesma
+   * requisicao que entregou esta pagina. Buscar de novo agora seria uma ida a
+   * rede para confirmar o que acabou de chegar — que e exatamente o custo que
+   * este caminho existe para eliminar.
+   *
+   * `aplicarMarca` continua sendo chamado: e ele que pinta a paleta, troca o
+   * favicon e grava o cache do dominio.
+   */
+  useEffect(() => {
+    if (doHtml) {
+      const tema: TemaMarca = { ...PADRAO, ...doHtml };
+      aplicarMarca(tema);
+      gravarTemaCache(tema);
+      return;
+    }
+    recarregar();
+  }, [recarregar]);
 
   return { marca, resolvido, aplicarCorPrimaria, resetarCorPrimaria, aplicarFaviconLoja, resetarFavicon, previsualizar, recarregar };
 }
