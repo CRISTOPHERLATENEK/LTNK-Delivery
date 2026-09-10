@@ -307,8 +307,20 @@ export async function baixarComMotivo(
   if (r.status === 404 || r.status === 410) return { ok: false, motivo: 'nao-tem' };
   if (!r.ok) return { ok: false, motivo: 'imprestavel' };
 
+  /*
+   * CABECALHO AUSENTE NAO E RECUSA — e isto derrubou a integracao inteira na
+   * prova de ponta a ponta: MEDIDO no servidor, o CDN do Cosmos serve a imagem
+   * com 200 e 1,4 MB e NENHUM `content-type`. Exigindo `image/`, todas as 49
+   * fotos que ele tem viravam "imagem imprestavel", e a busca caia na Open Food
+   * Facts — a fonte de foto de prateleira, exatamente o que era pra evitar.
+   *
+   * O que continua sendo recusado e o tipo DECLARADO e diferente de imagem
+   * (`text/html`, `application/json`): ai o servidor disse o que mandou. Quando
+   * ele nao diz nada, quem decide e o `sharp` na conversao — que decodifica de
+   * verdade e lanca se nao for imagem. O cabecalho nunca foi a prova.
+   */
   const tipo = String(r.headers.get('content-type') || '');
-  if (!tipo.startsWith('image/')) return { ok: false, motivo: 'imprestavel' };
+  if (tipo && !tipo.startsWith('image/')) return { ok: false, motivo: 'imprestavel' };
 
   const bytes = Buffer.from(await r.arrayBuffer());
   if (!bytes.length || bytes.length > TAMANHO_MAX) return { ok: false, motivo: 'imprestavel' };

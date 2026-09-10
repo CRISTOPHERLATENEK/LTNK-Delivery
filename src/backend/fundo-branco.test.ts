@@ -145,13 +145,16 @@ const IMG_OFF = 'https://images.openfoodfacts.org/images/products/789/199/101/54
 const CODIGO = '7891991015493';
 const semEsperar = async () => {};
 
-function resposta(corpo: unknown, opcoes: { status?: number; tipo?: string } = {}) {
+function resposta(corpo: unknown, opcoes: { status?: number; tipo?: string | null } = {}) {
   const status = opcoes.status ?? 200;
   const bytes = Buffer.isBuffer(corpo) ? corpo : Buffer.from(JSON.stringify(corpo));
+  /* `tipo: null` = resposta SEM content-type, que e como o CDN do Cosmos
+     responde de verdade. `undefined` = o padrao json. */
+  const tipo = opcoes.tipo === undefined ? 'application/json' : opcoes.tipo;
   return {
     ok: status >= 200 && status < 300,
     status,
-    headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? (opcoes.tipo ?? 'application/json') : null) },
+    headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? tipo : null) },
     json: async () => JSON.parse(bytes.toString()),
     arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
   } as unknown as Response;
@@ -174,7 +177,8 @@ function rede(opcoes: {
     if (u.startsWith('https://cdn-cosmos.bluesoft.com.br/')) {
       if (typeof opcoes.cosmos === 'number') return resposta({}, { status: opcoes.cosmos });
       if (!opcoes.cosmos) return resposta({}, { status: 404 });
-      return resposta(opcoes.cosmos, { tipo: 'image/png' });
+      /* SEM content-type, igual ao CDN de verdade — medido em 10/09/2026. */
+      return resposta(opcoes.cosmos, { tipo: null });
     }
     if (u.startsWith('https://api.cosmos.bluesoft.com.br/')) {
       chamadas.push('token:' + String((init?.headers as Record<string, string>)?.['X-Cosmos-Token'] ?? ''));
@@ -247,6 +251,40 @@ describe('a busca prefere o Cosmos', () => {
     const canto = await sharp(r.achado.imagem.buffer)
       .extract({ left: 0, top: 0, width: 8, height: 8 }).raw().toBuffer();
     expect(Math.min(...canto)).toBeGreaterThanOrEqual(250);
+  });
+
+  /*
+   * O CDN NAO MANDA CONTENT-TYPE, e exigir o cabecalho derrubou a integracao
+   * inteira: medido no servidor, ele responde 200 com 1,4 MB e nenhum tipo
+   * declarado. Todas as 49 fotos do Cosmos viravam "imprestavel" e a busca
+   * caia na Open Food Facts — a fonte de foto de prateleira, que e justamente
+   * o que esta versao existe para evitar. A prova de ponta a ponta pegou isso
+   * depois de a suite inteira passar verde.
+   */
+  it('imagem sem content-type declarado é aceita (o CDN não manda)', async () => {
+    const { buscar } = rede({ cosmos: await transparente() });
+    const r = await acharFotoDeFundoBranco(CODIGO, { buscar, esperar: semEsperar, tokenCosmos: '' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.achado.fonte).toBe('cosmos');
+  });
+
+  /* Mas tipo DECLARADO que nao e imagem continua recusado: ai o servidor
+     disse o que mandou. */
+  it('tipo declarado que não é imagem continua recusado', async () => {
+    const { buscar } = rede({ cosmos: Buffer.from('<html>nao sou imagem</html>') });
+    const r = await acharFotoDeFundoBranco(CODIGO, {
+      buscar: (async (u: string | URL, i?: RequestInit) => {
+        const resp = await (buscar as unknown as typeof fetch)(u as string, i);
+        if (String(u).includes('cdn-cosmos')) {
+          return { ...resp, headers: { get: () => 'text/html' } } as unknown as Response;
+        }
+        return resp;
+      }) as unknown as typeof fetch,
+      esperar: semEsperar, tokenCosmos: '',
+    });
+    if (r.ok) throw new Error('nao devia aceitar html');
+    expect(r.motivo).toBe('imagem-imprestavel');
   });
 
   it('o endereço da imagem do Cosmos é montado pelo código', () => {
