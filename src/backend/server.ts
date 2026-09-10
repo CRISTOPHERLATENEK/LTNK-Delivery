@@ -503,6 +503,34 @@ app.use(express.static(path.join(__dirname, '..', '..', 'public'), {
      */
     if (/[\\/](ajuda)[\\/]/.test(filePath)) {
       res.setHeader('Cache-Control', 'private, no-cache');
+      return;
+    }
+
+    /*
+     * ARQUIVO COM HASH NO NOME NUNCA MUDA — E ESTAVA REVALIDANDO A CADA CARGA.
+     *
+     * O padrão do `express.static` é `public, max-age=0`: o navegador guarda,
+     * mas pergunta ao servidor antes de usar CADA arquivo, toda vez. São nove
+     * arquivos no primeiro acesso, e nove idas ao servidor em toda carga
+     * seguinte — para arquivos que, por definição, não podem ter mudado: se o
+     * conteúdo muda, o nome muda (é o que o hash significa).
+     *
+     * `immutable` é a peça que importa. Sem ele o navegador revalida assim que
+     * a pessoa aperta F5, mesmo dentro do `max-age`; com ele, não pergunta.
+     *
+     * SEGURO PORQUE A PUBLICAÇÃO É ADITIVA: os arquivos da versão anterior
+     * continuam no servidor (bloco 4 do deploy.sh), então uma aba com o cache de
+     * ontem acha tudo que precisa. E quem manda na versão é o index.html, que é
+     * `no-store` e chega sempre fresco.
+     *
+     * A Cloudflare tem o Browser Cache TTL num valor fixo de 4h e sobrescreve
+     * isto no navegador — o mesmo motivo que obrigou o `private` no bloco acima.
+     * Mesmo assim vale: 4 horas sem perguntar nada é muito melhor que perguntar
+     * nove vezes por carga. E o `public` deixa a BORDA guardar cópia, que é o
+     * que faz o segundo acesso nem chegar ao nosso servidor.
+     */
+    if (/[\\/]app-assets[\\/]/.test(filePath)) {
+      res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
   },
 }));
