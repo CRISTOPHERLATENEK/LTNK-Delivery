@@ -4,6 +4,7 @@ import {
   buscarFotoPorCodigo, baixarEConverter, origemPermitida, versaoGrande,
   CREDITO, LIMITE_ENTRE_CHAMADAS,
 } from './foto-por-codigo';
+import { LARGURA_MAX } from './imagem-web';
 
 /*
  * FOTO DE PRODUTO PELO CÓDIGO DE BARRAS — Open Food Facts.
@@ -253,7 +254,7 @@ describe('o download recusa o que não serve', () => {
       resposta(await imagemDe(1400, 1400), { tipo: 'image/jpeg' }));
     expect(r!.mime).toBe('image/webp');
     expect(r!.extensao).toBe('.webp');
-    /* E redimensionado pelo lado maior. */
-    expect(Math.max(r!.largura, r!.altura)).toBeLessThanOrEqual(1200);
+    /* E redimensionado pelo lado maior, no teto de `imagem-web`. */
+    expect(Math.max(r!.largura, r!.altura)).toBeLessThanOrEqual(LARGURA_MAX);
   });
 });

@@ -82,11 +82,38 @@ describe('a conversão para web', () => {
    * o cartão do produto desenha em ~300 px: guardar o original é jogar bytes
    * na rede de quem está no 4G para pintar os mesmos pixels.
    */
+  /*
+   * O TETO E 800, e este numero foi PEDIDO pelo lojista — nao e uma escolha
+   * minha que a proxima refatoracao pode arredondar. Ele esta escrito aqui
+   * porque todo o resto do codigo fala em `LARGURA_MAX`: sem esta linha, mudar
+   * a constante de volta para 1200 nao quebra teste nenhum (verificado
+   * sabotando), e o pedido dele se perde no primeiro ajuste de alguem.
+   *
+   * MEDIDO em quatro packshots reais acima do teto: 168 KB com 1200, 97 KB com
+   * 800 — 42% menos, sem diferenca no tamanho em que a foto e desenhada.
+   */
+  it('o teto pedido é 800 px', () => {
+    expect(LARGURA_MAX).toBe(800);
+  });
+
   it('corta a largura no teto', async () => {
     const r = await paraWeb(await fotoFalsa(2400, 1200), 'image/jpeg');
     expect(r!.largura).toBe(LARGURA_MAX);
-    /* E mantém a proporção: 2400x1200 é 2:1, então 1200 de largura pede 600. */
-    expect(r!.altura).toBe(600);
+    /* E mantém a proporção: 2400x1200 é 2:1, então o lado maior no teto pede
+       metade disso de altura. Escrito em função do teto, e não como número
+       solto, pra mudar o teto não exigir recalcular o teste à mão. */
+    expect(r!.altura).toBe(LARGURA_MAX / 2);
+  });
+
+  /*
+   * O TETO VALE PARA O LADO MAIOR, e o caso comum é retrato: garrafa. Um teto
+   * só de largura deixava passar 800x1416 — mais alto do que qualquer tela
+   * desenha, e o dobro dos bytes.
+   */
+  it('foto em pé também é limitada pelo lado maior', async () => {
+    const r = await paraWeb(await fotoFalsa(1200, 2400), 'image/jpeg');
+    expect(r!.altura).toBe(LARGURA_MAX);
+    expect(r!.largura).toBe(LARGURA_MAX / 2);
   });
 
   /*

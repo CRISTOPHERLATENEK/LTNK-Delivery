@@ -27,24 +27,29 @@
 import sharp from 'sharp';
 
 /**
- * O LADO MAIOR MÁXIMO GUARDADO.
+ * O LADO MAIOR MÁXIMO GUARDADO: 800 px.
  *
- * ERA SÓ A LARGURA, e uma foto em pé passava enorme: a imagem da Original que
- * veio da Open Food Facts saiu 1200x2124 e 169 KB, porque a altura não tinha
- * teto. Foto de garrafa é sempre em pé, então esse era o caso comum, não a
- * exceção.
+ * O TETO VALE PARA O LADO MAIOR (`fit: 'inside'`), não para a largura, e a
+ * proporção é mantida: 2400x1200 vira 800x400, e 1200x2124 vira 451x800. Era só
+ * a largura antes, e uma foto em pé passava enorme — a imagem da Original que
+ * veio da Open Food Facts saiu 1200x2124 e 169 KB porque a altura não tinha
+ * teto. Foto de garrafa é sempre em pé, então esse era o caso comum.
  *
- * Agora o teto vale para o lado maior (`fit: 'inside'`), e a proporção é
- * mantida: 2400x1200 vira 1200x600, e 1200x2124 vira 678x1200.
+ * POR QUE 800 E NÃO 1200. Era 1200, dimensionado para um zoom que não existe.
+ * O maior uso real é o cartão do produto, que a tela desenha em torno de 300 px,
+ * e a foto de destaque, em torno de 400 px: 800 px continua entregando o dobro,
+ * que é o que a tela retina usa.
  *
- * O maior uso hoje é a foto de destaque do produto, que a tela desenha em torno
- * de 600 px de largura — e em tela retina isso pede o dobro. 1200 px cobre o
- * caso com folga e ainda deixa margem para um zoom futuro.
+ * MEDIDO em quatro packshots reais do Cosmos acima do teto: 168 KB no total com
+ * 1200, 97 KB com 800 — 42% menos, sem diferença visível no tamanho em que a
+ * foto é desenhada. E o cliente da loja abre o cardápio inteiro de uma vez, no
+ * 4G. As fotos que já vêm abaixo do teto passam intactas: nelas o corte não
+ * economiza nada, e economizar nelas exigiria reduzir de tamanho de verdade.
  *
  * `withoutEnlargement` porque ampliar uma foto pequena não cria detalhe: só
  * gera bytes. Imagem menor que o limite passa sem ser tocada no tamanho.
  */
-export const LARGURA_MAX = 1200;
+export const LARGURA_MAX = 800;
 
 /**
  * QUALIDADE 82.
