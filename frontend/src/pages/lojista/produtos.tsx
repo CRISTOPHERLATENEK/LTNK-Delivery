@@ -32,7 +32,7 @@ import type { Produto } from '@/types';
 /* ─────────────────────── tipos ──────────────────────── */
 const FORM_VAZIO = {
   nome: '', descricao: '', categoria: '', subcategoria: '',
-  preco: '', preco_promocional: '', promo_fim: '', foto_url: '',
+  preco: '', preco_promocional: '', promo_fim: '', foto_url: '', foto_credito: '',
   disponivel: true, disponivel_pdv: true, destaque: false, vendido_sozinho: true, serve_pessoas: '',
   vendido_por: 'un' as 'un' | 'kg', codigo_barras: '',
   controla_estoque: false, estoque: '',
@@ -317,6 +317,7 @@ export function ProdutosLoja() {
         ? String((p.preco_promocional_centavos / 100).toFixed(2)) : '',
       promo_fim: p.promo_fim || '',
       foto_url: p.foto_url || '',
+      foto_credito: (p as { foto_credito?: string }).foto_credito || '',
       disponivel: !!p.disponivel,
       disponivel_pdv: !!p.disponivel_pdv,
       destaque: !!p.destaque,
@@ -392,6 +393,9 @@ export function ProdutosLoja() {
       preco_promocional: form.preco_promocional ? Number(form.preco_promocional) : undefined,
       promo_fim: form.promo_fim,
       foto_url: form.foto_url,
+      /* O credito viaja junto com a foto: a licenca da base de origem
+         (CC-BY-SA) exige atribuicao, e vazio significa foto do lojista. */
+      foto_credito: form.foto_credito,
       disponivel: form.disponivel,
       disponivel_pdv: form.disponivel_pdv,
       destaque: form.destaque,
@@ -1080,20 +1084,25 @@ export function ProdutosLoja() {
                   <div className="hidden lg:block">
                     <ImageUpload
                       value={form.foto_url}
-                      onChange={url => setForm(f => ({ ...f, foto_url: url }))}
+                      onChange={url => setForm(f => ({ ...f, foto_url: url, foto_credito: '' }))}
                       aspectRatio="square-lg"
                     />
                   </div>
                   <div className="lg:hidden">
                     <ImageUpload
                       value={form.foto_url}
-                      onChange={url => setForm(f => ({ ...f, foto_url: url }))}
+                      onChange={url => setForm(f => ({ ...f, foto_url: url, foto_credito: '' }))}
                       aspectRatio="square"
                     />
                   </div>
                   <p className="mt-2.5 text-[12.5px] leading-relaxed text-muted-foreground">
                     Quadrada, mínimo 500×500. É assim que ela aparece no cardápio e no PDV.
                   </p>
+
+                  <BuscaFotoPorCodigo
+                    codigo={form.codigo_barras}
+                    onUsar={(url, credito) => setForm(f => ({ ...f, foto_url: url, foto_credito: credito }))}
+                  />
 
                   <div className="my-7 h-px bg-border" />
 
@@ -1731,6 +1740,152 @@ const CAMPO_MODAL = 'mt-1.5 h-12 rounded-[10px] px-3.5 text-[15.5px] shadow-none
   + 'focus-visible:border-primary focus-visible:ring-[3px] focus-visible:ring-primary/[0.14] focus-visible:ring-offset-0';
 
 /** Rótulo de seção: caixa alta pequena, o suficiente pra agrupar sem virar título. */
+/**
+ * A LUPA — acha a foto do produto pelo código de barras.
+ *
+ * POR QUE ISSO EXISTE: o Galderio tem 1.218 produtos e 36 sem foto, e a
+ * alternativa era o lojista procurar cada garrafa no Google, salvar, recortar e
+ * subir. O código de barras já está no cadastro; ele identifica o item exato —
+ * por nome, "BRAHMA CAIXA" e "BRAHMA LATA" trariam a mesma imagem.
+ *
+ * DOIS PASSOS DE PROPÓSITO, e é a parte que importa desta tela:
+ *
+ *   1. buscar   → mostra a prévia com o NOME QUE ESTÁ NA BASE e a marca;
+ *   2. usar     → só então baixa, converte e grava.
+ *
+ * A base é colaborativa: qualquer pessoa edita. Medido, o código inexistente
+ * 9999999999999 devolve um registro de teste chamado "Salatgurke". Se o botão
+ * gravasse direto, o lojista trocaria "produto sem foto" por "produto com a
+ * foto de outra coisa" — que é pior, porque parece pronto. Mostrar o nome da
+ * base é o que permite a conferência em um segundo.
+ *
+ * O CRÉDITO SOBE COM A FOTO porque a licença (CC-BY-SA) exige atribuição.
+ */
+function BuscaFotoPorCodigo({ codigo, onUsar }: {
+  codigo: string;
+  onUsar: (url: string, credito: string) => void;
+}) {
+  const { mostrar } = useToast();
+  const limpo = (codigo || '').replace(/\D/g, '');
+  const curto = limpo.length < 8;
+
+  type Achado = { previa: string; nome_na_base: string; marca: string; credito: string };
+  const [buscando, setBuscando] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [achado, setAchado] = useState<Achado | null>(null);
+  const [semResultado, setSemResultado] = useState(false);
+
+  /* O achado é de UM código. Trocar o código no campo ao lado invalida a
+     prévia na tela — sem isto, a pessoa buscaria a Brahma, corrigiria o
+     código pra Skol e gravaria a foto da Brahma. */
+  const codigoDoAchado = useRef('');
+  useEffect(() => {
+    if (codigoDoAchado.current !== limpo) {
+      setAchado(null);
+      setSemResultado(false);
+    }
+  }, [limpo]);
+
+  async function buscar() {
+    setBuscando(true);
+    setSemResultado(false);
+    setAchado(null);
+    try {
+      const r = await api<{ achou: boolean } & Partial<Achado>>(
+        'GET', `/api/lojista/produtos/foto-por-codigo?codigo=${encodeURIComponent(limpo)}`);
+      codigoDoAchado.current = limpo;
+      if (r.achou && r.previa) {
+        setAchado({
+          previa: r.previa, nome_na_base: r.nome_na_base || '',
+          marca: r.marca || '', credito: r.credito || '',
+        });
+      } else {
+        setSemResultado(true);
+      }
+    } catch (e) {
+      mostrar({ tipo: 'erro', titulo: e instanceof ApiError ? e.message : 'Não deu pra buscar a foto agora.' });
+    } finally {
+      setBuscando(false);
+    }
+  }
+
+  async function usar() {
+    setSalvando(true);
+    try {
+      const r = await api<{ url: string; credito: string; largura: number; altura: number }>(
+        'POST', '/api/lojista/produtos/foto-por-codigo', { codigo: limpo });
+      onUsar(r.url, r.credito);
+      setAchado(null);
+      /* "Salve o produto" e não "pronto": o arquivo já está no servidor, mas a
+         ligação com o produto só existe depois do Salvar do formulário. */
+      mostrar({ tipo: 'sucesso', titulo: `Foto de ${r.largura}×${r.altura} colocada.`,
+        descricao: 'Salve o produto pra valer.' });
+    } catch (e) {
+      mostrar({ tipo: 'erro', titulo: e instanceof ApiError ? e.message : 'Não deu pra baixar a foto.' });
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-muted/40 p-3">
+      <Button type="button" variant="outline" size="sm" className="w-full"
+        disabled={curto || buscando} onClick={buscar}>
+        <Search className="mr-1.5 size-4" />
+        {buscando ? 'Procurando…' : 'Buscar foto pelo código de barras'}
+      </Button>
+
+      {curto ? (
+        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+          Preencha o código de barras na aba <strong>Fiscal e estoque</strong> pra usar a busca.
+        </p>
+      ) : (
+        <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+          Procura em uma base pública de produtos pelo código {limpo}.
+        </p>
+      )}
+
+      {semResultado && (
+        <p className="mt-2 text-[12px] font-semibold leading-relaxed text-amber-600">
+          Esse código não está na base. Suba a foto à mão aqui em cima.
+        </p>
+      )}
+
+      {achado && (
+        <div className="mt-3 border-t border-border pt-3">
+          <div className="flex gap-3">
+            <img src={achado.previa} alt="" className="size-20 shrink-0 rounded-[10px] border border-border bg-card object-contain" />
+            <div className="min-w-0 flex-1">
+              {/*
+                O NOME DA BASE VEM ANTES DOS BOTÕES, e em negrito. É a única
+                defesa contra gravar a foto de outro produto: se aqui diz
+                "Salatgurke" e o cadastro é de cerveja, o código está errado.
+              */}
+              <p className="text-[13px] font-bold leading-snug">{achado.nome_na_base || 'Sem nome na base'}</p>
+              {achado.marca && (
+                <p className="text-[12px] text-muted-foreground">{achado.marca}</p>
+              )}
+              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{achado.credito}</p>
+            </div>
+          </div>
+          <p className="mt-2 text-[12px] font-semibold leading-relaxed">
+            É este produto mesmo?
+          </p>
+          <div className="mt-2 flex gap-2">
+            <Button type="button" size="sm" className="flex-1" disabled={salvando} onClick={usar}>
+              {salvando ? 'Baixando…' : 'É esta, usar'}
+            </Button>
+            <Button type="button" variant="outline" size="sm" disabled={salvando}
+              onClick={() => setAchado(null)}>
+              Não é
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RotuloSecao({ children }: { children: React.ReactNode }) {
   return (
     <h4 className="mb-3 text-[12px] font-bold uppercase tracking-wider text-muted-foreground">{children}</h4>

@@ -27,7 +27,15 @@
 import sharp from 'sharp';
 
 /**
- * LARGURA MÁXIMA GUARDADA.
+ * O LADO MAIOR MÁXIMO GUARDADO.
+ *
+ * ERA SÓ A LARGURA, e uma foto em pé passava enorme: a imagem da Original que
+ * veio da Open Food Facts saiu 1200x2124 e 169 KB, porque a altura não tinha
+ * teto. Foto de garrafa é sempre em pé, então esse era o caso comum, não a
+ * exceção.
+ *
+ * Agora o teto vale para o lado maior (`fit: 'inside'`), e a proporção é
+ * mantida: 2400x1200 vira 1200x600, e 1200x2124 vira 678x1200.
  *
  * O maior uso hoje é a foto de destaque do produto, que a tela desenha em torno
  * de 600 px de largura — e em tela retina isso pede o dobro. 1200 px cobre o
@@ -83,7 +91,7 @@ export async function paraWeb(entrada: Buffer, mimeOriginal: string): Promise<Im
   const imagem = sharp(entrada, { failOn: 'none' }).rotate();
 
   const buffer = await imagem
-    .resize({ width: LARGURA_MAX, withoutEnlargement: true })
+    .resize({ width: LARGURA_MAX, height: LARGURA_MAX, fit: 'inside', withoutEnlargement: true })
     /*
      * O METADADO NÃO VAI. Foto de celular carrega GPS: a coordenada de onde ela
      * foi tirada, que numa loja é o endereço dela e na casa de alguém é a casa

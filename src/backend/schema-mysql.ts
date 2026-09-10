@@ -1322,6 +1322,17 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
        nunca existe e quando existe muda. Zero = produto que nasceu aqui, e a
        importação não mexe nele. */
     ['produtos', 'maxxgestao_variacao_id', 'maxxgestao_variacao_id INT NOT NULL DEFAULT 0'],
+    /*
+     * DE ONDE VEIO A FOTO, quando nao foi o lojista que tirou.
+     *
+     * A busca por codigo de barras usa a Open Food Facts, cuja licenca
+     * (CC-BY-SA) EXIGE atribuicao. Sem gravar a origem por foto, nao ha como a
+     * vitrine saber se precisa creditar — e creditar em toda loja, inclusive
+     * nas que so tem foto propria, seria mentira.
+     *
+     * Vazio = foto do proprio lojista, sem credito a dar.
+     */
+    ['produtos', 'foto_credito', "foto_credito VARCHAR(120) NOT NULL DEFAULT ''"],
     /* O código interno (SKU) do produto no sistema de origem — a `Referência`
        do Maxx Gestão. Hoje vem vazia naquele cadastro, mas é o campo que existe
        para ela; o identificador que MANDA na nota é o

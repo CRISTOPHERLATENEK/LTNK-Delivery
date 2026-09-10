@@ -71,6 +71,8 @@ import { somarVendas, montarResumo, diferencaDeCaixa, classificarDiferenca, soma
 import { resolverPeriodo, rotuloPeriodo, periodoAnterior, variacaoPercentual, type NomePeriodo } from '../periodo';
 import { classificarCurvaAbc, resumirClassesAbc } from '../curva-abc';
 import { GrupoOpcao, Loja, OpcaoItem, Pedido, Produto, StatusPedido } from '../../tipos/modelos';
+import nodeCrypto from 'crypto';
+import { buscarFotoPorCodigo, baixarEConverter } from '../foto-por-codigo';
 
 /**
  * Slugs que colidem com rotas fixas do frontend (App.tsx) — a URL da loja é
@@ -1112,7 +1114,7 @@ interface CamposProduto {
   /** 'YYYY-MM-DD' — último dia da promoção. Vazio = sem prazo. */
   promoFim: string;
   servePessoas: number | null; descricao: string; categoria: string; subcategoria: string;
-  foto_url: string; destaque: 0 | 1; disponivel: 0 | 1; disponivelPdv: 0 | 1;
+  foto_url: string; fotoCredito: string; destaque: 0 | 1; disponivel: 0 | 1; disponivelPdv: 0 | 1;
   vendidoPor: 'un' | 'kg'; codigoBarras: string;
   controlaEstoque: 0 | 1; estoque: number;
   vendidoSozinho: 0 | 1;
@@ -1201,6 +1203,13 @@ function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProdut
     categoria: textoLimpo(valor('categoria', atual.categoria), 50) || 'Geral',
     subcategoria: textoLimpo(valor('subcategoria', (atual as any).subcategoria || ''), 80),
     foto_url: textoLimpo(valor('foto_url', atual.foto_url || ''), 500),
+    /*
+     * O CREDITO ANDA COM A FOTO. A busca por codigo de barras usa a Open Food
+     * Facts, cuja licenca (CC-BY-SA) exige atribuicao — sem gravar a origem por
+     * foto, a vitrine nao sabe quando precisa creditar, e creditar em loja que
+     * so tem foto propria seria mentira. Vazio = foto do proprio lojista.
+     */
+    fotoCredito: textoLimpo(valor('foto_credito', (atual as { foto_credito?: string }).foto_credito || ''), 120),
     destaque: corpo.destaque !== undefined ? (corpo.destaque ? 1 : 0) : ((atual.destaque || 0) as 0 | 1),
     // Cardápio e PDV são canais separados; a regra de herança está em
     // disponibilidade-produto.ts, com testes.
@@ -1242,6 +1251,90 @@ router.post('/cardapio/sugerir', async (req, res, next) => {
   }
 });
 
+/*
+ * A LUPA DO CADASTRO — busca a foto do produto pelo CODIGO DE BARRAS.
+ *
+ * Duas rotas, e o codigo vem do FORMULARIO e nao de um produto salvo. A
+ * primeira versao que eu escrevi usava `/produtos/:id/...`, o que exigia o
+ * produto ja gravado — e a lupa precisa funcionar em produto novo, que e
+ * justamente quando ninguem tem foto ainda.
+ *
+ *   GET  devolve a PREVIA: endereco da imagem na base de origem, mais o nome e
+ *        a marca de LA. Nao baixa e nao grava nada.
+ *   POST baixa, converte para WebP, grava o arquivo e devolve a URL — igual ao
+ *        upload manual. Quem persiste no produto e o salvar do formulario.
+ *
+ * O PASSO DO MEIO EXISTE porque base colaborativa tem foto errada: medido, o
+ * codigo inexistente 9999999999999 devolve um registro de teste chamado
+ * "Salatgurke" com imagem de 1x1 pixel. Gravar sem alguem olhar trocaria
+ * "produto sem foto" por "produto com a foto de outra coisa" — pior, porque
+ * parece pronto.
+ *
+ * A busca e por CODIGO, nunca por nome: o codigo identifica o item exato. Por
+ * nome, "BRAHMA CAIXA" e "BRAHMA LATA" trariam a mesma imagem.
+ *
+ * ATENCAO A ORDEM: estas rotas ficam ANTES de `/produtos/:id` e do `:id`
+ * generico — declaradas depois, `foto-por-codigo` seria lido como um id.
+ */
+router.get('/produtos/foto-por-codigo', async (req, res, next) => {
+  try {
+    await minhaLoja(req);
+    /* So digitos entram na consulta: o host da base e fixo no modulo, e aqui a
+       entrada e reduzida ao que um codigo de barras pode ser. */
+    const codigo = String(req.query.codigo ?? '').replace(/\D/g, '');
+    if (codigo.length < 8) return res.json({ achou: false, motivo: 'codigo-curto' });
+
+    const foto = await buscarFotoPorCodigo(codigo);
+    if (!foto) return res.json({ achou: false, motivo: 'nao-esta-na-base', codigo });
+
+    res.json({
+      achou: true,
+      codigo,
+      previa: foto.urlPrevia,
+      /* O nome NA BASE, para a pessoa conferir que e o mesmo produto — e nao
+         confiar que o codigo digitado no cadastro esta certo. */
+      nome_na_base: foto.nomeNaBase,
+      marca: foto.marca,
+      credito: foto.credito,
+    });
+  } catch (e) { next(e); }
+});
+
+router.post('/produtos/foto-por-codigo', async (req, res, next) => {
+  try {
+    await minhaLoja(req);
+    /*
+     * BUSCA DE NOVO A PARTIR DO CODIGO, e nao aceita URL do corpo.
+     *
+     * Receber a URL que o navegador mandou deixaria qualquer lojista
+     * autenticado apontar o download do servidor para onde quisesse. A lista de
+     * hosts do modulo protege contra a BASE envenenada; nao protege contra quem
+     * chama esta rota. O unico dado que entra e o codigo, so digitos.
+     */
+    const codigo = String(req.body?.codigo ?? '').replace(/\D/g, '');
+    if (codigo.length < 8) throw erroHttp(400, 'Codigo de barras invalido.');
+
+    const foto = await buscarFotoPorCodigo(codigo);
+    if (!foto) throw erroHttp(404, 'Nao encontrei foto para este codigo de barras.');
+
+    const imagem = await baixarEConverter(foto.url);
+    if (!imagem) throw erroHttp(422, 'A imagem encontrada nao serve (pequena demais ou invalida).');
+
+    const nome = nodeCrypto.randomBytes(16).toString('hex') + imagem.extensao;
+    await fs.promises.writeFile(path.join(path.resolve('./dados/uploads'), nome), imagem.buffer);
+
+    console.log(`[foto] ${codigo}: ${imagem.largura}x${imagem.altura}`
+      + ` ${Math.round(imagem.buffer.length / 1024)}KB de ${foto.credito}`);
+
+    res.json({
+      url: `/uploads/${nome}`,
+      credito: foto.credito,
+      largura: imagem.largura,
+      altura: imagem.altura,
+    });
+  } catch (e) { next(e); }
+});
+
 router.post('/produtos', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
@@ -1249,11 +1342,11 @@ router.post('/produtos', async (req, res, next) => {
     const info = await db.prepare(
       `INSERT INTO produtos (loja_id, nome, descricao, categoria, subcategoria, preco_centavos,
                              preco_promocional_centavos, promo_fim, serve_pessoas, destaque,
-                             foto_url, disponivel, disponivel_pdv, vendido_por, codigo_barras,
+                             foto_url, foto_credito, disponivel, disponivel_pdv, vendido_por, codigo_barras,
                              controla_estoque, estoque, vendido_sozinho, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(loja.id, c.nome, c.descricao, c.categoria, c.subcategoria, c.preco, c.promo, c.promoFim,
-          c.servePessoas, c.destaque, c.foto_url, c.disponivel, c.disponivelPdv, c.vendidoPor, c.codigoBarras,
+          c.servePessoas, c.destaque, c.foto_url, c.fotoCredito, c.disponivel, c.disponivelPdv, c.vendidoPor, c.codigoBarras,
           c.controlaEstoque, c.estoque, c.vendidoSozinho, agoraUTC());
     res.status(201).json({ produto_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
@@ -1267,10 +1360,10 @@ router.put('/produtos/:id', async (req, res, next) => {
     await db.prepare(
       `UPDATE produtos SET nome = ?, descricao = ?, categoria = ?, subcategoria = ?, preco_centavos = ?,
               preco_promocional_centavos = ?, promo_fim = ?, serve_pessoas = ?, destaque = ?,
-              foto_url = ?, disponivel = ?, disponivel_pdv = ?, vendido_por = ?, codigo_barras = ?,
+              foto_url = ?, foto_credito = ?, disponivel = ?, disponivel_pdv = ?, vendido_por = ?, codigo_barras = ?,
               controla_estoque = ?, estoque = ?, vendido_sozinho = ? WHERE id = ?`
     ).run(c.nome, c.descricao, c.categoria, c.subcategoria, c.preco, c.promo, c.promoFim, c.servePessoas,
-          c.destaque, c.foto_url, c.disponivel, c.disponivelPdv, c.vendidoPor, c.codigoBarras,
+          c.destaque, c.foto_url, c.fotoCredito, c.disponivel, c.disponivelPdv, c.vendidoPor, c.codigoBarras,
           c.controlaEstoque, c.estoque, c.vendidoSozinho, produto.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
