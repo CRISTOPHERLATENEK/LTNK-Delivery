@@ -61,6 +61,92 @@
         } catch (e) {}
       })();
     </script>
+    <script>
+      /*
+       * REDE DE SEGURANCA DO BUNDLE DE ENTRADA.
+       *
+       * O `lazySeguro` (lib/lazy-seguro.ts) ja recarrega a pagina quando um
+       * chunk de ROTA some do servidor depois de um deploy. Mas ele e codigo
+       * nosso: para ele rodar, o bundle principal precisa ter carregado. Quando
+       * quem some e o proprio `index-<hash>.js` ou o `index-<hash>.css`, nada
+       * nosso chega a executar — a aba fica BRANCA, sem erro na tela e sem
+       * caminho de volta a nao ser um Ctrl+Shift+R que ninguem vai adivinhar.
+       *
+       * Medido em 09/09/2026: 37 pedidos de asset levaram 404 num intervalo de
+       * 20 segundos durante um deploy, e entre eles estavam o index .js e o
+       * index .css. Quem estava com o app aberto ficou na tela branca.
+       *
+       * ESTE TRECHO E INLINE, NO HTML, de proposito: ele precisa existir
+       * mesmo quando nenhum arquivo externo carregou. Por isso tambem nao usa
+       * nada de fora — nem modulo, nem funcao nossa.
+       *
+       * UMA tentativa por sessao, marcada em sessionStorage. Se recarregar nao
+       * resolver (o problema era outro: rede caindo, servidor fora), o segundo
+       * erro passa direto e a pessoa ve a falha de verdade em vez de entrar num
+       * laco de reload — que e bem pior que a tela branca.
+       */
+      (() => {
+        const CHAVE = 'entrada-recarregada';
+        let jaPedi = false;
+        function recarregarUmaVez(motivo) {
+          if (jaPedi) return;
+          try {
+            if (sessionStorage.getItem(CHAVE) === '1') return;
+            sessionStorage.setItem(CHAVE, '1');
+          } catch (e) { /* modo privativo: segue sem a trava */ }
+          jaPedi = true;
+          console.warn('[entrada] ' + motivo + ' — recarregando para pegar a versao nova.');
+          /*
+           * `location.reload()` e nao um replace na mesma URL: o service worker
+           * trata navegacao como rede-primeiro, entao o reload traz o
+           * index.html NOVO, que aponta para os hashes que existem hoje.
+           */
+          location.reload();
+        }
+
+        /*
+         * Captura na fase de CAPTURA porque erro de carregamento de recurso nao
+         * borbulha — um listener normal no window nunca veria.
+         */
+        window.addEventListener('error', (e) => {
+          const alvo = e && e.target;
+          if (!alvo || alvo === window) return;
+          const url = alvo.src || alvo.href || '';
+          /* So os assets com hash: 404 neles significa "sua aba esta velha".
+             Imagem quebrada ou script de terceiro nao recarregam nada. */
+          if (typeof url === 'string' && url.indexOf('/app-assets/') !== -1) {
+            recarregarUmaVez('falhou ao carregar ' + url);
+          }
+        }, true);
+
+        /* O Vite avisa por evento proprio quando um modulo pre-carregado falha. */
+        window.addEventListener('vite:preloadError', () => {
+          recarregarUmaVez('preload de modulo falhou');
+        });
+
+        /*
+         * A TRAVA SO SAI SE O APP REALMENTE SUBIU.
+         *
+         * O `load` da janela dispara mesmo com a tela branca — o documento
+         * terminou de carregar, com script quebrado e tudo. Limpar a trava ali
+         * devolveria o direito de recarregar a uma aba que acabou de falhar, e
+         * duas abas nesse estado ficam num pingue-pongue de reload contra um
+         * servidor que nao tem o arquivo.
+         *
+         * O sinal de que a entrada funcionou e o React ter montado: `#root`
+         * deixa de estar vazio. Esse teste nao depende de nada nosso ter sido
+         * carregado, que e o ponto deste trecho inteiro.
+         */
+        window.addEventListener('load', () => {
+          setTimeout(() => {
+            const raiz = document.getElementById('root');
+            if (raiz && raiz.childElementCount > 0) {
+              try { sessionStorage.removeItem(CHAVE); } catch (e) {}
+            }
+          }, 3000);
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

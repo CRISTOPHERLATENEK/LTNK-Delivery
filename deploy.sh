@@ -41,6 +41,38 @@ cd "$APP_DIR"
 # ---------------------------------------------------------------------------
 ANTES=$(git rev-parse HEAD)
 echo "→ Ponto de retorno: $ANTES"
+
+# ---------------------------------------------------------------------------
+# 1b. VIGIA DOS ASSETS.
+#
+# A publicação abaixo é aditiva de propósito: os arquivos com hash da versão
+# anterior precisam continuar existindo, porque quem está com o app ABERTO ainda
+# vai pedir os pedaços da versão dele. Isso está escrito no bloco 4 e foi
+# testado em sandbox — o `cp` é aditivo mesmo.
+#
+# E MESMO ASSIM NÃO ESTÁ ACONTECENDO. Medido em 09/09/2026: dos 54 arquivos que
+# existiam antes de um deploy, 44 sumiram depois dele, e a limpeza de 7 dias não
+# pegaria nenhum (o `find` devolveu zero). Nem o build do Vite, nem o `tsc`, nem
+# o `npm install` reproduzem isso fora daqui.
+#
+# O custo desse buraco não é teórico: no mesmo dia, 37 pedidos de asset levaram
+# 404 em 20 segundos durante um deploy — entre eles o index .js e o index .css —
+# e quem estava com o painel aberto ficou na tela branca.
+#
+# Então este vigia faz duas coisas: MARCA em qual passo os arquivos somem, e no
+# fim RESTAURA o que sumiu. A promessa do bloco 4 passa a valer mesmo sem eu
+# saber ainda quem apaga.
+# ---------------------------------------------------------------------------
+VIGIA_LOG="$APP_DIR/dados/deploy-assets.log"
+mkdir -p "$(dirname "$VIGIA_LOG")"
+vigia() {
+  local passo="$1"
+  local n=0
+  [ -d public/app-assets ] && n=$(ls -1 public/app-assets 2>/dev/null | wc -l)
+  echo "$(date -Is) $(printf '%-28s' "$passo") arquivos=$n" >> "$VIGIA_LOG"
+  echo "   [vigia] $passo: $n assets"
+}
+vigia "00 inicio"
 rm -rf public.anterior dist.anterior
 cp -a public public.anterior
 [ -d dist ] && cp -a dist dist.anterior
@@ -51,9 +83,12 @@ git fetch origin "$BRANCH"
 # Deploy target: alinha exatamente com o remoto (evita conflito de merge).
 # Só mexe em arquivos versionados — .env, dados/ e build ficam intactos.
 git reset --hard "origin/$BRANCH"
+vigia "10 git reset"
+
 
 echo "→ Instalando dependências"
 npm install
+vigia "20 npm install"
 
 # ---------------------------------------------------------------------------
 # 2. Backend em cima do dist mesmo. Pode: o processo no ar já carregou os
@@ -62,6 +97,7 @@ npm install
 # ---------------------------------------------------------------------------
 echo "→ Build do backend"
 npx tsc -p tsconfig.backend.json
+vigia "30 tsc backend"
 
 # ---------------------------------------------------------------------------
 # 3. Frontend numa cópia. `set -e` garante que um build que falhe pare aqui,
@@ -73,7 +109,9 @@ cp -a public public.novo
 # Limpa os hashes antigos DA CÓPIA. Sem isso, cada deploy deixa lixo
 # acumulado; fazendo no original, é a janela que este script existe pra evitar.
 rm -rf public.novo/app-assets
+vigia "40 rm public.novo/app-assets"
 ( cd frontend && npx vite build --outDir ../public.novo )
+vigia "50 vite build"
 
 # Confere que o build produziu o essencial antes de trocar. Build que
 # "termina" sem index.html ou sem asset nenhum existe — e trocar assim seria
@@ -144,8 +182,41 @@ rm -rf public.novo
 # Lixo de deploys ANTIGOS, não do anterior: quem tem o app aberto ainda pede os
 # chunks da versão dele, e apagá-los agora recria o problema que este bloco
 # existe para resolver. Sete dias é folga de sobra para toda aba abrir de novo.
+# ---------------------------------------------------------------------------
+# 4b. RESTAURA O QUE SUMIU NO CAMINHO.
+#
+# A publicação acima é aditiva, e um teste em sandbox confirma que o `cp` não
+# apaga nada. Mesmo assim, na máquina de produção, arquivos que existiam antes
+# do deploy desaparecem — 44 de 54, medido. Enquanto eu não souber quem apaga
+# (o vigia acima marca o passo), esta linha garante o que o bloco 4 promete: o
+# que estava no ar continua no ar.
+#
+# `public.anterior` é a foto tirada no começo deste deploy, antes de qualquer
+# passo. O que está lá e não está aqui é exatamente o que alguém removeu.
+#
+# `cp -n` (não sobrescreve): os arquivos do build NOVO já estão publicados e são
+# a verdade. Isto só recoloca os que faltam.
+#
+# Vem ANTES da limpeza de 7 dias de propósito — restaurar um arquivo velho
+# demais só para ele ser apagado na linha seguinte é a ordem certa: a limpeza
+# decide o que é velho, não este bloco.
+# ---------------------------------------------------------------------------
+if [ -d public.anterior/app-assets ]; then
+  antes_lista=$(ls -1 public.anterior/app-assets 2>/dev/null | sort)
+  agora_lista=$(ls -1 public/app-assets 2>/dev/null | sort)
+  faltando=$(comm -23 <(printf '%s\n' "$antes_lista") <(printf '%s\n' "$agora_lista") | grep -c . || true)
+  if [ "$faltando" -gt 0 ]; then
+    echo "   [vigia] RESTAURANDO $faltando assets que sumiram durante o deploy"
+    echo "$(date -Is) $(printf '%-28s' 'RESTAUROU') arquivos=$faltando" >> "$VIGIA_LOG"
+    cp -an public.anterior/app-assets/. public/app-assets/ 2>/dev/null || true
+  fi
+fi
+vigia "60 pos-restauracao"
+
 echo "→ Limpando assets com mais de 7 dias"
 find public/app-assets -type f -mtime +7 -delete 2>/dev/null || true
+
+vigia "70 pos-limpeza"
 
 echo "→ Recarregando o processo (PM2, sem queda)"
 # `reload` e nao `restart`: em modo cluster o PM2 troca UMA instancia por vez e,
