@@ -110,7 +110,11 @@ cp -a public public.novo
 # acumulado; fazendo no original, é a janela que este script existe pra evitar.
 rm -rf public.novo/app-assets
 vigia "40 rm public.novo/app-assets"
-( cd frontend && npx vite build --outDir ../public.novo )
+# `SAIDA_BUILD` e nao `--outDir`: com a flag, o Vite escrevia na copia mas
+# limpava o `outDir` do vite.config (`../public`) — apagando os assets que estao
+# NO AR. Medido pelo vigia: 56 assets antes deste passo, 0 depois. Pela variavel
+# o proprio config resolve para a copia, e a pasta publicada nao e tocada.
+( cd frontend && SAIDA_BUILD=../public.novo npx vite build )
 vigia "50 vite build"
 
 # Confere que o build produziu o essencial antes de trocar. Build que

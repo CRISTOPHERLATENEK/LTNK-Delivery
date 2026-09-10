@@ -190,7 +190,10 @@ describe('o que já valia e não pode regredir', () => {
 
   /* Build numa cópia: build que falha não encosta no que está no ar. */
   it('o frontend continua sendo construído em public.novo', () => {
-    expect(codigo).toContain('--outDir ../public.novo');
+    /* A copia agora e apontada por variavel e nao pela flag `--outDir`: com a
+       flag, o Vite limpava o `outDir` do config (`../public`), que e a pasta
+       publicada. O destino do build continua sendo a copia. */
+    expect(codigo).toContain('SAIDA_BUILD=../public.novo npx vite build');
   });
 
   /* E a conferência antes de publicar: build que "termina" sem index.html ou

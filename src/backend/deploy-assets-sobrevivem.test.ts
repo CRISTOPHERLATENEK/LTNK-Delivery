@@ -15,19 +15,25 @@ import path from 'path';
  * `index-<hash>.css` — o bundle de ENTRADA. E no mesmo dia, dos 54 arquivos que
  * existiam antes de um deploy, 44 não existiam depois.
  *
- * A publicação é aditiva e um sandbox confirma que o `cp` não apaga nada; o
- * `find` de limpeza não pegaria nenhum deles (mtime +7 devolveu zero). Nem o
- * Vite, nem o `tsc`, nem o `npm install` reproduzem o apagamento fora dali.
- * Enquanto a causa não aparece, o deploy passou a MARCAR onde some (o vigia) e
- * a RESTAURAR no fim — a promessa vale mesmo sem o diagnóstico fechado.
+ * A CAUSA FOI ENCONTRADA pelo vigia que este arquivo protege: era o próprio
+ * `vite build`. O deploy passava `--outDir ../public.novo` para construir numa
+ * cópia, mas o Vite continuava usando o `outDir` do vite.config (`../public`)
+ * para a LIMPEZA — escrevia na cópia e apagava a pasta publicada. O vigia
+ * contou, em 10/09/2026: 56 assets antes do build, 0 depois, 56 de novo após a
+ * restauração.
  *
- * Estas asserções existem para que ninguém tire nenhuma das duas achando que é
- * andaime: elas são a única coisa que hoje garante a promessa.
+ * Hoje existem TRÊS camadas, e nenhuma é andaime:
+ *   1. a saída do build vem de `SAIDA_BUILD`, então o Vite resolve escrita E
+ *      limpeza para a cópia — a pasta publicada não é tocada (a correção);
+ *   2. o vigia continua contando, porque a próxima causa não vai avisar;
+ *   3. a restauração continua, porque descobrir de novo custa caro e recolocar
+ *      custa nada.
  */
 
 const RAIZ = path.join(__dirname, '..', '..');
 const deploy = fs.readFileSync(path.join(RAIZ, 'deploy.sh'), 'utf8');
 const indexHtml = fs.readFileSync(path.join(RAIZ, 'frontend', 'index.html'), 'utf8');
+const vite = fs.readFileSync(path.join(RAIZ, 'frontend', 'vite.config.ts'), 'utf8');
 
 /** Só o que executa: comentário citando o erro evitado não conta como erro. */
 function execSh(fonte: string): string {
@@ -91,6 +97,45 @@ describe('o que sumiu volta antes do reload', () => {
     const codigo = execSh(deploy);
     expect(codigo).toContain('public.anterior/app-assets');
     expect(codigo).toContain('comm -23');
+  });
+});
+
+describe('o build não apaga o que está no ar', () => {
+  /*
+   * A CAUSA, ENFIM MEDIDA. O deploy construía com `--outDir ../public.novo`
+   * para não encostar no que está publicado. Só que o Vite continuava usando o
+   * `outDir` do vite.config (`../public`) para a LIMPEZA: escrevia na cópia e
+   * apagava a pasta publicada. O vigia contou, em 10/09/2026:
+   *
+   *   40 rm public.novo/app-assets .... 56 assets
+   *   50 vite build ................... 0 assets
+   *   60 pos-restauracao .............. 56 assets
+   *
+   * Entre o build e a restauração a pasta fica VAZIA — e é essa janela que
+   * gerou 37 pedidos de asset com 404 em 20 segundos, incluindo o bundle de
+   * entrada. Pela variável, o próprio config resolve escrita e limpeza para a
+   * cópia, e a pasta publicada não é tocada.
+   */
+  it('o deploy passa a saída por variável, não por --outDir', () => {
+    const codigo = execSh(deploy);
+    expect(codigo).toContain('SAIDA_BUILD=../public.novo npx vite build');
+    /* A prova negativa: a flag some. Ela é o que causava o apagamento. */
+    expect(codigo).not.toContain('--outDir');
+  });
+
+  it('o config lê a variável, com o padrão de sempre', () => {
+    expect(vite).toContain("outDir: process.env.SAIDA_BUILD || '../public'");
+    /* `emptyOutDir` continua false: a publicação é aditiva por fora. */
+    expect(vite).toContain('emptyOutDir: false');
+  });
+
+  /*
+   * SEM O PREFIXO `VITE_`: variável com esse prefixo entra no bundle entregue
+   * ao cliente, e isto é caminho de disco da máquina de build.
+   */
+  it('a variável não vaza para o bundle do cliente', () => {
+    expect(vite).not.toContain('VITE_SAIDA');
+    expect(vite).not.toContain('VITE_OUT');
   });
 });
 

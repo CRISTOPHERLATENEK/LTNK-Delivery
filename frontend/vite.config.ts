@@ -23,7 +23,34 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname, './src') },
   },
   build: {
-    outDir: '../public',
+    /*
+     * A SAIDA E CONFIGURAVEL POR VARIAVEL, e isso conserta um bug medido.
+     *
+     * O deploy constroi numa COPIA (`public.novo`) para nao mexer no que esta
+     * no ar, e passava `--outDir ../public.novo` na linha de comando. So que o
+     * Vite continuava usando ESTE caminho aqui para a limpeza: ele escrevia em
+     * `public.novo` e APAGAVA `public/app-assets`.
+     *
+     * Medido em 10/09/2026 pelo vigia do deploy.sh, contando os arquivos em
+     * cada passo:
+     *
+     *   40 rm public.novo/app-assets .... 56 assets
+     *   50 vite build ................... 0 assets   <- aqui
+     *   60 pos-restauracao .............. 56 assets
+     *
+     * O custo disso nao era teorico: entre o build e a restauracao a pasta fica
+     * VAZIA, e quem esta com o app aberto pede um chunk e leva 404. Foi o que
+     * aconteceu com o dono da plataforma — 37 pedidos de asset com 404 em 20
+     * segundos, incluindo o index .js e o index .css, ou seja tela branca.
+     *
+     * Com a saida vindo daqui, o deploy define SAIDA_BUILD e o Vite resolve
+     * tudo (escrita E limpeza) para a copia. O `../public` continua sendo o
+     * padrao, que e o que o build local usa.
+     *
+     * SEM o prefixo VITE_ de proposito: variavel com esse prefixo entra no
+     * bundle do cliente, e isto e caminho de disco do servidor de build.
+     */
+    outDir: process.env.SAIDA_BUILD || '../public',
     emptyOutDir: false,
     assetsDir: 'app-assets',
     rollupOptions: {

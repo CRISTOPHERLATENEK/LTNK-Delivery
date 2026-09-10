@@ -62,7 +62,11 @@ describe('deploy.sh: build fora do ar, troca no fim', () => {
   });
 
   it('o frontend é construído numa cópia, não em cima do que está servindo', () => {
-    expect(deploy).toMatch(/--outDir \.\.\/public\.novo/);
+    /* Era `--outDir ../public.novo`. A flag foi trocada por variavel de
+       ambiente porque, com ela, o Vite escrevia na copia mas limpava o `outDir`
+       do vite.config (`../public`) — apagando os assets que estao NO AR. O que
+       este teste protege continua igual: o build sai na copia. */
+    expect(deploy).toMatch(/SAIDA_BUILD=\.\.\/public\.novo npx vite build/);
     expect(deploy).toMatch(/cp -a public public\.novo/);
   });
 
@@ -94,7 +98,7 @@ describe('deploy.sh: build fora do ar, troca no fim', () => {
    * antes do reload. Só deixou de reconhecer a publicação pelo comando antigo.
    */
   it('publica o public DEPOIS do build e ANTES do reload', () => {
-    const build = onde(deploy, /vite build --outDir/);
+    const build = onde(deploy, /SAIDA_BUILD=\S+ npx vite build/);
     const troca = onde(deploy, /mv -T public\/\.index\.html\.novo public\/index\.html/);
     const reload = onde(deploy, /pm2 reload/);
     expect(build).toBeGreaterThan(-1);
