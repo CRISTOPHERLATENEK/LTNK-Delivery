@@ -243,3 +243,58 @@ describe('a Action nao tem um deploy proprio', () => {
     expect(action).toContain('cancel-in-progress: true');
   });
 });
+
+
+/*
+ * O PORTEIRO DA REGRA DOS GANCHOS.
+ *
+ * Em 10/09/2026 eu publiquei a vitrine da Galderio com um `useState` declarado
+ * depois do `return` de carregamento. Na primeira renderizacao o gancho nao
+ * rodava, na segunda rodava; o React conta ganchos e derrubou a pagina — quem
+ * abria a loja via "Ops, algo deu errado". O `tsc` compila isso sem reclamar,
+ * porque nao e erro de tipo.
+ *
+ * O eslint do projeto PEGAVA. Ninguem rodava, e com razao: `npm run lint` leva
+ * 78 segundos e reporta 250 problemas antigos (101 variaveis nao usadas, 73
+ * `any`), entao o aviso que era um site fora do ar ficava enterrado no meio.
+ *
+ * A correcao estrutural e este passo no deploy: UMA regra, sem carregar tipos,
+ * 22 segundos, antes de qualquer coisa ser publicada. Conferido reintroduzindo
+ * o bug — o porteiro acusa e sai com codigo 1.
+ */
+describe('o deploy confere a regra dos ganchos do React', () => {
+  const config = fs.readFileSync(
+    path.join(__dirname, '../../frontend/eslint.ganchos.config.js'), 'utf8');
+
+  it('o deploy roda a conferencia', () => {
+    expect(deploy).toContain('eslint src --config eslint.ganchos.config.js');
+  });
+
+  /*
+   * E RODA ANTES DE PUBLICAR. Depois do build nao serve de nada: o objetivo e
+   * o deploy morrer com o que esta no ar intocado.
+   */
+  it('a conferencia vem antes do build do frontend', () => {
+    const porteiro = deploy.indexOf('eslint.ganchos.config.js');
+    const build = deploy.indexOf('vite build');
+    expect(porteiro).toBeGreaterThan(-1);
+    expect(build).toBeGreaterThan(-1);
+    expect(porteiro).toBeLessThan(build);
+  });
+
+  it('a regra que quebra a tela esta ligada', () => {
+    expect(config).toContain("'react-hooks/rules-of-hooks': 'error'");
+  });
+
+  /*
+   * UMA REGRA SO, e isso e a razao de existir uma configuracao separada.
+   * `exhaustive-deps` tem 28 violacoes antigas e e conselho; ligar tudo aqui
+   * transformaria o porteiro no mesmo `npm run lint` que ninguem roda.
+   */
+  it('nao liga as regras de conselho junto', () => {
+    const semComentario = config.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    expect(semComentario).not.toContain('exhaustive-deps');
+    expect(semComentario).not.toContain('no-explicit-any');
+    expect(semComentario).not.toContain('configs.flat.recommended');
+  });
+});
