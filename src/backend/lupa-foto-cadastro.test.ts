@@ -49,16 +49,33 @@ describe('as rotas da lupa', () => {
   });
 
   /*
-   * O GET NÃO ESCREVE NADA. É o passo de conferência: se ele já baixasse, o
-   * "É este produto mesmo?" da tela seria decorativo, e o disco encheria de
-   * foto de produto que ninguém aceitou.
+   * O GET NÃO ESCREVE NO DISCO. Ele baixa e converte — precisa, porque a prévia
+   * que a pessoa confere é o arquivo convertido —, mas nada fica gravado. Se
+   * gravasse, o "É este produto mesmo?" da tela seria decorativo e o disco
+   * encheria de foto que ninguém aceitou.
    */
-  it('a prévia não baixa nem grava arquivo', () => {
+  it('a prévia não grava arquivo', () => {
     const inicio = ROTAS_LIMPAS.indexOf("router.get('/produtos/foto-por-codigo'");
     const fim = ROTAS_LIMPAS.indexOf("router.post('/produtos/foto-por-codigo'");
     const corpo = ROTAS_LIMPAS.slice(inicio, fim);
-    expect(corpo).not.toContain('baixarEConverter');
     expect(corpo).not.toContain('writeFile');
+    /* E a prévia sai embutida, não como endereço da fonte: o que a pessoa vê é
+       o arquivo que vai ser gravado, mesma conversão e mesmo fundo. */
+    expect(corpo).toContain('r.achado.previa');
+  });
+
+  /*
+   * O POST RECUSA FUNDO NÃO-BRANCO COM CÓDIGO PRÓPRIO (422, e não 404).
+   *
+   * "Não achei" e "achei mas é foto de prateleira" mandam a pessoa para lugares
+   * diferentes: conferir o código de barras, ou fotografar o produto na loja.
+   * Um 404 para os dois casos faria ela procurar um código que está certo.
+   */
+  it('a recusa por fundo é distinguível da ausência', () => {
+    const inicio = ROTAS_LIMPAS.indexOf("router.post('/produtos/foto-por-codigo'");
+    const corpo = ROTAS_LIMPAS.slice(inicio, inicio + 2200);
+    expect(corpo).toMatch(/fundo-nao-branco[\s\S]{0,160}422/);
+    expect(corpo).toContain('404');
   });
 
   /*
@@ -73,7 +90,7 @@ describe('as rotas da lupa', () => {
   it('o POST não aceita URL do corpo da requisição', () => {
     const inicio = ROTAS_LIMPAS.indexOf("router.post('/produtos/foto-por-codigo'");
     const corpo = ROTAS_LIMPAS.slice(inicio, inicio + 2200);
-    expect(corpo).toContain('buscarFotoPorCodigo');
+    expect(corpo).toContain('acharFotoDeFundoBranco');
     expect(corpo).not.toMatch(/req\.body\??\.?\s*\.?(url|foto_url|previa)/);
     /* E reduz a entrada ao que um código de barras pode ser. */
     expect(corpo).toContain("replace(/\\D/g, '')");
@@ -133,7 +150,7 @@ describe('a tela da lupa', () => {
        passava mesmo com o efeito vazio (verificado sabotando). */
     const efeito = corpo.slice(corpo.indexOf('useEffect('), corpo.indexOf('}, [limpo])'));
     expect(efeito).toContain('setAchado(null)');
-    expect(efeito).toContain('setSemResultado(false)');
+    expect(efeito).toContain("setRecusa('')");
   });
 
   it('não busca com código curto demais pra ser código de barras', () => {
@@ -172,5 +189,111 @@ describe('o crédito anda junto com a foto', () => {
     const ocorrencias = FORM_LIMPO.match(/onChange=\{url => setForm\([^)]*foto_url: url[^}]*\}/g) ?? [];
     expect(ocorrencias.length).toBeGreaterThanOrEqual(2);
     for (const o of ocorrencias) expect(o).toContain("foto_credito: ''");
+  });
+});
+
+
+/*
+ * O FUNDO BRANCO — a exigência que veio do lojista depois de ver o resultado da
+ * primeira versão, e a razão de existir uma segunda fonte.
+ */
+describe('só entra foto de fundo branco', () => {
+  const BUSCA = ler('foto-por-codigo.ts');
+  const BUSCA_LIMPA = semComentarios(BUSCA);
+
+  /*
+   * A ORDEM DAS FONTES É A MEDIÇÃO, não preferência. Medido em 10/09/2026 nos
+   * produtos da Galderio: Cosmos tem imagem para 49 de 60 e 46 delas em fundo
+   * branco; Open Food Facts tem 24 de 60 e nenhuma das medidas com fundo
+   * branco — são fotos de celular na prateleira.
+   */
+  it('o Cosmos vem antes da Open Food Facts', () => {
+    const ordem = BUSCA_LIMPA.slice(BUSCA_LIMPA.indexOf('FONTES: Fonte[]'));
+    const c = ordem.indexOf('candidatoCosmos');
+    const o = ordem.indexOf('candidatoOpenFoodFacts');
+    expect(c).toBeGreaterThan(-1);
+    expect(o).toBeGreaterThan(-1);
+    expect(c).toBeLessThan(o);
+  });
+
+  it('a decisão de fundo é obrigatória no caminho da gravação', () => {
+    const i = BUSCA_LIMPA.indexOf('export async function acharFotoDeFundoBranco');
+    const corpo = BUSCA_LIMPA.slice(i);
+    expect(corpo).toContain('analisarFundo');
+    expect(corpo).toContain("registrar('fundo-nao-branco'");
+    /* A prova negativa: não existe caminho que devolva ok sem passar pelo
+       teste de fundo. O único `ok: true` fica depois dele. */
+    const decide = corpo.indexOf('if (!fundo.branco)');
+    const aceita = corpo.indexOf('ok: true');
+    expect(decide).toBeGreaterThan(-1);
+    expect(decide).toBeLessThan(aceita);
+  });
+
+  /* Transparente vira branco de verdade no arquivo — as imagens do Cosmos são
+     PNG com alfa, e "fundo branco" não pode virar "fundo nenhum". */
+  it('a foto é achatada em branco na conversão', () => {
+    expect(BUSCA_LIMPA).toContain('achatarEmBranco: true');
+    expect(semComentarios(ler('imagem-web.ts'))).toContain("flatten({ background: '#ffffff' })");
+  });
+
+  /* E o achatamento NÃO vale para o upload do lojista: logo transparente que
+     ele sobe deve continuar transparente. */
+  it('o upload manual não é achatado', () => {
+    const upload = semComentarios(ler('rotas/upload.ts'));
+    expect(upload).not.toContain('achatarEmBranco');
+  });
+
+  it('o token do Cosmos vem do ambiente e nunca é registrado', () => {
+    expect(BUSCA_LIMPA).toContain('process.env.COSMOS_TOKEN');
+    /* Segredo não vai para log nem para a resposta. A busca é por qualquer
+       coisa que imprima o token. */
+    expect(BUSCA_LIMPA).not.toMatch(/console\.[a-z]+\([^)]*token/i);
+  });
+
+  /* Sem token a integração continua funcionando: a imagem sai do CDN por
+     endereço montado, e a conferência passa a ser a própria foto na tela. */
+  it('sem token o Cosmos ainda entrega a imagem', () => {
+    const i = BUSCA_LIMPA.indexOf('export const candidatoCosmos');
+    const corpo = BUSCA_LIMPA.slice(i, i + 1400);
+    expect(corpo).toContain('urlDoCosmos(codigo)');
+    expect(corpo).toContain('if (token)');
+  });
+
+  it('o CDN do Cosmos entra na lista fechada de hosts', () => {
+    const i = BUSCA_LIMPA.indexOf('HOSTS_PERMITIDOS');
+    const corpo = BUSCA_LIMPA.slice(i, i + 300);
+    expect(corpo).toContain('cdn-cosmos.bluesoft.com.br');
+    expect(corpo).toContain('images.openfoodfacts.org');
+  });
+});
+
+describe('a tela explica a recusa', () => {
+  /*
+   * TRÊS FRASES, TRÊS SAÍDAS. "Não está nas bases" pede conferir o código;
+   * "não tem fundo branco" pede fotografar na loja; "imagem imprestável" avisa
+   * que existe mas não serve. Uma frase só mandaria a pessoa procurar defeito
+   * no lugar errado.
+   */
+  it('cada motivo tem a sua frase', () => {
+    for (const motivo of ['nao-esta-na-base', 'fundo-nao-branco', 'imagem-imprestavel']) {
+      expect(FORM_LIMPO).toContain(`'${motivo}':`);
+    }
+  });
+
+  it('a frase do fundo manda fotografar na loja', () => {
+    const i = FORM_LIMPO.indexOf("'fundo-nao-branco':");
+    expect(FORM_LIMPO.slice(i, i + 260)).toContain('na loja');
+  });
+
+  /* O quadro da prévia tem fundo branco fixo: conferir fundo branco sobre
+     cartão escuro no modo noturno não conferiria nada. */
+  it('a prévia é conferida sobre branco', () => {
+    const i = FORM_LIMPO.indexOf('achado.previa');
+    expect(FORM_LIMPO.slice(i, i + 220)).toContain('bg-white');
+  });
+
+  it('diz de qual fonte a foto veio', () => {
+    expect(FORM_LIMPO).toContain('NOME_DA_FONTE');
+    expect(FORM_LIMPO).toContain("cosmos: 'Cosmos'");
   });
 });

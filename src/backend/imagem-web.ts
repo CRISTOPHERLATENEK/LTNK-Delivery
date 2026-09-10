@@ -76,7 +76,25 @@ export interface ImagemConvertida {
  * imagem estática é perda de conteúdo, não de bytes. GIF é raro em foto de
  * produto e passa como está.
  */
-export async function paraWeb(entrada: Buffer, mimeOriginal: string): Promise<ImagemConvertida | null> {
+export interface OpcoesWeb {
+  /*
+   * ACHATA A TRANSPARENCIA EM BRANCO.
+   *
+   * Nao vale para o upload do lojista, e por isso e opcional: logo em PNG
+   * transparente enviado por ele deve continuar transparente. Vale para a foto
+   * que vem por codigo de barras — as imagens do Cosmos sao PNG com alfa, e o
+   * que o lojista pediu foi FOTO COM FUNDO BRANCO. Sem achatar, o "fundo
+   * branco" seria fundo nenhum: o produto flutuaria sobre o cartao, e sobre o
+   * cartao escuro no modo noturno o contorno preto do rotulo desaparece.
+   */
+  achatarEmBranco?: boolean;
+}
+
+export async function paraWeb(
+  entrada: Buffer,
+  mimeOriginal: string,
+  opcoes: OpcoesWeb = {},
+): Promise<ImagemConvertida | null> {
   if (SEM_CONVERTER.has(mimeOriginal)) return null;
 
   /*
@@ -89,6 +107,7 @@ export async function paraWeb(entrada: Buffer, mimeOriginal: string): Promise<Im
    * que subiu certa, porque na galeria dele aparece certa.
    */
   const imagem = sharp(entrada, { failOn: 'none' }).rotate();
+  if (opcoes.achatarEmBranco) imagem.flatten({ background: '#ffffff' });
 
   const buffer = await imagem
     .resize({ width: LARGURA_MAX, height: LARGURA_MAX, fit: 'inside', withoutEnlargement: true })
@@ -110,4 +129,24 @@ export async function paraWeb(entrada: Buffer, mimeOriginal: string): Promise<Im
     largura: meta.width ?? 0,
     altura: meta.height ?? 0,
   };
+}
+
+
+/** O lado da miniatura de conferencia. 320 px cobre o quadro de 80 px em retina. */
+export const LADO_MINIATURA = 320;
+
+/**
+ * UMA MINIATURA, para conferir sem gravar nada.
+ *
+ * A busca por codigo de barras mostra a foto ANTES de aceitar, e mandar o
+ * arquivo cheio para a tela so para isso seria caro: o packshot do Cosmos tem
+ * 1200x1200, e medido ele sai em torno de 60 KB depois da conversao — 80 KB em
+ * base64. A miniatura fica em poucos KB, e como nada e gravado em disco antes
+ * do lojista aceitar, ela precisa viajar embutida na resposta.
+ */
+export async function miniatura(entrada: Buffer, lado = LADO_MINIATURA): Promise<Buffer> {
+  return sharp(entrada, { failOn: 'none' })
+    .resize({ width: lado, height: lado, fit: 'inside', withoutEnlargement: true })
+    .webp({ quality: 72 })
+    .toBuffer();
 }

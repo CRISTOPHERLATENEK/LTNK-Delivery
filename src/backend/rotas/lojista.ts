@@ -72,7 +72,7 @@ import { resolverPeriodo, rotuloPeriodo, periodoAnterior, variacaoPercentual, ty
 import { classificarCurvaAbc, resumirClassesAbc } from '../curva-abc';
 import { GrupoOpcao, Loja, OpcaoItem, Pedido, Produto, StatusPedido } from '../../tipos/modelos';
 import nodeCrypto from 'crypto';
-import { buscarFotoPorCodigo, baixarEConverter } from '../foto-por-codigo';
+import { acharFotoDeFundoBranco } from '../foto-por-codigo';
 
 /**
  * Slugs que colidem com rotas fixas do frontend (App.tsx) — a URL da loja é
@@ -1259,16 +1259,27 @@ router.post('/cardapio/sugerir', async (req, res, next) => {
  * produto ja gravado — e a lupa precisa funcionar em produto novo, que e
  * justamente quando ninguem tem foto ainda.
  *
- *   GET  devolve a PREVIA: endereco da imagem na base de origem, mais o nome e
- *        a marca de LA. Nao baixa e nao grava nada.
- *   POST baixa, converte para WebP, grava o arquivo e devolve a URL — igual ao
- *        upload manual. Quem persiste no produto e o salvar do formulario.
+ *   GET  procura, converte e devolve a PREVIA EMBUTIDA (`data:`), com o nome
+ *        do produto na fonte. Nada vai para o disco.
+ *   POST procura de novo e GRAVA o arquivo — igual ao upload manual. Quem
+ *        persiste no produto e o salvar do formulario.
  *
- * O PASSO DO MEIO EXISTE porque base colaborativa tem foto errada: medido, o
- * codigo inexistente 9999999999999 devolve um registro de teste chamado
- * "Salatgurke" com imagem de 1x1 pixel. Gravar sem alguem olhar trocaria
- * "produto sem foto" por "produto com a foto de outra coisa" — pior, porque
- * parece pronto.
+ * O PASSO DO MEIO EXISTE porque base de terceiro tem foto errada: medido, o
+ * codigo inexistente 9999999999999 devolve na Open Food Facts um registro de
+ * teste chamado "Salatgurke" com imagem de 1x1 pixel. Gravar sem alguem olhar
+ * trocaria "produto sem foto" por "produto com a foto de outra coisa" — pior,
+ * porque parece pronto.
+ *
+ * A PREVIA VEM EMBUTIDA e nao como endereco da fonte de propósito: assim o que
+ * a pessoa ve na tela e exatamente o arquivo que sera gravado — mesma
+ * conversao, mesmo achatamento em branco, mesmo recorte. Mostrar o original da
+ * fonte e gravar outra coisa e como pedir conferencia de uma foto que nao e a
+ * que vai entrar.
+ *
+ * SO FUNDO BRANCO PASSA. O motivo da recusa vem separado (`fundo-nao-branco`)
+ * porque a tela diz uma frase diferente para cada caso — "esse codigo nao esta
+ * nas bases" manda a pessoa conferir o codigo, e "a foto que existe e de
+ * prateleira" manda ela tirar a foto na loja.
  *
  * A busca e por CODIGO, nunca por nome: o codigo identifica o item exato. Por
  * nome, "BRAHMA CAIXA" e "BRAHMA LATA" trariam a mesma imagem.
@@ -1279,23 +1290,27 @@ router.post('/cardapio/sugerir', async (req, res, next) => {
 router.get('/produtos/foto-por-codigo', async (req, res, next) => {
   try {
     await minhaLoja(req);
-    /* So digitos entram na consulta: o host da base e fixo no modulo, e aqui a
-       entrada e reduzida ao que um codigo de barras pode ser. */
+    /* So digitos entram na consulta: os hosts das fontes sao fixos no modulo, e
+       aqui a entrada e reduzida ao que um codigo de barras pode ser. */
     const codigo = String(req.query.codigo ?? '').replace(/\D/g, '');
     if (codigo.length < 8) return res.json({ achou: false, motivo: 'codigo-curto' });
 
-    const foto = await buscarFotoPorCodigo(codigo);
-    if (!foto) return res.json({ achou: false, motivo: 'nao-esta-na-base', codigo });
+    const r = await acharFotoDeFundoBranco(codigo);
+    if (!r.ok) return res.json({ achou: false, motivo: r.motivo, fonte: r.fonteTentada, codigo });
 
     res.json({
       achou: true,
       codigo,
-      previa: foto.urlPrevia,
-      /* O nome NA BASE, para a pessoa conferir que e o mesmo produto — e nao
+      previa: r.achado.previa,
+      /* O nome NA FONTE, para a pessoa conferir que e o mesmo produto — e nao
          confiar que o codigo digitado no cadastro esta certo. */
-      nome_na_base: foto.nomeNaBase,
-      marca: foto.marca,
-      credito: foto.credito,
+      nome_na_base: r.achado.nomeNaBase,
+      marca: r.achado.marca,
+      credito: r.achado.credito,
+      fonte: r.achado.fonte,
+      largura: r.achado.imagem.largura,
+      altura: r.achado.imagem.altura,
+      fundo_branco: r.achado.fundo.branco,
     });
   } catch (e) { next(e); }
 });
@@ -1308,27 +1323,32 @@ router.post('/produtos/foto-por-codigo', async (req, res, next) => {
      *
      * Receber a URL que o navegador mandou deixaria qualquer lojista
      * autenticado apontar o download do servidor para onde quisesse. A lista de
-     * hosts do modulo protege contra a BASE envenenada; nao protege contra quem
-     * chama esta rota. O unico dado que entra e o codigo, so digitos.
+     * hosts do modulo protege contra a FONTE envenenada; nao protege contra
+     * quem chama esta rota. O unico dado que entra e o codigo, so digitos.
      */
     const codigo = String(req.body?.codigo ?? '').replace(/\D/g, '');
     if (codigo.length < 8) throw erroHttp(400, 'Codigo de barras invalido.');
 
-    const foto = await buscarFotoPorCodigo(codigo);
-    if (!foto) throw erroHttp(404, 'Nao encontrei foto para este codigo de barras.');
+    const r = await acharFotoDeFundoBranco(codigo);
+    if (!r.ok) {
+      if (r.motivo === 'fundo-nao-branco') {
+        throw erroHttp(422, 'A unica foto que existe para este codigo nao tem fundo branco.');
+      }
+      throw erroHttp(404, 'Nao encontrei foto de fundo branco para este codigo de barras.');
+    }
 
-    const imagem = await baixarEConverter(foto.url);
-    if (!imagem) throw erroHttp(422, 'A imagem encontrada nao serve (pequena demais ou invalida).');
-
+    const { imagem, fundo, fonte, credito } = r.achado;
     const nome = nodeCrypto.randomBytes(16).toString('hex') + imagem.extensao;
     await fs.promises.writeFile(path.join(path.resolve('./dados/uploads'), nome), imagem.buffer);
 
     console.log(`[foto] ${codigo}: ${imagem.largura}x${imagem.altura}`
-      + ` ${Math.round(imagem.buffer.length / 1024)}KB de ${foto.credito}`);
+      + ` ${Math.round(imagem.buffer.length / 1024)}KB de ${fonte}`
+      + ` (canto ${Math.round(fundo.piorCanto * 100)}%, claro ${Math.round(fundo.global * 100)}%)`);
 
     res.json({
       url: `/uploads/${nome}`,
-      credito: foto.credito,
+      credito,
+      fonte,
       largura: imagem.largura,
       altura: imagem.altura,
     });

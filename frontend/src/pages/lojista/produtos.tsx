@@ -1748,19 +1748,44 @@ const CAMPO_MODAL = 'mt-1.5 h-12 rounded-[10px] px-3.5 text-[15.5px] shadow-none
  * subir. O código de barras já está no cadastro; ele identifica o item exato —
  * por nome, "BRAHMA CAIXA" e "BRAHMA LATA" trariam a mesma imagem.
  *
+ * DUAS FONTES, E SÓ FUNDO BRANCO PASSA. Medido em 10/09/2026 nos produtos da
+ * Galderio: o Cosmos tem imagem para 82% e 94% delas são packshot em fundo
+ * branco; a Open Food Facts tem 40%, e nenhuma das que eu medi tinha fundo
+ * branco — são fotos de celular na prateleira. Numa vitrine em que todo cartão
+ * é branco, foto de gôndola parece erro de cadastro, e foi essa a reclamação
+ * que originou esta versão.
+ *
  * DOIS PASSOS DE PROPÓSITO, e é a parte que importa desta tela:
  *
- *   1. buscar   → mostra a prévia com o NOME QUE ESTÁ NA BASE e a marca;
- *   2. usar     → só então baixa, converte e grava.
+ *   1. buscar   → mostra a prévia com o NOME QUE ESTÁ NA FONTE e a marca;
+ *   2. usar     → só então grava o arquivo.
  *
- * A base é colaborativa: qualquer pessoa edita. Medido, o código inexistente
- * 9999999999999 devolve um registro de teste chamado "Salatgurke". Se o botão
+ * A PRÉVIA É O ARQUIVO QUE VAI SER GRAVADO, convertido e achatado em branco, e
+ * não a imagem original da fonte. Pedir conferência de uma foto e gravar outra
+ * seria conferência de fachada.
+ *
+ * As bases são de terceiros e têm registro errado: medido, o código inexistente
+ * 9999999999999 devolve um produto de teste chamado "Salatgurke". Se o botão
  * gravasse direto, o lojista trocaria "produto sem foto" por "produto com a
  * foto de outra coisa" — que é pior, porque parece pronto. Mostrar o nome da
- * base é o que permite a conferência em um segundo.
+ * fonte é o que permite a conferência em um segundo.
  *
- * O CRÉDITO SOBE COM A FOTO porque a licença (CC-BY-SA) exige atribuição.
+ * O CRÉDITO SOBE COM A FOTO porque a licença da fonte exige atribuição.
  */
+const NOME_DA_FONTE: Record<string, string> = {
+  cosmos: 'Cosmos',
+  openfoodfacts: 'Open Food Facts',
+};
+
+/* Cada recusa manda a pessoa para um lugar diferente — por isso não é uma
+   frase só. "Não está nas bases" pede conferir o código; "não tem fundo
+   branco" pede tirar a foto na loja. */
+const RECUSA: Record<string, string> = {
+  'nao-esta-na-base': 'Esse código não está no Cosmos nem na Open Food Facts. Suba a foto à mão aqui em cima.',
+  'fundo-nao-branco': 'Achei foto para esse código, mas ela é de prateleira — sem fundo branco. Melhor fotografar o produto na loja, sobre uma folha branca.',
+  'imagem-imprestavel': 'A imagem que existe para esse código não serve: pequena demais ou corrompida.',
+};
+
 function BuscaFotoPorCodigo({ codigo, onUsar }: {
   codigo: string;
   onUsar: (url: string, credito: string) => void;
@@ -1769,11 +1794,14 @@ function BuscaFotoPorCodigo({ codigo, onUsar }: {
   const limpo = (codigo || '').replace(/\D/g, '');
   const curto = limpo.length < 8;
 
-  type Achado = { previa: string; nome_na_base: string; marca: string; credito: string };
+  type Achado = {
+    previa: string; nome_na_base: string; marca: string; credito: string;
+    fonte: string; largura: number; altura: number;
+  };
   const [buscando, setBuscando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [achado, setAchado] = useState<Achado | null>(null);
-  const [semResultado, setSemResultado] = useState(false);
+  const [recusa, setRecusa] = useState('');
 
   /* O achado é de UM código. Trocar o código no campo ao lado invalida a
      prévia na tela — sem isto, a pessoa buscaria a Brahma, corrigiria o
@@ -1782,25 +1810,26 @@ function BuscaFotoPorCodigo({ codigo, onUsar }: {
   useEffect(() => {
     if (codigoDoAchado.current !== limpo) {
       setAchado(null);
-      setSemResultado(false);
+      setRecusa('');
     }
   }, [limpo]);
 
   async function buscar() {
     setBuscando(true);
-    setSemResultado(false);
+    setRecusa('');
     setAchado(null);
     try {
-      const r = await api<{ achou: boolean } & Partial<Achado>>(
+      const r = await api<{ achou: boolean; motivo?: string } & Partial<Achado>>(
         'GET', `/api/lojista/produtos/foto-por-codigo?codigo=${encodeURIComponent(limpo)}`);
       codigoDoAchado.current = limpo;
       if (r.achou && r.previa) {
         setAchado({
           previa: r.previa, nome_na_base: r.nome_na_base || '',
-          marca: r.marca || '', credito: r.credito || '',
+          marca: r.marca || '', credito: r.credito || '', fonte: r.fonte || '',
+          largura: r.largura || 0, altura: r.altura || 0,
         });
       } else {
-        setSemResultado(true);
+        setRecusa(RECUSA[r.motivo || ''] || RECUSA['nao-esta-na-base']);
       }
     } catch (e) {
       mostrar({ tipo: 'erro', titulo: e instanceof ApiError ? e.message : 'Não deu pra buscar a foto agora.' });
@@ -1841,31 +1870,45 @@ function BuscaFotoPorCodigo({ codigo, onUsar }: {
         </p>
       ) : (
         <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-          Procura em uma base pública de produtos pelo código {limpo}.
+          Procura o código {limpo} no Cosmos e na Open Food Facts. Só entra foto
+          com <strong>fundo branco</strong>.
         </p>
       )}
 
-      {semResultado && (
-        <p className="mt-2 text-[12px] font-semibold leading-relaxed text-amber-600">
-          Esse código não está na base. Suba a foto à mão aqui em cima.
-        </p>
+      {recusa && (
+        <p className="mt-2 text-[12px] font-semibold leading-relaxed text-amber-600">{recusa}</p>
       )}
 
       {achado && (
         <div className="mt-3 border-t border-border pt-3">
           <div className="flex gap-3">
-            <img src={achado.previa} alt="" className="size-20 shrink-0 rounded-[10px] border border-border bg-card object-contain" />
+            {/*
+              A prévia vem embutida na resposta (`data:`), e é o arquivo já
+              convertido — o fundo branco aqui é o fundo branco que vai ficar
+              gravado. O quadro tem fundo branco fixo, e não `bg-card`, pra
+              conferência não mudar de cara no modo noturno.
+            */}
+            <img src={achado.previa} alt="" className="size-20 shrink-0 rounded-[10px] border border-border bg-white object-contain" />
             <div className="min-w-0 flex-1">
               {/*
-                O NOME DA BASE VEM ANTES DOS BOTÕES, e em negrito. É a única
+                O NOME DA FONTE VEM ANTES DOS BOTÕES, e em negrito. É a única
                 defesa contra gravar a foto de outro produto: se aqui diz
                 "Salatgurke" e o cadastro é de cerveja, o código está errado.
               */}
-              <p className="text-[13px] font-bold leading-snug">{achado.nome_na_base || 'Sem nome na base'}</p>
+              <p className="text-[13px] font-bold leading-snug">
+                {achado.nome_na_base || 'A fonte não deu o nome — confira pela foto'}
+              </p>
               {achado.marca && (
                 <p className="text-[12px] text-muted-foreground">{achado.marca}</p>
               )}
-              <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{achado.credito}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                <span className="rounded-md border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/60 dark:text-emerald-300">
+                  fundo branco
+                </span>
+                <span className="text-[11px] text-muted-foreground">
+                  {NOME_DA_FONTE[achado.fonte] || achado.fonte} · {achado.largura}×{achado.altura}
+                </span>
+              </div>
             </div>
           </div>
           <p className="mt-2 text-[12px] font-semibold leading-relaxed">
