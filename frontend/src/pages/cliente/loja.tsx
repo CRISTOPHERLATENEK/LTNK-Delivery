@@ -5,7 +5,7 @@ import { useParams, Link, useSearchParams } from 'react-router-dom';
 import { useTema, injetarFonteLink, foregroundContraste } from '@/lib/tema';
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2, Check, ArrowRight, ShoppingCart, UtensilsCrossed, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowLeft, Bike, Clock, Plus, Minus, Star, Search, X, ShoppingBag, Trash2, Check, ArrowRight, ShoppingCart, UtensilsCrossed, ChevronLeft, ChevronRight, ChevronDown } from 'lucide-react';
 import { api, ApiError, definirTenantDemo } from '@/lib/api';
 import { Falha } from '@/components/ui/estado';
 import { brl } from '@/lib/format';
@@ -16,6 +16,7 @@ import { adicionarAoCarrinho, useCarrinho, mudarQuantidade } from '@/lib/carrinh
 import { registrarLojaAtual, registrarCorLoja } from '@/lib/loja-atual';
 import { iconeCategoria } from '@/lib/icones-categoria';
 import { classesCategoria } from '@/lib/categoria-visual';
+import { comecarRecolhido } from '@/lib/recolher-categorias';
 import { ModalProduto } from './modal-produto';
 import { BannerCarousel } from '@/components/banner-carousel';
 import {
@@ -287,6 +288,32 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
       && !(p.controla_estoque && (p.estoque ?? 0) <= 0))
     .slice(0, 12);
 
+  /*
+   * CATEGORIA RECOLHIDA — clicar no nome abre os produtos.
+   *
+   * Pedido do lojista, e a razao esta no numero: a Galderio tem 458 itens a
+   * venda em 13 categorias, e a vitrine desenhava as 13 abertas, uma embaixo da
+   * outra. Quem entrava para comprar uma agua rolava por 60 cervejas, 60
+   * destilados e 60 essencias de narguile antes de chegar nela. A faixa de
+   * categorias no topo ja filtrava, mas quem nao percebe a faixa so tem rolagem.
+   *
+   * A REGRA E A MESMA DO CADASTRO (`comecarRecolhido`), e isso foi o pedido
+   * literal: "os produtos tem que ser igual ao cadastro de produto". Catalogo
+   * pequeno continua todo aberto — no Mostruario, com 36 itens, recolher
+   * cobraria um toque a mais para esconder o que ja caberia na tela.
+   *
+   * O ESTADO GUARDA SO A EXCECAO. `abertas[cat]` existe apenas para a categoria
+   * que a pessoa mexeu; o resto cai no padrao. Inicializar um conjunto com
+   * "todas as categorias" dependeria de os dados ja terem chegado quando este
+   * componente montou, e numa troca de loja o conjunto ficaria falando de
+   * categoria que nao existe mais.
+   */
+  const recolherPorPadrao = comecarRecolhido(todosComCat.length);
+  const [abertas, setAbertas] = useState<Record<string, boolean>>({});
+  const categoriaAberta = (cat: string) => abertas[cat] ?? !recolherPorPadrao;
+  const alternarCategoria = (cat: string) =>
+    setAbertas(a => ({ ...a, [cat]: !(a[cat] ?? !recolherPorPadrao) }));
+
   const semFiltro = !catAtiva && !busca;
   // Categoria selecionada sem subcategoria: agrupa por subcategoria dentro da cat
   const catSemSubfiltro = !!catAtiva && !subCatAtiva && !busca && subcategorias.length > 0;
@@ -536,10 +563,37 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
             const prods = cardapio[cat] ?? [];
             const subs = [...new Set(prods.map(p => p.subcategoria).filter((s): s is string => !!s))];
             const semSub = prods.filter(p => !p.subcategoria);
+            const aberta = categoriaAberta(cat);
             return (
-              <div key={cat} className="mb-8">
-                <h2 className="text-sm font-extrabold uppercase tracking-widest text-muted-foreground mb-3">{cat}</h2>
-                {subs.length > 0 ? (
+              <div key={cat} className={aberta ? 'mb-8' : 'mb-2'}>
+                {/*
+                  A FAIXA INTEIRA E O BOTAO, e nao so a setinha: no celular o
+                  alvo de toque tem que ser grande, e aqui nao concorre com
+                  nenhum outro controle dentro da faixa (no cadastro concorre,
+                  e la o clicavel e so o nome).
+
+                  A CONTAGEM FICA VISIVEL FECHADA. Categoria fechada sem numero
+                  nenhum nao diz se vale o toque — "Aguas 13" diz.
+                */}
+                <button
+                  type="button"
+                  onClick={() => alternarCategoria(cat)}
+                  aria-expanded={aberta}
+                  aria-controls={'cat-' + cat}
+                  className={cn('flex w-full items-center gap-2 rounded-xl px-1 py-2.5 text-left',
+                    'transition-colors hover:bg-muted/60 active:bg-muted',
+                    aberta ? 'mb-3' : 'mb-0')}
+                >
+                  <h2 className="flex-1 text-sm font-extrabold uppercase tracking-widest text-muted-foreground">
+                    {cat}
+                  </h2>
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-bold text-muted-foreground">
+                    {prods.length}
+                  </span>
+                  <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform',
+                    !aberta && '-rotate-90')} />
+                </button>
+                {!aberta ? null : subs.length > 0 ? (
                   <>
                     {semSub.length > 0 && (
                       <GridProdutos produtos={semSub} podeAbrir={!!loja.aberta} onAbrir={abrirProduto} onAdicionar={adicionarRapido} visual={visual} corMarca={loja.cor_marca} />

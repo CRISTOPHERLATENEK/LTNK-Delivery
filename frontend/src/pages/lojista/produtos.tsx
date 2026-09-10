@@ -19,6 +19,7 @@ import { promocaoVigente, hojeBrasilia } from '@/lib/preco-produto';
 import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { formSujo } from '@/lib/form-sujo';
+import { comecarRecolhido } from '@/lib/recolher-categorias';
 import { api, ApiError } from '@/lib/api';
 import { brl } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -1699,7 +1700,7 @@ export function ProdutosLoja() {
            * Com busca ou filtro ativo, NÃO recolhe: quem filtrou quer ver o
            * resultado, e o resultado é pequeno por definição.
            */
-          iniciarRecolhida={!termo && !filtroCategoria && filtrados.length > 150}
+          iniciarRecolhida={!termo && !filtroCategoria && comecarRecolhido(filtrados.length)}
           arrasto={podeOrdenar ? {
             arrastando: arrastandoCat === iCat,
             ativo: arrastandoCat !== null,
