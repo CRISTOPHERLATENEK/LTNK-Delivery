@@ -202,3 +202,44 @@ describe('a tela branca tem saída', () => {
     expect(todas).toBe(1);
   });
 });
+
+
+/*
+ * E EXISTE UM SO CAMINHO DE DEPLOY.
+ *
+ * Tudo acima protege o `deploy.sh`. Nao servia de nada enquanto a Action do
+ * GitHub tinha a PROPRIA copia dos passos: `npm run build` (que apaga
+ * `public/app-assets` antes de reconstruir) e `pm2 restart all` (que derruba os
+ * tres processos juntos). Empurrar um commit disparava esse caminho sem
+ * nenhuma das tres camadas — e rodando junto com um deploy manual, os dois
+ * mexiam no mesmo diretorio.
+ *
+ * MEDIDO no deploy da lupa, em 10/09/2026: o vigia avisou "RESTAURANDO 30
+ * assets que sumiram durante o deploy" com o `deploy.sh` rodando limpo. Os 30
+ * eram da Action, apagando por baixo dele.
+ */
+describe('a Action nao tem um deploy proprio', () => {
+  const action = fs.readFileSync(
+    path.join(__dirname, '../../.github/workflows/deploy.yml'), 'utf8');
+  /* O comentario do arquivo EXPLICA os passos antigos citando o nome deles.
+     Sem tirar comentario, toda asercao negativa aqui casaria com a propria
+     documentacao e o teste passaria de graca. */
+  const semComentarios = action.replace(/^\s*#.*$/gm, '');
+
+  it('chama o deploy.sh', () => {
+    expect(semComentarios).toContain('bash /opt/delivery/deploy.sh');
+  });
+
+  it('nao constroi nem reinicia por conta propria', () => {
+    expect(semComentarios).not.toContain('npm run build');
+    expect(semComentarios).not.toContain('pm2 restart');
+    expect(semComentarios).not.toContain('git reset');
+  });
+
+  /* Dois pushes seguidos nao podem virar dois deploys ao mesmo tempo — e a
+     corrida entre deploys e exatamente o que esta sendo consertado aqui. */
+  it('um deploy por vez', () => {
+    expect(action).toContain('concurrency:');
+    expect(action).toContain('cancel-in-progress: true');
+  });
+});

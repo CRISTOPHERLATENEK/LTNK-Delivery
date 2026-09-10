@@ -25,11 +25,23 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT || 22 }}
           command_timeout: 20m
+          # UM SO CAMINHO DE DEPLOY: `deploy.sh`.
+          #
+          # AQUI ESTAVA A INSTABILIDADE. Estes passos eram uma copia colada do
+          # deploy — e uma copia que ficou para tras. `npm run build` encadeia
+          # um passo que APAGA `public/app-assets` antes de reconstruir; nesse
+          # intervalo o navegador de quem esta com a pagina aberta pede um
+          # arquivo que nao existe mais e leva 404, e o `pm2 restart all`
+          # derruba os tres processos de uma vez em vez de recarregar um a um.
+          #
+          # Pior: rodando junto com um deploy manual, os dois mexiam no mesmo
+          # diretorio ao mesmo tempo. Medido no deploy da lupa, o vigia do
+          # `deploy.sh` avisou "RESTAURANDO 30 assets que sumiram durante o
+          # deploy" — eram os assets que esta Action apagou por baixo dele.
+          #
+          # `deploy.sh` faz o mesmo trabalho sem janela: constroi numa copia,
+          # publica de forma aditiva, troca o index.html com rename atomico,
+          # recarrega o PM2 esperando cada instancia subir, e deixa o
+          # `rollback.sh` pronto. Nao duplicar nada aqui e o ponto.
           script: |
-            cd /opt/delivery
-            git fetch origin migracao-mysql
-            git reset --hard origin/migracao-mysql
-            npm install
-            npm run build
-            pm2 restart all
-            pm2 save
+            bash /opt/delivery/deploy.sh
