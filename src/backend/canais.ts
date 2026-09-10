@@ -105,6 +105,26 @@ export const FUNCIONALIDADES = {
     porque: 'São documentos diferentes na operação do ERP; qual serve depende de como a loja trabalha.',
       desde: '2026-09-04',
   },
+  /*
+   * CHAVE PROPRIA, E EM ESTAVEL — nao ficou junto do `erp-modelo-documento`.
+   *
+   * O modelo (Pedido x Pre-Venda) e escolha experimental: sao documentos
+   * diferentes na operacao e ninguem sabia qual serve. Ja o STATUS nao tem nada
+   * de experimental — o comportamento (forcar Emitido) esta em producao desde o
+   * inicio, e o que muda e poder escolher a outra letra, com Emitido continuando
+   * o padrao de quem nao mexer.
+   *
+   * EM BETA, e nao em estavel: o Cristopher pediu para provar no Mostruario
+   * antes de qualquer cliente ver. Chave propria continua valendo — quando isto
+   * subir para estavel, sobe sozinho, sem arrastar o `erp-auto-emitir` (emitir
+   * NFC-e nao tem volta e a SEFAZ ainda recusa) nem o `erp-caixa`.
+   */
+  'erp-status-documento': {
+    canal: 'beta',
+    titulo: 'Escolher em que status o pedido fica no Maxx Gestão (Rascunho ou Emitido)',
+    porque: 'Rascunho chega aberto para o balcão faturar; Emitido chega fechado e aparece nos relatórios. Depende de como a loja opera.',
+      desde: '2026-09-10',
+  },
   'erp-caixa': {
     canal: 'beta',
     titulo: 'Enviar o pedido para um caixa do Maxx Gestão',

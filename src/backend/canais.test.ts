@@ -127,7 +127,7 @@ describe('as rotas em liberação exigem o canal', () => {
   const rotas = semComentarios(
     fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8'));
 
-  it('os três ajustes do ERP em beta são barrados no servidor', () => {
+  it('os ajustes do ERP em beta são barrados no servidor', () => {
     /*
      * Esconder o controle na tela não basta: a rota responde a quem chamar
      * direto, e quem está em estável não deveria conseguir ligar um ajuste que
@@ -137,6 +137,11 @@ describe('as rotas em liberação exigem o canal', () => {
       ["router.put('/erp/auto-emitir'", 'erp-auto-emitir'],
       ["router.put('/erp/modelo'", 'erp-modelo-documento'],
       ["router.put('/erp/caixa'", 'erp-caixa'],
+      /* O status ganhou CHAVE PROPRIA, e nao ficou junto do modelo: escolher a
+         letra nao e experimental (o comportamento esta em producao desde o
+         inicio), e junto do modelo o seletor ficaria invisivel para toda loja
+         em estavel. Em beta por ora, para provar no Mostruario primeiro. */
+      ["router.put('/erp/status'", 'erp-status-documento'],
     ]) {
       const i = rotas.indexOf(rota);
       expect(i, rota).toBeGreaterThan(0);
@@ -167,7 +172,8 @@ describe('as rotas em liberação exigem o canal', () => {
     const painel = fs.readFileSync(
       path.join(__dirname, '..', '..', 'frontend', 'src', 'pages', 'lojista', 'painel-maxxgestao.tsx'), 'utf8');
     expect(painel).toContain("estado?.funcionalidades?.includes(chave)");
-    for (const c of ['erp-auto-emitir', 'erp-caixa', 'erp-modelo-documento']) {
+    for (const c of ['erp-auto-emitir', 'erp-caixa', 'erp-modelo-documento',
+      'erp-status-documento']) {
       expect(painel, c).toContain(`liberada('${c}')`);
     }
   });

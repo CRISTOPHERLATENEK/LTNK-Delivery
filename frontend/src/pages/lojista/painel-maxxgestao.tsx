@@ -658,8 +658,9 @@ Ligar assim mesmo?`,
       </Linha>
       )}
 
-      {/* erp-modelo-documento — em liberação por canal */}
-      {liberada('erp-modelo-documento') && (
+      {/* erp-status-documento — estável: escolher o status não é experimental,
+          e o padrão (Emitido) segue valendo pra quem não mexer. */}
+      {liberada('erp-status-documento') && (
       <Linha
         titulo="Em que status o pedido fica"
         descricao={

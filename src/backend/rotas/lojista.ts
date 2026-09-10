@@ -4196,7 +4196,7 @@ router.put('/erp/modelo', async (req, res, next) => {
 router.put('/erp/status', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
-    exigirFuncionalidade(loja, 'erp-modelo-documento');
+    exigirFuncionalidade(loja, 'erp-status-documento');
     const bruto = String(req.body?.status ?? '').trim().toUpperCase();
     if (!(STATUS_DOCUMENTO as readonly string[]).includes(bruto)) {
       return res.status(400).json({ erro: 'Status invalido. Use R (Rascunho) ou E (Emitido).' });
