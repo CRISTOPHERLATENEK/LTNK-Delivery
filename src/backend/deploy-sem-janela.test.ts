@@ -115,6 +115,16 @@ describe('a limpeza do lixo antigo', () => {
   });
 });
 
+/** Só o que executa: comentário citando o texto antigo não conta como uso. */
+function execJs(fonte: string): string {
+  return fonte.split('\n')
+    .filter(l => {
+      const t = l.trimStart();
+      return !t.startsWith('*') && !t.startsWith('//') && !t.startsWith('/*');
+    })
+    .join('\n');
+}
+
 describe('o service worker cura 404 envenenado', () => {
   const sw = fs.readFileSync(path.join(RAIZ, 'public', 'sw.js'), 'utf8');
   const swFonte = fs.readFileSync(path.join(RAIZ, 'frontend', 'public', 'sw.js'), 'utf8');
@@ -182,6 +192,72 @@ describe('o service worker cura 404 envenenado', () => {
    */
   it('as duas cópias do sw.js são idênticas', () => {
     expect(swFonte).toBe(sw);
+  });
+
+  /*
+   * UMA PISCADA DE REDE NÃO PODE VIRAR ERRO PERMANENTE.
+   *
+   * `fetch` rejeita por qualquer soluço: Wi-Fi trocando de ponto, 4G mudando
+   * de antena, o servidor recarregando num deploy. Uma única falha dessas
+   * virava resposta 504 definitiva e o recurso não carregava naquela carga.
+   *
+   * Aconteceu de verdade em 10/09/2026, logo depois de um deploy: o console do
+   * lojista encheu de "504 (Sem rede e sem cache)" — e o servidor estava
+   * inteiro, respondendo todas as rotas em 200.
+   */
+  it('tenta uma segunda vez antes de desistir', () => {
+    const codigo = execJs(sw);
+    expect(codigo).toContain('async function buscarComSegundaChance(req)');
+    /* Duas chamadas a `fetch` dentro dela: a primeira e a segunda chance. */
+    const i = codigo.indexOf('async function buscarComSegundaChance');
+    const corpo = codigo.slice(i, i + 400);
+    expect((corpo.match(/fetch\(req\)/g) ?? []).length).toBe(2);
+    /* Com pausa: repetir no mesmo milissegundo falha pelo mesmo motivo. */
+    expect(corpo).toContain('setTimeout');
+  });
+
+  /*
+   * E É UMA SÓ. Laço de repetição contra servidor fora do ar só atrasa a
+   * mensagem de erro que a pessoa precisa ver.
+   */
+  it('não vira laço de repetição', () => {
+    const codigo = execJs(sw);
+    const i = codigo.indexOf('async function buscarComSegundaChance');
+    const corpo = codigo.slice(i, i + 400);
+    expect(corpo).not.toMatch(/for \(|while \(/);
+  });
+
+  /* Os dois caminhos que buscam na rede usam a segunda chance — o de asset
+     imutável e o dos demais. Consertar um só deixaria metade do app exposto. */
+  it('os dois caminhos de rede usam a segunda chance', () => {
+    const codigo = execJs(sw);
+    expect((codigo.match(/buscarComSegundaChance\(req\)/g) ?? []).length).toBe(3);
+    /* E nenhum `fetch(req)` solto sobrou fora da própria função e da
+       retentativa de 404 envenenado, que é `fetch(req, { cache: 'reload' })`. */
+    expect(codigo).not.toMatch(/= fetch\(req\)\s*$/m);
+  });
+
+  /*
+   * O TEXTO DA DESISTÊNCIA NÃO PODE ACUSAR O SERVIDOR.
+   *
+   * O console do navegador escreve "the server responded with a status of 504"
+   * em volta do que a gente põe aqui. Com "Sem rede e sem cache", parecia erro
+   * do servidor — que nunca chegou a ser consultado — e mandou procurar no
+   * lugar errado. Aconteceu comigo.
+   */
+  it('a mensagem diz de quem é a falha', () => {
+    const codigo = execJs(sw);
+    expect(codigo).toContain('function semRede()');
+    expect(codigo).toContain('o navegador nao alcancou o servidor');
+    expect(codigo).not.toContain('Sem rede e sem cache');
+  });
+
+  /* Uma função só, usada nos dois pontos: duas mensagens diferentes para a
+     mesma falha é como uma delas fica para trás numa correção futura. */
+  it('a desistência tem um lugar só', () => {
+    const codigo = execJs(sw);
+    expect((codigo.match(/statusText:/g) ?? []).length).toBe(1);
+    expect((codigo.match(/semRede\(\)/g) ?? []).length).toBe(3);
   });
 });
 

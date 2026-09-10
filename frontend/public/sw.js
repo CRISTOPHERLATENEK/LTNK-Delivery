@@ -18,6 +18,44 @@ const ESSENCIAIS = ['/'];
  */
 const ehImutavel = (url) => url.pathname.startsWith('/app-assets/');
 
+/**
+ * BUSCA COM UMA SEGUNDA CHANCE.
+ *
+ * `fetch` rejeita por qualquer solucao de continuidade da rede: Wi-Fi trocando
+ * de ponto, 4G mudando de antena, o servidor recarregando num deploy. Uma
+ * unica falha dessas virava 504 definitivo e o recurso nao carregava — uma
+ * piscada de rede virando erro permanente naquela carga.
+ *
+ * UMA tentativa a mais, e so. Nao e laco: servidor fora do ar continua fora na
+ * segunda, e insistir mais atrasaria a mensagem de erro que a pessoa precisa
+ * ver. A pausa existe porque falha de rede raramente se resolve no mesmo
+ * milissegundo — repetir na hora costuma falhar pelo mesmo motivo.
+ */
+async function buscarComSegundaChance(req) {
+  try {
+    return await fetch(req);
+  } catch (erro) {
+    await new Promise((r) => setTimeout(r, 400));
+    return fetch(req);
+  }
+}
+
+/**
+ * A resposta de desistencia.
+ *
+ * O TEXTO IMPORTA. Antes dizia "Sem rede e sem cache", e o console do
+ * navegador escreve "the server responded with a status of 504" em volta
+ * disso: parecia erro do SERVIDOR, que nunca chegou a ser consultado. Foi
+ * exatamente o que aconteceu — o 504 apareceu no console e mandou procurar no
+ * lugar errado. Agora o texto diz de quem e a falha.
+ */
+function semRede() {
+  return new Response('', {
+    status: 504,
+    statusText: 'offline: o navegador nao alcancou o servidor',
+  });
+}
+
 self.addEventListener('install', (e) => {
   self.skipWaiting();
   e.waitUntil(
@@ -80,7 +118,7 @@ self.addEventListener('fetch', (e) => {
     e.respondWith(
       caches.match(req).then((cached) => {
         if (cached) return cached;
-        return fetch(req)
+        return buscarComSegundaChance(req)
           .then(async (r) => {
             /*
              * 404 NUM ASSET COM HASH É MENTIRA DO CACHE ATÉ PROVA EM CONTRÁRIO.
@@ -121,7 +159,7 @@ self.addEventListener('fetch', (e) => {
             }
             return r;
           })
-          .catch(() => new Response('', { status: 504, statusText: 'Sem rede e sem cache' }));
+          .catch(() => semRede());
       })
     );
     return;
@@ -131,7 +169,7 @@ self.addEventListener('fetch', (e) => {
   // garantia de sempre devolver um Response de verdade (nunca undefined).
   e.respondWith(
     caches.match(req).then((cached) => {
-      const naRede = fetch(req)
+      const naRede = buscarComSegundaChance(req)
         .then((r) => {
           if (r && r.ok) {
             const copia = r.clone();
@@ -145,7 +183,7 @@ self.addEventListener('fetch', (e) => {
           }
           return r;
         })
-        .catch(() => cached || new Response('', { status: 504, statusText: 'Sem rede e sem cache' }));
+        .catch(() => cached || semRede());
       return cached || naRede;
     })
   );
