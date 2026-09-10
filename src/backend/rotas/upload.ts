@@ -17,6 +17,7 @@ import crypto from 'crypto';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { autenticar, exigirPerfil } from '../auth';
 import { erroHttp } from '../util';
+import { paraWeb } from '../imagem-web';
 
 const router = Router();
 router.use(autenticar, exigirPerfil('lojista', 'admin'));
@@ -59,17 +60,19 @@ const EXT_POR_MIME: Record<string, string> = {
 const TIPOS_PERMITIDOS = Object.keys(EXT_POR_MIME);
 const TAMANHO_MAX = 8 * 1024 * 1024; // 8 MB
 
-const armazenamento = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOAD_DIR),
-  filename: (_req, file, cb) => {
-    const ext = EXT_POR_MIME[file.mimetype] || '.jpg';
-    const nome = crypto.randomBytes(16).toString('hex') + ext;
-    cb(null, nome);
-  },
-});
-
+/*
+ * MEMORIA, NAO DISCO — e a mudanca que permite converter.
+ *
+ * O `diskStorage` gravava o arquivo como veio e so depois o handler rodava; nao
+ * havia como intervir sem ler de volta e reescrever. Com o buffer em memoria a
+ * conversao acontece ANTES de existir arquivo, e o que chega ao disco ja e o
+ * WebP.
+ *
+ * O custo e ate 8 MB de RAM por requisicao em andamento, contido pelo limite de
+ * 60 envios por 10 minutos por conta que ja existia acima.
+ */
 const upload = multer({
-  storage: armazenamento,
+  storage: multer.memoryStorage(),
   limits: { fileSize: TAMANHO_MAX },
   fileFilter: (_req, file, cb) => {
     if (TIPOS_PERMITIDOS.includes(file.mimetype)) return cb(null, true);
@@ -77,11 +80,40 @@ const upload = multer({
   },
 });
 
-router.post('/imagem', limiteUpload, upload.single('imagem'), (req, res, next) => {
+router.post('/imagem', limiteUpload, upload.single('imagem'), async (req, res, next) => {
   try {
     if (!req.file) throw erroHttp(400, 'Nenhuma imagem recebida.');
-    const url = `/uploads/${req.file.filename}`;
-    res.json({ url });
+
+    /*
+     * CONVERTE ANTES DE GRAVAR. Medido nos 88 arquivos que estavam em producao:
+     * 29 MB, media de 329 KB, o maior com 1.776 KB. Em WebP 1200px o mesmo
+     * arquivo de 1.776 KB fica em 103 KB — 94% menor, sem diferenca visivel.
+     *
+     * Um PNG de 1.776 KB e treze vezes o bundle inteiro do app comprimido:
+     * numa vitrine com vinte produtos, a foto E o carregamento.
+     */
+    const convertida = await paraWeb(req.file.buffer, req.file.mimetype);
+
+    /*
+     * FALHA NA CONVERSAO NAO PERDE O ENVIO. Arquivo corrompido, formato que o
+     * `sharp` recusa, memoria curta: grava o original com a extensao derivada
+     * do mimetype validado (nunca do nome que o cliente mandou — ver o mapa
+     * acima). Uma foto pesada e pior que uma foto leve; nenhuma foto e pior que
+     * as duas.
+     */
+    const ext = convertida ? convertida.extensao : (EXT_POR_MIME[req.file.mimetype] || '.jpg');
+    const dados = convertida ? convertida.buffer : req.file.buffer;
+    const nome = crypto.randomBytes(16).toString('hex') + ext;
+    await fs.promises.writeFile(path.join(UPLOAD_DIR, nome), dados);
+
+    if (convertida) {
+      console.log(`[upload] ${req.file.mimetype} ${Math.round(req.file.size / 1024)}KB`
+        + ` -> webp ${convertida.largura}x${convertida.altura} ${Math.round(dados.length / 1024)}KB`);
+    } else {
+      console.log(`[upload] ${req.file.mimetype} ${Math.round(req.file.size / 1024)}KB gravado sem converter`);
+    }
+
+    res.json({ url: `/uploads/${nome}` });
   } catch (e) { next(e); }
 });
 
