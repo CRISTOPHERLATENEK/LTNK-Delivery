@@ -24,6 +24,7 @@ import {
 } from '@/lib/visual';
 import type { Loja, Produto, Banner, VisualJson } from '@/types';
 import { cardapioInicial } from '@/lib/dados-iniciais';
+import { iconeSemFoto } from '@/lib/icone-sem-foto';
 
 interface CategoriaMeta { nome: string; icone: string; ordem: number; imagem?: string }
 interface RespostaCardapio {
@@ -664,7 +665,7 @@ function ModalAdicionado({ produto, onFechar }: { produto: Produto | null; onFec
                 <img src={produto.foto_url} alt="" className="size-14 shrink-0 rounded-2xl object-contain border border-border/60 bg-white" />
               ) : (
                 <div className="flex size-14 shrink-0 items-center justify-center rounded-2xl bg-muted text-muted-foreground/60">
-                  <UtensilsCrossed className="size-6" strokeWidth={1.5} />
+                  {(() => { const I = iconeSemFoto(produto.categoria, produto.nome); return <I className="size-6" strokeWidth={1.5} />; })()}
                 </div>
               )}
             </div>
@@ -726,7 +727,7 @@ function CarrinhoLateral({ loja }: { loja: Loja }) {
                   <img src={item.foto_url} alt="" className="size-9 shrink-0 rounded-xl bg-white object-contain" />
                 ) : (
                   <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-100 to-rose-200 text-neutral-500">
-                    <UtensilsCrossed className="size-4" strokeWidth={1.5} />
+                    {(() => { const I = iconeSemFoto(null, item.nome); return <I className="size-4" strokeWidth={1.5} />; })()}
                   </div>
                 )}
                 <div className="flex-1 min-w-0">
@@ -970,7 +971,7 @@ function VitrineDestaques({ produtos, podeAbrir, onAbrir, visual, corMarca }: {
                   />
                 ) : (
                   <div className="flex size-full items-center justify-center bg-muted text-muted-foreground/60">
-                    <UtensilsCrossed className="size-8" strokeWidth={1.5} />
+                    {(() => { const I = iconeSemFoto(p.categoria, p.nome); return <I className="size-8" strokeWidth={1.5} />; })()}
                   </div>
                 )}
                 {/*
@@ -1174,7 +1175,7 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
                   abrivel && 'group-hover:scale-105', esgotado && 'grayscale')} />
             : null}
           <div className="size-full items-center justify-center bg-muted text-muted-foreground/60" style={{ display: produto.foto_url ? 'none' : 'flex' }}>
-            <UtensilsCrossed className={layoutGrid ? 'size-9' : 'size-6'} strokeWidth={1.5} />
+            {(() => { const I = iconeSemFoto(produto.categoria, produto.nome); return <I className={layoutGrid ? 'size-9' : 'size-6'} strokeWidth={1.5} />; })()}
           </div>
           {/* Overlay esgotado */}
           {esgotado && (

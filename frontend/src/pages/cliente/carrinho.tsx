@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { PagamentoConfirmado } from './pagamento-confirmado';
 import { CartaoBrick } from '@/components/cartao-brick';
 import type { Endereco, FormaPagamento, UsuarioSessao } from '@/types';
+import { iconeSemFoto } from '@/lib/icone-sem-foto';
 
 export function PaginaCarrinho() {
   const carrinho = useCarrinho();
@@ -185,7 +186,7 @@ export function PaginaCarrinho() {
                     <img src={item.foto_url} alt="" className="size-12 shrink-0 rounded-xl bg-white object-contain" />
                   ) : (
                     <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-orange-100 to-rose-200 text-neutral-500">
-                      <UtensilsCrossed className="size-5" strokeWidth={1.5} />
+                      {(() => { const I = iconeSemFoto(null, item.nome); return <I className="size-5" strokeWidth={1.5} />; })()}
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
