@@ -42,7 +42,7 @@ import { descriptografar } from './cripto';
 import { chamarMaxxGestao, ErroMaxxGestao, type OpcoesMaxxGestao } from './maxxgestao-cliente';
 import { todasAsPaginas } from './maxxgestao-catalogo';
 import {
-  montarDocumento, diferencaDoTotal, modeloValido,
+  montarDocumento, diferencaDoTotal, modeloValido, statusValido,
   type DadosDoPedido, type ItemPedido,
 } from './maxxgestao-documento';
 import {
@@ -322,16 +322,30 @@ export async function fecharDocumentoNoErp(pedidoId: number, opcoes: OpcoesMaxxG
   const documento = Number(pedido?.maxxgestao_documento_id ?? 0);
   if (!pedido || documento <= 0) return false;
 
-  const loja = await db.prepare('SELECT maxxgestao_token FROM lojas WHERE id = ?')
-    .get(pedido.loja_id) as { maxxgestao_token: string | null } | undefined;
+  const loja = await db.prepare('SELECT maxxgestao_token, maxxgestao_status FROM lojas WHERE id = ?')
+    .get(pedido.loja_id) as { maxxgestao_token: string | null; maxxgestao_status: string | null } | undefined;
   let token = '';
   try { token = loja?.maxxgestao_token ? descriptografar(loja.maxxgestao_token) : ''; } catch { token = ''; }
   if (!token) return false;
 
+  /*
+   * RASCUNHO E O ESTADO EM QUE O ERP JA CRIA, entao nao ha nada a fazer.
+   *
+   * Devolver `true` e correto e nao mentira: a promessa desta funcao e "o
+   * documento esta no status que a loja pediu", e ele esta. Chamar o endpoint
+   * para pedir `R` seria uma ida a rede para confirmar o que ja e — e o ERP
+   * pode recusar a transicao de R para R, que apareceria como falha.
+   */
+  const desejado = statusValido(loja?.maxxgestao_status);
+  if (desejado === 'R') {
+    console.log(`[erp] pedido ${pedidoId}: documento ${documento} fica como Rascunho (escolha da loja)`);
+    return true;
+  }
+
   try {
     await chamarMaxxGestao(token, `/api/documento/${documento}/status/v1`, opcoes, {
       method: 'POST',
-      body: JSON.stringify({ status: 'E' }),
+      body: JSON.stringify({ status: desejado }),
     });
     /*
      * MENSAGEM NEUTRA porque agora há DOIS chamadores com significados

@@ -253,8 +253,14 @@ describe('nota emitida aqui fecha o documento no ERP', () => {
   const rotas = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
-  it('marca como E (Emitido), não outra letra', () => {
-    expect(emitir).toContain("status: 'E'");
+  /*
+   * ERA `status: 'E'` FIXO. Virou escolha da loja em 10/09/2026 — Rascunho faz
+   * o pedido chegar ABERTO para o balcao faturar, Emitido chega fechado. O
+   * padrao continua Emitido, que e o que esta em producao.
+   */
+  it('manda o status que a loja escolheu, não uma letra fixa', () => {
+    expect(emitir).toContain('status: desejado');
+    expect(emitir).toContain('statusValido(loja?.maxxgestao_status)');
   });
 
   it('só age quando existe documento no ERP', () => {

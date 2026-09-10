@@ -56,6 +56,35 @@ export interface DadosDoPedido {
 export const MODELOS_DOCUMENTO = ['PA', 'PV'] as const;
 export type ModeloDocumento = typeof MODELOS_DOCUMENTO[number];
 
+/**
+ * O STATUS COM QUE O DOCUMENTO FICA NO ERP.
+ *
+ * `R` = Rascunho: o documento chega ABERTO, e alguem no balcao confere e
+ * fatura. E o que "pedido de venda" costuma significar na operacao.
+ *
+ * `E` = Emitido: chega FECHADO. Aparece nos relatorios de venda do Gestao, mas
+ * ninguem trabalha ele depois.
+ *
+ * A ESCOLHA NAO E OBVIA, e por isso e do lojista e nao minha. Ficou forcada em
+ * `E` porque oito pedidos subiram como rascunho e desapareceram dos relatorios
+ * de venda do ERP — o que parecia perda de venda. Mas quem trabalha o pedido no
+ * balcao precisa dele aberto. Depende de como cada loja opera, e as duas
+ * escolhas tem um custo real.
+ */
+export const STATUS_DOCUMENTO = ['R', 'E'] as const;
+export type StatusDocumento = typeof STATUS_DOCUMENTO[number];
+
+/**
+ * O status gravado, ou o padrao.
+ *
+ * `E` continua o padrao: e o que esta em producao, e mudar o padrao trocaria o
+ * comportamento de quem nao pediu nada.
+ */
+export function statusValido(bruto: unknown): StatusDocumento {
+  const v = String(bruto ?? '').trim().toUpperCase();
+  return (STATUS_DOCUMENTO as readonly string[]).includes(v) ? v as StatusDocumento : 'E';
+}
+
 /** O modelo gravado, ou o padrão. Valor estranho no banco NÃO vira documento
     estranho: cai em `PA`, que é o comportamento conhecido. */
 export function modeloValido(bruto: unknown): ModeloDocumento {

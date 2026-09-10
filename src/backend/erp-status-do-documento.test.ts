@@ -55,7 +55,7 @@ describe('emitir passou a ser o padrão', () => {
    * que não aparece nos relatórios de venda de lá. Era o estado dos 8 que
    * subiram.
    */
-  it('marca o status E no envio, e isso não é opcional', () => {
+  it('o status é aplicado no envio, antes e fora da auto-emissão', () => {
     expect(exec(emitir)).toMatch(/const marcou = await fecharDocumentoNoErp\(pedidoId, opcoes\)/);
     /*
      * ORDEM, não janela de caracteres. Minha primeira versão olhava os 300
@@ -72,13 +72,52 @@ describe('emitir passou a ser o padrão', () => {
     expect(iOpcional).toBeGreaterThan(iStatus);
   });
 
-  it('o status E é POST de status, não transformar nem emitir', () => {
+  /*
+   * ERA `status: 'E'` FIXO AQUI. Virou escolha da loja em 10/09/2026, a pedido
+   * do dono da plataforma: quem trabalha o pedido no balcao precisa dele
+   * ABERTO, e "Emitido" chega fechado.
+   *
+   * O QUE ESTE TESTE PROTEGE NAO MUDOU: o status sai por um POST de status, e
+   * NAO por `transformar`/`emitir` — aqueles convertem o Pedido de Venda em
+   * NFC-e (modelo 65), consomem numeracao fiscal e vao a SEFAZ. Confundir os
+   * dois foi o erro original, e e um erro sem volta.
+   *
+   * O que mudou e so a LETRA, que agora vem da configuracao.
+   */
+  it('o status é POST de status, não transformar nem emitir', () => {
     const fn = emitir.slice(emitir.indexOf('export async function fecharDocumentoNoErp'));
     const corpo = fn.slice(0, fn.indexOf('\n}\n'));
     expect(corpo).toContain('/status/v1');
-    expect(corpo).toContain("status: 'E'");
+    expect(corpo).toContain('status: desejado');
     expect(corpo).not.toContain('transformar');
     expect(corpo).not.toContain('/emitir');
+  });
+
+  /*
+   * O PADRAO CONTINUA `E`. Mudar o padrao trocaria o comportamento de quem nao
+   * pediu nada — e a instalacao que esta em producao subiu com Emitido.
+   */
+  it('o padrão é Emitido quando a loja não escolheu', () => {
+    const doc = fs.readFileSync(path.join(__dirname, 'maxxgestao-documento.ts'), 'utf8');
+    const i = doc.indexOf('export function statusValido');
+    const corpo = doc.slice(i, i + 300);
+    expect(corpo).toContain("includes(v) ? v as StatusDocumento : 'E'");
+  });
+
+  /*
+   * E RASCUNHO NAO CHAMA A API. E o estado em que o ERP ja cria o documento:
+   * pedir `R` seria uma ida a rede para confirmar o que ja e, e o ERP pode
+   * recusar a transicao de R para R — que apareceria como falha de integracao.
+   */
+  it('escolher Rascunho não gasta requisição no ERP', () => {
+    const fn = emitir.slice(emitir.indexOf('export async function fecharDocumentoNoErp'));
+    const corpo = fn.slice(0, fn.indexOf('\n}\n'));
+    const iRascunho = corpo.indexOf("if (desejado === 'R')");
+    const iChamada = corpo.indexOf('/status/v1');
+    expect(iRascunho).toBeGreaterThan(0);
+    /* Antes da chamada: o `return` de Rascunho tem que cortar o caminho. */
+    expect(iRascunho).toBeLessThan(iChamada);
+    expect(corpo.slice(iRascunho, iChamada)).toContain('return true;');
   });
 
   /*
@@ -176,5 +215,43 @@ describe('a guarda de emissão manual', () => {
      era correta. */
   it('quando saiu, diz que já foi emitida lá', () => {
     expect(guarda).toContain('já foi emitida lá');
+  });
+});
+
+describe('a coluna e a porta que grava', () => {
+  const RAIZ = __dirname;
+  const schema = fs.readFileSync(path.join(RAIZ, 'schema-mysql.ts'), 'utf8');
+  const rotas = fs.readFileSync(path.join(RAIZ, 'rotas', 'lojista.ts'), 'utf8');
+
+  /*
+   * O `CREATE TABLE IF NOT EXISTS` NAO ALCANCA BANCO QUE JA EXISTE.
+   *
+   * Toda coluna nova precisa entrar TAMBEM no laco de `garantirColuna`, senao
+   * ela nasce so em instalacao nova — e em producao a consulta quebra com
+   * "Unknown column". E a armadilha que mais mordeu nesta base.
+   */
+  it('maxxgestao_status entra no laço de ALTER, com Emitido por padrão', () => {
+    expect(schema).toMatch(/\['lojas', 'maxxgestao_status', "maxxgestao_status VARCHAR\(2\) NOT NULL DEFAULT 'E'"\]/);
+  });
+
+  /*
+   * A ROTA RECUSA VALOR ESTRANHO em vez de cair no padrao. Gravar `E`
+   * silenciosamente quando pediram `R` faria o lojista concluir que o ajuste
+   * nao funciona — e ele tentaria de novo, e de novo.
+   */
+  it('a rota recusa status que não existe', () => {
+    const i = rotas.indexOf("router.put('/erp/status'");
+    expect(i).toBeGreaterThan(0);
+    const corpo = rotas.slice(i, i + 900);
+    expect(corpo).toContain('STATUS_DOCUMENTO as readonly string[]).includes(bruto)');
+    expect(corpo).toContain('res.status(400)');
+    expect(corpo).toContain('UPDATE lojas SET maxxgestao_status = ?');
+  });
+
+  /* E a tela precisa RECEBER o valor atual, senao ela mostra o padrao e o
+     lojista acha que a escolha dele nao pegou. */
+  it('o GET do ERP devolve o status atual', () => {
+    expect(rotas).toContain('status: statusValido(linha?.maxxgestao_status)');
+    expect(rotas).toContain('maxxgestao_status');
   });
 });

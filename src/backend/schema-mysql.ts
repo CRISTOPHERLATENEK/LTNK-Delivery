@@ -1279,6 +1279,19 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['lojas', 'maxxgestao_modelo', "maxxgestao_modelo VARCHAR(2) NOT NULL DEFAULT 'PA'"],
     /*
+     * O STATUS COM QUE O PEDIDO DE VENDA FICA NO ERP.
+     *
+     * `E` (Emitido) e o padrao porque e o que esta em producao — mudar o padrao
+     * trocaria o comportamento de quem nao pediu nada. `R` (Rascunho) faz o
+     * documento chegar ABERTO, para o balcao conferir e faturar.
+     *
+     * Nenhuma das duas e obviamente certa: rascunho nao aparece nos relatorios
+     * de venda do Gestao (foi o que fez oito pedidos parecerem perdidos), e
+     * emitido chega fechado, sem ninguem trabalhar. Por isso e escolha do
+     * lojista e nao regra minha.
+     */
+    ['lojas', 'maxxgestao_status', "maxxgestao_status VARCHAR(2) NOT NULL DEFAULT 'E'"],
+    /*
      * O CAIXA do Maxx Gestão em que o pedido entra.
      *
      * Medido em 03/09/2026: todo documento nascido no PDV deles tem `idCaixa`

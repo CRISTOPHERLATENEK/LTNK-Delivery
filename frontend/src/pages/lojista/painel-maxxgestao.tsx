@@ -35,6 +35,16 @@ export interface EstadoErp {
    */
   modelo: 'PA' | 'PV';
   /**
+   * O status com que o documento FICA no ERP: `R` (Rascunho) ou `E` (Emitido).
+   *
+   * Rascunho chega ABERTO, para o balcao conferir e faturar. Emitido chega
+   * FECHADO — aparece nos relatorios de venda do Gestao, mas ninguem trabalha
+   * ele depois. Nenhuma das duas e obviamente certa, e por isso e escolha do
+   * lojista: oito pedidos ja sumiram dos relatorios por ficarem em rascunho, e
+   * quem trabalha o pedido no balcao precisa dele aberto.
+   */
+  status: 'R' | 'E';
+  /**
    * O caixa do ERP em que o pedido entra. 0 = nenhum.
    *
    * Medido: todo documento nascido na operação do ERP tem caixa e os nossos
@@ -325,6 +335,27 @@ Ligar assim mesmo?`,
     } finally {
       setImportando(false);
     }
+  }
+
+  /*
+   * TROCAR O STATUS grava na hora e vale só para os PRÓXIMOS pedidos — igual ao
+   * modelo, e pelo mesmo motivo: documento que já está no ERP pode ter sido
+   * faturado, e mexer nele seria alterar o trabalho de alguém.
+   */
+  const [trocandoStatus, setTrocandoStatus] = useState(false);
+  async function trocarStatus(novo: 'R' | 'E') {
+    if (!estado || estado.status === novo) return;
+    setTrocandoStatus(true);
+    const antes = estado.status;
+    aoMudar({ ...estado, status: novo });
+    try {
+      await api<{ status: string }>('PUT', '/api/lojista/erp/status', { status: novo });
+    } catch (e) {
+      /* Volta ao que era: deixar a tela mostrando o novo faria o lojista
+         concluir que trocou, e os pedidos seguiriam subindo como antes. */
+      aoMudar({ ...estado, status: antes });
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setTrocandoStatus(false); }
   }
 
   /*
@@ -623,6 +654,53 @@ Ligar assim mesmo?`,
           O número está na tela de caixa do Maxx Gestão. Deixe vazio para não usar
           caixa. <b>Caixa errado é pior que nenhum</b>: o pedido entra no
           fechamento de outro operador.
+        </p>
+      </Linha>
+      )}
+
+      {/* erp-modelo-documento — em liberação por canal */}
+      {liberada('erp-modelo-documento') && (
+      <Linha
+        titulo="Em que status o pedido fica"
+        descricao={
+          estado?.status === 'R'
+            ? 'Rascunho — chega aberto para o balcão faturar.'
+            : 'Emitido — chega fechado, e aparece nos relatórios.'
+        }
+        acao={
+          <div className="flex shrink-0 gap-1 rounded-xl border border-border bg-muted/40 p-1">
+            {([
+              { v: 'R' as const, t: 'Rascunho' },
+              { v: 'E' as const, t: 'Emitido' },
+            ]).map(o => (
+              <button
+                key={o.v}
+                type="button"
+                disabled={!configurado || trocandoStatus}
+                aria-pressed={estado?.status === o.v}
+                onClick={() => void trocarStatus(o.v)}
+                className={cn(
+                  'rounded-lg px-2.5 py-1 text-[12.5px] font-bold transition-colors disabled:opacity-50',
+                  estado?.status === o.v
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {o.t}
+              </button>
+            ))}
+          </div>
+        }
+      >
+        {/*
+          O CUSTO DE CADA LADO, porque nenhum é obviamente certo e a escolha
+          erra silenciosamente: em Rascunho o pedido não entra nos relatórios de
+          venda do Gestão (oito já sumiram assim, e parecia venda perdida); em
+          Emitido ele chega fechado e ninguém trabalha ele no balcão.
+        */}
+        <p className="mt-2 max-w-[54ch] text-[12.5px] leading-relaxed text-muted-foreground">
+          Em <b>Rascunho</b> o pedido não aparece nos relatórios de venda do Gestão
+          até alguém faturar. Em <b>Emitido</b> aparece, mas chega fechado.
         </p>
       </Linha>
       )}

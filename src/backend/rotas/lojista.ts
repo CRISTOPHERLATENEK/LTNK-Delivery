@@ -45,7 +45,9 @@ import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoP
 import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
 import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '../maxxgestao-preambulo';
 import { enviarPedidoAoErp, fecharDocumentoNoErp } from '../maxxgestao-emitir';
-import { MODELOS_DOCUMENTO, modeloValido } from '../maxxgestao-documento';
+import {
+  MODELOS_DOCUMENTO, modeloValido, STATUS_DOCUMENTO, statusValido,
+} from '../maxxgestao-documento';
 import {
   funcionalidadeLiberada, funcionalidadesDoCanal, canalValido, ROTULO_CANAL,
   type ChaveFuncionalidade,
@@ -4009,11 +4011,13 @@ router.get('/erp', async (req, res, next) => {
     const loja = await minhaLoja(req);
     const token = await tokenMaxxGestaoDaLoja(loja.id);
     const linha = await db.prepare(
-      `SELECT nfce_emissor, maxxgestao_auto_emitir, maxxgestao_modelo, maxxgestao_id_caixa
+      `SELECT nfce_emissor, maxxgestao_auto_emitir, maxxgestao_modelo, maxxgestao_status,
+              maxxgestao_id_caixa
          FROM lojas WHERE id = ?`
     ).get(loja.id) as {
       nfce_emissor: string | null; maxxgestao_auto_emitir: number | null;
-      maxxgestao_modelo: string | null; maxxgestao_id_caixa: number | null;
+      maxxgestao_modelo: string | null; maxxgestao_status: string | null;
+      maxxgestao_id_caixa: number | null;
     } | undefined;
     res.json({
       token: mascarar(token),
@@ -4023,6 +4027,7 @@ router.get('/erp', async (req, res, next) => {
       emitindo: String(linha?.nfce_emissor ?? 'sistema') === 'erp',
       auto_emitir: Number(linha?.maxxgestao_auto_emitir ?? 0) === 1,
       modelo: modeloValido(linha?.maxxgestao_modelo),
+      status: statusValido(linha?.maxxgestao_status),
       caixa: Math.max(0, Number(linha?.maxxgestao_id_caixa ?? 0)),
       /*
        * O QUE O CANAL DESTA LOJA ABRE.
@@ -4178,6 +4183,27 @@ router.put('/erp/modelo', async (req, res, next) => {
     await db.prepare('UPDATE lojas SET maxxgestao_modelo = ? WHERE id = ?').run(bruto, loja.id);
     console.log(`[erp] loja ${loja.id}: documento passa a subir como ${bruto}`);
     res.json({ modelo: bruto });
+  } catch (e) { next(e); }
+});
+
+/*
+ * O STATUS COM QUE O PEDIDO DE VENDA FICA NO ERP.
+ *
+ * Mesma porta e mesma trava do modelo: escolha explicita de gente, e valor
+ * estranho e recusado em vez de cair no padrao — gravar `E` silenciosamente
+ * quando pediram `R` faria o lojista concluir que o ajuste nao funciona.
+ */
+router.put('/erp/status', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    exigirFuncionalidade(loja, 'erp-modelo-documento');
+    const bruto = String(req.body?.status ?? '').trim().toUpperCase();
+    if (!(STATUS_DOCUMENTO as readonly string[]).includes(bruto)) {
+      return res.status(400).json({ erro: 'Status invalido. Use R (Rascunho) ou E (Emitido).' });
+    }
+    await db.prepare('UPDATE lojas SET maxxgestao_status = ? WHERE id = ?').run(bruto, loja.id);
+    console.log(`[erp] loja ${loja.id}: documento passa a ficar como ${bruto}`);
+    res.json({ status: bruto });
   } catch (e) { next(e); }
 });
 
