@@ -49,6 +49,18 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
   const [subCatAtiva, setSubCatAtiva] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
   const [adicionado, setAdicionado] = useState<Produto | null>(null);
+  /*
+   * AQUI EM CIMA, JUNTO DOS OUTROS ESTADOS, e nao la embaixo perto de onde e
+   * usado. Eu declarei este `useState` no meio do calculo das categorias, que
+   * fica DEPOIS dos `return` de carregando/erro — e na primeira renderizacao
+   * (ainda sem dados) o hook nao rodava, na segunda rodava. React conta hooks:
+   * a vitrine da Galderio caiu em producao com "Rendered more hooks than during
+   * the previous render" e a tela de "Ops, algo deu errado".
+   *
+   * Toda a regra de recolher continua onde e lida (`recolherPorPadrao`,
+   * `categoriaAberta`); o que sobe e so a declaracao do estado.
+   */
+  const [abertas, setAbertas] = useState<Record<string, boolean>>({});
   const { aplicarCorPrimaria, resetarCorPrimaria, aplicarFaviconLoja, resetarFavicon, marca } = useTema();
 
   // ?tenant=<slug> força a resolução de tenant por slug em vez do Host da
@@ -309,7 +321,6 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
    * categoria que nao existe mais.
    */
   const recolherPorPadrao = comecarRecolhido(todosComCat.length);
-  const [abertas, setAbertas] = useState<Record<string, boolean>>({});
   const categoriaAberta = (cat: string) => abertas[cat] ?? !recolherPorPadrao;
   const alternarCategoria = (cat: string) =>
     setAbertas(a => ({ ...a, [cat]: !(a[cat] ?? !recolherPorPadrao) }));

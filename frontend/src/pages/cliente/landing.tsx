@@ -374,7 +374,20 @@ function NotebookHero({ src, nome }: { src?: string; nome: string }) {
 
 const CHAVE_TEMA_LANDING = 'tema:landing';
 
-function usarTemaLanding() {
+/*
+ * O PREFIXO `use` E EXIGENCIA DE FERRAMENTA, nao estilo.
+ *
+ * Este gancho se chamava `usarTemaLanding`, em portugues como o resto do
+ * codigo. So que a regra `react-hooks/rules-of-hooks` identifica gancho pelo
+ * prefixo `use`: com o nome em portugues ela nao reconhecia a funcao como
+ * gancho, reclamava das quatro chamadas aqui dentro, e essas quatro reclamacoes
+ * viravam ruido que escondia as de verdade.
+ *
+ * E foi uma de verdade que derrubou a vitrine da Galderio em producao: um
+ * `useState` declarado depois do `return` de carregamento. O eslint pegava, e
+ * ninguem rodava porque o resultado vinha cheio de falso positivo.
+ */
+function useTemaLanding() {
   const [escuro, setEscuro] = useState(() => {
     const salvo = localStorage.getItem(CHAVE_TEMA_LANDING);
     if (salvo) return salvo === 'escuro';
@@ -433,7 +446,7 @@ export function PaginaLanding() {
   }, [modoPreview]);
   const marca = previewOverride ? { ...marcaBase, ...previewOverride } : marcaBase;
 
-  const { escuro, alternar } = usarTemaLanding();
+  const { escuro, alternar } = useTemaLanding();
   const raiz = useRef<HTMLDivElement>(null);
   const navRef = useRef<HTMLElement>(null);
   const [menuAberto, setMenuAberto] = useState(false);

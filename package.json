@@ -17,6 +17,7 @@
     "seed": "npm run build:backend && node dist/backend/seed.js",
     "fotos:medir": "node dist/backend/ajustar-fotos.js",
     "fotos:ajustar": "node dist/backend/ajustar-fotos.js --fazer",
+    "lint:ganchos": "cd frontend && npm run lint:ganchos",
     "test": "vitest run",
     "test:watch": "vitest"
   },

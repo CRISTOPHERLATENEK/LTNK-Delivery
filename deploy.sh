@@ -100,6 +100,29 @@ npx tsc -p tsconfig.backend.json
 vigia "30 tsc backend"
 
 # ---------------------------------------------------------------------------
+# 2b. A REGRA DOS GANCHOS DO REACT, e ela para o deploy.
+#
+#     POR QUE ISSO GANHOU UM PASSO PRÓPRIO. Em 10/09/2026 a vitrine da Galderio
+#     foi publicada com um `useState` declarado depois do `return` de
+#     carregamento. Na primeira renderização o gancho não rodava, na segunda
+#     rodava; o React conta ganchos e derrubou a página inteira com "Rendered
+#     more hooks than during the previous render". Quem abria a loja via "Ops,
+#     algo deu errado" — e o `tsc` compila isso sem reclamar, porque não é erro
+#     de tipo.
+#
+#     O eslint do projeto pegava. Ninguém rodava: `npm run lint` leva 78
+#     segundos e reporta 250 problemas antigos (101 variáveis não usadas, 73
+#     `any`), então o aviso que era um site fora do ar ficava enterrado no meio.
+#
+#     Este passo roda UMA regra só, sem carregar tipos: 22 segundos, e falha o
+#     deploy antes de qualquer coisa ser publicada. Porteiro que reclama de tudo
+#     é porteiro que ninguém escuta.
+# ---------------------------------------------------------------------------
+echo "→ Conferindo a regra dos ganchos do React"
+( cd frontend && npx eslint src --config eslint.ganchos.config.js )
+vigia "35 regra dos ganchos"
+
+# ---------------------------------------------------------------------------
 # 3. Frontend numa cópia. `set -e` garante que um build que falhe pare aqui,
 #    com o que está no ar intocado.
 # ---------------------------------------------------------------------------
