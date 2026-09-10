@@ -134,8 +134,47 @@ describe('emitir passou a ser o padrão', () => {
    * O RESULTADO É GRAVADO. Sem isto, "não marcou" continua sendo uma linha de
    * log — e log é onde a informação vai morar quando não há ninguém lendo.
    */
-  it('o resultado da marcação é gravado no pedido', () => {
-    expect(exec(emitir)).toMatch(/registrarResultado\(pedidoId, marcou/);
+  /*
+   * ERA `registrarResultado(pedidoId, marcou` — e este teste, afirmando apenas
+   * que ALGO era gravado, foi o que deixou a mentira passar. `registrarResultado`
+   * grava `maxxgestao_emitido_em`, e ajustar o status do Pedido de Venda nao e
+   * emitir nota: medido em 10/09/2026, TODOS os pedidos do Mostruario tinham
+   * `emitido_em` preenchida e `chave` vazia. Com o status Rascunho ficou
+   * absurdo — a coluna afirmava emissao de um rascunho.
+   */
+  it('o passo de status grava o motivo, e NÃO emitido_em', () => {
+    const codigo = exec(emitir);
+    expect(codigo).toMatch(/registrarMotivo\(pedidoId,/);
+    /* A prova negativa: `registrarResultado` nao e chamado com `marcou`. */
+    expect(codigo).not.toMatch(/registrarResultado\(pedidoId, marcou/);
+    /* E a funcao nova nao encosta em emitido_em. */
+    const i = codigo.indexOf('async function registrarMotivo');
+    const corpo = codigo.slice(i, codigo.indexOf('\n}', i));
+    expect(corpo).toContain('maxxgestao_motivo = ?');
+    expect(corpo).not.toContain('maxxgestao_emitido_em');
+  });
+
+  /*
+   * E `emitido_em` SO ANDA JUNTO DA CHAVE. Chave de 44 digitos e o unico sinal
+   * de que a SEFAZ autorizou; sem isso a coluna volta a mentir, agora do outro
+   * lado — nota emitida de verdade sem registro nenhum.
+   */
+  it('emitido_em é gravada com a chave, no mesmo UPDATE', () => {
+    const codigo = exec(emitir);
+    const linhas = codigo.split('\n').filter(l => l.includes('maxxgestao_emitido_em = ?'));
+    expect(linhas.length).toBeGreaterThan(0);
+    /*
+     * E A CHAVE GRAVA `emitido_em` NO MESMO UPDATE. Sem esta afirmacao, tirar a
+     * coluna do UPDATE da nota autorizada passava batido: o laco abaixo so
+     * confere quem escreve, e se ninguem escrevesse ele nao rodaria. A coluna
+     * voltaria a mentir do outro lado — nota emitida de verdade sem registro.
+     */
+    expect(codigo).toContain('maxxgestao_chave = ?, maxxgestao_emitido_em = ?');
+    for (const l of linhas) {
+      /* Cada escrita de emitido_em acompanha a chave, ou limpa o campo numa
+         falha (`registrarResultado` com false). */
+      expect(l.includes('maxxgestao_chave = ?') || l.includes("maxxgestao_emitido_em = ?, maxxgestao_motivo")).toBe(true);
+    }
   });
 
   it('o motivo da recusa é gravado no pedido', () => {

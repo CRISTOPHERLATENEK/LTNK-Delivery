@@ -390,6 +390,28 @@ export /**
  * Nunca lança: falhar ao REGISTRAR uma falha não pode derrubar o fluxo do
  * pedido — a venda já aconteceu e o cliente está esperando.
  */
+/**
+ * REGISTRA SO O MOTIVO — nao toca em `maxxgestao_emitido_em`.
+ *
+ * Existe porque o passo de STATUS do Pedido de Venda estava gravando
+ * `emitido_em`, e status de PV nao e nota emitida. O resultado, medido em
+ * 10/09/2026 no Mostruario: TODOS os pedidos com `emitido_em` preenchida e
+ * `chave` vazia — a coluna dizia "nota emitida" para documento que nunca foi a
+ * SEFAZ. Com o status Rascunho ficou absurdo: ela afirmava emissao de um
+ * RASCUNHO.
+ *
+ * O comentario do schema ja dizia que `emitido_em` so seria preenchida com a
+ * nota AUTORIZADA. Era verdade sobre a intencao e falso sobre o codigo.
+ */
+async function registrarMotivo(pedidoId: number, motivo: string): Promise<void> {
+  try {
+    await db.prepare('UPDATE pedidos SET maxxgestao_motivo = ? WHERE id = ?')
+      .run(motivo.slice(0, 300), pedidoId);
+  } catch (e) {
+    console.error(`[erp] pedido ${pedidoId}: nao deu para registrar o motivo:`, e);
+  }
+}
+
 async function registrarResultado(pedidoId: number, emitiu: boolean, motivo: string): Promise<void> {
   try {
     await db.prepare(
@@ -421,7 +443,15 @@ async function emitirDocumentoNoErp(
     const resp = await chamarMaxxGestao(token, `/api/documento/${documento}/emitir/v1`, opcoes, { method: 'POST' });
     const chave = chaveDaResposta(resp);
     if (chave) {
-      await db.prepare('UPDATE pedidos SET maxxgestao_chave = ? WHERE id = ?').run(chave, pedidoId);
+      /*
+       * `emitido_em` VEM JUNTO DA CHAVE, e so aqui.
+       *
+       * Chave de 44 digitos e o unico sinal de que a SEFAZ autorizou. Antes
+       * esta coluna era preenchida no passo de status do Pedido de Venda, e o
+       * caminho da nota de verdade nao a preenchia — as duas pontas trocadas.
+       */
+      await db.prepare('UPDATE pedidos SET maxxgestao_chave = ?, maxxgestao_emitido_em = ? WHERE id = ?')
+        .run(chave, agoraUTC(), pedidoId);
     }
     console.log(
       `[erp] pedido ${pedidoId}: NFC-e emitida no ERP (documento ${documento})`
@@ -682,8 +712,16 @@ export async function enviarPedidoAoErp(
    * por padrão.
    */
   const marcou = await fecharDocumentoNoErp(pedidoId, opcoes);
-  await registrarResultado(pedidoId, marcou,
-    marcou ? '' : 'o documento subiu, mas não deu para marcar como Emitido no ERP');
+  /*
+   * `registrarMotivo` E NAO `registrarResultado`: ajustar o status do Pedido de
+   * Venda nao e emitir nota, e gravar `emitido_em` aqui era o que fazia a
+   * coluna mentir em todo pedido.
+   *
+   * A mensagem tambem deixou de dizer "Emitido": o status agora e escolha da
+   * loja, e pode ser Rascunho.
+   */
+  await registrarMotivo(pedidoId,
+    marcou ? '' : 'o documento subiu, mas não deu para ajustar o status no ERP');
 
   /*
    * EMITIR NFC-e PELO ERP é outra coisa, e continua opt-in desligada: emitir
