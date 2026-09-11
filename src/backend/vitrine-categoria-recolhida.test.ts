@@ -90,3 +90,27 @@ describe('o recolhimento na vitrine', () => {
     expect(depois).not.toContain('categoriaAberta(');
   });
 });
+
+
+describe('filtrar nao pode esconder o que foi filtrado', () => {
+  /*
+   * A SECAO SO LIA `iniciarRecolhida` NA MONTAGEM, e a `key` da lista preserva
+   * as secoes. Num catalogo grande, digitar na busca ou clicar num chip de
+   * categoria deixava o resumo dizendo "61 itens em CERVEJAS" com a secao
+   * fechada logo abaixo e nenhum card a vista — parece que o filtro apagou o
+   * cardapio. E ficava inconsistente na mesma tela: a categoria que saiu da
+   * lista enquanto se digitava remontava ABERTA, a vizinha continuava fechada.
+   */
+  it('a secao do cadastro reabre quando entra busca ou filtro', () => {
+    const i = CADASTRO.indexOf('const [aberta, setAberta]');
+    const corpo = CADASTRO.slice(i, i + 700);
+    expect(corpo).toMatch(/useEffect\([\s\S]{0,200}setAberta\(!iniciarRecolhida\)/);
+    expect(corpo).toContain('[iniciarRecolhida]');
+  });
+
+  /* E na vitrine do cliente, o botao aponta para um alvo que existe. */
+  it('o aria-controls da vitrine tem destino', () => {
+    expect(VITRINE).toContain("aria-controls={'cat-' + cat}");
+    expect(VITRINE).toContain("id={'cat-' + cat}");
+  });
+});

@@ -49,6 +49,24 @@ const API_COSMOS = 'https://api.cosmos.bluesoft.com.br/gtins';
 const UA = 'MaxxDelivery/1.0 (adm@maxxpedidos.com.br)';
 
 /**
+ * QUANTO TEMPO EU ESPERO CADA FONTE, e sem isto o `fetch` do Node espera 300
+ * SEGUNDOS: e o padrao do undici para cabecalho e para corpo.
+ *
+ * Uma chamada da lupa encadeia ate seis requisicoes (cadastro do Cosmos,
+ * imagem do Cosmos, consulta da Open Food Facts com duas retentativas, imagem
+ * da Open Food Facts). Com a fonte LENTA — nao fora do ar, mas aceitando a
+ * conexao e nao respondendo, que foi o comportamento medido no dia do 429 — um
+ * unico clique de lojista prendia o processo por minutos. Alguns cliques em
+ * paralelo e o app para de aceitar requisicao nova, por causa de um servico de
+ * terceiro que nao nos deve nada.
+ *
+ * 8 segundos para consulta e 20 para download: a imagem do Cosmos chega a 1,4
+ * MB, e o medido no servidor foi 0,3 a 1,2 segundo por foto.
+ */
+const ESPERA_CONSULTA = 8_000;
+const ESPERA_DOWNLOAD = 20_000;
+
+/**
  * DE ONDE ACEITO BAIXAR — lista fechada, e é a peça de segurança do arquivo.
  *
  * A URL da imagem da Open Food Facts vem de dentro de um registro que QUALQUER
@@ -180,6 +198,16 @@ export const candidatoCosmos: Fonte = async (codigo, buscar, _esperar, token) =>
           'User-Agent': UA,
           'Content-Type': 'application/json',
         },
+        /*
+         * NAO SEGUE REDIRECIONAMENTO, e aqui o motivo e o segredo: esta e a
+         * unica requisicao do modulo que carrega credencial. O `fetch` do Node
+         * so tira o cabecalho `Authorization` ao mudar de origem — um cabecalho
+         * proprio como `X-Cosmos-Token` e reenviado ao destino. Um 302 (por
+         * erro de configuracao deles ou por comprometimento) entregaria o token
+         * pago a quem estivesse do outro lado.
+         */
+        redirect: 'error',
+        signal: AbortSignal.timeout(ESPERA_CONSULTA),
       });
       if (r.ok) {
         const d = await r.json() as { description?: string; brand?: { name?: string } };
@@ -214,7 +242,12 @@ export const candidatoOpenFoodFacts: Fonte = async (codigo, buscar, esperar) => 
     try {
       const r = await buscar(
         `${API_OFF}/${cod}.json?fields=product_name,brands,image_front_url,image_url,image_front_small_url`,
-        { headers: { 'User-Agent': UA } },
+        {
+          headers: { 'User-Agent': UA },
+          /* Resposta de terceiro nao escolhe para onde eu vou depois. */
+          redirect: 'error',
+          signal: AbortSignal.timeout(ESPERA_CONSULTA),
+        },
       );
       /*
        * 429 E 5xx NÃO SÃO "NÃO EXISTE". Confundir os dois foi o erro que fez a
@@ -302,6 +335,7 @@ export async function baixarComMotivo(
   const r = await buscar(url, {
     headers: { 'User-Agent': UA },
     redirect: 'error',        /* redirecionamento sairia da lista de hosts */
+    signal: AbortSignal.timeout(ESPERA_DOWNLOAD),
   });
   /* 404 e 410 sao resposta: a fonte nao tem esta imagem. */
   if (r.status === 404 || r.status === 410) return { ok: false, motivo: 'nao-tem' };
@@ -321,6 +355,17 @@ export async function baixarComMotivo(
    */
   const tipo = String(r.headers.get('content-type') || '');
   if (tipo && !tipo.startsWith('image/')) return { ok: false, motivo: 'imprestavel' };
+
+  /*
+   * O TETO E CONFERIDO ANTES DE TRAZER O CORPO, quando o outro lado declara o
+   * tamanho. Conferir so depois do `arrayBuffer()` e conferir com o arquivo JA
+   * inteiro na memoria do processo — que e exatamente o que o teto existe para
+   * evitar. O `content-length` e declaracao de terceiro e pode mentir, entao a
+   * conferencia depois continua aqui embaixo: uma barra o caso honesto sem
+   * custo, a outra barra a mentira.
+   */
+  const declarado = Number(r.headers.get('content-length') || 0);
+  if (declarado > TAMANHO_MAX) return { ok: false, motivo: 'imprestavel' };
 
   const bytes = Buffer.from(await r.arrayBuffer());
   if (!bytes.length || bytes.length > TAMANHO_MAX) return { ok: false, motivo: 'imprestavel' };

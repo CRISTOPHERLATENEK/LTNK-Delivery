@@ -436,6 +436,19 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
               alt={produto.nome}
               className="size-full object-contain"
             />
+            {/*
+              A ATRIBUICAO DA FOTO, quando ela nao e do lojista.
+              Pequena e no canto de proposito: e obrigacao de licenca
+              (CC-BY-SA na Open Food Facts), nao informacao de compra — tem que
+              estar visivel para quem ve a imagem, sem disputar espaco com o
+              produto. Credito vazio significa foto do proprio lojista, e ai
+              nao aparece nada.
+            */}
+            {!!produto.foto_credito && (
+              <span className="pointer-events-none absolute right-2 top-2 rounded bg-black/45 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white/90">
+                foto: {produto.foto_credito}
+              </span>
+            )}
             {/* Degradê até o fundo: sem ele a foto termina numa faixa dura e o
                 nome parece colado numa borda. */}
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-12 bg-gradient-to-t from-background to-transparent" />

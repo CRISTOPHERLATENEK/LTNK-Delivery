@@ -7,11 +7,20 @@ on:
     branches: [migracao-mysql]
   workflow_dispatch:
 
-# Evita dois deploys ao mesmo tempo (se empurrar dois commits seguidos, o
-# segundo cancela o primeiro em vez de rodarem em paralelo).
+# Evita dois deploys ao mesmo tempo: o segundo ESPERA o primeiro terminar.
+#
+# ERA `cancel-in-progress: true`, e isso ficou errado no dia em que a Action
+# passou a so chamar o `deploy.sh`. Cancelar o job mata a conexao ssh, nao o
+# script no VPS: ele continua rodando sozinho ate o fim. O run seguinte entrava
+# no mesmo /opt/delivery com o anterior no meio da publicacao e gravava o ponto
+# de retorno do rollback (`public.anterior` e `.deploy-anterior`) a partir de um
+# estado que nunca esteve no ar.
+#
+# A trava de verdade e o `flock` no proprio `deploy.sh` — esta linha so evita
+# que a fila cresca de graca aqui no GitHub.
 concurrency:
   group: deploy-vps
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:

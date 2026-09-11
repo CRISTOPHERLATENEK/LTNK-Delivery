@@ -436,6 +436,7 @@ export interface Produto {
   serve_pessoas?: number | null;
   destaque?: 0 | 1;
   foto_url?: string;
+  foto_credito?: string;
   disponivel?: 0 | 1;
   /** Vender no PDV é decisão separada de aparecer no cardápio. */
   disponivel_pdv?: 0 | 1;

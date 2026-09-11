@@ -42,6 +42,21 @@ export const CANTO_MIN = 0.7;
 export const GLOBAL_MIN = 0.35;
 
 /**
+ * QUANTO DA IMAGEM PRECISA SER PRODUTO. Este piso existe porque fundo branco
+ * sozinho e um teste que o QUADRADO BRANCO PASSA COM NOTA MAXIMA: quatro cantos
+ * em 100%, claro global em 100%, nada exigindo que haja produto na foto. E as
+ * bases sao editaveis por qualquer pessoa — a Open Food Facts ja me devolveu um
+ * registro de teste com imagem de 1x1 pixel; imagem branca de 1200x1200 passa
+ * pelo piso de tamanho sem esforco.
+ *
+ * O NUMERO VEIO DE MEDICAO, nas 12 fotos reais gravadas hoje na Galderio:
+ * a que tem menos produto ocupa 9,5% da imagem, a mediana 31%, a maior 57%.
+ * Uma imagem toda branca da 0,0%; branca com um selo de 40x40 no meio da 0,2%.
+ * 3% fica tres vezes abaixo do menor caso real e trinta vezes acima do lixo.
+ */
+export const CONTEUDO_MIN = 0.03;
+
+/**
  * O lado do quadrado de canto, em fração do lado da imagem. 12% dá um quadrado
  * de 19 px na amostra de 160 — grande o bastante para não ser decidido por um
  * pixel sujo, pequeno o bastante para não alcançar o produto no meio.
@@ -61,6 +76,11 @@ export interface Fundo {
   piorCanto: number;
   /** A proporção de pixels claros na imagem inteira. */
   global: number;
+  /** O que sobra: a parte da imagem que NÃO é fundo, ou seja, o produto. */
+  conteudo: number;
+  /** Tem produto suficiente para ser foto de alguma coisa. */
+  temProduto: boolean;
+  /** Fundo branco E produto na frente. É este que decide se a foto entra. */
   branco: boolean;
 }
 
@@ -115,11 +135,22 @@ export async function analisarFundo(entrada: Buffer): Promise<Fundo | null> {
 
     const piorCanto = Math.min(...cantos);
     const global = total ? clarosTotal / total : 0;
+    const conteudo = 1 - global;
+    const temProduto = conteudo >= CONTEUDO_MIN;
+    const fundoClaro = piorCanto >= CANTO_MIN || global >= GLOBAL_MIN;
     return {
       cantos,
       piorCanto,
       global,
-      branco: piorCanto >= CANTO_MIN || global >= GLOBAL_MIN,
+      conteudo,
+      temProduto,
+      /*
+       * AS DUAS CONDICOES JUNTAS, e a segunda nao e detalhe: sem ela o quadrado
+       * branco e a melhor foto que existe pela regra do fundo — e entraria na
+       * vitrine como "produto com foto", que e pior que produto sem foto
+       * nenhuma, porque some da lista do que falta.
+       */
+      branco: fundoClaro && temProduto,
     };
   } catch {
     return null;

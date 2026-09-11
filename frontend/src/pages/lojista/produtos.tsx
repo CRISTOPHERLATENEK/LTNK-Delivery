@@ -1796,17 +1796,35 @@ function BuscaFotoPorCodigo({ codigo, onUsar }: {
   const curto = limpo.length < 8;
 
   type Achado = {
+    /* O código que produziu ESTA prévia. É ele que o "usar" grava. */
+    codigo: string;
     previa: string; nome_na_base: string; marca: string; credito: string;
     fonte: string; largura: number; altura: number;
   };
+  /* O código atual visto de dentro de uma resposta que já estava no ar: o
+     `limpo` capturado pela closure é o de quando a busca começou. */
+  const limpoRef = useRef(limpo);
+  limpoRef.current = limpo;
+
   const [buscando, setBuscando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [achado, setAchado] = useState<Achado | null>(null);
   const [recusa, setRecusa] = useState('');
 
-  /* O achado é de UM código. Trocar o código no campo ao lado invalida a
-     prévia na tela — sem isto, a pessoa buscaria a Brahma, corrigiria o
-     código pra Skol e gravaria a foto da Brahma. */
+  /*
+   * O ACHADO É DE UM CÓDIGO, e é isso que esta trava garante nos dois sentidos.
+   *
+   * TROCAR O CÓDIGO invalida a prévia na tela — sem isso a pessoa buscaria a
+   * Brahma, corrigiria o código pra Skol e gravaria a foto da Brahma.
+   *
+   * E A RESPOSTA ATRASADA NÃO PODE ENTRAR. A busca demora segundos (duas
+   * fontes, download e conversão): dá tempo de sobra de corrigir o código
+   * enquanto ela está no ar. Sem carimbar a resposta com o código que a pediu,
+   * a prévia da Brahma aparecia ao lado do código da Skol, a pessoa conferia o
+   * nome "BRAHMA", clicava em "É esta, usar" — e o POST mandava o código NOVO.
+   * Gravava a Skol depois de conferir a Brahma: a conferência de dois passos,
+   * que é a razão de existir desta tela, virava enfeite nesse caminho.
+   */
   const codigoDoAchado = useRef('');
   useEffect(() => {
     if (codigoDoAchado.current !== limpo) {
@@ -1816,15 +1834,23 @@ function BuscaFotoPorCodigo({ codigo, onUsar }: {
   }, [limpo]);
 
   async function buscar() {
+    /* O CÓDIGO DESTA BUSCA, congelado aqui: `limpo` muda enquanto a resposta
+       viaja, e é com este valor — não com o do campo — que a resposta tem que
+       ser comparada na volta. */
+    const pedido = limpo;
     setBuscando(true);
     setRecusa('');
     setAchado(null);
     try {
       const r = await api<{ achou: boolean; motivo?: string } & Partial<Achado>>(
-        'GET', `/api/lojista/produtos/foto-por-codigo?codigo=${encodeURIComponent(limpo)}`);
-      codigoDoAchado.current = limpo;
+        'GET', `/api/lojista/produtos/foto-por-codigo?codigo=${encodeURIComponent(pedido)}`);
+      /* Chegou tarde: o código já é outro. Jogar fora é a resposta certa — a
+         busca do código novo ou já está no ar, ou é um clique de distância. */
+      if (pedido !== limpoRef.current) return;
+      codigoDoAchado.current = pedido;
       if (r.achou && r.previa) {
         setAchado({
+          codigo: pedido,
           previa: r.previa, nome_na_base: r.nome_na_base || '',
           marca: r.marca || '', credito: r.credito || '', fonte: r.fonte || '',
           largura: r.largura || 0, altura: r.altura || 0,
@@ -1839,11 +1865,14 @@ function BuscaFotoPorCodigo({ codigo, onUsar }: {
     }
   }
 
-  async function usar() {
+  async function usar(achado: Achado) {
     setSalvando(true);
     try {
+      /* O CÓDIGO DO ACHADO, não o do campo: o que foi conferido na tela é o
+         que vai para o disco. Se o campo mudou desde a conferência, o efeito
+         acima já tirou a prévia — e sem prévia não há este botão. */
       const r = await api<{ url: string; credito: string; largura: number; altura: number }>(
-        'POST', '/api/lojista/produtos/foto-por-codigo', { codigo: limpo });
+        'POST', '/api/lojista/produtos/foto-por-codigo', { codigo: achado.codigo });
       onUsar(r.url, r.credito);
       setAchado(null);
       /* "Salve o produto" e não "pronto": o arquivo já está no servidor, mas a
@@ -1867,7 +1896,7 @@ function BuscaFotoPorCodigo({ codigo, onUsar }: {
 
       {curto ? (
         <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
-          Preencha o código de barras na aba <strong>Fiscal e estoque</strong> pra usar a busca.
+          Preencha o <strong>código de barras</strong> (na coluna ao lado, aqui mesmo) pra usar a busca.
         </p>
       ) : (
         <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
@@ -1916,7 +1945,7 @@ function BuscaFotoPorCodigo({ codigo, onUsar }: {
             É este produto mesmo?
           </p>
           <div className="mt-2 flex gap-2">
-            <Button type="button" size="sm" className="flex-1" disabled={salvando} onClick={usar}>
+            <Button type="button" size="sm" className="flex-1" disabled={salvando} onClick={() => usar(achado)}>
               {salvando ? 'Baixando…' : 'É esta, usar'}
             </Button>
             <Button type="button" variant="outline" size="sm" disabled={salvando}
@@ -2134,6 +2163,24 @@ function CategoriaSection({
   };
 }) {
   const [aberta, setAberta] = useState(!iniciarRecolhida);
+
+  /*
+   * BUSCA E FILTRO ABREM AS SEÇÕES QUE JÁ ESTAVAM NA TELA.
+   *
+   * `iniciarRecolhida` só era lido na montagem, e a `key={cat}` da lista
+   * preserva as seções — então, num catálogo grande, digitar na busca ou clicar
+   * num chip de categoria deixava o resumo dizendo "61 itens em CERVEJAS" com a
+   * seção fechada logo abaixo e nenhum card à vista: parece que o filtro apagou
+   * o cardápio. Pior, ficava inconsistente na mesma tela — a categoria que saiu
+   * da lista enquanto se digitava remontava aberta, a vizinha continuava
+   * fechada.
+   *
+   * Quem filtrou já disse o que quer ver; esconder de novo é cobrar dois
+   * cliques pela mesma resposta.
+   */
+  useEffect(() => {
+    setAberta(!iniciarRecolhida);
+  }, [iniciarRecolhida]);
   const total = Object.values(subs).flat().length;
 
   /*

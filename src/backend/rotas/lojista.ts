@@ -1287,7 +1287,27 @@ router.post('/cardapio/sugerir', async (req, res, next) => {
  * ATENCAO A ORDEM: estas rotas ficam ANTES de `/produtos/:id` e do `:id`
  * generico — declaradas depois, `foto-por-codigo` seria lido como um id.
  */
-router.get('/produtos/foto-por-codigo', async (req, res, next) => {
+/*
+ * O LIMITADOR DA LUPA, e ele nao e enfeite: cada POST aqui GRAVA UM ARQUIVO em
+ * `dados/uploads` que so vira foto de produto se o formulario for salvo depois
+ * — quem chamar em laco enche o disco do VPS que hospeda todos os clientes, e
+ * cada chamada ainda dispara ate cinco requisicoes as fontes a partir do IP do
+ * servidor, o que derruba a lupa para todo mundo quando elas barram.
+ *
+ * 40 por 10 minutos por conta: cadastrar produto e conferir foto uma por uma
+ * cabe folgado; laco nao. A chave e a conta, como no upload — o lojista
+ * legitimo costuma estar atras do mesmo IP da loja inteira.
+ */
+const limiteLupa = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => (req.usuario?.id ? `u:${req.usuario.id}` : ipKeyGenerator(req.ip ?? '')),
+  message: { erro: 'Muitas buscas de foto seguidas. Aguarde alguns minutos e tente de novo.' },
+});
+
+router.get('/produtos/foto-por-codigo', limiteLupa, async (req, res, next) => {
   try {
     await minhaLoja(req);
     /* So digitos entram na consulta: os hosts das fontes sao fixos no modulo, e
@@ -1315,7 +1335,7 @@ router.get('/produtos/foto-por-codigo', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-router.post('/produtos/foto-por-codigo', async (req, res, next) => {
+router.post('/produtos/foto-por-codigo', limiteLupa, async (req, res, next) => {
   try {
     await minhaLoja(req);
     /*
@@ -1445,14 +1465,18 @@ router.post('/produtos/:id/duplicar', async (req, res, next) => {
       const info = await tx.prepare(
         `INSERT INTO produtos (loja_id, nome, descricao, categoria, subcategoria, preco_centavos,
                                preco_promocional_centavos, serve_pessoas, destaque,
-                               foto_url, disponivel, disponivel_pdv, vendido_por, codigo_barras,
+                               foto_url, foto_credito, disponivel, disponivel_pdv, vendido_por, codigo_barras,
                                controla_estoque, estoque, ncm, cfop, csosn, origem,
                                unidade_comercial, cest, vendido_sozinho, criado_em)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         loja.id, `${original.nome} (cópia)`, original.descricao, original.categoria, original.subcategoria,
         original.preco_centavos, original.preco_promocional_centavos, original.serve_pessoas, original.destaque,
-        original.foto_url, original.vendido_por, original.codigo_barras,
+        /* O CREDITO VIAJA COM A FOTO. Sem ele a copia herda a imagem de
+           terceiro e nasce com credito vazio — que, pelo contrato escrito na
+           coluna, significa "foto do proprio lojista". A atribuicao que a
+           licenca exige sumiria no clique de duplicar. */
+        original.foto_url, original.foto_credito || '', original.vendido_por, original.codigo_barras,
         original.controla_estoque, original.estoque,
         original.ncm, original.cfop, original.csosn, original.origem, original.unidade_comercial, original.cest,
         /* `vendido_sozinho` VIAJA COM A CÓPIA.

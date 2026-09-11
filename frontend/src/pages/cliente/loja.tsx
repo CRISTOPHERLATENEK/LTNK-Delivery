@@ -604,6 +604,7 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
                   <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform',
                     !aberta && '-rotate-90')} />
                 </button>
+                <div id={'cat-' + cat}>
                 {!aberta ? null : subs.length > 0 ? (
                   <>
                     {semSub.length > 0 && (
@@ -619,6 +620,7 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
                 ) : (
                   <GridProdutos produtos={prods} podeAbrir={!!loja.aberta} onAbrir={abrirProduto} onAdicionar={adicionarRapido} visual={visual} corMarca={loja.cor_marca} />
                 )}
+                </div>
               </div>
             );
           })

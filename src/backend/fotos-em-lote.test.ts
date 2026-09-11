@@ -30,7 +30,9 @@ function imagemFalsa(): ImagemConvertida {
   return { buffer: Buffer.alloc(40_000, 7), extensao: '.webp', mime: 'image/webp', largura: 800, altura: 800 };
 }
 
-const fundoBom: Fundo = { cantos: [1, 1, 1, 1], piorCanto: 1, global: 0.8, branco: true };
+const fundoBom: Fundo = {
+  cantos: [1, 1, 1, 1], piorCanto: 1, global: 0.8, conteudo: 0.2, temProduto: true, branco: true,
+};
 
 /** Uma bancada: registra tudo o que a ferramenta tentou fazer. */
 function bancada(achou: (codigo: string) => boolean, ligou = true) {
@@ -148,5 +150,54 @@ describe('a consulta que escolhe os produtos', () => {
 
   it('é filtrada por loja', () => {
     expect(SQL_SEM_FOTO).toContain('loja_id = ?');
+  });
+});
+
+
+describe('o lote aguenta o produto que explode', () => {
+  /*
+   * SAO 255 PRODUTOS E MINUTOS DE EXECUCAO. Uma excecao no 200o — disco cheio,
+   * rede caindo no meio, imagem que faz o `sharp` lancar — abortava a corrida
+   * inteira E LEVAVA O RELATORIO JUNTO: ninguem ficava sabendo o que ja tinha
+   * sido gravado antes da queda.
+   */
+  it('busca que lanca vira uma linha de falha, e a fila continua', async () => {
+    const b = bancada(() => true);
+    let n = 0;
+    const original = b.f.achar;
+    b.f.achar = (async (codigo: string) => {
+      n++;
+      if (n === 2) throw new Error('rede caiu');
+      return original(codigo);
+    }) as typeof b.f.achar;
+
+    const r = await processar(PRODUTOS, { valendo: true }, b.f);
+    expect(r.tentados).toBe(3);
+    expect(r.gravados).toBe(2);
+    expect(r.porMotivo['erro']).toBe(1);
+  });
+
+  it('falha ao gravar tambem nao derruba o resto', async () => {
+    const b = bancada(() => true);
+    let n = 0;
+    b.f.gravarArquivo = async () => {
+      n++;
+      if (n === 1) throw new Error('disco cheio');
+      return '/uploads/ok.webp';
+    };
+    const r = await processar(PRODUTOS, { valendo: true }, b.f);
+    expect(r.tentados).toBe(3);
+    expect(r.gravados).toBe(2);
+    expect(r.porMotivo['erro']).toBe(1);
+  });
+
+  /*
+   * A PAUSA E A MEDIDA PELO OUTRO MODULO, nao um segundo palpite. Eu tinha
+   * posto 400 ms — um terco do limite que `foto-por-codigo.ts` mediu na propria
+   * Open Food Facts como o ponto em que ela barra.
+   */
+  it('a pausa e exatamente o limite medido', async () => {
+    const { LIMITE_ENTRE_CHAMADAS } = await import('./foto-por-codigo');
+    expect(PAUSA_PADRAO).toBe(LIMITE_ENTRE_CHAMADAS);
   });
 });

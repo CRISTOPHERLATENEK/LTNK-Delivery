@@ -19,6 +19,12 @@
  * rodar valendo, quem olha é o lojista no cardápio — e trocar uma foto errada
  * é um clique na lupa, não um sinistro.
  *
+ * EFEITO DE LADO QUE VALE SABER: a vitrine usa a foto do PRIMEIRO produto da
+ * categoria como capa da faixa quando o lojista não escolheu uma
+ * (`categoria_foto_auto`, em publico.ts). Gravar foto em lote muda essas capas
+ * sem ninguém pedir — não é defeito, é consequência, e a saída é escolher a
+ * capa na tela de Categorias, que vence a automática.
+ *
  * NUNCA SOBRESCREVE FOTO QUE JÁ EXISTE. Nem na seleção (só entra produto com
  * `foto_url` vazio) nem na escrita (o UPDATE repete a condição). Entre a
  * seleção e a escrita passam minutos, e nesses minutos o lojista pode ter
@@ -29,15 +35,21 @@ import fs from 'fs';
 import path from 'path';
 import nodeCrypto from 'crypto';
 import db, { comTenant } from './db-mysql';
-import { acharFotoDeFundoBranco, type Motivo, type NomeFonte } from './foto-por-codigo';
+import { acharFotoDeFundoBranco, LIMITE_ENTRE_CHAMADAS, type Motivo, type NomeFonte } from './foto-por-codigo';
 
 /**
  * A PAUSA ENTRE PRODUTOS. As duas fontes são de terceiros e nenhuma me deve
  * nada: 255 consultas em rajada é o tipo de coisa que faz um serviço gratuito
  * bloquear o IP do servidor — e aí a lupa do cadastro para de funcionar para
  * todo mundo, por causa de um lote.
+ *
+ * É O MESMO NÚMERO QUE `foto-por-codigo.ts` MEDIU (`LIMITE_ENTRE_CHAMADAS`),
+ * e não um segundo palpite: eu tinha posto 400 ms aqui, um terço do limite que
+ * o outro módulo tinha medido na própria Open Food Facts como o ponto em que
+ * ela barra. Dois números para a mesma regra divergem, e o que perde é sempre
+ * o que ninguém releu.
  */
-export const PAUSA_PADRAO = 400;
+export const PAUSA_PADRAO = LIMITE_ENTRE_CHAMADAS;
 
 export interface ProdutoSemFoto {
   id: number;
@@ -78,7 +90,24 @@ export async function processar(
 
   for (const p of produtos) {
     r.tentados++;
-    const achado = await f.achar(p.codigo_barras);
+    /*
+     * UM PRODUTO QUE EXPLODE NÃO LEVA O LOTE JUNTO.
+     *
+     * São 255 produtos e minutos de execução: uma exceção no 200º (disco cheio,
+     * rede caindo no meio, imagem que faz o `sharp` lançar) abortava a corrida
+     * inteira e levava o relatório com ela — ninguém ficava sabendo o que já
+     * tinha sido gravado. Agora o produto vira uma linha de falha e a fila
+     * continua.
+     */
+    let achado;
+    try {
+      achado = await f.achar(p.codigo_barras);
+    } catch (e) {
+      r.porMotivo['erro'] = (r.porMotivo['erro'] || 0) + 1;
+      f.log(`  !  ${p.nome.slice(0, 40).padEnd(40)} erro: ${(e as Error).message.slice(0, 60)}`);
+      await f.esperar(pausa);
+      continue;
+    }
 
     if (!achado.ok) {
       r.porMotivo[achado.motivo] = (r.porMotivo[achado.motivo] || 0) + 1;
@@ -99,8 +128,17 @@ export async function processar(
       continue;
     }
 
-    const url = await f.gravarArquivo(imagem.buffer, imagem.extensao);
-    const ligou = await f.ligarAoProduto(p.id, url, credito);
+    let url = '';
+    let ligou = false;
+    try {
+      url = await f.gravarArquivo(imagem.buffer, imagem.extensao);
+      ligou = await f.ligarAoProduto(p.id, url, credito);
+    } catch (e) {
+      r.porMotivo['erro'] = (r.porMotivo['erro'] || 0) + 1;
+      f.log(`  !  ${p.nome.slice(0, 40).padEnd(40)} erro ao gravar: ${(e as Error).message.slice(0, 60)}`);
+      await f.esperar(pausa);
+      continue;
+    }
     if (ligou) {
       r.gravados++;
       f.log(`  *  ${p.nome.slice(0, 40).padEnd(40)} ${fonte} ${imagem.largura}x${imagem.altura} -> ${url}`);

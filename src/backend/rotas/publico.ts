@@ -352,6 +352,14 @@ export async function montarCardapio(idOuSlug: string) {
     const produtos = await db.prepare(
       `SELECT p.id, p.nome, p.descricao, p.categoria, p.subcategoria, p.preco_centavos,
               p.preco_promocional_centavos, p.promo_fim, p.serve_pessoas, p.destaque, p.foto_url,
+              /*
+               * O CREDITO DA FOTO VEM JUNTO, e sem esta coluna a obrigacao nao
+               * era cumprida — so parecia. A licenca da fonte (CC-BY-SA na Open
+               * Food Facts) exige atribuicao a quem VE a imagem, e quem ve e o
+               * cliente no cardapio. Gravar no banco e nao mostrar e ter o dado
+               * que prova que a gente sabia.
+               */
+              p.foto_credito,
               p.controla_estoque, p.estoque
          FROM produtos p
          LEFT JOIN subcategorias sc ON sc.loja_id = p.loja_id

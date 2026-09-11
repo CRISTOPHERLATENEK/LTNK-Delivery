@@ -236,11 +236,18 @@ describe('a Action nao tem um deploy proprio', () => {
     expect(semComentarios).not.toContain('git reset');
   });
 
-  /* Dois pushes seguidos nao podem virar dois deploys ao mesmo tempo — e a
-     corrida entre deploys e exatamente o que esta sendo consertado aqui. */
+  /*
+   * Dois pushes seguidos nao podem virar dois deploys ao mesmo tempo — e a
+   * corrida entre deploys e exatamente o que esta sendo consertado aqui.
+   *
+   * SEM COMENTARIO: este caso exigia `cancel-in-progress: true` no texto CRU e
+   * continuou verde depois de eu trocar o valor para `false`, porque o novo
+   * comentario do arquivo CITA o valor antigo explicando por que ele saiu. A
+   * asercao estava casando com a minha propria documentacao.
+   */
   it('um deploy por vez', () => {
-    expect(action).toContain('concurrency:');
-    expect(action).toContain('cancel-in-progress: true');
+    expect(semComentarios).toContain('concurrency:');
+    expect(semComentarios).toContain('group: deploy-vps');
   });
 });
 
@@ -266,8 +273,17 @@ describe('o deploy confere a regra dos ganchos do React', () => {
   const config = fs.readFileSync(
     path.join(__dirname, '../../frontend/eslint.ganchos.config.js'), 'utf8');
 
+  /*
+   * O CODIGO, SEM OS COMENTARIOS — e esta linha e o teste do teste.
+   *
+   * A primeira versao destes dois casos lia o `deploy.sh` cru, e o comentario
+   * que eu escrevi ali em cima cita o nome do arquivo de configuracao. Medido
+   * por sabotagem: comentando a linha que chama o eslint, os dois continuavam
+   * verdes — o porteiro podia ser desligado num commit e nada acusava. O
+   * arquivo ja tinha `execSh` para exatamente isso; eu nao usei.
+   */
   it('o deploy roda a conferencia', () => {
-    expect(deploy).toContain('eslint src --config eslint.ganchos.config.js');
+    expect(execSh(deploy)).toContain('eslint src --config eslint.ganchos.config.js');
   });
 
   /*
@@ -275,8 +291,9 @@ describe('o deploy confere a regra dos ganchos do React', () => {
    * o deploy morrer com o que esta no ar intocado.
    */
   it('a conferencia vem antes do build do frontend', () => {
-    const porteiro = deploy.indexOf('eslint.ganchos.config.js');
-    const build = deploy.indexOf('vite build');
+    const codigo = execSh(deploy);
+    const porteiro = codigo.indexOf('eslint.ganchos.config.js');
+    const build = codigo.indexOf('vite build');
     expect(porteiro).toBeGreaterThan(-1);
     expect(build).toBeGreaterThan(-1);
     expect(porteiro).toBeLessThan(build);
@@ -284,6 +301,43 @@ describe('o deploy confere a regra dos ganchos do React', () => {
 
   it('a regra que quebra a tela esta ligada', () => {
     expect(config).toContain("'react-hooks/rules-of-hooks': 'error'");
+  });
+
+  /*
+   * UM DEPLOY POR VEZ, E A TRAVA E NO VPS.
+   *
+   * O `concurrency` da Action cancela o JOB; cancelar o job nao mata o script
+   * que ja esta rodando la — o ssh cai e o `deploy.sh` segue sozinho ate o fim.
+   * Com dois no mesmo diretorio, o segundo grava o ponto de retorno do rollback
+   * a partir do estado meio publicado do primeiro, e o rollback passa a apontar
+   * para um ponto que nunca esteve no ar. O padrao aconteceu em 10/09/2026: um
+   * push quebrou a vitrine e o push de correcao veio minutos depois.
+   */
+  it('o deploy se tranca antes de mexer em qualquer coisa', () => {
+    const codigo = execSh(deploy);
+    expect(codigo).toContain('flock');
+    const trava = codigo.indexOf('flock');
+    /* Antes do primeiro passo que escreve: o ponto de retorno. */
+    const retorno = codigo.indexOf('ANTES=$(git rev-parse HEAD)');
+    expect(trava).toBeGreaterThan(-1);
+    expect(retorno).toBeGreaterThan(-1);
+    expect(trava).toBeLessThan(retorno);
+  });
+
+  /* Quem chega depois espera; nao atropela e nao desiste calado. */
+  it('quem nao consegue a trava para, e diz que nao mexeu em nada', () => {
+    const codigo = execSh(deploy);
+    expect(codigo).toMatch(/flock -w \d+ 9/);
+    expect(codigo).toMatch(/exit 1/);
+  });
+
+  /* E a Action nao pode mais cancelar o run anterior: cancelar o job deixa o
+     script rodando no VPS, que e exatamente o cenario que a trava previne. */
+  it('a Action espera em vez de cancelar', () => {
+    const action = fs.readFileSync(path.join(RAIZ, '.github/workflows/deploy.yml'), 'utf8')
+      .replace(/^\s*#.*$/gm, '');
+    expect(action).toContain('cancel-in-progress: false');
+    expect(action).not.toContain('cancel-in-progress: true');
   });
 
   /*

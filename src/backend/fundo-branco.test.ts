@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import sharp from 'sharp';
-import { analisarFundo, CLARO_MIN, CANTO_MIN, GLOBAL_MIN } from './fundo-branco';
+import { analisarFundo, CLARO_MIN, CANTO_MIN, GLOBAL_MIN, CONTEUDO_MIN } from './fundo-branco';
 import {
   acharFotoDeFundoBranco, urlDoCosmos, CREDITO, CREDITO_COSMOS,
   candidatoCosmos, candidatoOpenFoodFacts, FONTES, type Fonte,
@@ -125,6 +125,45 @@ describe('a medida do fundo', () => {
   it('fundo cinza médio é recusado', async () => {
     const f = await analisarFundo(await packshot(400, 400, 150));
     expect(f!.branco).toBe(false);
+  });
+
+  /*
+   * O QUADRADO BRANCO ERA A MELHOR FOTO DO MUNDO pela regra antiga: quatro
+   * cantos em 100%, claro global em 100%, e nada exigindo que houvesse produto.
+   * As bases sao editaveis por qualquer pessoa — a Open Food Facts ja devolveu
+   * um registro de teste com imagem de 1x1, e imagem branca de 1200x1200 passa
+   * pelo piso de tamanho sem esforco. Gravar isso e pior que nao gravar nada: o
+   * produto sai da lista dos que faltam foto e ninguem olha de novo.
+   *
+   * O PISO VEIO DE MEDICAO, nas 12 fotos reais gravadas hoje na Galderio: a com
+   * menos produto ocupa 9,5% da imagem; branca da 0,0%; branca com um selo de
+   * 40x40 da 0,2%.
+   */
+  it('imagem toda branca é recusada, não aprovada com nota máxima', async () => {
+    const branca = await sharp({ create: { width: 800, height: 800, channels: 3, background: '#ffffff' } })
+      .jpeg().toBuffer();
+    const f = await analisarFundo(branca);
+    expect(f!.piorCanto).toBe(1);        /* o fundo e perfeito... */
+    expect(f!.temProduto).toBe(false);   /* ...e nao ha produto nenhum */
+    expect(f!.branco).toBe(false);
+  });
+
+  it('quase-branca com um selinho também é recusada', async () => {
+    const selo = await sharp({ create: { width: 40, height: 40, channels: 3, background: '#333333' } }).png().toBuffer();
+    const quase = await sharp({ create: { width: 800, height: 800, channels: 3, background: '#ffffff' } })
+      .composite([{ input: selo, left: 380, top: 380 }]).jpeg().toBuffer();
+    const f = await analisarFundo(quase);
+    expect(f!.conteudo).toBeLessThan(CONTEUDO_MIN);
+    expect(f!.branco).toBe(false);
+  });
+
+  /* E a foto de verdade continua passando com folga: o piso e tres vezes
+     abaixo do menor caso real medido. */
+  it('packshot de verdade tem produto de sobra', async () => {
+    const f = await analisarFundo(await packshot());
+    expect(f!.conteudo).toBeGreaterThan(CONTEUDO_MIN * 3);
+    expect(f!.temProduto).toBe(true);
+    expect(f!.branco).toBe(true);
   });
 
   /* O branco de JPEG é sujo: a compressão devolve 238, 242, 247 onde o arquivo

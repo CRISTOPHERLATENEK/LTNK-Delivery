@@ -35,6 +35,30 @@ echo "→ Entrando em $APP_DIR"
 cd "$APP_DIR"
 
 # ---------------------------------------------------------------------------
+# 0. UM DEPLOY POR VEZ, E A TRAVA E AQUI — nao no GitHub.
+#
+#    O `concurrency` da Action cancela o JOB, e cancelar o job nao mata o script
+#    que ja esta rodando no VPS: o ssh cai e o `deploy.sh` continua, sozinho,
+#    ate o fim. Com dois rodando no mesmo /opt/delivery, o segundo grava
+#    `.deploy-anterior` e `public.anterior` COM O ESTADO MEIO PUBLICADO DO
+#    PRIMEIRO — e o rollback passa a apontar para um ponto que nunca existiu.
+#
+#    Aconteceu o padrao exato hoje (10/09/2026): um push quebrou a vitrine e o
+#    push seguinte veio minutos depois, com o primeiro deploy ainda no meio.
+#
+#    `flock` no descritor 9: quem chegar depois ESPERA ate 15 minutos em vez de
+#    atropelar. Passar do tempo e falha honesta, com o que esta no ar intocado.
+#    O arquivo de trava fica fora de `public` e de `dist` de proposito — nada
+#    que o deploy apaga pode levar a trava junto.
+# ---------------------------------------------------------------------------
+exec 9>"$APP_DIR/.deploy.lock"
+if ! flock -w 900 9; then
+  echo "✗ Outro deploy esta rodando ha mais de 15 minutos. Nao encostei em nada."
+  exit 1
+fi
+echo "→ Trava do deploy obtida"
+
+# ---------------------------------------------------------------------------
 # 1. Guarda o ponto de retorno ANTES de mexer em qualquer coisa.
 #    O commit vai para arquivo porque depois do `git reset` o HEAD é outro — e
 #    é justamente o anterior que o rollback precisa.

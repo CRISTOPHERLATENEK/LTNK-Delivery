@@ -297,3 +297,126 @@ describe('a tela explica a recusa', () => {
     expect(FORM_LIMPO).toContain("cosmos: 'Cosmos'");
   });
 });
+
+
+/*
+ * O QUE A REVISAO ADVERSARIAL DE 11/09/2026 ACHOU, e que os testes anteriores
+ * deixavam passar. Cada caso aqui embaixo e um defeito que existiu de verdade
+ * no codigo publicado, nao um risco imaginado.
+ */
+describe('a conferencia de dois passos nao pode ser furada pela resposta atrasada', () => {
+  /*
+   * A BUSCA DEMORA SEGUNDOS (duas fontes, download, conversao) e da tempo de
+   * corrigir o codigo enquanto ela esta no ar. Sem carimbar a resposta com o
+   * codigo que a pediu, a previa da Brahma aparecia ao lado do codigo da Skol:
+   * a pessoa conferia "BRAHMA", clicava em "E esta, usar", e o POST mandava o
+   * codigo NOVO. Gravava a Skol depois de conferir a Brahma.
+   */
+  it('resposta de um codigo antigo e descartada', () => {
+    const i = FORM_LIMPO.indexOf('async function buscar()');
+    const corpo = FORM_LIMPO.slice(i, i + 1400);
+    expect(corpo).toContain('const pedido = limpo;');
+    expect(corpo).toContain('if (pedido !== limpoRef.current) return;');
+  });
+
+  /* E o que grava e o codigo CONFERIDO, nao o que estiver no campo na hora. */
+  it('o botao usar grava o codigo do achado', () => {
+    const i = FORM_LIMPO.indexOf('async function usar(');
+    const corpo = FORM_LIMPO.slice(i, i + 900);
+    expect(corpo).toContain('codigo: achado.codigo');
+    expect(corpo).not.toMatch(/codigo:\s*limpo\b/);
+  });
+});
+
+describe('a atribuicao chega a quem ve a foto', () => {
+  /*
+   * O CREDITO ERA GRAVADO POR TRES CAMINHOS E LIDO POR NENHUM: a lupa, o lote
+   * e o formulario preenchiam `foto_credito`, nenhuma consulta publica
+   * selecionava a coluna e nenhuma tela mostrava. A licenca (CC-BY-SA na Open
+   * Food Facts) exige atribuicao a QUEM VE a imagem — e quem ve e o cliente no
+   * cardapio. Gravar e nao mostrar era ter no banco a prova de que a gente
+   * sabia da obrigacao.
+   */
+  it('a consulta publica do cardapio leva o credito', () => {
+    const publico = semComentarios(ler('rotas/publico.ts'));
+    expect(publico).toContain('p.foto_credito');
+  });
+
+  it('a tela do cliente mostra o credito quando ele existe', () => {
+    const modal = semComentarios(fs.readFileSync(
+      path.join(__dirname, '../../frontend/src/pages/cliente/modal-produto.tsx'), 'utf8'));
+    expect(modal).toContain('produto.foto_credito');
+    /* E so quando existe: credito vazio e foto do proprio lojista. */
+    expect(modal).toContain('{!!produto.foto_credito && (');
+  });
+
+  /* Duplicar produto copiava a foto e deixava o credito para tras — a copia
+     nascia dizendo "foto minha" com a imagem de terceiro. */
+  it('duplicar leva o credito junto com a foto', () => {
+    const i = ROTAS_LIMPAS.indexOf("router.post('/produtos/:id/duplicar'");
+    const corpo = ROTAS_LIMPAS.slice(i, i + 1800);
+    expect(corpo).toContain('foto_url, foto_credito');
+    expect(corpo).toContain('original.foto_credito');
+  });
+});
+
+describe('as rotas da lupa nao podem ser usadas como torneira', () => {
+  /*
+   * CADA POST GRAVA UM ARQUIVO que so vira foto se o formulario for salvo
+   * depois. Sem limite, um laco enche o disco do VPS que hospeda TODOS os
+   * clientes — e cada chamada ainda dispara ate cinco requisicoes as fontes a
+   * partir do IP do servidor, o que faz elas barrarem a lupa de todo mundo.
+   */
+  it('as duas rotas tem limitador de taxa', () => {
+    for (const verbo of ['get', 'post']) {
+      const i = ROTAS_LIMPAS.indexOf(`router.${verbo}('/produtos/foto-por-codigo'`);
+      expect(ROTAS_LIMPAS.slice(i, i + 120)).toContain('limiteLupa');
+    }
+  });
+
+  it('o limitador conta por conta, nao so por IP', () => {
+    const i = ROTAS_LIMPAS.indexOf('const limiteLupa');
+    const corpo = ROTAS_LIMPAS.slice(i, i + 600);
+    expect(corpo).toContain('req.usuario?.id');
+    expect(corpo).toContain('ipKeyGenerator');
+  });
+});
+
+describe('nenhuma fonte pode prender o servidor', () => {
+  const BUSCA = semComentarios(ler('foto-por-codigo.ts'));
+
+  /*
+   * SEM TIMEOUT, O `fetch` DO NODE ESPERA 300 SEGUNDOS (padrao do undici, para
+   * cabecalho e para corpo). Uma chamada da lupa encadeia ate seis requisicoes,
+   * e a fonte LENTA — aceitando a conexao e nao respondendo — prendia o handler
+   * por minutos. Alguns cliques em paralelo e o app para de aceitar requisicao.
+   */
+  it('toda requisicao de rede tem prazo', () => {
+    const chamadas = BUSCA.split('await buscar(').length - 1;
+    const prazos = (BUSCA.match(/AbortSignal\.timeout/g) || []).length;
+    expect(chamadas).toBeGreaterThan(0);
+    expect(prazos).toBe(chamadas);
+  });
+
+  /*
+   * E A UNICA REQUISICAO QUE CARREGA SEGREDO NAO SEGUE REDIRECIONAMENTO: o
+   * `fetch` do Node so remove `Authorization` ao mudar de origem; cabecalho
+   * proprio como `X-Cosmos-Token` e reenviado ao destino. Um 302 entregaria a
+   * credencial paga a quem estivesse do outro lado.
+   */
+  it('a chamada com o token nao segue redirecionamento', () => {
+    const i = BUSCA.indexOf("'X-Cosmos-Token'");
+    const corpo = BUSCA.slice(i, i + 500);
+    expect(corpo).toContain("redirect: 'error'");
+  });
+
+  /* O teto do download e conferido ANTES de trazer o corpo para a memoria —
+     conferir depois do `arrayBuffer()` e conferir com o arquivo ja inteiro
+     dentro do processo, que e o que o teto existe para evitar. */
+  it('o tamanho declarado e conferido antes de baixar', () => {
+    const i = BUSCA.indexOf('const declarado');
+    const j = BUSCA.indexOf('await r.arrayBuffer()');
+    expect(i).toBeGreaterThan(-1);
+    expect(i).toBeLessThan(j);
+  });
+});
