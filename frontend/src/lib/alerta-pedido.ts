@@ -82,3 +82,30 @@ export function sincronizarLembrete(temPendentes: () => boolean, segundos = 20):
 export function pararLembrete(): void {
   if (timer) { clearInterval(timer); timer = null; }
 }
+
+/* ───────── o aviso que vem do service worker (push), sem depender do ciclo ───────── */
+
+/**
+ * Escuta o recado do service worker e apita NA HORA.
+ *
+ * POR QUE ISTO EXISTE: o alerta da página dependia do ciclo de 4 s do painel
+ * perceber o pedido novo — e com a janela MINIMIZADA o navegador estrangula
+ * esse ciclo para cerca de uma vez por minuto. O lojista descreveu o efeito:
+ * "se não ficar olhando, ele recebe mas não aponta". O push não é
+ * estrangulado: chega ao service worker, que mostra a notificação do sistema e
+ * manda este recado — a aba apita imediatamente, minimizada ou não, e ainda
+ * recarrega a lista para o pedido aparecer sem esperar o próximo ciclo.
+ *
+ * Devolve a função que desliga, para a tela limpar quando sair.
+ */
+export function ouvirAvisoDoServiceWorker(aoChegar: () => void): () => void {
+  if (typeof navigator === 'undefined' || !navigator.serviceWorker) return () => {};
+  const escutar = (e: MessageEvent) => {
+    if (e.data && e.data.tipo === 'pedido-novo') {
+      tocarAlerta(3);
+      aoChegar();
+    }
+  };
+  navigator.serviceWorker.addEventListener('message', escutar);
+  return () => navigator.serviceWorker.removeEventListener('message', escutar);
+}

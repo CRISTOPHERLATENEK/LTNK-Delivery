@@ -99,6 +99,51 @@ describe('tocar no aviso leva ao pedido', () => {
   });
 });
 
+describe('o aviso acorda a página, sem esperar o ciclo', () => {
+  /*
+   * MINIMIZADO, O NAVEGADOR ESTRANGULA O CICLO DA ABA: o `setInterval` de 4 s
+   * do painel vira cerca de uma vez por minuto. Era por isso que "se não ficar
+   * olhando, ele recebe mas não aponta" — o som da página dependia desse ciclo.
+   *
+   * O push não sofre estrangulamento: chega ao service worker, que mostra a
+   * notificação do sistema E manda um recado para a aba. Aí o alerta sai na
+   * hora, minimizado ou não, e a lista recarrega junto.
+   */
+  it('o service worker avisa as abas abertas', () => {
+    const i = CODIGO.indexOf("addEventListener('push'");
+    const corpo = CODIGO.slice(i, i + 1400);
+    expect(corpo).toContain('postMessage');
+    expect(corpo).toContain("tipo: 'pedido-novo'");
+  });
+
+  it('a página escuta o recado e apita', () => {
+    const alerta = semComentarios(fs.readFileSync(
+      path.join(RAIZ, 'frontend/src/lib/alerta-pedido.ts'), 'utf8'));
+    expect(alerta).toContain('ouvirAvisoDoServiceWorker');
+    const i = alerta.indexOf('ouvirAvisoDoServiceWorker');
+    const corpo = alerta.slice(i, i + 700);
+    expect(corpo).toContain("e.data.tipo === 'pedido-novo'");
+    expect(corpo).toContain('tocarAlerta');
+  });
+
+  /* E devolve o desligador: escuta que fica para trás vira dois alertas por
+     pedido quando a tela remonta. */
+  it('a escuta pode ser desligada', () => {
+    const alerta = semComentarios(fs.readFileSync(
+      path.join(RAIZ, 'frontend/src/lib/alerta-pedido.ts'), 'utf8'));
+    const i = alerta.indexOf('ouvirAvisoDoServiceWorker');
+    expect(alerta.slice(i, i + 800)).toContain('removeEventListener');
+  });
+
+  it('o painel liga a escuta e recarrega a lista', () => {
+    const painel = semComentarios(fs.readFileSync(
+      path.join(RAIZ, 'frontend/src/pages/lojista/painel.tsx'), 'utf8'));
+    expect(painel).toContain('ouvirAvisoDoServiceWorker');
+    const i = painel.indexOf('ouvirAvisoDoServiceWorker(');
+    expect(painel.slice(i, i + 300)).toContain('refetch()');
+  });
+});
+
 describe('as duas cópias do service worker', () => {
   /*
    * `public/sw.js` é o que está no ar; `frontend/public/sw.js` é o que o build

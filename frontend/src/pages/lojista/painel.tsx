@@ -22,7 +22,7 @@ import { useToast } from '@/components/ui/toast';
 import { useConfirm } from '@/components/ui/confirm';
 import { api, ApiError, sessaoUsuario, salvarSessao, abrirSessaoLojistaImpersonada, lerRepasseImpersonacao, desviouParaRevendedor } from '@/lib/api';
 import { Portal2FA } from '@/components/duplo-fator';
-import { usePedidosLojaAtivos } from '@/lib/pedidos-loja';
+import { usePedidosLojaAtivos} from '@/lib/pedidos-loja';
 import { brl, dataLocal } from '@/lib/format';
 import { useTema, foregroundContraste } from '@/lib/tema';
 import { cn } from '@/lib/utils';
@@ -33,8 +33,7 @@ import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Cl
 import { ImageUpload } from '@/components/ui/image-upload';
 import {
   garantirPermissaoNotificacao, notificarNovoPedido,
-  sincronizarLembrete, pararLembrete,
-} from '@/lib/alerta-pedido';
+  sincronizarLembrete, pararLembrete, ouvirAvisoDoServiceWorker } from '@/lib/alerta-pedido';
 import { suportaPush, ativarPush } from '@/lib/push';
 import { despacharImpressao, imprimirComandasProducao } from '@/lib/impressao';
 import type { BlocoImpressao } from '@/lib/agente';
@@ -116,6 +115,23 @@ export function PainelLojista() {
   const primeiraCarga = useRef(true);
   const pendentesRef = useRef(0);
   pendentesRef.current = pendentes;
+
+  /*
+   * O AVISO DO SERVICE WORKER, que nao depende do ciclo da pagina.
+   *
+   * Minimizado, o navegador estrangula o `setInterval` do painel para cerca de
+   * uma vez por minuto — era por isso que o pedido chegava e nada apitava. O
+   * push nao e estrangulado: o service worker recebe, mostra a notificacao do
+   * sistema e avisa aqui, entao o alerta sai na hora e a lista recarrega junto.
+   */
+  useEffect(() => {
+    if (!ehLojista) return;
+    return ouvirAvisoDoServiceWorker(() => {
+      /* Recarrega a lista na hora: sem isto o pedido so apareceria no proximo
+         ciclo — que minimizado pode demorar um minuto. */
+      void pedidosQ.refetch();
+    });
+  }, [ehLojista, pedidosQ]);
 
   useEffect(() => {
     if (!ehLojista) return;

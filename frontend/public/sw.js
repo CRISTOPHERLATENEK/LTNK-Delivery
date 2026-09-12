@@ -111,6 +111,22 @@ self.addEventListener('push', (e) => {
     data: { url: d.url || '/lojista/pedidos' },
   };
   e.waitUntil(self.registration.showNotification(titulo, opcoes));
+
+  /*
+   * E ACORDA A PAGINA PARA APITAR NA HORA.
+   *
+   * O som do sistema e curto e se perde no movimento da loja; o alerta da
+   * pagina sao tres bipes feitos para serem ouvidos. So que ele dependia do
+   * ciclo de 4 s do painel perceber o pedido — e com a janela MINIMIZADA o
+   * navegador estrangula esse ciclo para cerca de uma vez por minuto. O push
+   * nao sofre estrangulamento nenhum: ele roda aqui e avisa a aba, que apita
+   * imediatamente mesmo minimizada e ja recarrega a lista.
+   */
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((abas) => {
+      for (const aba of abas) aba.postMessage({ tipo: 'pedido-novo', tag: opcoes.tag });
+    })
+  );
 });
 
 /*
