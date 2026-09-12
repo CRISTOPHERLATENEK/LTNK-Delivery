@@ -5971,6 +5971,103 @@ router.put('/categorias', async (req, res, next) => {
 });
 
 /*
+ * CRIAR E APAGAR CATEGORIA — as duas faltavam, e a falta era sentida.
+ *
+ * ATE AQUI: categoria nascia de escrever o nome no cadastro de um produto, e
+ * so existia enquanto algum produto a usasse. Apagar nao existia em lugar
+ * nenhum — para se livrar de uma categoria o lojista tinha que abrir produto
+ * por produto e trocar o nome na mao. Com 22 categorias e 1.218 produtos, isso
+ * nao e uma tarefa: e um motivo para desistir e conviver com o cardapio errado.
+ *
+ * A PARTE DIFICIL DO APAGAR NAO E O DELETE, E O DESTINO DOS PRODUTOS. Uma
+ * categoria com 60 itens nao pode virar 60 produtos sem categoria: na vitrine
+ * eles cairiam numa faixa sem nome, e no painel sumiriam da navegacao. Entao a
+ * regra e explicita: com produtos dentro, o apagar EXIGE para onde eles vao; o
+ * servidor recusa (409) se ninguem disser, e a tela pergunta.
+ */
+router.post('/categorias', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const nome = textoLimpo(req.body?.nome, 50);
+    if (!nome) throw erroHttp(400, 'Informe o nome da categoria.');
+
+    /* Ja existe? Pode ser registro ou so uso em produto — as duas contam, senao
+       "criar" devolveria sucesso e a lista continuaria com uma linha so. */
+    const registrada = await db.prepare(
+      'SELECT nome FROM categorias WHERE loja_id = ? AND nome = ?'
+    ).get(loja.id, nome);
+    const emProduto = await db.prepare(
+      'SELECT 1 AS existe FROM produtos WHERE loja_id = ? AND excluido = 0 AND categoria = ? LIMIT 1'
+    ).get(loja.id, nome);
+    if (registrada || emProduto) throw erroHttp(409, `Ja existe uma categoria chamada "${nome}".`);
+
+    /*
+     * NASCE NO FIM DA FILEIRA. Entrar na frente mudaria a ordem do cardapio de
+     * quem esta comprando agora por causa de um cadastro — e a ordem e decisao
+     * da tela de Categorias, com arrasto.
+     */
+    const ultima = await db.prepare(
+      'SELECT COALESCE(MAX(ordem), -1) AS fim FROM categorias WHERE loja_id = ?'
+    ).get(loja.id) as { fim: number };
+
+    await db.prepare(
+      `INSERT INTO categorias (loja_id, nome, icone, imagem, ordem, setor_id, criado_em)
+       VALUES (?, ?, '', '', ?, NULL, ?)`
+    ).run(loja.id, nome, Number(ultima?.fim ?? -1) + 1, agoraUTC());
+
+    res.json({ ok: true, nome });
+  } catch (e) { next(e); }
+});
+
+router.delete('/categorias/:nome', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const nome = textoLimpo(decodeURIComponent(req.params.nome || ''), 50);
+    if (!nome) throw erroHttp(400, 'Informe a categoria.');
+
+    const usados = await db.prepare(
+      "SELECT COUNT(*) AS quantos FROM produtos WHERE loja_id = ? AND excluido = 0 AND categoria = ?"
+    ).get(loja.id, nome) as { quantos: number };
+    const quantos = Number(usados?.quantos ?? 0);
+
+    const destino = textoLimpo(req.body?.destino, 50);
+
+    /*
+     * COM PRODUTO DENTRO E SEM DESTINO, NAO APAGA — e o 409 leva a contagem,
+     * que e o que a tela precisa para perguntar "e os 60 produtos?".
+     */
+    if (quantos > 0 && !destino) {
+      return res.status(409).json({
+        erro: `A categoria "${nome}" tem ${quantos} produto${quantos > 1 ? 's' : ''}. Escolha para onde eles vao.`,
+        produtos: quantos,
+      });
+    }
+    if (destino && destino === nome) throw erroHttp(400, 'O destino tem que ser outra categoria.');
+
+    await comTransacao(async (tx) => {
+      if (quantos > 0) {
+        /*
+         * A SUBCATEGORIA NAO VIAJA JUNTO. Ela pertence ao PAR categoria +
+         * subcategoria: "Lata" dentro de "Cervejas" nao e a mesma coisa que
+         * "Lata" dentro de "Refrigerantes", e carregar o nome para a categoria
+         * nova criaria uma faixa que ninguem cadastrou. Some, e a tela avisa.
+         */
+        await tx.prepare(
+          "UPDATE produtos SET categoria = ?, subcategoria = '' WHERE loja_id = ? AND categoria = ?"
+        ).run(destino, loja.id, nome);
+      }
+      await tx.prepare('DELETE FROM subcategorias WHERE loja_id = ? AND categoria = ?').run(loja.id, nome);
+      await tx.prepare('DELETE FROM categorias WHERE loja_id = ? AND nome = ?').run(loja.id, nome);
+    });
+
+    console.log(`[categoria] loja ${loja.id}: "${nome}" apagada`
+      + (quantos > 0 ? ` — ${quantos} produto(s) movido(s) para "${destino}"` : ' (estava vazia)'));
+
+    res.json({ ok: true, movidos: quantos, destino: quantos > 0 ? destino : '' });
+  } catch (e) { next(e); }
+});
+
+/*
  * A FILEIRA DA CATEGORIA / SUBCATEGORIA, ESCOLHIDA DE DENTRO DO CADASTRO.
  *
  * Existe uma tela de Categorias com setas ↑↓, mas ela não resolve o momento em

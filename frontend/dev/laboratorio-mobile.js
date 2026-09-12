@@ -184,7 +184,14 @@
         total: 3,
       };
     }
-    if (u.indexOf('/categorias') >= 0) return { categorias: [{ nome: 'Cervejas', ordem: 1, icone: '', imagem: '' }] };
+    if (u.indexOf('/categorias') >= 0) {
+      /* Varias categorias, com nomes parecidos de proposito: e o caso que o
+         campo novo tem que resolver ("SALGADOS" x "SALGADINHOS"). */
+      var nomes = ['Cervejas', 'Destilados', 'Refrigerantes', 'Sucos e refrescos', 'Aguas',
+        'Energeticos', 'Vinhos e espumantes', 'Ices e drinks', 'Gelo', 'Tabacaria',
+        'Salgados', 'Salgadinhos', 'Sorvetes', 'Doces', 'Essencias para narguile'];
+      return { categorias: nomes.map(function (n, i) { return { nome: n, icone: '', imagem: '', ordem: i, setor_id: null, imagem_auto: '' }; }) };
+    }
     if (u.indexOf('/caixa') >= 0) return { caixa: null, movimentos: [], aberto: false, resumo: {} };
     if (u.indexOf('/mesas') >= 0) return { mesas: [{ id: 1, numero: 1, lugares: 4, status: 'livre', comanda: null }] };
     if (u.indexOf('/cupons') >= 0) return { cupons: [] };

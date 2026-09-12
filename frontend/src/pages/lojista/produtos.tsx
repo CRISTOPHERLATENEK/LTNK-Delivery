@@ -5,6 +5,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { Ajuda } from '@/components/ui/ajuda';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MontarCardapioIA } from './cardapio-ia';
+import { SeletorCategoria, type OpcaoCategoria } from './seletor-categoria';
 import { Check, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Image as ImageIcon, Layers, Minus, Pencil, Plus, Rows3, Rows4, Search, Square, Sparkles, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
 import { reordenar } from '@/lib/ordem-cardapio';
 import { Card, CardContent } from '@/components/ui/card';
@@ -242,6 +243,54 @@ export function ProdutosLoja() {
     queryKey: ['lojista-produtos'],
     queryFn: () => api<{ produtos: Produto[] }>('GET', '/api/lojista/produtos').then(r => r.produtos),
   });
+
+  /*
+   * AS CATEGORIAS DO SERVIDOR, e nao so as que aparecem nos produtos.
+   *
+   * Categoria criada e ainda sem produto EXISTE — e precisa aparecer na lista,
+   * senao criar uma e nao usar na hora faz ela sumir e o lojista cria de novo.
+   * A lista de produtos so conhece categoria que alguem ja usou.
+   */
+  const consultaCategorias = useQuery({
+    queryKey: ['lojista-categorias'],
+    queryFn: () => api<{ categorias: Array<{ nome: string }> }>('GET', '/api/lojista/categorias')
+      .then(r => r.categorias.map(c => c.nome)),
+  });
+  const categoriasDoServidor = consultaCategorias.data ?? [];
+
+  /**
+   * Cria a categoria NO SERVIDOR, na hora.
+   *
+   * Antes, "nova categoria" era só texto no formulário: a categoria passava a
+   * existir quando o produto era salvo, e se o lojista desistisse do produto
+   * ela nunca existia. Agora ela nasce no ato e já pode receber outros
+   * produtos — que é o que "criar categoria" quer dizer.
+   */
+  async function criarCategoria(nome: string): Promise<void> {
+    await api('POST', '/api/lojista/categorias', { nome });
+    await qc.invalidateQueries({ queryKey: ['lojista-categorias'] });
+  }
+
+  /**
+   * Apaga a categoria, levando os produtos para `destino`.
+   *
+   * O servidor recusa apagar categoria com produto dentro sem destino (409), e
+   * a tela pergunta antes — nenhum produto fica sem categoria por descuido. Os
+   * dois refetch existem porque a mudança é nos DOIS lados: a lista de
+   * categorias perdeu uma, e os produtos que estavam nela mudaram de faixa.
+   */
+  async function apagarCategoria(nome: string, destino: string): Promise<void> {
+    await api('DELETE', `/api/lojista/categorias/${encodeURIComponent(nome)}`, { destino });
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['lojista-categorias'] }),
+      qc.invalidateQueries({ queryKey: ['lojista-produtos'] }),
+    ]);
+    mostrar({
+      tipo: 'sucesso',
+      titulo: `Categoria “${nome}” apagada.`,
+      descricao: destino ? `Os produtos foram para “${destino}”.` : undefined,
+    });
+  }
   /*
    * GRUPOS DO PRODUTO ABERTO, pra mostrar dentro do cadastro.
    *
@@ -742,6 +791,39 @@ export function ProdutosLoja() {
       .filter(Boolean)
   )] as string[];
 
+  /*
+   * AS OPCOES LEVAM A CONTAGEM, e ela vem da lista que a tela JA tem — nenhuma
+   * consulta a mais. E a contagem que separa "SALGADOS 12" de "SALGADINHOS 7":
+   * sem o numero, esses dois nomes so se distinguem abrindo cada um.
+   *
+   * A lista de categorias do servidor entra junto porque categoria criada e
+   * ainda sem produto existe (e pode ser escolhida e apagada) — ela nao
+   * apareceria varrendo so os produtos.
+   */
+  const opcoesCategoria: OpcaoCategoria[] = useMemo(() => {
+    const conta = new Map<string, number>();
+    for (const p of todos) {
+      if (!p.categoria) continue;
+      conta.set(p.categoria, (conta.get(p.categoria) ?? 0) + 1);
+    }
+    for (const c of categoriasDoServidor) if (!conta.has(c)) conta.set(c, 0);
+    return [...conta.entries()]
+      .map(([nome, itens]) => ({ nome, itens }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }, [todos, categoriasDoServidor]);
+
+  const opcoesSubcategoria: OpcaoCategoria[] = useMemo(() => {
+    const conta = new Map<string, number>();
+    for (const p of todos) {
+      if (form.categoria && p.categoria !== form.categoria) continue;
+      if (!p.subcategoria) continue;
+      conta.set(p.subcategoria, (conta.get(p.subcategoria) ?? 0) + 1);
+    }
+    return [...conta.entries()]
+      .map(([nome, itens]) => ({ nome, itens }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }, [todos, form.categoria]);
+
   /**
    * Move a categoria/subcategoria para a fileira pedida. O servidor renumera.
    *
@@ -1220,24 +1302,44 @@ export function ProdutosLoja() {
                         className="mt-1.5 w-full resize-none rounded-[10px] border border-input bg-background px-3.5 py-2.5 text-[15.5px] transition-colors placeholder:text-muted-foreground focus-visible:border-primary focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-primary/[0.14]"
                       />
                     </div>
-                    <div className="mt-4 space-y-4">
-                      <SeletorChips
+                    {/*
+                      DUAS COLUNAS NO DESKTOP, EMPILHADAS NO CELULAR. Categoria
+                      e subcategoria sao a mesma decisao em dois niveis; lado a
+                      lado elas se leem juntas, e a altura que a nuvem de chips
+                      gastava volta para o preco, que e o campo seguinte.
+                    */}
+                    <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                      <SeletorCategoria
                         label="Categoria"
                         obrigatorio
                         valor={form.categoria}
-                        opcoes={categoriasExistentes}
-                        onChange={v => setForm(f => ({ ...f, categoria: v }))}
-                        placeholderNovo="Ex.: Lanches, Bebidas, Sobremesas…"
+                        opcoes={opcoesCategoria}
+                        onChange={v => setForm(f => ({ ...f, categoria: v, subcategoria: '' }))}
+                        onCriar={criarCategoria}
+                        onApagar={apagarCategoria}
+                        placeholderVazio="Escolha a categoria"
+                        placeholderBusca="Digite para achar a categoria"
                         rotuloNovo="Nova categoria"
                       />
-                      <SeletorChips
+                      <SeletorCategoria
                         label="Subcategoria"
                         valor={form.subcategoria}
-                        opcoes={subcategoriasDaCategoria}
+                        opcoes={opcoesSubcategoria}
                         onChange={v => setForm(f => ({ ...f, subcategoria: v }))}
-                        placeholderNovo="Ex.: Especiais, Veganos…"
+                        desabilitado={!form.categoria || opcoesSubcategoria.length === 0}
+                        textoDesabilitado={form.categoria ? 'Nenhuma nesta categoria' : 'Escolha a categoria primeiro'}
+                        placeholderVazio="Sem subcategoria"
+                        placeholderBusca="Digite para achar a subcategoria"
                         rotuloNovo="Nova subcategoria"
-                        dica={form.categoria ? undefined : 'Escolha uma categoria primeiro'}
+                        vazioPermitido="Sem subcategoria"
+                        onCriar={async (nome) => { setForm(f => ({ ...f, subcategoria: nome })); }}
+                        apoio={
+                          !form.categoria
+                            ? 'Escolha a categoria primeiro.'
+                            : opcoesSubcategoria.length
+                              ? `${opcoesSubcategoria.length} disponíve${opcoesSubcategoria.length > 1 ? 'is' : 'l'} em “${form.categoria}”.`
+                              : 'Crie subcategorias para separar variações.'
+                        }
                       />
                     </div>
                   </section>
@@ -1631,7 +1733,7 @@ export function ProdutosLoja() {
                 <Button type="button" variant="ghost" onClick={() => void fecharCadastro()} disabled={enviando}>
                   Cancelar
                 </Button>
-                <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+                <div className="flex w-full flex-wrap items-center justify-end gap-2 whitespace-nowrap sm:w-auto">
                   {/* "Salvar e criar outro": cadastro de cardápio é trabalho em lote —
                       são 30 itens numa sentada, e reabrir o modal a cada um dobra os
                       cliques. */}
@@ -2022,124 +2124,6 @@ function LinhaInterruptor({ titulo, descricao, ativo, onAlternar, children }: {
   );
 }
 
-function SeletorChips({
-  label, valor, opcoes, onChange, placeholderNovo, rotuloNovo, obrigatorio = false, dica,
-}: {
-  label: string;
-  valor: string;
-  opcoes: string[];
-  onChange: (v: string) => void;
-  placeholderNovo: string;
-  rotuloNovo: string;
-  obrigatorio?: boolean;
-  dica?: string;
-}) {
-  const [criando, setCriando] = useState(false);
-  const [novo, setNovo] = useState('');
-
-  const valorForaDaLista = valor && !opcoes.includes(valor);
-
-  function confirmarNovo() {
-    const v = novo.trim();
-    if (!v) return;
-    onChange(v);
-    setNovo('');
-    setCriando(false);
-  }
-
-  return (
-    <div>
-      <div className="flex items-baseline gap-2 mb-2">
-        <Label className="mb-0">{label}{obrigatorio && ' *'}</Label>
-        {!obrigatorio && <span className="text-xs text-muted-foreground">(opcional)</span>}
-        {valor && (
-          <button
-            type="button"
-            onClick={() => onChange('')}
-            className="ml-auto text-xs text-muted-foreground hover:text-destructive transition-colors"
-          >
-            Limpar
-          </button>
-        )}
-      </div>
-
-      {dica && <p className="text-xs text-muted-foreground mb-2">{dica}</p>}
-
-      <div className="flex flex-wrap gap-2">
-        {opcoes.map(op => {
-          const ativo = valor === op;
-          return (
-            <button
-              key={op}
-              type="button"
-              onClick={() => onChange(ativo ? '' : op)}
-              className={cn(
-                'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
-                ativo
-                  ? 'border-primary bg-primary text-primary-foreground'
-                  : 'border-input bg-background hover:border-primary/50 hover:bg-accent',
-              )}
-            >
-              {ativo && <Check className="size-3.5" strokeWidth={3} />}
-              {op}
-            </button>
-          );
-        })}
-
-        {valorForaDaLista && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground">
-            <Check className="size-3.5" strokeWidth={3} />
-            {valor}
-            <span className="text-[10px] opacity-80">(nova)</span>
-          </span>
-        )}
-
-        {criando ? (
-          <div className="inline-flex items-center gap-1">
-            <Input
-              autoFocus
-              value={novo}
-              onChange={e => setNovo(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter') { e.preventDefault(); confirmarNovo(); }
-                if (e.key === 'Escape') { setCriando(false); setNovo(''); }
-              }}
-              placeholder={placeholderNovo}
-              className="h-11 w-52 rounded-full text-sm sm:h-9"
-            />
-            <button
-              type="button"
-              onClick={confirmarNovo}
-              disabled={!novo.trim()}
-              aria-label="Confirmar"
-              className="flex size-11 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40 sm:size-9"
-            >
-              <Check className="size-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => { setCriando(false); setNovo(''); }}
-              className="flex size-9 items-center justify-center rounded-full border border-input text-muted-foreground hover:bg-accent"
-            >
-              <X className="size-4" />
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => setCriando(true)}
-            className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-input px-3 py-1.5 text-sm font-medium text-muted-foreground hover:border-primary hover:text-primary transition-colors"
-          >
-            <Plus className="size-3.5" /> {rotuloNovo}
-          </button>
-        )}
-      </div>
-
-    </div>
-  );
-}
-
-/* ─────────────────── seção de uma categoria ─────────────────── */
 function CategoriaSection({
   categoria, subs, onEditar, onExcluir, onAlternarDisponivel, onDuplicar,
   modoSelecao, selecionados, onToggleSelecao, densidade, onAdicionar,
