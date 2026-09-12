@@ -434,7 +434,14 @@ function Metric({ icone: Icone, valor, rotulo, alerta, variacao }: {
     <Card>
       <CardContent className="p-4">
         <Icone className={`size-5 mb-2 ${alerta ? 'text-destructive' : 'text-muted-foreground'}`} />
-        <div className={`text-2xl font-extrabold tabular-nums ${alerta ? 'text-destructive' : ''}`}>{valor}</div>
+        {/*
+          O NUMERO ENCOLHE NO CELULAR. Em 375 px a grade de dois cartoes da 166
+          px por cartao, e "R$ 12.345,67" em `text-2xl` pede 176: o valor
+          passava por cima da borda do cartao — justamente o dado que a tela
+          existe para mostrar. `text-xl` no celular cabe, e a partir de `sm:`
+          volta ao tamanho de antes.
+        */}
+        <div className={`text-xl font-extrabold tabular-nums sm:text-2xl ${alerta ? 'text-destructive' : ''}`}>{valor}</div>
         <div className="text-xs text-muted-foreground mt-1">{rotulo}</div>
         {variacao !== undefined && <Variacao percent={variacao} />}
       </CardContent>

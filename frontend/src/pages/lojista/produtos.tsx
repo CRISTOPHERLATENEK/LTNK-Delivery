@@ -818,7 +818,16 @@ export function ProdutosLoja() {
               </p>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          {/*
+            QUEBRA A LINHA NO CELULAR. Eram cinco botoes num `flex` sem
+            `flex-wrap`: um bloco de ~700 px que nao tem como partir, e como o
+            pai nao consegue encolher um filho indivisivel, a PAGINA INTEIRA
+            passava a ter 766 px de largura. Medido em 375 px: a barra saia 391
+            px pela direita e, de quebra, todo card de produto aparecia cortado
+            — o preco ficava fora da tela. Nao era a lista que estava errada, era
+            esta linha esticando o layout embaixo dela.
+          */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {todos.length > 3 && (
               <Button
                 variant="outline"
@@ -1611,11 +1620,18 @@ export function ProdutosLoja() {
                 É a diferença prática: no card inline o salvar descia com o formulário e,
                 num cadastro longo, saía da tela justo na hora de usar.
               */}
+              {/*
+                O RODAPE CABE EM 375 px. O pai ja quebrava linha, mas o par de
+                botoes de salvar era um bloco rigido de 355 px dentro de 325 de
+                espaco util — "Salvar alteracoes" saia pela direita justamente
+                na tela em que ele e o botao que importa. Agora o par tambem
+                quebra, e no celular cada um ocupa a linha inteira.
+              */}
               <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-6 py-[18px] sm:px-8">
                 <Button type="button" variant="ghost" onClick={() => void fecharCadastro()} disabled={enviando}>
                   Cancelar
                 </Button>
-                <div className="flex items-center gap-2">
+                <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                   {/* "Salvar e criar outro": cadastro de cardápio é trabalho em lote —
                       são 30 itens numa sentada, e reabrir o modal a cada um dobra os
                       cliques. */}
@@ -2271,16 +2287,24 @@ function CategoriaSection({
             <GripVertical className="size-4" />
           </span>
         )}
+        {/*
+          O NOME DA CATEGORIA ENCOLHE E CORTA; o resto da faixa nao.
+          Era `shrink-0` no botao inteiro: com "Acessorios para narguile" numa
+          tela de 375 px, a faixa empurrava o "+ Adicionar item" 36 px para fora
+          da tela. Quem tem que ceder espaco e o texto, que corta com reticencia
+          e continua legivel — nao o botao de acao, que fora da tela deixa de
+          existir.
+        */}
         <button
           type="button"
           onClick={() => setAberta(a => !a)}
-          className="group flex shrink-0 items-center gap-2"
+          className="group flex min-w-0 items-center gap-2"
         >
-          <ChevronDown className={cn('size-4 text-muted-foreground transition-transform', !aberta && '-rotate-90')} />
-          <span className="text-[12.5px] font-extrabold uppercase tracking-[0.11em] text-muted-foreground group-hover:text-foreground">
+          <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', !aberta && '-rotate-90')} />
+          <span className="truncate text-[12.5px] font-extrabold uppercase tracking-[0.11em] text-muted-foreground group-hover:text-foreground">
             {categoria}
           </span>
-          <span className="text-[12px] text-muted-foreground/70">
+          <span className="shrink-0 text-[12px] text-muted-foreground/70">
             {total} {total === 1 ? 'item' : 'itens'}
           </span>
         </button>
@@ -2398,10 +2422,20 @@ function CategoriaSection({
                   <span>ou use a busca.</span>
                 </div>
               )}
+              {/*
+                `min(...)` NO MINIMO DA COLUNA, e nao o numero cru.
+                `minmax(440px, 1fr)` promete "nenhuma coluna menor que 440" — e
+                numa tela de celular o container tem 343 px, entao CADA CARD
+                saia 97 px pela direita e o preco do produto ficava fora da
+                tela. `min(440px, 100%)` mantem a largura desejada onde ela cabe
+                e vira "o que couber" onde nao cabe, sem precisar de ponto de
+                quebra.
+              */}
               <div
                 className="grid gap-4"
                 style={{
-                  gridTemplateColumns: `repeat(auto-fill, minmax(${densidade === 'compacta' ? 340 : 440}px, 1fr))`,
+                  gridTemplateColumns:
+                    `repeat(auto-fill, minmax(min(${densidade === 'compacta' ? 340 : 440}px, 100%), 1fr))`,
                 }}
               >
                 {(semTeto.has(sub) ? itensNaTela : itensNaTela.slice(0, TETO)).map((p, j) => (
@@ -4761,7 +4795,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
                 </div>
               )}
 
-              <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(250px,1fr))]">
+              <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(min(250px,100%),1fr))]">
                 {modelos.map(t => (
                   <button
                     key={t.nome}

@@ -254,7 +254,12 @@ export function CuponsLoja() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono font-bold tracking-wider">{c.codigo}</span>
+                    {/* `break-all`: codigo de cupom e uma palavra so, e palavra so
+                        nao quebra sozinha — "CUPOMDEDESCONTOGRANDE" pedia 211 px
+                        numa coluna de 191 e saia por cima do cartao. Cortar com
+                        reticencia seria pior: o codigo existe para ser lido e
+                        digitado inteiro. */}
+                    <span className="break-all font-mono font-bold tracking-wider">{c.codigo}</span>
                     <Badge variant="success" className="text-[10px] px-1.5">
                       {c.tipo === 'percentual' ? `${c.valor}% OFF` : `${brl(c.valor)} OFF`}
                     </Badge>

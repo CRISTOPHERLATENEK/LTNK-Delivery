@@ -1971,11 +1971,18 @@ function ClientesLoja() {
                 {(c.nome || '?').charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <div className="font-semibold leading-tight">{c.nome}</div>
+                <div className="truncate font-semibold leading-tight">{c.nome}</div>
                 <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
                   {c.email && (
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Mail className="size-3" /> {c.email}
+                    /*
+                      `min-w-0` + `break-all` no e-mail: endereço é UMA palavra
+                      só, e palavra só não quebra sozinha. Com
+                      "cliente.com.email.comprido@exemplo.com.br" a linha
+                      passava 109 px por cima da borda do cartão no celular — e
+                      levava junto o nome e a data, que ficavam fora da tela.
+                    */
+                    <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+                      <Mail className="size-3 shrink-0" /> <span className="break-all">{c.email}</span>
                     </span>
                   )}
                   {c.telefone && (

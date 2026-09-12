@@ -240,10 +240,18 @@ export function CategoriasLoja() {
             <div className="mt-4 space-y-4 border-t border-border pt-4">
               <div>
                 <Label className="mb-2 block">Formato</Label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {FORMATOS.map(f => (
                     <button key={f.valor} type="button" onClick={() => setFormato(f.valor)}
-                      className={cn('flex flex-1 items-center justify-center gap-2 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors',
+                      /*
+                        `basis-[calc(50%-0.25rem)]` + quebra de linha no pai: os
+                        tres botoes pedem 360 px de conteudo (o "Arredondado"
+                        sozinho pede 141) e a coluna tem 309 no celular. Com
+                        `flex-1` sem quebra eles nao encolhem abaixo do texto e
+                        empurravam a TELA INTEIRA para 409 px. Agora viram dois
+                        por linha quando nao cabem tres.
+                      */
+                      className={cn('flex min-w-0 flex-1 basis-[calc(50%-0.25rem)] items-center justify-center gap-2 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors sm:basis-auto',
                         formato === f.valor ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground')}>
                       <span className={cn('size-4 border-2 border-current',
                         f.valor === 'circulo' ? 'rounded-full' : f.valor === 'arredondado' ? 'rounded-md' : 'rounded-[2px]')} />
@@ -255,7 +263,7 @@ export function CategoriasLoja() {
 
               <div>
                 <Label className="mb-2 block">Tamanho</Label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {TAMANHOS.map(t => (
                     <button key={t.valor} type="button" onClick={() => setTamanho(t.valor)}
                       className={cn('flex-1 rounded-xl border-2 px-3 py-2 text-sm font-semibold transition-colors',

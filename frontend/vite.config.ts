@@ -1,14 +1,52 @@
-import { defineConfig } from 'vite';
+import { defineConfig, type PluginOption } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import fs from 'fs';
 
 /**
  * Em desenvolvimento: Vite serve em 5173 e faz proxy de /api para o backend
  * (Express em 3000). Em produção: rodamos `npm run build` e a saída vai para
  * ../public/app/, servida estaticamente pelo Express.
  */
+/**
+ * O LABORATORIO DE TELA ESTREITA ENTRA SO NO SERVIDOR DE DESENVOLVIMENTO.
+ *
+ * `frontend/public/laboratorio-mobile.js` poe sessao e rede de mentira no
+ * navegador para DESENHAR as telas do painel (que ficam atras de login) em 375
+ * px e medir o que estoura. Ele e inerte sem `?laboratorio=1` na URL, mas nem
+ * assim deve ir junto no build: script que fabrica sessao nao tem o que fazer
+ * num arquivo publicado, e quem ler o HTML de producao amanha vai perder tempo
+ * decidindo se aquilo e um buraco.
+ *
+ * `apply: 'serve'` e o que garante isso — o plugin nao roda no `vite build`.
+ *
+ *   npm run dev  →  http://localhost:5173/lojista/produtos?laboratorio=1
+ */
+function laboratorioMobile(): PluginOption {
+  return {
+    name: 'laboratorio-mobile',
+    apply: 'serve',
+    /*
+     * O ARQUIVO MORA EM `frontend/dev/`, e NAO em `public/`: tudo que esta em
+     * `public/` e copiado verbatim para o build, entao de la ele seria
+     * publicado junto com o site. Aqui ele so existe enquanto o servidor de
+     * desenvolvimento estiver no ar, servido por esta funcao.
+     */
+    configureServer(servidor) {
+      servidor.middlewares.use('/laboratorio-mobile.js', (_req, res) => {
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        res.end(fs.readFileSync(path.resolve(__dirname, 'dev/laboratorio-mobile.js'), 'utf8'));
+      });
+    },
+    transformIndexHtml(html: string) {
+      return html.replace('<meta charset="UTF-8" />',
+        '<meta charset="UTF-8" />' + '\n    ' + '<script src="/laboratorio-mobile.js"><' + '/script>');
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), laboratorioMobile()],
   /**
    * O .env do projeto é UM só, na raiz — mas o Vite roda de dentro de frontend/ e
    * por padrão procuraria o .env aqui. Sem isto, `VITE_SENTRY_DSN` colado na raiz

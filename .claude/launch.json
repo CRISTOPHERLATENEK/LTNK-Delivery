@@ -4,13 +4,28 @@
     {
       "name": "delivery",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["start"],
+      "runtimeArgs": [
+        "start"
+      ],
       "port": 3000
     },
     {
       "name": "delivery-frontend-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:react"],
+      "runtimeArgs": [
+        "run",
+        "dev:react"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "lab-mobile",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "cwd": "frontend",
       "port": 5173
     }
   ]
