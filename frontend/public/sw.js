@@ -4,9 +4,11 @@
  * - Navegação network-first com fallback ao cache (abre offline).
  * - Nunca cacheia /api (dados sempre frescos).
  */
-/* v6: o SW passou a curar 404 envenenado de asset com hash (ver o fetch
+/* v7: o SW passou a MOSTRAR o push de pedido novo — antes o aviso chegava
+   ao navegador e morria aqui, sem ninguem para desenhar a notificacao.
+   v6: o SW passou a curar 404 envenenado de asset com hash (ver o fetch
    abaixo). O nome muda para o `activate` apagar o cache da versão anterior. */
-const CACHE = 'delivery-app-v6';
+const CACHE = 'delivery-app-v7';
 const ESSENCIAIS = ['/'];
 
 /**
@@ -69,6 +71,67 @@ self.addEventListener('activate', (e) => {
     caches.keys()
       .then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
+  );
+});
+
+/*
+ * O AVISO DE PEDIDO NOVO — e a razao de ele nao existir antes era esta: o
+ * servidor mandava o push, o navegador recebia, e AQUI nao havia ninguem para
+ * mostrar. O lojista precisava ficar de olho na aba aberta; com a aba no fundo
+ * o navegador ainda estrangula o `setInterval` do painel, entao nem o aviso de
+ * dentro da pagina saia. Pedido entrava e ninguem ficava sabendo.
+ *
+ * MEDIDO em 12/09/2026: a loja tinha inscricao de push valida (FCM, criada em
+ * 11/09) e o servidor chamava `notificarLojistaNovoPedido` na criacao do
+ * pedido. So faltava este `addEventListener('push')`.
+ *
+ * `requireInteraction` FICA LIGADO de proposito: notificacao que some sozinha
+ * em cinco segundos e igual a nao ter, numa loja onde o telefone esta no bolso
+ * e o balcao esta cheio. Ela fica na tela ate alguem tocar.
+ */
+self.addEventListener('push', (e) => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch { d = {}; }
+
+  const titulo = d.titulo || 'Novo pedido';
+  const opcoes = {
+    body: d.corpo || 'Abra o painel para ver.',
+    /* `tag` + `renotify`: dois pedidos seguidos nao viram uma notificacao so
+       (mesma tag substituiria em silencio), mas o mesmo pedido reenviado
+       tambem nao empilha duas vezes. */
+    tag: d.tag || 'pedido',
+    renotify: true,
+    requireInteraction: true,
+    vibrate: [200, 100, 200],
+    /* O ICONE E O QUE EXISTE. Nao ha PNG de 192 px no projeto — o manifesto
+       so publica `/favicon.ico` —, e apontar para um arquivo inexistente
+       deixaria a notificacao com o icone generico do navegador e um 404 no
+       log a cada pedido. */
+    icon: '/favicon.ico',
+    data: { url: d.url || '/lojista/pedidos' },
+  };
+  e.waitUntil(self.registration.showNotification(titulo, opcoes));
+});
+
+/*
+ * TOCAR NA NOTIFICACAO LEVA AO PEDIDO — e reaproveita a aba que ja estiver
+ * aberta em vez de abrir a decima: no computador do caixa, cada toque abrindo
+ * uma aba nova termina com dez paineis competindo pelo mesmo som.
+ */
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const destino = (e.notification.data && e.notification.data.url) || '/lojista/pedidos';
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((abas) => {
+      for (const aba of abas) {
+        if (aba.url.includes('/lojista')) {
+          aba.focus();
+          if ('navigate' in aba) aba.navigate(destino).catch(() => {});
+          return;
+        }
+      }
+      return self.clients.openWindow(destino);
+    })
   );
 });
 
