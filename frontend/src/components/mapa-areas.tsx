@@ -10,6 +10,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
+import { CAMADAS } from '@/lib/mapa-camadas';
 import 'leaflet/dist/leaflet.css';
 import { Undo2, Check, X, MapPin, Search, Maximize2, Minimize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -44,26 +45,16 @@ function corDoTema(nome: string, alfa = 1): string {
  * então azulejo de terceiro carrega sem mexer em nada — mas a atribuição é
  * obrigação de licença dos três, não é enfeite.
  */
-const ESTILOS = {
-  padrao: {
-    rotulo: 'Padrão',
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    atribuicao: '&copy; OpenStreetMap',
-    maxZoom: 19,
-  },
-  claro: {
-    rotulo: 'Claro',
-    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-    atribuicao: '&copy; OpenStreetMap &copy; CARTO',
-    maxZoom: 20,
-  },
-  satelite: {
-    rotulo: 'Satélite',
-    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    atribuicao: 'Imagens &copy; Esri',
-    maxZoom: 19,
-  },
-} as const;
+/*
+ * OS TRES FUNDOS VEM DE `lib/mapa-camadas`, e nao mais daqui.
+ *
+ * Em 13/09/2026 dois deles morreram na mao do lojista: o OpenStreetMap barrou o
+ * app ("Access blocked: app is not following the tile usage policy") e a CARTO
+ * passou a exigir chave ("API KEY REQUIRED"). O mesmo endereco bloqueado estava
+ * em mais duas telas — rastreamento e rota —, entao a lista saiu daqui para um
+ * lugar so: quando o proximo provedor mudar de ideia, muda-se um arquivo.
+ */
+const ESTILOS = CAMADAS;
 
 type ChaveEstilo = keyof typeof ESTILOS;
 const CHAVE_ESTILO_LS = 'mapa_areas_estilo';
@@ -121,7 +112,7 @@ export function MapaAreas({
     // recuar, quem estava no zoom 20 e trocasse pro satélite ficava com a tela
     // cinza, sem azulejo nenhum pra mostrar.
     if (mapa.getZoom() > e.maxZoom) mapa.setZoom(e.maxZoom);
-    camadaBase.current = L.tileLayer(e.url, { attribution: e.atribuicao, maxZoom: e.maxZoom }).addTo(mapa);
+    camadaBase.current = L.tileLayer(e.url, { attribution: e.atribuicao, maxZoom: e.maxZoom, className: e.className }).addTo(mapa);
     // Azulejo por baixo de tudo: sem isto ele entra por cima das áreas já desenhadas.
     camadaBase.current.bringToBack();
   }
@@ -203,7 +194,7 @@ export function MapaAreas({
     // país inteiro, deixando claro que é uma visão inicial e que é pra buscar.
     const mapa = L.map(divRef.current, { zoomControl: true }).setView(centro, centroEhReal ? 14 : 4);
     const e = ESTILOS[estiloSalvo()];
-    camadaBase.current = L.tileLayer(e.url, { attribution: e.atribuicao, maxZoom: e.maxZoom }).addTo(mapa);
+    camadaBase.current = L.tileLayer(e.url, { attribution: e.atribuicao, maxZoom: e.maxZoom, className: e.className }).addTo(mapa);
 
     /**
      * Marca a loja: é a referência de "onde eu estou" pra desenhar em volta.

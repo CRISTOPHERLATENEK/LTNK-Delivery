@@ -6,6 +6,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
+import { CAMADA_PADRAO } from '@/lib/mapa-camadas';
 import 'leaflet/dist/leaflet.css';
 
 interface Ponto { lat: number; lng: number; rotulo?: string }
@@ -52,9 +53,12 @@ export function MapaRota({ origem, destino, entregador, className, onRota }: Pro
     });
     mapa.fitBounds([[origem.lat, origem.lng], [destino.lat, destino.lng]], { padding: [40, 40] });
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap',
+    /* O fundo vem de `lib/mapa-camadas`: o endereco do OpenStreetMap que
+       estava aqui foi BLOQUEADO para este app em 13/09/2026, e estava repetido
+       em tres telas. Uma fonte, um lugar. */
+    L.tileLayer(CAMADA_PADRAO.url, {
+      maxZoom: CAMADA_PADRAO.maxZoom,
+      attribution: CAMADA_PADRAO.atribuicao,
     }).addTo(mapa);
 
     marcadorOrigemRef.current = L.marker([origem.lat, origem.lng], { icon: pino('🏪', '#f59e0b') })

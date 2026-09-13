@@ -341,3 +341,16 @@ label[for] {
   .adm-tabela-rolagem { overflow-x: auto; }
   .adm-tabela-rolagem > * { min-width: 640px; }
 }
+
+/*
+ * O FUNDO "CLARO" DO MAPA — o mesmo mapa de ruas, sem a cor.
+ *
+ * Ele existe para o poligono da area de entrega saltar: com a rua colorida por
+ * baixo, o laranja do desenho compete com o mapa. Antes isso vinha de um
+ * provedor separado (CARTO), que passou a exigir chave; o candidato de troca
+ * (Light Gray da Esri) nao tem dado acima do zoom 16, que e exatamente onde se
+ * desenha rua. Tirar a cor por CSS da o mesmo efeito sem depender de ninguem.
+ */
+.mapa-dessaturado {
+  filter: grayscale(1) contrast(0.9) brightness(1.08);
+}

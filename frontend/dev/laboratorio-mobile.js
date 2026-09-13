@@ -161,6 +161,16 @@
         media: 4.3, qtd: 3,
       };
     }
+    if (u.indexOf('/areas') >= 0) {
+      /* Uma area desenhada em volta da loja, para o mapa ter o que mostrar. */
+      return {
+        areas: [{
+          id: 1, nome: 'Centro', taxa_centavos: 0,
+          poligono: [[-23.548, -46.636], [-23.548, -46.630], [-23.553, -46.630], [-23.553, -46.636]],
+        }],
+        loja_lat: -23.5505, loja_lon: -46.6333,
+      };
+    }
     if (u.indexOf('/cupons') >= 0) {
       return {
         cupons: [1, 2].map(function (i) {
