@@ -995,7 +995,33 @@ function Checkout({
         size="xl"
         className="w-full rounded-2xl h-14 text-base font-bold active:scale-[0.98] transition-transform"
         onClick={finalizar}
-        disabled={enviando || enderecoId === null || bloqueado}
+        /*
+         * ENDERECO SO E EXIGIDO NA ENTREGA.
+         *
+         * Antes a condicao era `enderecoId === null` e pronto, sem olhar o tipo
+         * de entrega — e isso MATAVA O BOTAO na retirada, em silencio, para
+         * quem pede como convidado (nome e WhatsApp, sem conta), que e a maior
+         * parte dos clientes de verdade:
+         *
+         *   convidado nao tem agenda de enderecos, entao
+         *   GET /api/cliente/enderecos responde 403, entao
+         *   `enderecos.data` fica indefinido, entao
+         *   o efeito que escolhe um endereco sai na primeira linha, entao
+         *   `enderecoId` fica `null` para sempre.
+         *
+         * Na entrega ainda ha saida: o cartao de endereco aparece e clicar em
+         * "Novo endereco" tira do nulo. Na RETIRADA esse cartao nem e desenhado
+         * — nao existe controle nenhum que mude o `enderecoId`. O cliente
+         * escolhia "Retirar no local", clicava em Finalizar e nao acontecia
+         * nada, sem mensagem. O unico jeito de destravar era voltar em
+         * "Entrega", abrir o formulario e preencher o CEP de um endereco que
+         * ninguem ia usar — foi assim que o defeito apareceu ("por que tenho
+         * que colocar o CEP se eu quero retirar no local?").
+         *
+         * O servidor ja estava certo: em retirada ele ignora o endereco e zera
+         * o frete. Era so a tela que cobrava.
+         */
+        disabled={enviando || (tipoEntrega === 'entrega' && enderecoId === null) || bloqueado}
       >
         {enviando ? 'Enviando…' : bloqueado ? 'Pedido abaixo do mínimo' : `Finalizar pedido · ${brl(total)}`}
       </Button>
