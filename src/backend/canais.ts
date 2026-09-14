@@ -93,43 +93,38 @@ export function diasNoCanal(chave: string, agora = Date.now()): number {
  * onze da noite.
  */
 export const FUNCIONALIDADES = {
+  /*
+   * AS QUATRO SUBIRAM DE BETA PARA ESTAVEL EM 14/09/2026, de uma vez, por
+   * decisao do Cristopher: o que tinha subido para beta tinha que chegar ao
+   * Recomendado.
+   *
+   * O QUE ISSO MUDA, EXATAMENTE: cada uma destas chaves esconde um AJUSTE na
+   * tela do Maxx Gestao (e a rota que grava esse ajuste). Promover faz o
+   * controle APARECER para toda loja — nao liga nada. O valor de cada ajuste
+   * continua como esta gravado, e so muda se o lojista mexer.
+   *
+   * O `porque` saiu junto: ele existia para responder "por que isto ainda nao
+   * e estavel?", pergunta que deixou de existir.
+   */
   'erp-auto-emitir': {
-    canal: 'beta',
+    canal: 'estavel',
     titulo: 'Emitir a NFC-e automaticamente no Maxx Gestão',
-    porque: 'Emitir não tem volta, e a SEFAZ ainda recusa por dados de intermediador.',
-      desde: '2026-09-04',
+    desde: '2026-09-14',
   },
   'erp-modelo-documento': {
-    canal: 'beta',
+    canal: 'estavel',
     titulo: 'Escolher como o pedido entra no Maxx Gestão (Pedido ou Pré-Venda)',
-    porque: 'São documentos diferentes na operação do ERP; qual serve depende de como a loja trabalha.',
-      desde: '2026-09-04',
+    desde: '2026-09-14',
   },
-  /*
-   * CHAVE PROPRIA, E EM ESTAVEL — nao ficou junto do `erp-modelo-documento`.
-   *
-   * O modelo (Pedido x Pre-Venda) e escolha experimental: sao documentos
-   * diferentes na operacao e ninguem sabia qual serve. Ja o STATUS nao tem nada
-   * de experimental — o comportamento (forcar Emitido) esta em producao desde o
-   * inicio, e o que muda e poder escolher a outra letra, com Emitido continuando
-   * o padrao de quem nao mexer.
-   *
-   * EM BETA, e nao em estavel: o Cristopher pediu para provar no Mostruario
-   * antes de qualquer cliente ver. Chave propria continua valendo — quando isto
-   * subir para estavel, sobe sozinho, sem arrastar o `erp-auto-emitir` (emitir
-   * NFC-e nao tem volta e a SEFAZ ainda recusa) nem o `erp-caixa`.
-   */
   'erp-status-documento': {
-    canal: 'beta',
+    canal: 'estavel',
     titulo: 'Escolher em que status o pedido fica no Maxx Gestão (Rascunho ou Emitido)',
-    porque: 'Rascunho chega aberto para o balcão faturar; Emitido chega fechado e aparece nos relatórios. Depende de como a loja opera.',
-      desde: '2026-09-10',
+    desde: '2026-09-14',
   },
   'erp-caixa': {
-    canal: 'beta',
+    canal: 'estavel',
     titulo: 'Enviar o pedido para um caixa do Maxx Gestão',
-    porque: 'O campo não é documentado pela API deles; funciona, mas foi descoberto na marra.',
-      desde: '2026-09-04',
+    desde: '2026-09-14',
   },
 } as const satisfies Record<string, Funcionalidade>;
 
@@ -145,7 +140,21 @@ export type ChaveFuncionalidade = keyof typeof FUNCIONALIDADES;
 export function funcionalidadeLiberada(chave: string, canalDaLoja: unknown): boolean {
   const f = (FUNCIONALIDADES as Record<string, Funcionalidade>)[chave];
   if (!f) return false;
-  return PROFUNDIDADE[canalValido(canalDaLoja)] >= PROFUNDIDADE[f.canal];
+  return enxerga(canalDaLoja, f.canal);
+}
+
+/**
+ * A REGRA DA PROFUNDIDADE, sozinha: quem esta neste canal enxerga o que nasceu
+ * naquele?
+ *
+ * Ela existe separada porque a regra precisa continuar provada mesmo quando o
+ * catalogo esvazia um degrau. Em 14/09/2026 todas as funcionalidades subiram
+ * para estavel, e o teste de "estavel NAO ve o que esta em beta" ficou sem
+ * sujeito — passaria a valer por vacuidade, que e o jeito silencioso de um
+ * teste parar de testar. Com esta funcao, a ordem continua verificada por si.
+ */
+export function enxerga(canalDaLoja: unknown, canalDaFuncionalidade: Canal): boolean {
+  return PROFUNDIDADE[canalValido(canalDaLoja)] >= PROFUNDIDADE[canalDaFuncionalidade];
 }
 
 /** Tudo que esta loja enxerga — para a tela não repetir a regra. */

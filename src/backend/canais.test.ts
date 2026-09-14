@@ -10,7 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   CANAIS, canalValido, funcionalidadeLiberada, funcionalidadesDoCanal, FUNCIONALIDADES,
-  diasNoCanal,
+  diasNoCanal, enxerga,
 } from './canais';
 
 const semComentarios = (t: string) =>
@@ -33,10 +33,49 @@ describe('o canal decide o que a loja enxerga', () => {
     expect(beta.length).toBeGreaterThanOrEqual(estavel.length);
   });
 
-  it('estável NÃO vê o que está em beta', () => {
-    expect(funcionalidadeLiberada('erp-auto-emitir', 'estavel')).toBe(false);
-    expect(funcionalidadeLiberada('erp-auto-emitir', 'beta')).toBe(true);
-    expect(funcionalidadeLiberada('erp-auto-emitir', 'teste')).toBe(true);
+  /*
+   * A ORDEM, SEM DEPENDER DO CATALOGO.
+   *
+   * Este teste era escrito sobre o `erp-auto-emitir`, que estava em beta. Em
+   * 14/09/2026 as quatro funcionalidades subiram para estavel e o degrau ficou
+   * vazio: escrito do jeito antigo, ele passaria por vacuidade — o jeito
+   * silencioso de um teste parar de testar. Agora olha a regra em si.
+   */
+  it('quem está mais raso NÃO vê o que nasceu mais fundo', () => {
+    expect(enxerga('estavel', 'beta')).toBe(false);
+    expect(enxerga('estavel', 'teste')).toBe(false);
+    expect(enxerga('beta', 'teste')).toBe(false);
+
+    expect(enxerga('beta', 'beta')).toBe(true);
+    expect(enxerga('beta', 'estavel')).toBe(true);
+    expect(enxerga('teste', 'beta')).toBe(true);
+    expect(enxerga('teste', 'estavel')).toBe(true);
+    expect(enxerga('estavel', 'estavel')).toBe(true);
+  });
+
+  /*
+   * ONDE CADA FUNCIONALIDADE ESTA HOJE, ESCRITO A MAO.
+   *
+   * Promover ou rebaixar uma chave muda o que MILHARES de lojas enxergam.
+   * Escrito aqui, isso nunca passa de raspao numa revisao: mexer no catalogo
+   * derruba este teste, e derrubar um teste obriga a olhar.
+   */
+  it('o catálogo está onde a gente decidiu que ele está', () => {
+    const onde = Object.fromEntries(
+      Object.entries(FUNCIONALIDADES).map(([k, f]) => [k, f.canal]));
+    expect(onde).toEqual({
+      'erp-auto-emitir': 'estavel',
+      'erp-modelo-documento': 'estavel',
+      'erp-status-documento': 'estavel',
+      'erp-caixa': 'estavel',
+    });
+  });
+
+  it('o que está em estável chega a todo canal', () => {
+    for (const canal of CANAIS) {
+      expect(funcionalidadeLiberada('erp-auto-emitir', canal), canal).toBe(true);
+      expect(funcionalidadeLiberada('erp-caixa', canal), canal).toBe(true);
+    }
   });
 
   it('canal ausente ou estranho vale ESTÁVEL', () => {
@@ -127,20 +166,21 @@ describe('as rotas em liberação exigem o canal', () => {
   const rotas = semComentarios(
     fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8'));
 
-  it('os ajustes do ERP em beta são barrados no servidor', () => {
+  it('os ajustes do ERP continuam passando pela guarda de canal', () => {
     /*
-     * Esconder o controle na tela não basta: a rota responde a quem chamar
-     * direto, e quem está em estável não deveria conseguir ligar um ajuste que
-     * ainda está sendo descoberto.
+     * Esconder o controle na tela nunca bastou: a rota responde a quem chamar
+     * direto. Hoje as quatro estao em estavel e a guarda deixa todo mundo
+     * passar — ela fica porque e o que torna REVERSIVEL a promocao de
+     * 14/09/2026: rebaixar uma chave volta a barrar no servidor, sem precisar
+     * lembrar de recolocar a linha.
      */
     for (const [rota, chave] of [
       ["router.put('/erp/auto-emitir'", 'erp-auto-emitir'],
       ["router.put('/erp/modelo'", 'erp-modelo-documento'],
       ["router.put('/erp/caixa'", 'erp-caixa'],
       /* O status ganhou CHAVE PROPRIA, e nao ficou junto do modelo: escolher a
-         letra nao e experimental (o comportamento esta em producao desde o
-         inicio), e junto do modelo o seletor ficaria invisivel para toda loja
-         em estavel. Em beta por ora, para provar no Mostruario primeiro. */
+         letra nao e experimental, e junto do modelo o seletor ficaria
+         invisivel para toda loja em estavel. */
       ["router.put('/erp/status'", 'erp-status-documento'],
     ]) {
       const i = rotas.indexOf(rota);
@@ -311,11 +351,13 @@ describe('o catálogo diz há quanto tempo cada coisa está parada', () => {
   });
 
   it('diasNoCanal conta a partir da data, e nunca devolve negativo', () => {
-    const doisDias = Date.parse('2026-09-06T00:00:00Z');
+    /* A data de referencia acompanha o `desde` do catalogo: as quatro entraram
+       em estavel em 14/09/2026. */
+    const doisDias = Date.parse('2026-09-16T00:00:00Z');
     expect(diasNoCanal('erp-caixa', doisDias)).toBe(2);
     /* Data no futuro (relógio torto, digitação) não pode virar "-3 dias" na
        tela: zero é a leitura honesta de "acabou de entrar". */
-    expect(diasNoCanal('erp-caixa', Date.parse('2026-09-01T00:00:00Z'))).toBe(0);
+    expect(diasNoCanal('erp-caixa', Date.parse('2026-09-11T00:00:00Z'))).toBe(0);
     expect(diasNoCanal('nao-existe', doisDias)).toBe(0);
   });
 });
