@@ -557,7 +557,19 @@ function lerHtmlBase(): string {
 }
 
 app.use((req, res, next) => {
-  if (req.method !== 'GET') return next();
+  /*
+   * HEAD CONTA COMO GET AQUI.
+   *
+   * Estava so `!== 'GET'`, e entao um HEAD na raiz caia ate o fim e voltava
+   * 404 — com a loja perfeitamente no ar. Quem pergunta por HEAD nao e gente:
+   * e monitor de uptime (a maioria checa assim, por ser a chamada mais barata),
+   * verificador de link e pre-visualizacao de mensageiro. Ou seja, o painel de
+   * monitoramento diria "fora do ar" justamente quando nao esta, e o alarme que
+   * existe para avisar de queda viraria o alarme que ninguem acredita.
+   *
+   * O Express nao manda corpo em resposta a HEAD — basta deixar entrar.
+   */
+  if (req.method !== 'GET' && req.method !== 'HEAD') return next();
   if (req.path.startsWith('/api')) return next();
   if (req.path.includes('.')) return next();
 
@@ -629,7 +641,8 @@ app.use((req, res, next) => {
  * em si pede troca atômica por symlink no `deploy.sh`.
  */
 app.use((req, res, next) => {
-  if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+  /* HEAD tambem chega aqui, pela mesma razao do fallback do SPA acima. */
+  if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path.startsWith('/api')) return next();
   res.setHeader('Cache-Control', 'private, no-store');
   res.status(404).type('text/plain').send('Arquivo não encontrado.');
 });

@@ -111,9 +111,14 @@ describe('o cabeçalho de /api', () => {
    * morava no cache HTTP do navegador.
    */
   it('404 de arquivo estático manda no-store', () => {
-    const i = codigo.indexOf("if (req.method !== 'GET' || req.path.startsWith('/api')) return next();");
+    /* ANCORA NO `res.status(404).type('text/plain')`, e nao na linha da guarda
+       de metodo: a guarda mudou em 14/09/2026 para deixar o HEAD entrar (monitor
+       de uptime checa por HEAD e recebia 404 com a loja no ar), e este teste
+       quebrou sem que nada do que ele protege tivesse mudado. Ancora no que o
+       teste e sobre. */
+    const i = codigo.indexOf("res.status(404).type('text/plain')");
     expect(i).toBeGreaterThan(0);
-    const bloco = codigo.slice(i, i + 260);
+    const bloco = codigo.slice(Math.max(0, i - 260), i + 120);
     expect(bloco).toContain("'Cache-Control', 'private, no-store'");
     expect(bloco).toContain('res.status(404)');
   });
