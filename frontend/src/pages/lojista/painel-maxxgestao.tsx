@@ -54,6 +54,20 @@ export interface EstadoErp {
    */
   caixa: number;
   /**
+   * O cardápio se sincroniza com o ERP sozinho, de hora em hora.
+   *
+   * NÃO inclui saldo de estoque, e não é escolha nossa: a API do Maxx Gestão
+   * não expõe saldo nem avisa por webhook (medido em 14/09/2026). O que a
+   * passada acompanha é cadastro — nome, descrição, categoria, código de
+   * barras, preço enquanto ninguém precificou aqui, e produto que saiu do
+   * catálogo de lá.
+   */
+  sinc_auto: boolean;
+  /** Quando a última passada terminou (ISO), ou vazio. */
+  sinc_em: string;
+  /** O catálogo do ERP que esta loja publica. 0 = a empresa inteira. */
+  catalogo: number;
+  /**
    * O que o CANAL desta loja abre.
    *
    * Vem calculado do servidor: repetir a regra do canal aqui garantiria que as
@@ -116,6 +130,7 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
   const [enviando, setEnviando] = useState(false);
   const [ligando, setLigando] = useState(false);
   const [ligandoAuto, setLigandoAuto] = useState(false);
+  const [ligandoSinc, setLigandoSinc] = useState(false);
   const [empresa, setEmpresa] = useState<EmpresaErp | null>(null);
 
   const [catalogos, setCatalogos] = useState<CatalogoErp[] | null>(null);
@@ -247,6 +262,45 @@ Ligar assim mesmo?`,
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
       setLigandoAuto(false);
+    }
+  }
+
+  async function alternarSincAuto() {
+    if (!estado || ligandoSinc) return;
+    const novo = !estado.sinc_auto;
+    /*
+     * O AVISO SÓ NA HORA DE LIGAR, e diz a consequência REAL em vez de
+     * "atenção": o que assusta aqui não é atualizar preço — é PAUSAR produto
+     * que sumiu do cadastro de lá, sem ninguém olhando, de madrugada.
+     */
+    if (novo && !window.confirm(
+      `De hora em hora o cardápio vai acompanhar o cadastro do Maxx Gestão.
+
+Produto que sair do catálogo de lá é PAUSADO aqui — não apagado, mas sai do ar.
+Nome, descrição e categoria só mudam enquanto você não os tiver editado aqui.
+Preço só entra onde ainda não há preço seu.
+
+Estoque NÃO entra: a API do Maxx Gestão não informa saldo.
+
+Ligar?`,
+    )) return;
+
+    const antes = estado;
+    aoMudar({ ...estado, sinc_auto: novo });
+    setLigandoSinc(true);
+    try {
+      await api<{ ligado: boolean }>('PUT', '/api/lojista/erp/sincronizacao-automatica', { ligado: novo });
+      mostrar({
+        tipo: 'sucesso',
+        titulo: novo
+          ? 'O cardápio passa a acompanhar o Maxx Gestão de hora em hora'
+          : 'A sincronização automática foi desligada',
+      });
+    } catch (err) {
+      aoMudar(antes);
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setLigandoSinc(false);
     }
   }
 
@@ -654,6 +708,51 @@ Ligar assim mesmo?`,
           O número está na tela de caixa do Maxx Gestão. Deixe vazio para não usar
           caixa. <b>Caixa errado é pior que nenhum</b>: o pedido entra no
           fechamento de outro operador.
+        </p>
+      </Linha>
+      )}
+
+      {/* erp-sincronizar-auto — em liberação por canal */}
+      {liberada('erp-sincronizar-auto') && (
+      <Linha
+        titulo="Acompanhar o Maxx Gestão sozinho"
+        descricao={
+          !configurado ? 'Cole o token do Maxx Gestão primeiro.'
+            : estado?.sinc_auto
+              ? (estado.sinc_em
+                  ? `Ligado. Última passada ${new Date(estado.sinc_em).toLocaleString('pt-BR')}.`
+                  : 'Ligado. A primeira passada sai dentro de uma hora.')
+              : 'Desligado — o cardápio só muda quando você clica em importar.'
+        }
+        acao={
+          <button
+            type="button"
+            disabled={!configurado || ligandoSinc}
+            aria-pressed={!!estado?.sinc_auto}
+            onClick={() => void alternarSincAuto()}
+            className={cn(
+              'relative h-6 w-11 shrink-0 rounded-full transition-colors',
+              !configurado ? 'cursor-not-allowed bg-muted'
+                : estado?.sinc_auto ? 'bg-primary' : 'bg-muted-foreground/30',
+            )}
+          >
+            <span className={cn('absolute top-0.5 size-5 rounded-full bg-white shadow transition-all',
+              estado?.sinc_auto ? 'left-[22px]' : 'left-0.5')} />
+          </button>
+        }
+      >
+        {/*
+          O QUE ELA NÃO FAZ, DITO ANTES DE LIGAR.
+          "Sincroniza com o ERP" é lido como "o estoque vem junto" — é a
+          primeira coisa que qualquer lojista supõe. A API do Maxx Gestão não
+          informa saldo, e descobrir isso depois de confiar é pior que ler aqui.
+        */}
+        <p className="mt-2 max-w-[58ch] text-[12.5px] leading-relaxed text-muted-foreground">
+          Acompanha <b>cadastro</b>: nome, descrição, categoria, código de barras,
+          preço onde ainda não há preço seu, e pausa o que saiu do catálogo de lá.
+          O que você já editou aqui não é desfeito.{' '}
+          <b>Saldo de estoque não entra</b> — a API do Maxx Gestão não informa
+          quantidade.
         </p>
       </Linha>
       )}

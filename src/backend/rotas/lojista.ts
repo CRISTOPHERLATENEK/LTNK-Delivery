@@ -4149,12 +4149,14 @@ router.get('/erp', async (req, res, next) => {
     const token = await tokenMaxxGestaoDaLoja(loja.id);
     const linha = await db.prepare(
       `SELECT nfce_emissor, maxxgestao_auto_emitir, maxxgestao_modelo, maxxgestao_status,
-              maxxgestao_id_caixa
+              maxxgestao_id_caixa, maxxgestao_sinc_auto, maxxgestao_sinc_em,
+              maxxgestao_catalogo
          FROM lojas WHERE id = ?`
     ).get(loja.id) as {
       nfce_emissor: string | null; maxxgestao_auto_emitir: number | null;
       maxxgestao_modelo: string | null; maxxgestao_status: string | null;
-      maxxgestao_id_caixa: number | null;
+      maxxgestao_id_caixa: number | null; maxxgestao_sinc_auto: number | null;
+      maxxgestao_sinc_em: string | null; maxxgestao_catalogo: number | null;
     } | undefined;
     res.json({
       token: mascarar(token),
@@ -4166,6 +4168,12 @@ router.get('/erp', async (req, res, next) => {
       modelo: modeloValido(linha?.maxxgestao_modelo),
       status: statusValido(linha?.maxxgestao_status),
       caixa: Math.max(0, Number(linha?.maxxgestao_id_caixa ?? 0)),
+      sinc_auto: Number(linha?.maxxgestao_sinc_auto ?? 0) === 1,
+      /* QUANDO A ÚLTIMA PASSADA TERMINOU. Sem isto, "está ligado" e "está
+         funcionando" são a mesma frase para quem olha a tela — e a diferença
+         entre as duas é justamente o que o lojista precisa saber. */
+      sinc_em: String(linha?.maxxgestao_sinc_em ?? ''),
+      catalogo: Math.max(0, Number(linha?.maxxgestao_catalogo ?? 0)),
       /*
        * O QUE O CANAL DESTA LOJA ABRE.
        *
@@ -4303,6 +4311,30 @@ router.put('/erp/caixa', async (req, res, next) => {
     await db.prepare('UPDATE lojas SET maxxgestao_id_caixa = ? WHERE id = ?').run(n, loja.id);
     console.log(`[erp] loja ${loja.id}: pedidos passam a entrar ${n > 0 ? `no caixa ${n}` : 'sem caixa'}`);
     res.json({ caixa: n });
+  } catch (e) { next(e); }
+});
+
+/**
+ * SINCRONIZAR O CARDÁPIO COM O ERP SOZINHO, de hora em hora.
+ *
+ * Existe porque o lojista mexe no cadastro LÁ — muda preço, corrige nome,
+ * desativa o que não vende mais — e espera que o delivery acompanhe. Sem isto,
+ * acompanhar é clicar em "importar" e esperar a barra.
+ *
+ * NÃO SINCRONIZA SALDO DE ESTOQUE, e não é escolha nossa: medido em 14/09/2026
+ * contra a conta real, a API deles não expõe saldo (25 caminhos prováveis,
+ * todos 404 ou vazios) nem avisa por webhook (também 404). O que este ciclo
+ * acompanha é CADASTRO: nome, descrição, categoria, código de barras, preço
+ * enquanto ninguém precificou aqui, e produto que saiu do catálogo de lá.
+ */
+router.put('/erp/sincronizacao-automatica', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    exigirFuncionalidade(loja, 'erp-sincronizar-auto');
+    const ligado = req.body?.ligado === true || req.body?.ligado === 1 || req.body?.ligado === '1';
+    await db.prepare('UPDATE lojas SET maxxgestao_sinc_auto = ? WHERE id = ?').run(ligado ? 1 : 0, loja.id);
+    console.log(`[erp-sinc] loja ${loja.id}: sincronizacao automatica ${ligado ? 'LIGADA' : 'desligada'}`);
+    res.json({ ligado });
   } catch (e) { next(e); }
 });
 
@@ -4481,6 +4513,16 @@ router.post('/erp/importar', async (req, res, next) => {
       : LETRAS_VARREDURA;
 
     const catalogoPedido = Number(req.body?.catalogo ?? 0) || 0;
+    /*
+     * GRAVA O CATÁLOGO ESCOLHIDO — a passada automática roda sem tela.
+     *
+     * Antes o catálogo só existia como campo deste pedido, vivo enquanto o
+     * navegador estivesse aberto. A sincronização de hora em hora acontece de
+     * madrugada, sem ninguém: sem saber o catálogo ela peneiraria pela empresa
+     * inteira e despejaria 1.118 produtos num cardápio de 39.
+     */
+    await db.prepare('UPDATE lojas SET maxxgestao_catalogo = ? WHERE id = ?')
+      .run(catalogoPedido, loja.id);
     const comecou = Date.now();
 
     /** Resposta de "ainda não acabou", com ou sem espera pedida. */

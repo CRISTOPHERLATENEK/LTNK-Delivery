@@ -1307,6 +1307,33 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * vem do lojista, lido na tela do ERP.
      */
     ['lojas', 'maxxgestao_id_caixa', 'maxxgestao_id_caixa INT NOT NULL DEFAULT 0'],
+    /*
+     * SINCRONIZAR O CARDÁPIO COM O ERP SOZINHO, de hora em hora.
+     *
+     * NASCE DESLIGADA, e isso não é timidez: ligada, a passada PAUSA produto
+     * que sumiu do cadastro de lá. Numa loja que nunca importou do ERP, o
+     * cardápio inteiro é "não veio do ERP" — e ligar por padrão seria tirar a
+     * loja do ar sozinho, de madrugada, sem ninguém para ver.
+     *
+     * O catálogo escolhido continua sendo o da importação (`maxxgestao_catalogo`):
+     * são a mesma decisão, e duas colunas para isso só criariam o dia em que
+     * uma diz uma coisa e a outra, outra.
+     */
+    ['lojas', 'maxxgestao_sinc_auto', 'maxxgestao_sinc_auto TINYINT NOT NULL DEFAULT 0'],
+    /*
+     * O CATÁLOGO DO ERP QUE ESTA LOJA PUBLICA. Zero = a empresa inteira.
+     *
+     * Existia só como campo do pedido de importação, vivo enquanto a tela
+     * estava aberta. Com a sincronização automática isso não serve: a passada
+     * roda de madrugada, sem tela nenhuma, e sem saber o catálogo ela
+     * peneiraria pela empresa toda — trazendo para o cardápio 1.118 produtos
+     * numa loja que publica 39. Gravado na importação, lido pela passada.
+     */
+    ['lojas', 'maxxgestao_catalogo', 'maxxgestao_catalogo INT NOT NULL DEFAULT 0'],
+    /* Quando a última passada automática terminou. Só para a tela poder dizer
+       "sincronizado às 14h" — sem isso, "está ligado" e "está funcionando" são
+       indistinguíveis para quem olha. */
+    ['lojas', 'maxxgestao_sinc_em', "maxxgestao_sinc_em VARCHAR(32) NOT NULL DEFAULT ''"],
     /* O cliente como Pessoa no Maxx Gestão. Guardado para ACHAR ANTES DE
        CRIAR: sem isso, cada pedido criaria uma duplicata do mesmo cliente no
        cadastro do lojista, e ele descobriria pelo cadastro inchado em vez de um

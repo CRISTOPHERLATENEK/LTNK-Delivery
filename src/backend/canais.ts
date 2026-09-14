@@ -126,6 +126,24 @@ export const FUNCIONALIDADES = {
     titulo: 'Enviar o pedido para um caixa do Maxx Gestão',
     desde: '2026-09-14',
   },
+  /*
+   * NASCE EM BETA, e nao em estavel junto das outras quatro.
+   *
+   * As quatro subiram porque ja tinham rodado em beta. Esta e nova, e o que ela
+   * faz e diferente em natureza: e a unica que ESCREVE NO CARDAPIO SOZINHA, de
+   * hora em hora, sem ninguem olhando — inclusive PAUSANDO produto que sumiu do
+   * cadastro do ERP. Um engano aqui nao aparece como erro na tela: aparece como
+   * produto fora do ar na hora do almoco.
+   *
+   * Sai de beta quando tiver rodado uma semana numa loja de verdade com o
+   * lojista conferindo o que ela mexeu.
+   */
+  'erp-sincronizar-auto': {
+    canal: 'beta',
+    titulo: 'Sincronizar o cardápio com o Maxx Gestão sozinho, de hora em hora',
+    porque: 'É a única que escreve no cardápio sem ninguém olhando — inclusive pausando produto que saiu do ERP.',
+    desde: '2026-09-14',
+  },
 } as const satisfies Record<string, Funcionalidade>;
 
 export type ChaveFuncionalidade = keyof typeof FUNCIONALIDADES;

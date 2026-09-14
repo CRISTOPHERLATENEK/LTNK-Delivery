@@ -68,7 +68,22 @@ describe('o canal decide o que a loja enxerga', () => {
       'erp-modelo-documento': 'estavel',
       'erp-status-documento': 'estavel',
       'erp-caixa': 'estavel',
+      /* Nasceu em beta em 14/09/2026, depois das outras quatro subirem. E a
+         unica que ESCREVE NO CARDAPIO sozinha, de hora em hora, inclusive
+         pausando produto que sumiu do ERP — um engano ai nao aparece como erro
+         na tela, aparece como produto fora do ar na hora do almoco. */
+      'erp-sincronizar-auto': 'beta',
     });
+  });
+
+  /*
+   * E COM O DEGRAU DO BETA HABITADO DE NOVO, a regra volta a ter sujeito: quem
+   * esta em estavel NAO enxerga a sincronizacao automatica.
+   */
+  it('estável não vê o que está em beta', () => {
+    expect(funcionalidadeLiberada('erp-sincronizar-auto', 'estavel')).toBe(false);
+    expect(funcionalidadeLiberada('erp-sincronizar-auto', 'beta')).toBe(true);
+    expect(funcionalidadeLiberada('erp-sincronizar-auto', 'teste')).toBe(true);
   });
 
   it('o que está em estável chega a todo canal', () => {

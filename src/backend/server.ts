@@ -32,6 +32,8 @@ import { statusParaEvento, ehFalhaDeCancelamento } from './ifood-status';
 import { transicionarStatus } from './fluxoPedido';
 import { credenciaisDoAmbiente as credenciaisIfood, pollingEventos, confirmarEventos, buscarPedido as buscarPedidoIfood, motivosDeCancelamento } from './ifood-cliente';
 import { sincronizarLojaIfood, resumoDoCiclo, NADA_A_FAZER } from './ifood-sincronizar-ciclo';
+import { sincronizarLojaErp, passadaMudouAlgo } from './maxxgestao-sincronizar-ciclo';
+import { descriptografar } from './cripto';
 import { reconciliarPedidosIfood } from './ifood-reconciliar-ciclo';
 import { agoraUTC as agoraUTCIfood } from './util';
 import { gravarFaturasDeTodos } from './faturas';
@@ -900,6 +902,79 @@ async function sincronizarCardapiosIfood(): Promise<void> {
 }
 
 /**
+ * SINCRONIZAÇÃO DO CARDÁPIO COM O MAXX GESTÃO, das lojas que ligaram.
+ *
+ * DE HORA EM HORA, e o intervalo é a parte pensada. O ERP aceita 20 chamadas
+ * por minuto POR TOKEN, e a mesma cota paga a emissão da NFC-e de cada pedido.
+ * Uma passada custa cerca de 37 chamadas — quase dois minutos de orçamento.
+ * Apertar para 5 minutos trocaria "preço desatualizado por uma hora" por "nota
+ * que não sai na hora do almoço", que é um problema muito pior.
+ *
+ * NÃO SINCRONIZA SALDO DE ESTOQUE: a API deles não expõe saldo (medido em
+ * 14/09/2026, 25 caminhos prováveis, todos 404 ou vazios) nem avisa por
+ * webhook. O que esta passada acompanha é cadastro — nome, descrição,
+ * categoria, código de barras, preço enquanto ninguém precificou aqui, e
+ * produto que saiu do catálogo de lá.
+ *
+ * Loja com falha não interrompe as outras: são tenants diferentes, e um token
+ * vencido numa não é motivo para o cardápio de todas parar.
+ */
+let sincErpEmCurso = false;
+async function sincronizarCardapiosErp(): Promise<void> {
+  /*
+   * UMA PASSADA POR VEZ. O laço é de hora em hora e a passada leva dois
+   * minutos, então sobrepor é improvável — mas "improvável" aqui significa duas
+   * passadas planejando sobre a mesma leitura e gravando uma por cima da outra,
+   * e o custo de evitar é uma variável.
+   */
+  if (sincErpEmCurso) {
+    console.log('[erp-sinc] passada anterior ainda rodando; esta volta fica de fora.');
+    return;
+  }
+  sincErpEmCurso = true;
+  try {
+    for (const tenant of await listarTenants()) {
+      if (!tenant.ativo) continue;
+      let lojas: Array<{ id: number; maxxgestao_token: string | null; maxxgestao_catalogo: number | null }>;
+      try {
+        lojas = await comTenant(tenant.db_nome, () => db.prepare(
+          `SELECT id, maxxgestao_token, maxxgestao_catalogo FROM lojas
+            WHERE maxxgestao_sinc_auto = 1 AND maxxgestao_token IS NOT NULL`
+        ).all()) as typeof lojas;
+      } catch (e) {
+        console.error(`[erp-sinc] não consegui listar lojas do tenant ${tenant.slug}:`, (e as Error).message);
+        continue;
+      }
+
+      for (const loja of lojas) {
+        let token = '';
+        try { token = loja.maxxgestao_token ? descriptografar(loja.maxxgestao_token) : ''; } catch { token = ''; }
+        if (!token) {
+          console.error(`[erp-sinc] loja ${loja.id}/${tenant.slug}: token ilegível; passada pulada.`);
+          continue;
+        }
+        try {
+          await comTenant(tenant.db_nome, async () => {
+            const r = await sincronizarLojaErp(token, loja.id, Number(loja.maxxgestao_catalogo ?? 0));
+            await db.prepare('UPDATE lojas SET maxxgestao_sinc_em = ? WHERE id = ?')
+              .run(new Date().toISOString(), loja.id);
+            /* Passada silenciosa é o caso normal: com uma linha por hora por
+               loja dizendo "nada mudou", o dia em que algo mudar some no ruído. */
+            if (passadaMudouAlgo(r)) {
+              console.log(`[erp-sinc] loja ${loja.id}/${tenant.slug}: ${r.resumo}`);
+            }
+          });
+        } catch (e) {
+          console.error(`[erp-sinc] loja ${loja.id}/${tenant.slug} falhou:`, (e as Error).message);
+        }
+      }
+    }
+  } finally {
+    sincErpEmCurso = false;
+  }
+}
+
+/**
  * Cria o pedido no banco do tenant a partir do evento.
  *
  * Chamado por evento NOVO — a deduplicação já aconteceu. Ainda assim a gravação
@@ -1345,6 +1420,22 @@ const PORT = Number(process.env.PORT) || 3000;
   // Mantém quente o token da ONZ (vale só 5 min): sem isso, quase todo pedido
   // pagava ~1s de autenticação antes de mostrar o QR, com o cliente esperando.
   setInterval(() => { aquecerTokens().catch(() => { /* melhor esforço */ }); }, 60_000);
+
+  /*
+   * CARDÁPIO DO MAXX GESTÃO, de hora em hora.
+   *
+   * NÃO RODA NO BOOT, ao contrário das reconciliações acima — e a diferença é
+   * de propósito. Reconciliar pagamento no boot recupera venda que ficou presa;
+   * já esta passada ESCREVE NO CARDÁPIO, e um servidor que reinicia várias
+   * vezes (deploy, queda, `pm2 reload`) rodaria uma gravação a cada reinício,
+   * gastando o orçamento do ERP justamente na hora em que ele mais precisa
+   * estar livre para emitir nota. A primeira passada sai uma hora depois de
+   * subir; quem tem pressa clica em "importar agora", que passa pelo MESMO
+   * caminho.
+   */
+  setInterval(() => {
+    sincronizarCardapiosErp().catch(e => console.error('[erp-sinc] falha:', e));
+  }, 60 * 60_000);
 
   /*
    * 30 SEGUNDOS é exigência da documentação do iFood, não escolha nossa: é o
