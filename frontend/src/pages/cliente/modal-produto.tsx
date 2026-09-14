@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { precoVigente, promocaoVigente } from '@/lib/preco-produto';
 import { Minus, Plus, Check, AlertCircle, ChevronDown, X } from 'lucide-react';
 import {
-  Sheet, SheetContent, SheetFooter,
+  Sheet, SheetContent, SheetFooter, SheetTitle,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { brl } from '@/lib/format';
@@ -352,6 +352,16 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
           'sm:shadow-[0_40px_90px_-30px_rgba(28,25,23,.5)]',
         )}
       >
+        {/*
+          O NOME DO PRODUTO, PARA QUEM NÃO VÊ A TELA.
+          O título existe na foto logo abaixo, mas como imagem e texto soltos —
+          o leitor de tela anunciava esta caixa como uma janela SEM NOME, e a
+          pessoa cega só descobria em que produto entrou depois de varrer o
+          conteúdo inteiro. (O Radix avisava disso no console; era um aviso com
+          gente do outro lado.) `sr-only` porque para quem enxerga o nome já
+          está na foto — repetir seria ruído.
+        */}
+        <SheetTitle className="sr-only">{produto.nome}</SheetTitle>
 
         {/*
           X PRÓPRIO, não o do Sheet.
