@@ -272,3 +272,15 @@ export async function aplicarControleDeEstoque(
     ? await emLotes(desligar, 'controla_estoque = 0, estoque_do_erp = 0') : 0;
   return { ligados, desligados, falhas };
 }
+
+/** Quantas linhas de estoque a última leitura boa trouxe. Zero = nunca leu. */
+export async function lerLinhasDeEstoque(lojaId: number): Promise<number> {
+  const l = await db.prepare('SELECT maxxgestao_estoque_linhas n FROM lojas WHERE id = ?')
+    .get(lojaId) as { n: number } | undefined;
+  return Math.max(0, Number(l?.n ?? 0));
+}
+
+export async function gravarLinhasDeEstoque(lojaId: number, linhas: number): Promise<void> {
+  await db.prepare('UPDATE lojas SET maxxgestao_estoque_linhas = ? WHERE id = ?')
+    .run(Math.max(0, Math.trunc(linhas)), lojaId);
+}

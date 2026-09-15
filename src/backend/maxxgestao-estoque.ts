@@ -191,3 +191,32 @@ export function planejarControleDeEstoque(
   }
   return { ligar, desligar };
 }
+
+/**
+ * A LEITURA DO ESTOQUE VEIO INTEIRA?
+ *
+ * O caso que isto pega: a listagem do ERP responder TRUNCADA — dizer
+ * `hasNext: false` no meio, por um tropeço do lado deles. Nada falha, nada
+ * lança; só chegam 300 linhas onde havia 1.070.
+ *
+ * O ESTRAGO NÃO É PRODUTO SUMINDO, é produto PISCANDO. As 770 linhas que
+ * faltaram viram "sem linha no ERP", e com o esgotamento ligado isso significa
+ * "voltar a vender" — depois a passada seguinte lê tudo e esgota de novo. Duas
+ * voltas por minuto de produto entrando e saindo da vitrine, e o cliente vendo
+ * preço aparecer e sumir.
+ *
+ * A RÉGUA É A ÚLTIMA LEITURA BOA, e não uma fração dos produtos vinculados:
+ * uma loja pode legitimamente inventariar só as bebidas, e aí 10% de cobertura
+ * é o normal DELA. Comparar com ela mesma é a única régua que não erra por
+ * palpite sobre o negócio dos outros.
+ *
+ * A PRIMEIRA LEITURA SEMPRE PASSA (não há com o que comparar), e uma leitura
+ * MAIOR também — cadastro cresce.
+ */
+export const QUEDA_MAXIMA_DA_LEITURA = 0.5;
+
+export function leituraDeEstoqueConfiavel(agora: number, anterior: number): boolean {
+  if (agora <= 0) return false;
+  if (anterior <= 0) return true;
+  return agora >= anterior * QUEDA_MAXIMA_DA_LEITURA;
+}

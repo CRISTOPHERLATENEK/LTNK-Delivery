@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   planejarEstoque, saldoParaEstoque, quantosSairiamDoAr, planoEstoqueVazio,
-  planejarControleDeEstoque,
+  planejarControleDeEstoque, leituraDeEstoqueConfiavel, QUEDA_MAXIMA_DA_LEITURA,
   type ProdutoComEstoque,
 } from './maxxgestao-estoque';
 
@@ -339,5 +339,80 @@ describe('ligar o interruptor vale NA HORA', () => {
     const corpo = CODIGO.slice(i, CODIGO.indexOf("router.put('/erp/sincronizacao-automatica'", i));
     expect(corpo).toMatch(/\.catch\(\(\) => null\)/);
     expect(corpo).toContain('aplicado_agora');
+  });
+});
+
+describe('leitura de estoque encolhida é ignorada', () => {
+  /*
+   * O CASO: a listagem do ERP responder TRUNCADA — dizer `hasNext: false` no
+   * meio, por um tropeço do lado deles. Nada falha, nada lança; só chegam 300
+   * linhas onde havia 1.070.
+   *
+   * O ESTRAGO NÃO É PRODUTO SUMINDO, É PRODUTO PISCANDO. As 770 que faltaram
+   * viram "sem linha no ERP", e com o esgotamento ligado isso significa "voltar
+   * a vender"; dois minutos depois a leitura vem inteira e esgota tudo de novo.
+   * O cliente vê preço aparecer e sumir a cada dois minutos.
+   */
+  it('metade das linhas some: leitura recusada', () => {
+    expect(leituraDeEstoqueConfiavel(300, 1070)).toBe(false);
+  });
+
+  it('variação normal do cadastro passa', () => {
+    expect(leituraDeEstoqueConfiavel(1065, 1070)).toBe(true);
+    expect(leituraDeEstoqueConfiavel(900, 1070)).toBe(true);
+    /* Cadastro cresce: leitura maior nunca é suspeita. */
+    expect(leituraDeEstoqueConfiavel(2000, 1070)).toBe(true);
+  });
+
+  /*
+   * A PRIMEIRA LEITURA SEMPRE PASSA — não há com o que comparar, e recusá-la
+   * deixaria o estoque parado para sempre numa loja nova.
+   */
+  it('sem leitura anterior, aceita', () => {
+    expect(leituraDeEstoqueConfiavel(50, 0)).toBe(true);
+  });
+
+  it('leitura vazia nunca é aceita', () => {
+    expect(leituraDeEstoqueConfiavel(0, 0)).toBe(false);
+    expect(leituraDeEstoqueConfiavel(0, 1070)).toBe(false);
+  });
+
+  it('a linha é a metade, e é ela que decide', () => {
+    const n = 1000;
+    expect(leituraDeEstoqueConfiavel(Math.ceil(n * QUEDA_MAXIMA_DA_LEITURA), n)).toBe(true);
+    expect(leituraDeEstoqueConfiavel(Math.ceil(n * QUEDA_MAXIMA_DA_LEITURA) - 1, n)).toBe(false);
+  });
+
+  /*
+   * A RÉGUA É A ÚLTIMA LEITURA BOA, e não uma fração dos produtos vinculados.
+   * Uma loja pode legitimamente inventariar só as bebidas — 10% de cobertura é
+   * o normal DELA, e uma régua baseada no cadastro a rejeitaria para sempre.
+   */
+  it('a régua acompanha a loja, não um palpite sobre o negócio dela', () => {
+    /* Loja que só inventaria bebida: 80 linhas para 1.100 produtos, estável. */
+    expect(leituraDeEstoqueConfiavel(80, 80)).toBe(true);
+    expect(leituraDeEstoqueConfiavel(78, 80)).toBe(true);
+    expect(leituraDeEstoqueConfiavel(20, 80)).toBe(false);
+  });
+});
+
+describe('a passada de estoque consulta e atualiza a régua', () => {
+  const ciclo = fs.readFileSync(path.join(__dirname, 'maxxgestao-sincronizar-ciclo.ts'), 'utf8');
+  const semComent2 = (t: string) =>
+    t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const C = semComent2(ciclo);
+
+  it('confere antes de gravar qualquer coisa', () => {
+    const iConfere = C.indexOf('leituraDeEstoqueConfiavel(');
+    const iGrava = C.indexOf('aplicarEstoque(');
+    expect(iConfere).toBeGreaterThan(0);
+    expect(iConfere).toBeLessThan(iGrava);
+  });
+
+  /* Leitura boa é leitura boa mesmo sem nada a gravar: sem isso a régua
+     envelhece e um dia rejeita a leitura inteira. */
+  it('a régua é atualizada também quando nada muda', () => {
+    const i = C.indexOf('if (planoEstoqueVazio(plano))');
+    expect(C.slice(i, i + 220)).toContain('gravarLinhasDeEstoque');
   });
 });

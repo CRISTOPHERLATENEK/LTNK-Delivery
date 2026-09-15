@@ -1356,6 +1356,15 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * Ligar é decisão do lojista, e o painel mostra o número DELE antes.
      */
     ['lojas', 'maxxgestao_estoque_esgota', 'maxxgestao_estoque_esgota TINYINT NOT NULL DEFAULT 0'],
+    /*
+     * QUANTAS LINHAS DE ESTOQUE A ÚLTIMA LEITURA BOA TROUXE.
+     *
+     * É a régua para desconfiar da próxima: se o ERP responder truncado (dizer
+     * que acabou no meio, sem erro nenhum), os produtos que faltarem viram "sem
+     * linha" e voltam a vender — e na passada seguinte esgotam de novo. Produto
+     * piscando na vitrine a cada dois minutos.
+     */
+    ['lojas', 'maxxgestao_estoque_linhas', 'maxxgestao_estoque_linhas INT NOT NULL DEFAULT 0'],
     /* Quando a última passada automática terminou. Só para a tela poder dizer
        "sincronizado às 14h" — sem isso, "está ligado" e "está funcionando" são
        indistinguíveis para quem olha. */

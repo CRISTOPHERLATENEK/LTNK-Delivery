@@ -71,8 +71,9 @@ import {
   type ItemDoCatalogo, type PlanoImportacao,
 } from './maxxgestao-importar';
 import { aplicarPlano, produtosDaLoja, type ResultadoGravacao } from './maxxgestao-importar-deps';
-import { aplicarEstoque, aplicarControleDeEstoque, produtosComEstoque } from './maxxgestao-importar-deps';
-import { planejarEstoque, planoEstoqueVazio } from './maxxgestao-estoque';
+import { aplicarEstoque, aplicarControleDeEstoque, produtosComEstoque,
+  lerLinhasDeEstoque, gravarLinhasDeEstoque } from './maxxgestao-importar-deps';
+import { planejarEstoque, planoEstoqueVazio, leituraDeEstoqueConfiavel } from './maxxgestao-estoque';
 import { saldosDoLocal } from './maxxgestao-catalogo';
 
 export interface ResultadoEstoque {
@@ -277,12 +278,36 @@ export async function sincronizarEstoqueDaLoja(
      */
     if (!saldos.size) return SEM_ESTOQUE;
 
+    /*
+     * E LEITURA ENCOLHIDA É TRATADA COMO TRUNCADA.
+     *
+     * O ERP pode responder `hasNext: false` no meio por um tropeço dele — nada
+     * lança, só chegam 300 linhas onde havia 1.070. As que faltam viram "sem
+     * linha", e com o esgotamento ligado isso é "voltar a vender"; dois minutos
+     * depois a leitura vem inteira e esgota tudo de novo. Produto piscando na
+     * vitrine, e o cliente vendo preço aparecer e sumir.
+     */
+    const anterior = await lerLinhasDeEstoque(lojaId);
+    if (!leituraDeEstoqueConfiavel(saldos.size, anterior)) {
+      return {
+        ...SEM_ESTOQUE,
+        falhas: [`estoque: leitura encolheu de ${anterior} para ${saldos.size} linhas; ignorada`],
+      };
+    }
+
     const nossos = await produtosComEstoque(lojaId);
     const plano = planejarEstoque(saldos, nossos, esgotarSozinho);
-    if (planoEstoqueVazio(plano)) return { ...SEM_ESTOQUE, semLinha: plano.semLinha };
+    if (planoEstoqueVazio(plano)) {
+      /* Leitura boa é leitura boa, mesmo sem nada a gravar: a régua tem que
+         acompanhar o cadastro crescendo, senão ela envelhece e um dia rejeita
+         a leitura inteira por ser "grande demais em relação ao passado". */
+      await gravarLinhasDeEstoque(lojaId, saldos.size);
+      return { ...SEM_ESTOQUE, semLinha: plano.semLinha };
+    }
 
     const r = await aplicarEstoque(lojaId, plano.ajustar);
     const c = await aplicarControleDeEstoque(lojaId, plano.ligarControle, plano.desligarControle);
+    await gravarLinhasDeEstoque(lojaId, saldos.size);
     return {
       ajustados: r.ajustados,
       semLinha: plano.semLinha,
