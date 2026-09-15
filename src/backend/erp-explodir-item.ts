@@ -64,6 +64,15 @@ export interface LinhaDoDocumento {
   quantidade: number;
   precoUnitarioCentavos: number;
   variacaoErp: number;
+  /**
+   * DE QUAL ITEM DO PEDIDO ESTA LINHA SAIU.
+   *
+   * Só é preenchida quando o item virou várias peças. Sem ela, quem abre o
+   * documento no Maxx Gestão vê "GELO DE COCO · 2 · R$ 7,50" solto e não tem
+   * como saber que aquilo é metade de um pote de R$ 65 — nem por que o gelo
+   * saiu por um preço que não é o da tabela.
+   */
+  observacao?: string;
 }
 
 /**
@@ -193,10 +202,14 @@ export function explodirItem(item: ItemDoPedido): LinhaDoDocumento[] {
     return [{ ...pecas[0], precoUnitarioCentavos: item.precoUnitarioCentavos }];
   }
 
+  /* O NOME DO POTE VIAJA COM CADA PEÇA. Ele deixa de ser linha com preço
+     próprio, mas não pode sumir do documento: é o que explica o rateio. */
+  const deQuem = item.nome;
+
   const pesos = pecas.map(p => {
     if (p.variacaoErp === item.variacaoErp) return item.precoTabelaCentavos * p.quantidade;
     const e = item.escolhas.find(x => x.variacaoErp === p.variacaoErp);
     return (e?.precoTabelaCentavos ?? 0) * p.quantidade;
   });
-  return ratearPreco(totalDoItem, pecas, pesos);
+  return ratearPreco(totalDoItem, pecas, pesos).map(l => ({ ...l, observacao: deQuem }));
 }

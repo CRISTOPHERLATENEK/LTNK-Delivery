@@ -610,3 +610,28 @@ describe('a emissão automática no ERP', () => {
     expect(rotas.slice(i, i + 900)).toContain("!== 'erp'");
   });
 });
+
+describe('a observação da linha', () => {
+  /*
+   * O NOME DO ITEM QUE EXPLODIU vai em cada peça. Um pote de R$ 65 que vira
+   * "GELO DE COCO · 2 · R$ 7,50" no documento não se explica sozinho — nem o
+   * preço, que não é o da tabela do gelo.
+   */
+  it('chega ao documento', () => {
+    const { corpo } = montarDocumento(pedido({
+      itens: [{
+        nome: 'Gelo de coco', quantidade: 2, precoUnitarioCentavos: 1500,
+        variacaoErp: 580, observacao: 'POTE DE JACK TRADICIONAL',
+      }],
+    }), config);
+    const lista = (corpo as { mercadoriaLista: Array<{ observacao: string }> }).mercadoriaLista;
+    expect(lista[0].observacao).toBe('POTE DE JACK TRADICIONAL');
+  });
+
+  /* Item comum não tem de onde vir — e o campo é obrigatório no corpo. */
+  it('vazia quando o item não veio de nenhum outro', () => {
+    const { corpo } = montarDocumento(pedido(), config);
+    const lista = (corpo as { mercadoriaLista: Array<{ observacao: string }> }).mercadoriaLista;
+    expect(lista[0].observacao).toBe('');
+  });
+});

@@ -238,3 +238,29 @@ describe('a soma fecha no centavo, inclusive com peça de quantidade 2', () => {
     for (const l of linhas) expect(l.precoUnitarioCentavos).toBeGreaterThanOrEqual(0);
   });
 });
+
+describe('o nome do item não some do documento', () => {
+  /*
+   * O POTE DEIXA DE SER UMA LINHA COM PREÇO PRÓPRIO quando ele explode, mas não
+   * pode sumir: quem abre o documento no Maxx Gestão veria "GELO DE COCO · 2 ·
+   * R$ 7,50" solto, sem como saber que aquilo é metade de um pote de R$ 65 —
+   * nem por que o gelo saiu por um preço que não é o da tabela.
+   */
+  it('cada peça leva o nome do item na observação', () => {
+    const linhas = explodirItem(item({
+      nome: 'POTE DE JACK TRADICIONAL',
+      escolhas: [
+        opcao({ quantidade: 2, variacaoErp: 580, nome: 'Gelo de coco', precoTabelaCentavos: 400 }),
+      ],
+    }));
+    expect(linhas.length).toBeGreaterThan(1);
+    for (const l of linhas) expect(l.observacao).toBe('POTE DE JACK TRADICIONAL');
+  });
+
+  /* Item que não explodiu não ganha observação: ele JÁ é a própria linha, e
+     repetir o nome dele ali seria ruído em toda venda comum. */
+  it('item comum não ganha observação', () => {
+    const linhas = explodirItem(item({ escolhas: [] }));
+    expect(linhas[0].observacao).toBeUndefined();
+  });
+});

@@ -31,6 +31,8 @@ export interface ItemPedido {
   precoUnitarioCentavos: number;
   /** O vínculo com a mercadoria do ERP. Zero = produto que nasceu no delivery. */
   variacaoErp: number;
+  /** De qual item do pedido esta linha saiu, quando o item virou várias. */
+  observacao?: string;
 }
 
 export interface DadosDoPedido {
@@ -202,7 +204,7 @@ export function montarDocumento(
       valUnitarioLiquido: unitario,
       valTotalBruto: valorDoErp(i.precoUnitarioCentavos * qtd),
       valTotalLiquido: valorDoErp(i.precoUnitarioCentavos * qtd),
-      observacao: '',
+      observacao: (i.observacao ?? '').slice(0, 200),
     };
   });
 

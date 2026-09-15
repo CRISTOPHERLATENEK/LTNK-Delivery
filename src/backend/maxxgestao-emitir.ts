@@ -600,6 +600,7 @@ export async function enviarPedidoAoErp(
       quantidade: l.quantidade,
       precoUnitarioCentavos: l.precoUnitarioCentavos,
       variacaoErp: l.variacaoErp,
+      observacao: l.observacao,
     }))),
   };
 
