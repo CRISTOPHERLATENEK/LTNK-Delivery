@@ -192,17 +192,18 @@ export async function aplicarPlano(lojaId: number, plano: PlanoImportacao): Prom
 /** Os produtos vinculados ao ERP, do jeito que a decisão de estoque precisa. */
 export async function produtosComEstoque(lojaId: number): Promise<ProdutoComEstoque[]> {
   const linhas = await db.prepare(
-    `SELECT id, maxxgestao_variacao_id, estoque, controla_estoque, disponivel
+    `SELECT id, maxxgestao_variacao_id, estoque, controla_estoque, disponivel, estoque_do_erp
        FROM produtos WHERE loja_id = ? AND excluido = 0 AND maxxgestao_variacao_id > 0`
   ).all(lojaId) as Array<{
     id: number; maxxgestao_variacao_id: number; estoque: number | null;
-    controla_estoque: number; disponivel: number;
+    controla_estoque: number; disponivel: number; estoque_do_erp: number;
   }>;
   return linhas.map(l => ({
     id: l.id,
     variacaoErp: Number(l.maxxgestao_variacao_id ?? 0),
     estoque: Number(l.estoque ?? 0),
     controlaEstoque: !!l.controla_estoque,
+    estoqueDoErp: !!l.estoque_do_erp,
     disponivel: !!l.disponivel,
   }));
 }
@@ -230,4 +231,44 @@ export async function aplicarEstoque(
     }
   }
   return { ajustados, falhas };
+}
+
+/**
+ * LIGA E DESLIGA O "ESGOTA SOZINHO" dos produtos que vêm do ERP.
+ *
+ * `estoque_do_erp` anda JUNTO com `controla_estoque`, e é o que torna o
+ * interruptor reversível: ao desligar, só voltam atrás os produtos que esta
+ * função ligou — o que o lojista controlava à mão fica como estava.
+ *
+ * Em lote de 500 porque são mais de mil produtos e uma consulta por item seria
+ * mil idas ao banco a cada passada; e em lote o MySQL resolve numa varredura de
+ * índice só.
+ */
+export async function aplicarControleDeEstoque(
+  lojaId: number,
+  ligar: number[],
+  desligar: number[],
+): Promise<{ ligados: number; desligados: number; falhas: string[] }> {
+  const falhas: string[] = [];
+  const emLotes = async (ids: number[], sql: string): Promise<number> => {
+    let feitos = 0;
+    for (let i = 0; i < ids.length; i += 500) {
+      const lote = ids.slice(i, i + 500);
+      try {
+        await db.prepare(
+          `UPDATE produtos SET ${sql} WHERE loja_id = ? AND id IN (${lote.map(() => '?').join(',')})`
+        ).run(lojaId, ...lote);
+        feitos += lote.length;
+      } catch (e) {
+        falhas.push(`controle de estoque (${lote.length} produtos): ${(e as Error).message}`);
+      }
+    }
+    return feitos;
+  };
+
+  const ligados = ligar.length
+    ? await emLotes(ligar, 'controla_estoque = 1, estoque_do_erp = 1') : 0;
+  const desligados = desligar.length
+    ? await emLotes(desligar, 'controla_estoque = 0, estoque_do_erp = 0') : 0;
+  return { ligados, desligados, falhas };
 }

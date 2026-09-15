@@ -935,10 +935,11 @@ async function sincronizarCardapiosErp(): Promise<void> {
   try {
     for (const tenant of await listarTenants()) {
       if (!tenant.ativo) continue;
-      let lojas: Array<{ id: number; maxxgestao_token: string | null; maxxgestao_catalogo: number | null; maxxgestao_local_estoque: number | null }>;
+      let lojas: Array<{ id: number; maxxgestao_token: string | null; maxxgestao_catalogo: number | null; maxxgestao_local_estoque: number | null; maxxgestao_estoque_esgota: number | null }>;
       try {
         lojas = await comTenant(tenant.db_nome, () => db.prepare(
-          `SELECT id, maxxgestao_token, maxxgestao_catalogo, maxxgestao_local_estoque
+          `SELECT id, maxxgestao_token, maxxgestao_catalogo, maxxgestao_local_estoque,
+                  maxxgestao_estoque_esgota
              FROM lojas
             WHERE maxxgestao_sinc_auto = 1 AND maxxgestao_token IS NOT NULL`
         ).all()) as typeof lojas;
@@ -959,7 +960,8 @@ async function sincronizarCardapiosErp(): Promise<void> {
             const r = await sincronizarLojaErp(
               token, loja.id,
               Number(loja.maxxgestao_catalogo ?? 0),
-              Number(loja.maxxgestao_local_estoque ?? 0));
+              Number(loja.maxxgestao_local_estoque ?? 0),
+              Number(loja.maxxgestao_estoque_esgota ?? 0) === 1);
             await db.prepare('UPDATE lojas SET maxxgestao_sinc_em = ? WHERE id = ?')
               .run(new Date().toISOString(), loja.id);
             /* Passada silenciosa é o caso normal: com uma linha por hora por

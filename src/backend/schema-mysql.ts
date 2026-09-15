@@ -1344,6 +1344,18 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * 644 produtos à venda do ar no primeiro minuto.
      */
     ['lojas', 'maxxgestao_local_estoque', 'maxxgestao_local_estoque INT NOT NULL DEFAULT 0'],
+    /*
+     * SALDO ZERO NO ERP ESGOTA O PRODUTO NA VITRINE, sozinho.
+     *
+     * NASCE DESLIGADO, e o número que justifica isso foi medido no cadastro do
+     * Galderio: ligar tiraria 210 dos 644 produtos à venda do ar no primeiro
+     * minuto (33%) — Coca-Cola Zero 2L e Pepsi 2L com saldo zero, e 175 itens
+     * NEGATIVOS. O estoque do ERP não é mantido item a item na maioria das
+     * lojas, e isso é o normal do comércio.
+     *
+     * Ligar é decisão do lojista, e o painel mostra o número DELE antes.
+     */
+    ['lojas', 'maxxgestao_estoque_esgota', 'maxxgestao_estoque_esgota TINYINT NOT NULL DEFAULT 0'],
     /* Quando a última passada automática terminou. Só para a tela poder dizer
        "sincronizado às 14h" — sem isso, "está ligado" e "está funcionando" são
        indistinguíveis para quem olha. */
@@ -1388,6 +1400,16 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * atualiza nada. Com ele, cada campo escolhe o lado certo.
      */
     ['produtos', 'maxxgestao_espelho',     'maxxgestao_espelho TEXT'],
+    /*
+     * O CONTROLE DE ESTOQUE DESTE PRODUTO FOI LIGADO PELA SINCRONIZAÇÃO.
+     *
+     * Existe para o interruptor "esgotar sozinho" ter volta sem apagar decisão
+     * de gente: ao desligar, só voltam atrás os produtos que a sincronização
+     * ligou. Sem esta marca, desligar teria duas saídas ruins — deixar tudo
+     * controlando para sempre, ou desligar também o que o lojista controlava À
+     * MÃO desde antes desta função existir.
+     */
+    ['produtos', 'estoque_do_erp', 'estoque_do_erp TINYINT NOT NULL DEFAULT 0'],
     /*
      * O DOCUMENTO DO PEDIDO NO MAXX GESTÃO.
      *

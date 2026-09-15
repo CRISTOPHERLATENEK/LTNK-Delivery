@@ -41,6 +41,13 @@ export interface ProdutoComEstoque {
   estoque: number;
   /** O bloqueio de venda está ligado NESTE produto? */
   controlaEstoque: boolean;
+  /**
+   * O controle foi ligado PELA SINCRONIZAÇÃO, e não pelo lojista.
+   *
+   * É o que torna o interruptor reversível sem apagar decisão de gente: ao
+   * desligar, só volta atrás no que a sincronização tinha ligado.
+   */
+  estoqueDoErp: boolean;
   disponivel: boolean;
 }
 
@@ -51,13 +58,19 @@ export interface AjusteDeEstoque {
 
 export interface PlanoEstoque {
   ajustar: AjusteDeEstoque[];
+  /** Passam a esgotar sozinhos quando o saldo zera. */
+  ligarControle: number[];
+  /** Voltam a vender sem olhar saldo — só os que ESTA função havia ligado. */
+  desligarControle: number[];
   /** Vinculados ao ERP que não têm linha de estoque lá. */
   semLinha: number;
   /** Já iguais — contados para a passada poder ficar calada. */
   semMudanca: number;
 }
 
-export const PLANO_ESTOQUE_VAZIO: PlanoEstoque = { ajustar: [], semLinha: 0, semMudanca: 0 };
+export const PLANO_ESTOQUE_VAZIO: PlanoEstoque = {
+  ajustar: [], ligarControle: [], desligarControle: [], semLinha: 0, semMudanca: 0,
+};
 
 /**
  * SALDO NEGATIVO VIRA ZERO.
@@ -84,8 +97,11 @@ export function saldoParaEstoque(saldo: number): number {
 export function planejarEstoque(
   saldos: Map<number, number>,
   nossos: ProdutoComEstoque[],
+  esgotarSozinho = false,
 ): PlanoEstoque {
-  const plano: PlanoEstoque = { ajustar: [], semLinha: 0, semMudanca: 0 };
+  const plano: PlanoEstoque = {
+    ajustar: [], ligarControle: [], desligarControle: [], semLinha: 0, semMudanca: 0,
+  };
 
   for (const p of nossos) {
     if (p.variacaoErp <= 0) continue;
@@ -95,6 +111,10 @@ export function planejarEstoque(
     if (novo === p.estoque) { plano.semMudanca++; continue; }
     plano.ajustar.push({ id: p.id, estoque: novo });
   }
+
+  const controle = planejarControleDeEstoque(saldos, nossos, esgotarSozinho);
+  plano.ligarControle = controle.ligar;
+  plano.desligarControle = controle.desligar;
   return plano;
 }
 
@@ -122,5 +142,52 @@ export function quantosSairiamDoAr(
 }
 
 export function planoEstoqueVazio(p: PlanoEstoque): boolean {
-  return p.ajustar.length === 0;
+  return p.ajustar.length === 0 && p.ligarControle.length === 0 && p.desligarControle.length === 0;
+}
+
+/**
+ * QUEM PASSA A ESGOTAR SOZINHO — e quem volta a não esgotar.
+ *
+ * Com o controle ligado e saldo zero, a vitrine já mostra "Esgotado" em cinza e
+ * não deixa abrir o produto; com 5 ou menos, mostra "últimas unidades". Nada
+ * disso é novo — o que faltava era ligar o controle nos produtos que vêm do
+ * ERP.
+ *
+ * SÓ PRODUTO COM LINHA DE ESTOQUE NO ERP. Esta é a regra que evita o desastre:
+ * produto sem linha lá tem saldo zero aqui, e ligar o controle nele o esgotaria
+ * sem que ninguém tivesse dito que acabou. No Galderio são 16 produtos; numa
+ * loja que só inventaria bebida, seriam todos os salgadinhos.
+ *
+ * E A VOLTA É POSSÍVEL PORQUE MARCAMOS QUEM LIGAMOS (`estoqueDoErp`). Sem essa
+ * marca, desligar o interruptor teria duas saídas ruins: deixar tudo
+ * controlando para sempre, ou desligar também os produtos que o lojista
+ * controlava À MÃO antes de existir esta função — apagando uma decisão dele.
+ */
+export function planejarControleDeEstoque(
+  saldos: Map<number, number>,
+  nossos: ProdutoComEstoque[],
+  esgotarSozinho: boolean,
+): { ligar: number[]; desligar: number[] } {
+  const ligar: number[] = [];
+  const desligar: number[] = [];
+
+  for (const p of nossos) {
+    if (p.variacaoErp <= 0) continue;
+
+    if (!esgotarSozinho) {
+      /* Desligado: devolve ao normal SÓ o que esta função ligou. */
+      if (p.estoqueDoErp) desligar.push(p.id);
+      continue;
+    }
+
+    const temLinha = saldos.has(p.variacaoErp);
+    if (temLinha && !p.controlaEstoque) { ligar.push(p.id); continue; }
+    /*
+     * PERDEU A LINHA NO ERP e quem tinha ligado fomos nós: desliga. O produto
+     * deixou de ser inventariado lá, e mantê-lo esgotando por um saldo que
+     * ninguém mais atualiza é tirá-lo do ar para sempre, em silêncio.
+     */
+    if (!temLinha && p.estoqueDoErp) desligar.push(p.id);
+  }
+  return { ligar, desligar };
 }

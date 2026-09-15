@@ -4151,14 +4151,14 @@ router.get('/erp', async (req, res, next) => {
     const linha = await db.prepare(
       `SELECT nfce_emissor, maxxgestao_auto_emitir, maxxgestao_modelo, maxxgestao_status,
               maxxgestao_id_caixa, maxxgestao_sinc_auto, maxxgestao_sinc_em,
-              maxxgestao_catalogo, maxxgestao_local_estoque
+              maxxgestao_catalogo, maxxgestao_local_estoque, maxxgestao_estoque_esgota
          FROM lojas WHERE id = ?`
     ).get(loja.id) as {
       nfce_emissor: string | null; maxxgestao_auto_emitir: number | null;
       maxxgestao_modelo: string | null; maxxgestao_status: string | null;
       maxxgestao_id_caixa: number | null; maxxgestao_sinc_auto: number | null;
       maxxgestao_sinc_em: string | null; maxxgestao_catalogo: number | null;
-      maxxgestao_local_estoque: number | null;
+      maxxgestao_local_estoque: number | null; maxxgestao_estoque_esgota: number | null;
     } | undefined;
     res.json({
       token: mascarar(token),
@@ -4178,6 +4178,7 @@ router.get('/erp', async (req, res, next) => {
       catalogo: Math.max(0, Number(linha?.maxxgestao_catalogo ?? 0)),
       /* De qual local do ERP o saldo vem. 0 = estoque não sincroniza. */
       local_estoque: Math.max(0, Number(linha?.maxxgestao_local_estoque ?? 0)),
+      estoque_esgota: Number(linha?.maxxgestao_estoque_esgota ?? 0) === 1,
       /*
        * O QUE O CANAL DESTA LOJA ABRE.
        *
@@ -4393,6 +4394,45 @@ router.put('/erp/local-estoque', async (req, res, next) => {
     await db.prepare('UPDATE lojas SET maxxgestao_local_estoque = ? WHERE id = ?').run(n, loja.id);
     console.log(`[erp-sinc] loja ${loja.id}: saldo passa a vir ${n > 0 ? `do local ${n}` : 'de lugar nenhum (desligado)'}`);
     res.json({ local: n });
+  } catch (e) { next(e); }
+});
+
+/**
+ * SALDO ZERO NO ERP ESGOTA O PRODUTO NA VITRINE, sozinho.
+ *
+ * O mecanismo já existia inteiro: com `controla_estoque` ligado e saldo zero, a
+ * vitrine mostra "Esgotado" em cinza e não deixa abrir o produto; com 5 ou
+ * menos, mostra "últimas unidades". O que faltava era ligar isso nos produtos
+ * que vêm do ERP — e é isto que este interruptor faz.
+ *
+ * SALDO NEGATIVO CAI NO MESMO LUGAR: a sincronização grava zero para negativo
+ * (o ERP admite estoque negativo, e "só restam -4" seria defeito na tela).
+ *
+ * SÓ PRODUTO COM LINHA DE ESTOQUE NO ERP passa a esgotar. Produto que ninguém
+ * inventariou lá tem saldo zero aqui, e esgotá-lo seria tirá-lo do ar sem que
+ * ninguém tivesse dito que acabou.
+ *
+ * E TEM VOLTA: `estoque_do_erp` marca quem foi ligado por aqui, então desligar
+ * não apaga o controle que o lojista tinha posto à mão em algum produto.
+ */
+router.put('/erp/estoque-esgota', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    exigirFuncionalidade(loja, 'erp-sincronizar-auto');
+    const ligado = req.body?.ligado === true || req.body?.ligado === 1 || req.body?.ligado === '1';
+
+    /*
+     * SEM LOCAL DE ESTOQUE, LIGAR NÃO FAZ SENTIDO — e faria estrago: sem saldo
+     * vindo do ERP, todo produto fica com zero e a loja inteira esgota.
+     */
+    const local = Number((loja as { maxxgestao_local_estoque?: number }).maxxgestao_local_estoque ?? 0);
+    if (ligado && local <= 0) {
+      return res.status(400).json({ erro: 'Escolha primeiro de qual local de estoque o saldo vem.' });
+    }
+
+    await db.prepare('UPDATE lojas SET maxxgestao_estoque_esgota = ? WHERE id = ?').run(ligado ? 1 : 0, loja.id);
+    console.log(`[erp-sinc] loja ${loja.id}: esgotar sozinho por saldo ${ligado ? 'LIGADO' : 'desligado'}`);
+    res.json({ ligado });
   } catch (e) { next(e); }
 });
 

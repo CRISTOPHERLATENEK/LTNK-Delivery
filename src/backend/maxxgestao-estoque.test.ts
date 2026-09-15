@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   planejarEstoque, saldoParaEstoque, quantosSairiamDoAr, planoEstoqueVazio,
+  planejarControleDeEstoque,
   type ProdutoComEstoque,
 } from './maxxgestao-estoque';
 
@@ -31,7 +32,8 @@ import {
  */
 
 const nosso = (id: number, extra: Partial<ProdutoComEstoque> = {}): ProdutoComEstoque => ({
-  id, variacaoErp: id, estoque: 0, controlaEstoque: false, disponivel: true, ...extra,
+  id, variacaoErp: id, estoque: 0, controlaEstoque: false, estoqueDoErp: false,
+  disponivel: true, ...extra,
 });
 
 describe('o saldo que o ERP manda', () => {
@@ -152,12 +154,43 @@ describe('a sincronização NÃO liga o bloqueio de venda', () => {
     expect(corpo).not.toContain('disponivel');
   });
 
-  it('e nenhum lugar da sincronização liga controla_estoque', () => {
+  /*
+   * LIGAR O BLOQUEIO MORA NUM LUGAR SÓ, e esse lugar só é alcançado pelo
+   * interruptor que o lojista liga.
+   *
+   * Este teste já foi "nenhum lugar liga `controla_estoque`" — e a premissa
+   * mudou quando o lojista pediu o esgotamento automático. O que continua
+   * valendo, e é o que protege a loja, é que a passada COMUM (a que roda de
+   * hora em hora sem ninguém pedir) não liga nada: ela só escreve o número.
+   */
+  it('só UMA função liga o bloqueio, e não é a da passada comum', () => {
     const arquivos = ['maxxgestao-estoque.ts', 'maxxgestao-sincronizar-ciclo.ts', 'maxxgestao-importar-deps.ts'];
+    const ondeLiga: string[] = [];
     for (const a of arquivos) {
       const codigo = semComentarios(fs.readFileSync(path.join(__dirname, a), 'utf8'));
-      expect(codigo, a).not.toMatch(/controla_estoque\s*=\s*1/);
+      for (const m of codigo.matchAll(/controla_estoque\s*=\s*1/g)) {
+        /* Qual função contém esta linha? A última declarada antes dela. */
+        const antes = codigo.slice(0, m.index);
+        const decl = [...antes.matchAll(/function (\w+)/g)].pop();
+        ondeLiga.push(`${a}:${decl ? decl[1] : '(solta)'}`);
+      }
     }
+    expect(ondeLiga).toEqual(['maxxgestao-importar-deps.ts:aplicarControleDeEstoque']);
+  });
+
+  /*
+   * E ELA SÓ RECEBE PRODUTO PARA LIGAR QUANDO O INTERRUPTOR ESTÁ LIGADO —
+   * provado pelo comportamento, não pela fonte: `planejarControleDeEstoque` com
+   * `esgotarSozinho: false` não devolve ninguém para ligar, por mais saldo que
+   * o ERP informe.
+   */
+  it('com o interruptor desligado, ninguém é ligado', () => {
+    const { ligar } = planejarControleDeEstoque(
+      new Map([[1, 10], [2, 0], [3, 5]]),
+      [nosso(1), nosso(2), nosso(3)],
+      false,
+    );
+    expect(ligar).toEqual([]);
   });
 });
 
@@ -177,5 +210,86 @@ describe('a leitura do saldo é por LISTA, não por produto', () => {
     expect(corpo).toContain('limit=100');
     /* NÃO a consulta item a item. */
     expect(corpo).not.toContain('/local-estoque/${idLocalEstoque}/estoque/v1');
+  });
+});
+
+describe('esgotar sozinho quando o saldo zera', () => {
+  /*
+   * O PEDIDO, NAS PALAVRAS DELE: "se um suco estiver com o estoque zero no
+   * Maxx Gestão, o delivery tem que deixar automático como esgotado".
+   *
+   * O mecanismo já existia inteiro — com `controla_estoque` ligado e saldo
+   * zero, a vitrine mostra "Esgotado" em cinza e não deixa abrir o produto.
+   * Faltava ligá-lo nos produtos que vêm do ERP.
+   */
+  it('liga o controle nos produtos que têm saldo no ERP', () => {
+    const { ligar, desligar } = planejarControleDeEstoque(
+      new Map([[1, 10], [2, 0]]), [nosso(1), nosso(2)], true);
+    /* O DE SALDO ZERO TAMBÉM ENTRA — é justamente ele que precisa esgotar. */
+    expect(ligar).toEqual([1, 2]);
+    expect(desligar).toEqual([]);
+  });
+
+  /*
+   * PRODUTO SEM LINHA DE ESTOQUE NO ERP NÃO PASSA A ESGOTAR. Ele tem saldo zero
+   * aqui porque ninguém o inventariou lá — esgotá-lo seria tirá-lo do ar sem
+   * que ninguém tivesse dito que acabou. No Galderio são 16 produtos.
+   */
+  it('produto sem linha no ERP continua vendendo', () => {
+    const { ligar } = planejarControleDeEstoque(new Map([[1, 10]]), [nosso(1), nosso(2)], true);
+    expect(ligar).toEqual([1]);
+  });
+
+  it('não mexe em quem já está controlando', () => {
+    const { ligar } = planejarControleDeEstoque(
+      new Map([[1, 10]]), [nosso(1, { controlaEstoque: true })], true);
+    expect(ligar).toEqual([]);
+  });
+
+  /*
+   * DESLIGAR TEM VOLTA, E SÓ DO QUE FOI LIGADO AQUI.
+   *
+   * Sem a marca `estoqueDoErp`, desligar teria duas saídas ruins: deixar tudo
+   * controlando para sempre, ou desligar também o produto que o lojista
+   * controlava À MÃO — apagando uma decisão dele.
+   */
+  it('desligado, devolve só o que a sincronização tinha ligado', () => {
+    const { ligar, desligar } = planejarControleDeEstoque(
+      new Map([[1, 10], [2, 3]]),
+      [
+        nosso(1, { controlaEstoque: true, estoqueDoErp: true }),  /* nós ligamos */
+        nosso(2, { controlaEstoque: true, estoqueDoErp: false }), /* o lojista ligou */
+      ],
+      false,
+    );
+    expect(ligar).toEqual([]);
+    expect(desligar).toEqual([1]);
+  });
+
+  /*
+   * PERDEU A LINHA NO ERP, PARA DE ESGOTAR. O produto deixou de ser
+   * inventariado lá; mantê-lo esgotado por um saldo que ninguém mais atualiza é
+   * tirá-lo do ar para sempre, em silêncio.
+   */
+  it('quem some do estoque do ERP volta a vender', () => {
+    const { desligar } = planejarControleDeEstoque(
+      new Map(), [nosso(1, { controlaEstoque: true, estoqueDoErp: true })], true);
+    expect(desligar).toEqual([1]);
+  });
+
+  it('produto que não veio do ERP nunca é tocado', () => {
+    const ligado = planejarControleDeEstoque(
+      new Map([[0, 5]]), [nosso(9, { variacaoErp: 0, controlaEstoque: true, estoqueDoErp: true })], true);
+    const desligado = planejarControleDeEstoque(
+      new Map(), [nosso(9, { variacaoErp: 0, controlaEstoque: true, estoqueDoErp: true })], false);
+    expect(ligado.ligar.concat(ligado.desligar)).toEqual([]);
+    expect(desligado.ligar.concat(desligado.desligar)).toEqual([]);
+  });
+
+  /* Desligado é o padrão: `planejarEstoque` sem o terceiro argumento não pode
+     ligar o esgotamento de ninguém. */
+  it('o padrão é NÃO esgotar', () => {
+    const p = planejarEstoque(new Map([[1, 0]]), [nosso(1)]);
+    expect(p.ligarControle).toEqual([]);
   });
 });

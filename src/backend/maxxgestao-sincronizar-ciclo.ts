@@ -71,9 +71,23 @@ import {
   type ItemDoCatalogo, type PlanoImportacao,
 } from './maxxgestao-importar';
 import { aplicarPlano, produtosDaLoja, type ResultadoGravacao } from './maxxgestao-importar-deps';
-import { aplicarEstoque, produtosComEstoque } from './maxxgestao-importar-deps';
+import { aplicarEstoque, aplicarControleDeEstoque, produtosComEstoque } from './maxxgestao-importar-deps';
 import { planejarEstoque, planoEstoqueVazio } from './maxxgestao-estoque';
 import { saldosDoLocal } from './maxxgestao-catalogo';
+
+export interface ResultadoEstoque {
+  ajustados: number;
+  semLinha: number;
+  /** Quantos passaram a esgotar sozinho quando o saldo zera. */
+  passaramAEsgotar: number;
+  /** Quantos voltaram a vender sem olhar saldo. */
+  deixaramDeEsgotar: number;
+  falhas: string[];
+}
+
+const SEM_ESTOQUE: ResultadoEstoque = {
+  ajustados: 0, semLinha: 0, passaramAEsgotar: 0, deixaramDeEsgotar: 0, falhas: [],
+};
 
 /** O que uma passada devolve. */
 export interface ResultadoSincronizacaoErp extends ResultadoGravacao {
@@ -190,6 +204,8 @@ export async function sincronizarLojaErp(
   catalogo: number,
   /** O local de estoque do ERP. 0 = não sincronizar saldo. */
   localEstoque = 0,
+  /** Saldo zero no ERP esgota o produto na vitrine? */
+  esgotarSozinho = false,
   op: OpcoesMaxxGestao = {},
 ): Promise<ResultadoSincronizacaoErp> {
   const leitura = await lerCardapioDoErp(token, catalogo, op);
@@ -210,11 +226,13 @@ export async function sincronizarLojaErp(
    * gravação acima. Lendo o estoque antes, ele ficaria de fora e só receberia
    * saldo na hora seguinte.
    */
-  const estoque = await sincronizarEstoqueDaLoja(token, lojaId, localEstoque, op);
+  const estoque = await sincronizarEstoqueDaLoja(token, lojaId, localEstoque, esgotarSozinho, op);
 
   const resumo = [
     planoVazio(plano) ? '' : resumoDoPlano(plano),
     estoque.ajustados ? `${estoque.ajustados} com saldo novo.` : '',
+    estoque.passaramAEsgotar ? `${estoque.passaramAEsgotar} passaram a esgotar sozinho.` : '',
+    estoque.deixaramDeEsgotar ? `${estoque.deixaramDeEsgotar} deixaram de esgotar sozinho.` : '',
   ].filter(Boolean).join(' ');
 
   return {
@@ -243,24 +261,38 @@ export async function sincronizarEstoqueDaLoja(
   token: string,
   lojaId: number,
   localEstoque: number,
+  /** Saldo zero no ERP esgota o produto na vitrine? Nasce desligado. */
+  esgotarSozinho = false,
   op: OpcoesMaxxGestao = {},
-): Promise<{ ajustados: number; semLinha: number; falhas: string[] }> {
-  if (!localEstoque || localEstoque <= 0) return { ajustados: 0, semLinha: 0, falhas: [] };
+): Promise<ResultadoEstoque> {
+  if (!localEstoque || localEstoque <= 0) return SEM_ESTOQUE;
   try {
     const saldos = await saldosDoLocal(token, localEstoque, op);
-    /* Lista vazia é tratada como "não consegui ler", e não como "tudo zerado":
-       a diferença entre as duas, aplicada, é o cardápio inteiro sem estoque. */
-    if (!saldos.size) return { ajustados: 0, semLinha: 0, falhas: [] };
+    /*
+     * LISTA VAZIA É "NÃO CONSEGUI LER", E NÃO "TUDO ZERADO".
+     *
+     * A diferença entre as duas leituras, aplicada, é o cardápio inteiro
+     * esgotado por causa de uma resposta vazia do ERP — numa sexta à noite,
+     * sem ninguém para ver.
+     */
+    if (!saldos.size) return SEM_ESTOQUE;
 
     const nossos = await produtosComEstoque(lojaId);
-    const plano = planejarEstoque(saldos, nossos);
-    if (planoEstoqueVazio(plano)) return { ajustados: 0, semLinha: plano.semLinha, falhas: [] };
+    const plano = planejarEstoque(saldos, nossos, esgotarSozinho);
+    if (planoEstoqueVazio(plano)) return { ...SEM_ESTOQUE, semLinha: plano.semLinha };
 
     const r = await aplicarEstoque(lojaId, plano.ajustar);
-    return { ajustados: r.ajustados, semLinha: plano.semLinha, falhas: r.falhas };
+    const c = await aplicarControleDeEstoque(lojaId, plano.ligarControle, plano.desligarControle);
+    return {
+      ajustados: r.ajustados,
+      semLinha: plano.semLinha,
+      passaramAEsgotar: c.ligados,
+      deixaramDeEsgotar: c.desligados,
+      falhas: [...r.falhas, ...c.falhas],
+    };
   } catch (e) {
     /* Falha ao ler o saldo NÃO derruba a passada do cadastro, que já gravou. */
-    return { ajustados: 0, semLinha: 0, falhas: [`estoque: ${(e as Error).message}`] };
+    return { ...SEM_ESTOQUE, falhas: [`estoque: ${(e as Error).message}`] };
   }
 }
 

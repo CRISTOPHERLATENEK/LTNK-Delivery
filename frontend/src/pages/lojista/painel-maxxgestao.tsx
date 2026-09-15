@@ -70,6 +70,13 @@ export interface EstadoErp {
   /** De qual local de estoque do ERP o saldo vem. 0 = estoque não sincroniza. */
   local_estoque: number;
   /**
+   * Saldo zero no ERP esgota o produto na vitrine, sozinho.
+   *
+   * Nasce desligado: medido no cadastro do Galderio, ligar tiraria 210 dos 644
+   * produtos à venda do ar no primeiro minuto.
+   */
+  estoque_esgota: boolean;
+  /**
    * O que o CANAL desta loja abre.
    *
    * Vem calculado do servidor: repetir a regra do canal aqui garantiria que as
@@ -153,6 +160,7 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
   const [locais, setLocais] = useState<LocalEstoque[] | null>(null);
   const [carregandoLocais, setCarregandoLocais] = useState(false);
   const [salvandoLocal, setSalvandoLocal] = useState(false);
+  const [ligandoEsgota, setLigandoEsgota] = useState(false);
   const [empresa, setEmpresa] = useState<EmpresaErp | null>(null);
 
   const [catalogos, setCatalogos] = useState<CatalogoErp[] | null>(null);
@@ -323,6 +331,51 @@ Ligar assim mesmo?`,
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
       setSalvandoLocal(false);
+    }
+  }
+
+  async function alternarEsgota() {
+    if (!estado || ligandoEsgota) return;
+    const novo = !estado.estoque_esgota;
+
+    /*
+     * O AVISO TRAZ O NÚMERO DELE, e não um "atenção" genérico.
+     *
+     * A lista de locais já foi consultada e sabe quantos produtos à venda
+     * ficariam sem saldo neste local. Dizer "210 dos 644 produtos somem agora"
+     * é uma frase que faz alguém parar; "isto pode ocultar produtos" não é.
+     */
+    const local = locais?.find(l => l.codigo === estado.local_estoque);
+    const conta = local && local.sairiam_do_ar !== null && local.a_venda !== null
+      ? `Com o saldo de hoje, ${local.sairiam_do_ar} dos ${local.a_venda} produtos à venda ficariam ESGOTADOS na hora.`
+      : 'Todo produto com saldo zero ou negativo no Maxx Gestão ficará ESGOTADO na hora.';
+
+    if (novo && !window.confirm(
+      `${conta}
+
+Eles somem da vitrine até o saldo voltar a subir no Maxx Gestão.
+
+Só vale para produtos que TÊM linha de estoque no ERP — o que nunca foi inventariado lá continua vendendo normalmente.
+
+Ligar?`,
+    )) return;
+
+    const antes = estado;
+    aoMudar({ ...estado, estoque_esgota: novo });
+    setLigandoEsgota(true);
+    try {
+      await api<{ ligado: boolean }>('PUT', '/api/lojista/erp/estoque-esgota', { ligado: novo });
+      mostrar({
+        tipo: 'sucesso',
+        titulo: novo
+          ? 'Produto sem saldo no Maxx Gestão passa a ficar esgotado'
+          : 'Os produtos voltam a vender sem olhar o saldo',
+      });
+    } catch (err) {
+      aoMudar(antes);
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setLigandoEsgota(false);
     }
   }
 
@@ -906,6 +959,51 @@ Ligar?`,
             </div>
           )}
         </div>
+      </Linha>
+      )}
+
+      {/* erp-sincronizar-auto — esgotar sozinho pelo saldo */}
+      {liberada('erp-sincronizar-auto') && (
+      <Linha
+        titulo="Esgotar sozinho quando o saldo zerar"
+        descricao={
+          !estado?.local_estoque ? 'Escolha primeiro de qual local o saldo vem.'
+            : estado?.estoque_esgota
+              ? 'Produto com saldo zero ou negativo no Maxx Gestão fica ESGOTADO na vitrine.'
+              : 'Desligado — o saldo aparece, mas nenhum produto some por causa dele.'
+        }
+        acao={
+          <button
+            type="button"
+            /* Inerte sem local escolhido: sem saldo vindo do ERP todo produto
+               fica em zero, e ligar esgotaria a loja inteira. */
+            disabled={!estado?.local_estoque || ligandoEsgota}
+            aria-pressed={!!estado?.estoque_esgota}
+            onClick={() => void alternarEsgota()}
+            className={cn(
+              'relative h-6 w-11 shrink-0 rounded-full transition-colors',
+              !estado?.local_estoque ? 'cursor-not-allowed bg-muted'
+                : estado?.estoque_esgota ? 'bg-primary' : 'bg-muted-foreground/30',
+            )}
+          >
+            <span className={cn('absolute top-0.5 size-5 rounded-full bg-white shadow transition-all',
+              estado?.estoque_esgota ? 'left-[22px]' : 'left-0.5')} />
+          </button>
+        }
+      >
+        <p className="mt-2 max-w-[58ch] text-[12.5px] leading-relaxed text-muted-foreground">
+          O cliente vê <b>Esgotado</b> em cinza e não consegue abrir o produto; com 5
+          ou menos, vê &quot;últimas unidades&quot;. Saldo <b>negativo</b> no Maxx Gestão
+          conta como zero.{' '}
+          {/*
+            A RESSALVA QUE EVITA O SUSTO: produto sem linha de estoque no ERP
+            tem saldo zero aqui. Esgotá-lo seria tirá-lo do ar sem que ninguém
+            tivesse dito que acabou.
+          */}
+          Vale só para produtos que <b>têm estoque no Maxx Gestão</b> — o que nunca foi
+          inventariado lá continua vendendo normalmente. Desligar devolve ao normal só
+          o que este interruptor ligou.
+        </p>
       </Linha>
       )}
 
