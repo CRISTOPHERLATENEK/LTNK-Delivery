@@ -32,7 +32,7 @@ import { statusParaEvento, ehFalhaDeCancelamento } from './ifood-status';
 import { transicionarStatus } from './fluxoPedido';
 import { credenciaisDoAmbiente as credenciaisIfood, pollingEventos, confirmarEventos, buscarPedido as buscarPedidoIfood, motivosDeCancelamento } from './ifood-cliente';
 import { sincronizarLojaIfood, resumoDoCiclo, NADA_A_FAZER } from './ifood-sincronizar-ciclo';
-import { sincronizarLojaErp, passadaMudouAlgo } from './maxxgestao-sincronizar-ciclo';
+import { sincronizarLojaErp, sincronizarEstoqueDaLoja, passadaMudouAlgo } from './maxxgestao-sincronizar-ciclo';
 import { descriptografar } from './cripto';
 import { reconciliarPedidosIfood } from './ifood-reconciliar-ciclo';
 import { agoraUTC as agoraUTCIfood } from './util';
@@ -919,6 +919,24 @@ async function sincronizarCardapiosIfood(): Promise<void> {
  * Loja com falha não interrompe as outras: são tenants diferentes, e um token
  * vencido numa não é motivo para o cardápio de todas parar.
  */
+/*
+ * UMA CHAMADA AO ERP POR VEZ, entre as DUAS passadas.
+ *
+ * O cadastro e o estoque bebem do mesmo balde: 20 chamadas por minuto POR
+ * TOKEN, o mesmo que emite a NFC-e de cada pedido. Rodando juntos, o estoque
+ * (13 chamadas) entraria no meio da varredura do cadastro (37) e as duas se
+ * atrasariam — e a nota do pedido que entrasse naquele minuto ficaria na fila
+ * deles esperando a janela virar.
+ */
+/**
+ * DE QUANTO EM QUANTO TEMPO O SALDO É RELIDO.
+ *
+ * Constante com nome para o teste poder prender o valor COM O MOTIVO junto —
+ * ver a conta no cabeçalho de `sincronizarEstoquesErp`. Baixar daqui sem
+ * refazer a conta é gastar a folga que a NFC-e usa.
+ */
+export const INTERVALO_ESTOQUE_MS = 2 * 60_000;
+
 let sincErpEmCurso = false;
 async function sincronizarCardapiosErp(): Promise<void> {
   /*
@@ -972,6 +990,92 @@ async function sincronizarCardapiosErp(): Promise<void> {
           });
         } catch (e) {
           console.error(`[erp-sinc] loja ${loja.id}/${tenant.slug} falhou:`, (e as Error).message);
+        }
+      }
+    }
+  } finally {
+    sincErpEmCurso = false;
+  }
+}
+
+/**
+ * SÓ O SALDO DE ESTOQUE, DE CINCO EM CINCO MINUTOS.
+ *
+ * Separada do cadastro porque as duas custam coisas muito diferentes, e juntá-las
+ * foi erro de desenho: uma passada de cadastro são ~37 chamadas e leva 122 a 181
+ * segundos (medido); uma de estoque são 11 a 13 chamadas e leva 1 SEGUNDO.
+ *
+ * Prender o estoque no ritmo do cadastro tem custo real na loja: um produto que
+ * acaba no balcão continua vendendo no delivery por até uma hora, e o pedido
+ * entra para algo que não existe. Nome e preço mudam algumas vezes por semana;
+ * saldo muda a cada venda.
+ *
+ * POR QUE DOIS MINUTOS, e não um nem cinco — a conta, com números medidos:
+ *
+ *   teto do ERP ................ 20 chamadas/minuto por token (1.200/hora)
+ *   uma passada de estoque ..... 11 a 13 chamadas, 1 segundo
+ *   emitir uma nota ............ 200 a 500 ms, poucas chamadas
+ *
+ * A cada 2 minutos são ~390 chamadas/hora — 33% do teto —, e a rajada de 13
+ * deixa 7 livres no minuto em que cai, o que cobre a nota de um pedido que
+ * entre bem naquele instante.
+ *
+ * A CADA MINUTO seria o dobro (65% do teto) com rajada em TODO minuto, e o
+ * ganho seria de 60 segundos que nenhum cliente percebe. O que se perde nessa
+ * troca é a folga para a nota sair na hora — e nota atrasada dói mais que
+ * estoque 2 minutos velho.
+ */
+async function sincronizarEstoquesErp(): Promise<void> {
+  /* Não entra no meio da passada de cadastro: as duas dividem o mesmo balde. */
+  if (sincErpEmCurso) return;
+  sincErpEmCurso = true;
+  try {
+    for (const tenant of await listarTenants()) {
+      if (!tenant.ativo) continue;
+      let lojas: Array<{
+        id: number; maxxgestao_token: string | null;
+        maxxgestao_local_estoque: number | null; maxxgestao_estoque_esgota: number | null;
+      }>;
+      try {
+        lojas = await comTenant(tenant.db_nome, () => db.prepare(
+          `SELECT id, maxxgestao_token, maxxgestao_local_estoque, maxxgestao_estoque_esgota
+             FROM lojas
+            WHERE maxxgestao_sinc_auto = 1 AND maxxgestao_token IS NOT NULL
+              AND maxxgestao_local_estoque > 0`
+        ).all()) as typeof lojas;
+      } catch (e) {
+        console.error(`[erp-estoque] não consegui listar lojas do tenant ${tenant.slug}:`, (e as Error).message);
+        continue;
+      }
+
+      for (const loja of lojas) {
+        let token = '';
+        try { token = loja.maxxgestao_token ? descriptografar(loja.maxxgestao_token) : ''; } catch { token = ''; }
+        if (!token) continue;
+        try {
+          await comTenant(tenant.db_nome, async () => {
+            const r = await sincronizarEstoqueDaLoja(
+              token, loja.id,
+              Number(loja.maxxgestao_local_estoque ?? 0),
+              Number(loja.maxxgestao_estoque_esgota ?? 0) === 1,
+            );
+            /*
+             * SILÊNCIO QUANDO NADA MUDA — e aqui isso importa mais que no
+             * cadastro: doze passadas por hora dizendo "0 ajustados" enterrariam
+             * a linha do dia em que o estoque virar.
+             */
+            if (r.ajustados || r.passaramAEsgotar || r.deixaramDeEsgotar) {
+              const partes = [
+                r.ajustados ? `${r.ajustados} com saldo novo` : '',
+                r.passaramAEsgotar ? `${r.passaramAEsgotar} esgotaram` : '',
+                r.deixaramDeEsgotar ? `${r.deixaramDeEsgotar} voltaram a vender` : '',
+              ].filter(Boolean).join(', ');
+              console.log(`[erp-estoque] loja ${loja.id}/${tenant.slug}: ${partes}.`);
+            }
+            for (const f of r.falhas) console.error(`[erp-estoque] loja ${loja.id}: ${f}`);
+          });
+        } catch (e) {
+          console.error(`[erp-estoque] loja ${loja.id}/${tenant.slug} falhou:`, (e as Error).message);
         }
       }
     }
@@ -1442,6 +1546,22 @@ const PORT = Number(process.env.PORT) || 3000;
   setInterval(() => {
     sincronizarCardapiosErp().catch(e => console.error('[erp-sinc] falha:', e));
   }, 60 * 60_000);
+
+  /*
+   * O SALDO DE ESTOQUE ANDA MAIS RÁPIDO QUE O CADASTRO: 2 minutos.
+   *
+   * São coisas de ritmos diferentes e custos diferentes — 13 chamadas e 1
+   * segundo, contra 37 e até 3 minutos. Um produto que acaba no balcão não
+   * pode continuar vendendo no delivery por uma hora.
+   *
+   * Também não roda no boot, pela mesma razão do cadastro: um servidor que
+   * reinicia várias vezes gastaria o orçamento do ERP a cada reinício. A
+   * primeira passada sai em 2 minutos, e quem tem pressa liga/desliga o ajuste
+   * na tela, que aplica na hora.
+   */
+  setInterval(() => {
+    sincronizarEstoquesErp().catch(e => console.error('[erp-estoque] falha:', e));
+  }, INTERVALO_ESTOQUE_MS);
 
   /*
    * 30 SEGUNDOS é exigência da documentação do iFood, não escolha nossa: é o

@@ -236,3 +236,78 @@ describe('a tela não promete estoque', () => {
     expect(corpo).toMatch(/Estoque NÃO entra/);
   });
 });
+
+describe('o estoque tem ritmo próprio, mais rápido que o cadastro', () => {
+  /*
+   * "A CADA 1H É DEMAIS NÉ" — e era. As duas coisas estavam presas na mesma
+   * passada, e elas custam coisas muito diferentes (medido):
+   *
+   *   cadastro ... ~37 chamadas ao ERP, 122 a 181 segundos
+   *   estoque .... 11 a 13 chamadas, 1 SEGUNDO
+   *
+   * O custo na loja de prender o estoque no ritmo do cadastro: um produto que
+   * acaba no balcão continua vendendo no delivery por até uma hora, e o pedido
+   * entra para algo que não existe. Nome e preço mudam algumas vezes por
+   * semana; saldo muda a cada venda.
+   */
+  const SERVER = fs.readFileSync(path.join(__dirname, 'server.ts'), 'utf8');
+  const semComent = (t: string) =>
+    t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const CODIGO = semComent(SERVER);
+
+  it('são dois laços, e não um', () => {
+    expect(CODIGO).toContain('async function sincronizarEstoquesErp');
+    expect(CODIGO).toContain('async function sincronizarCardapiosErp');
+  });
+
+  /*
+   * A CONTA QUE FIXA OS 2 MINUTOS:
+   *   teto do ERP .......... 20 chamadas/minuto por token (1.200/hora)
+   *   passada de estoque ... 11 a 13 chamadas
+   *   a cada 2 min ......... ~390/hora = 33% do teto, e 7 chamadas livres no
+   *                          minuto da rajada — o que cobre a nota de um pedido
+   *
+   * A cada minuto seria 65% do teto com rajada em TODO minuto, por 60 segundos
+   * que nenhum cliente percebe.
+   */
+  it('o saldo é relido a cada 2 minutos', () => {
+    expect(CODIGO).toContain('export const INTERVALO_ESTOQUE_MS = 2 * 60_000;');
+    const i = CODIGO.indexOf('sincronizarEstoquesErp().catch');
+    expect(i).toBeGreaterThan(0);
+    expect(CODIGO.slice(i, i + 160)).toContain('INTERVALO_ESTOQUE_MS');
+  });
+
+  it('e o cadastro continua de hora em hora', () => {
+    const i = CODIGO.indexOf('sincronizarCardapiosErp().catch');
+    expect(CODIGO.slice(i, i + 160)).toContain('60 * 60_000');
+  });
+
+  /*
+   * AS DUAS NÃO RODAM JUNTAS. Bebem do mesmo balde de 20/min: o estoque (13)
+   * entrando no meio da varredura do cadastro (37) atrasaria as duas — e a nota
+   * do pedido daquele minuto ficaria na fila do ERP esperando a janela virar.
+   */
+  it('uma não entra no meio da outra', () => {
+    for (const fn of ['sincronizarEstoquesErp', 'sincronizarCardapiosErp']) {
+      const i = CODIGO.indexOf(`async function ${fn}`);
+      const corpo = CODIGO.slice(i, i + 700);
+      expect(corpo, fn).toContain('if (sincErpEmCurso)');
+      expect(corpo, fn).toContain('sincErpEmCurso = true');
+    }
+  });
+
+  it('a passada de estoque só alcança loja com local escolhido', () => {
+    const i = CODIGO.indexOf('async function sincronizarEstoquesErp');
+    const corpo = CODIGO.slice(i, i + 2000);
+    expect(corpo).toContain('maxxgestao_local_estoque > 0');
+    expect(corpo).toContain('maxxgestao_sinc_auto = 1');
+  });
+
+  /* Doze passadas por hora dizendo "0 ajustados" enterrariam a linha do dia em
+     que o estoque virar. */
+  it('passada sem mudança não vira log', () => {
+    const i = CODIGO.indexOf('async function sincronizarEstoquesErp');
+    const corpo = CODIGO.slice(i, i + 2500);
+    expect(corpo).toMatch(/if \(r\.ajustados \|\| r\.passaramAEsgotar \|\| r\.deixaramDeEsgotar\)/);
+  });
+});
