@@ -428,3 +428,40 @@ export async function saldosDoLocal(
   }
   return saldo;
 }
+
+/**
+ * O SALDO DE UM PRODUTO SÓ — para o botão "sincronizar estoque" do painel.
+ *
+ * UMA chamada, contra as 11 a 13 da listagem. É o caso em que a consulta
+ * individual ganha: o lojista acabou de mexer num item no ERP e quer ver agora,
+ * sem esperar o ciclo de 2 minutos nem gastar o orçamento relendo mil linhas.
+ *
+ * DEVOLVE `null` QUANDO O ERP NÃO TEM REGISTRO (HTTP 404), e essa distinção é o
+ * que faz o botão valer a pena: "sem registro" é diferente de "saldo zero", e
+ * é a resposta para o "por que esse produto não mostra estoque?" que a tela não
+ * conseguia dar. Medido: produto com saldo devolve 200 com o registro; a
+ * ORIGINAL CAIXA do Galderio devolve 404 porque nunca teve movimento.
+ */
+export async function saldoDeUmProduto(
+  token: string,
+  variacao: number,
+  idLocalEstoque: number,
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<number | null> {
+  try {
+    const r = await chamarMaxxGestao(
+      token,
+      `/api/mercadoria/${variacao}/local-estoque/${idLocalEstoque}/estoque/v1`,
+      opcoes,
+    ) as Record<string, unknown> | null;
+    if (!r || typeof r !== 'object') return null;
+    const bruto = Number(r.qtdSaldo ?? 0);
+    return Number.isFinite(bruto) ? bruto : 0;
+  } catch (e) {
+    /* 404 é RESPOSTA, não falha: quer dizer "não há registro de estoque para
+       esta mercadoria neste local". Qualquer outro erro sobe, porque aí o
+       lojista precisa saber que a consulta não aconteceu. */
+    if ((e as { httpStatus?: number }).httpStatus === 404) return null;
+    throw e;
+  }
+}

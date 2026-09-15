@@ -6,7 +6,7 @@ import { Ajuda } from '@/components/ui/ajuda';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MontarCardapioIA } from './cardapio-ia';
 import { SeletorCategoria, type OpcaoCategoria } from './seletor-categoria';
-import { Check, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Image as ImageIcon, Layers, Minus, Pencil, Plus, Rows3, Rows4, Search, Square, Sparkles, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
+import { Check, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Image as ImageIcon, Layers, Minus, Pencil, Plus, RefreshCw, Rows3, Rows4, Search, Square, Sparkles, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
 import { reordenar } from '@/lib/ordem-cardapio';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -634,6 +634,56 @@ export function ProdutosLoja() {
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
       setEnviando(false);
+    }
+  }
+
+  const [sincronizandoEstoqueId, setSincronizandoEstoqueId] = useState<number | null>(null);
+
+  /**
+   * SINCRONIZAR O ESTOQUE DE UM PRODUTO SÓ, agora.
+   *
+   * O ciclo relê tudo a cada 2 minutos; isto é para quem acabou de mexer no
+   * item no Maxx Gestão e quer ver na hora — ou está conferindo POR QUE aquele
+   * produto não mostra estoque.
+   *
+   * A RESPOSTA "SEM REGISTRO" É METADE DO VALOR DO BOTÃO. No Maxx Gestão,
+   * produto que nunca teve movimento mostra "Saldo 0" na tela, mas a API
+   * devolve 404 — são coisas diferentes. Sem dizer isso, o lojista olha um
+   * produto sem estoque no painel sem saber se a sincronização falhou ou se o
+   * cadastro dele lá está incompleto.
+   */
+  async function sincronizarEstoqueDoProduto(p: Produto) {
+    if (sincronizandoEstoqueId) return;
+    setSincronizandoEstoqueId(p.id);
+    try {
+      const r = await api<{
+        tem_registro: boolean; estoque: number; saldo_no_erp?: number; mensagem?: string;
+      }>('POST', `/api/lojista/produtos/${p.id}/sincronizar-estoque`);
+
+      if (!r.tem_registro) {
+        mostrar({
+          tipo: 'erro',
+          titulo: 'Sem estoque cadastrado no Maxx Gestão',
+          descricao: r.mensagem,
+        });
+      } else {
+        /* O SALDO BRUTO VAI NA DESCRIÇÃO quando é negativo: senão o zero fica
+           sem explicação, e "o Maxx Gestão tem -4" é a informação que manda o
+           lojista arrumar o cadastro em vez de procurar defeito aqui. */
+        const negativo = typeof r.saldo_no_erp === 'number' && r.saldo_no_erp < 0;
+        mostrar({
+          tipo: 'sucesso',
+          titulo: `${p.nome}: ${r.estoque} em estoque`,
+          descricao: negativo
+            ? `O Maxx Gestão está com ${r.saldo_no_erp} para este produto; negativo conta como zero.`
+            : undefined,
+        });
+      }
+      qc.invalidateQueries({ queryKey: ['lojista-produtos'] });
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setSincronizandoEstoqueId(null);
     }
   }
 
@@ -1891,6 +1941,8 @@ export function ProdutosLoja() {
           onExcluir={excluir}
           onAlternarDisponivel={alternarDisponivel}
           onDuplicar={duplicar}
+          onSincronizarEstoque={sincronizarEstoqueDoProduto}
+          sincronizandoId={sincronizandoEstoqueId}
           modoSelecao={modoSelecao}
           selecionados={selecionados}
           onToggleSelecao={alternarSelecao}
@@ -2183,6 +2235,7 @@ function LinhaInterruptor({ titulo, descricao, ativo, onAlternar, children }: {
 
 function CategoriaSection({
   categoria, subs, onEditar, onExcluir, onAlternarDisponivel, onDuplicar,
+  onSincronizarEstoque, sincronizandoId,
   modoSelecao, selecionados, onToggleSelecao, densidade, onAdicionar,
   iniciarRecolhida, arrasto,
 }: {
@@ -2192,6 +2245,9 @@ function CategoriaSection({
   onExcluir: (id: number, nome: string) => void;
   onAlternarDisponivel: (p: Produto) => void;
   onDuplicar: (p: Produto) => void;
+  onSincronizarEstoque?: (p: Produto) => void;
+  /** O produto cuja sincronização está em curso, ou null. */
+  sincronizandoId?: number | null;
   modoSelecao: boolean;
   selecionados: Set<number>;
   onToggleSelecao: (id: number) => void;
@@ -2494,6 +2550,8 @@ function CategoriaSection({
                     onExcluir={() => onExcluir(p.id, p.nome)}
                     onAlternarDisponivel={() => onAlternarDisponivel(p)}
                     onDuplicar={() => onDuplicar(p)}
+                    onSincronizarEstoque={onSincronizarEstoque ? () => onSincronizarEstoque(p) : undefined}
+                    sincronizandoEstoque={sincronizandoId === p.id}
                     modoSelecao={modoSelecao}
                     selecionado={selecionados.has(p.id)}
                     onToggleSelecao={() => onToggleSelecao(p.id)}
@@ -2546,6 +2604,7 @@ function BotaoIcone({ titulo, onClick, destrutivo, desabilitado, children }: {
 
 function CardProduto({
   produto: p, onEditar, onExcluir, onAlternarDisponivel, onDuplicar,
+  onSincronizarEstoque, sincronizandoEstoque,
   modoSelecao, selecionado, onToggleSelecao, arrasto,
 }: {
   produto: Produto;
@@ -2553,6 +2612,9 @@ function CardProduto({
   onExcluir: () => void;
   onAlternarDisponivel: () => void;
   onDuplicar: () => void;
+  /** Ausente quando a loja não tem o Maxx Gestão ligado. */
+  onSincronizarEstoque?: () => void;
+  sincronizandoEstoque?: boolean;
   modoSelecao: boolean;
   selecionado: boolean;
   onToggleSelecao: () => void;
@@ -2750,6 +2812,25 @@ function CardProduto({
                   <ChevronDown className="size-[15px]" />
                 </BotaoIcone>
               </>
+            )}
+            {/*
+              SINCRONIZAR O ESTOQUE DESTE PRODUTO, agora.
+              O ciclo relê tudo a cada 2 minutos; isto é para quem acabou de
+              mexer no item no Maxx Gestão e quer ver na hora — ou está
+              conferindo POR QUE aquele produto não mostra estoque. Custa uma
+              chamada ao ERP, contra as 13 da listagem.
+
+              SÓ EM PRODUTO QUE VEIO DO ERP: nos outros o botão não teria o que
+              sincronizar, e botão inerte ensina menos que botão ausente.
+            */}
+            {!!p.maxxgestao_variacao_id && onSincronizarEstoque && (
+              <BotaoIcone
+                titulo="Sincronizar estoque com o Maxx Gestão"
+                onClick={onSincronizarEstoque}
+                desabilitado={sincronizandoEstoque}
+              >
+                <RefreshCw className={cn('size-[15px]', sincronizandoEstoque && 'animate-spin')} />
+              </BotaoIcone>
             )}
             <BotaoIcone titulo="Editar" onClick={onEditar}><Pencil className="size-[15px]" /></BotaoIcone>
             <BotaoIcone titulo="Duplicar" onClick={onDuplicar}><Copy className="size-[15px]" /></BotaoIcone>

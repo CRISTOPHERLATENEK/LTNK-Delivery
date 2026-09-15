@@ -40,10 +40,10 @@ import { itensSemProduto, descrever, comoResolver } from '../ifood-sem-produto';
 import { sugerirCardapio, SemChaveIA } from '../cardapio-ia';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
 import { consultarEmpresa, formatarCnpj, chamarMaxxGestao, LimiteMaxxGestao } from '../maxxgestao-cliente';
-import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarCatalogos, precosDaTabela, LETRAS_VARREDURA, locaisDeEstoque, saldosDoLocal } from '../maxxgestao-catalogo';
+import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarCatalogos, precosDaTabela, LETRAS_VARREDURA, locaisDeEstoque, saldosDoLocal, saldoDeUmProduto } from '../maxxgestao-catalogo';
 import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, peneirarPorCatalogo, type ItemDoCatalogo } from '../maxxgestao-importar';
 import { produtosDaLoja, aplicarPlano, produtosComEstoque } from '../maxxgestao-importar-deps';
-import { quantosSairiamDoAr } from '../maxxgestao-estoque';
+import { quantosSairiamDoAr, saldoParaEstoque } from '../maxxgestao-estoque';
 import { sincronizarEstoqueDaLoja } from '../maxxgestao-sincronizar-ciclo';
 import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '../maxxgestao-preambulo';
 import { enviarPedidoAoErp, fecharDocumentoNoErp } from '../maxxgestao-emitir';
@@ -4429,6 +4429,91 @@ router.put('/erp/local-estoque', async (req, res, next) => {
  * E TEM VOLTA: `estoque_do_erp` marca quem foi ligado por aqui, então desligar
  * não apaga o controle que o lojista tinha posto à mão em algum produto.
  */
+/**
+ * SINCRONIZAR O ESTOQUE DE UM PRODUTO SÓ, agora.
+ *
+ * O ciclo automático relê tudo a cada 2 minutos. Isto é para o caso em que o
+ * lojista acabou de mexer num item no Maxx Gestão e quer ver na hora — ou está
+ * conferindo se aquele produto específico está ligado direito.
+ *
+ * CUSTA UMA CHAMADA, contra as 11 a 13 da listagem: é o caso em que a consulta
+ * individual do ERP ganha.
+ *
+ * E RESPONDE "SEM REGISTRO" COM TODAS AS LETRAS. Essa é metade do valor do
+ * botão: no Maxx Gestão, produto que nunca teve movimento de estoque mostra
+ * "Saldo 0" na tela, mas a API devolve 404 — são coisas diferentes, e sem esta
+ * resposta o lojista fica olhando um produto sem estoque no painel sem saber se
+ * é a sincronização que falhou ou o cadastro que está incompleto. No Galderio
+ * são 16 produtos assim, quase todos CAIXA.
+ */
+router.post('/produtos/:id/sincronizar-estoque', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    exigirFuncionalidade(loja, 'erp-sincronizar-auto');
+
+    const id = inteiroPositivo(req.params.id);
+    if (!id) return res.status(400).json({ erro: 'Produto inválido.' });
+
+    const p = await db.prepare(
+      `SELECT id, nome, maxxgestao_variacao_id, estoque, controla_estoque, estoque_do_erp
+         FROM produtos WHERE id = ? AND loja_id = ? AND excluido = 0`
+    ).get(id, loja.id) as {
+      id: number; nome: string; maxxgestao_variacao_id: number;
+      estoque: number | null; controla_estoque: number; estoque_do_erp: number;
+    } | undefined;
+    if (!p) return res.status(404).json({ erro: 'Produto não encontrado.' });
+
+    if (!p.maxxgestao_variacao_id) {
+      return res.status(400).json({ erro: 'Este produto não veio do Maxx Gestão.' });
+    }
+    const local = Number((loja as { maxxgestao_local_estoque?: number }).maxxgestao_local_estoque ?? 0);
+    if (local <= 0) {
+      return res.status(400).json({ erro: 'Escolha primeiro de qual local de estoque o saldo vem, em Maxx Gestão.' });
+    }
+    const token = await tokenMaxxGestaoDaLoja(loja.id);
+    if (!token) return res.status(400).json({ erro: 'Cole o token do Maxx Gestão primeiro.' });
+
+    const bruto = await saldoDeUmProduto(token, p.maxxgestao_variacao_id, local, { esperaMaximaMs: 8_000 });
+
+    if (bruto === null) {
+      /*
+       * SEM REGISTRO NÃO ZERA O PRODUTO. Mesma regra do ciclo: "o ERP não tem
+       * linha" e "o ERP diz que acabou" são coisas diferentes, e tratar a
+       * primeira como a segunda tiraria do ar produto que ninguém inventariou.
+       */
+      return res.json({
+        tem_registro: false,
+        estoque: Number(p.estoque ?? 0),
+        mensagem: 'O Maxx Gestão não tem estoque cadastrado para este produto. Faça uma entrada ou ajuste de estoque lá e sincronize de novo.',
+      });
+    }
+
+    const novo = saldoParaEstoque(bruto);
+    const esgota = Number((loja as { maxxgestao_estoque_esgota?: number }).maxxgestao_estoque_esgota ?? 0) === 1;
+
+    /* O controle de venda só é ligado se a loja escolheu isso — e marcado como
+       nosso, para o interruptor continuar tendo volta. */
+    if (esgota && !p.controla_estoque) {
+      await db.prepare(
+        'UPDATE produtos SET estoque = ?, controla_estoque = 1, estoque_do_erp = 1 WHERE id = ? AND loja_id = ?'
+      ).run(novo, p.id, loja.id);
+    } else {
+      await db.prepare('UPDATE produtos SET estoque = ? WHERE id = ? AND loja_id = ?')
+        .run(novo, p.id, loja.id);
+    }
+
+    console.log(`[erp-estoque] loja ${loja.id}: produto ${p.id} sincronizado na mao: ${p.estoque} -> ${novo}`);
+    res.json({
+      tem_registro: true,
+      estoque: novo,
+      /* O BRUTO VAI JUNTO para o negativo não virar mistério: a tela diz "o
+         Maxx Gestão tem -4, aqui fica 0" em vez de um zero sem explicação. */
+      saldo_no_erp: bruto,
+      controla_estoque: esgota || !!p.controla_estoque,
+    });
+  } catch (e) { next(e); }
+});
+
 router.put('/erp/estoque-esgota', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
