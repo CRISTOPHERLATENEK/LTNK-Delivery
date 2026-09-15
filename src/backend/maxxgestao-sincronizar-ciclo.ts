@@ -75,7 +75,8 @@ export interface ResultadoSincronizacaoErp extends ResultadoGravacao {
 }
 
 export const SEM_MUDANCA: ResultadoSincronizacaoErp = Object.freeze({
-  criados: 0, atualizados: 0, pausados: 0, lidos: 0, semMudanca: 0, resumo: '',
+  criados: 0, atualizados: 0, pausados: 0, religados: 0, falhas: [],
+  lidos: 0, semMudanca: 0, resumo: '',
 });
 
 /**
@@ -199,7 +200,9 @@ export async function sincronizarLojaErp(
 
 /** Só para o chamador não precisar repetir a comparação. */
 export function passadaMudouAlgo(r: ResultadoSincronizacaoErp): boolean {
-  return r.criados > 0 || r.atualizados > 0 || r.pausados > 0;
+  /* `religados` conta: é o vínculo com o ERP sendo acertado, e é a linha de log
+     que explica por que um cardápio que parecia ter produtos novos não tinha. */
+  return r.criados > 0 || r.atualizados > 0 || r.pausados > 0 || r.religados > 0;
 }
 
 export { PLANO_VAZIO };

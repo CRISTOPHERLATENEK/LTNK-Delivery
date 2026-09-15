@@ -38,6 +38,21 @@ export interface ProdutoNosso {
   /** O código interno que já está gravado aqui. */
   sku: string;
   /**
+   * O CÓDIGO DE BARRAS, e ele está aqui por um motivo específico.
+   *
+   * O casamento com o ERP era só por `variacaoErp`. Quando o vínculo se perde
+   * — produto cadastrado à mão antes de ligar o ERP, recadastro lá que troca a
+   * variação, alguém zerando o campo — o mesmo produto passa a parecer NOVO, e
+   * o plano manda criá-lo. Aí o banco recusa pelo índice único de EAN por loja
+   * e a gravação inteira morre, levando junto todas as atualizações legítimas
+   * da passada. Medido no Mostruário em 14/09/2026:
+   * `Duplicate entry '1-7622210533005' for key 'uq_produto_ean'`.
+   *
+   * Com o código de barras aqui, esse produto é RECONHECIDO e RELIGADO em vez
+   * de duplicado.
+   */
+  codigoBarras: string;
+  /**
    * O QUE O ERP DISSE POR ÚLTIMO. Vazio em produto que nasceu aqui.
    *
    * Comparar o nosso valor com ESTE, e não com o do ERP, é o que separa "o ERP
@@ -113,11 +128,19 @@ export interface PlanoImportacao {
   }>;
   /** Estavam vinculados e saíram do catálogo do ERP: pausar, nunca apagar. */
   pausar: number[];
+  /**
+   * PRODUTOS QUE JÁ EXISTIAM AQUI E FORAM RECONHECIDOS PELO CÓDIGO DE BARRAS.
+   *
+   * Não é criação nem edição de conteúdo: é acertar o vínculo que faltava. Vem
+   * separado para a tela poder dizer "religados" — um número que explica por
+   * que um cardápio que parecia ter 100 produtos novos na verdade tinha zero.
+   */
+  religar: Array<{ id: number; variacao: number }>;
   /** Já iguais. Contados só para a tela poder dizer "nada mudou". */
   semMudanca: number;
 }
 
-export const PLANO_VAZIO: PlanoImportacao = { criar: [], atualizar: [], pausar: [], semMudanca: 0 };
+export const PLANO_VAZIO: PlanoImportacao = { criar: [], atualizar: [], pausar: [], religar: [], semMudanca: 0 };
 
 /** O plano. */
 export function planejarImportacao(
@@ -135,10 +158,36 @@ export function planejarImportacao(
   } = {},
 ): PlanoImportacao {
   const pausarAusentes = opcoes.pausarAusentes !== false;
-  const plano: PlanoImportacao = { criar: [], atualizar: [], pausar: [], semMudanca: 0 };
+  const plano: PlanoImportacao = { criar: [], atualizar: [], pausar: [], religar: [], semMudanca: 0 };
 
   const porVariacao = new Map<number, ProdutoNosso>();
   for (const p of nossos) if (p.variacaoErp > 0) porVariacao.set(p.variacaoErp, p);
+
+  /*
+   * O SEGUNDO JEITO DE RECONHECER O MESMO PRODUTO: o código de barras.
+   *
+   * O primeiro (a variação do ERP) falha sempre que o vínculo se perde, e aí o
+   * produto parece novo — o plano manda criar, o banco recusa pelo índice único
+   * de EAN por loja, e a gravação INTEIRA morre. O código de barras é o que o
+   * ERP e o cardápio têm em comum sem depender de vínculo nenhum.
+   *
+   * SÓ PRODUTO AINDA NÃO VINCULADO entra neste índice. Um já ligado a outra
+   * variação é outro produto do ERP que por acaso repete o EAN (acontece com
+   * embalagem diferente do mesmo item); roubá-lo daqui trocaria dois produtos
+   * de lugar em silêncio — muito pior que a duplicata que estamos evitando.
+   *
+   * O PRIMEIRO GANHA quando dois produtos nossos repetem o mesmo EAN: o índice
+   * único impede isso hoje, mas cadastro antigo pode ter escapado, e escolher
+   * em silêncio é melhor que derrubar a passada.
+   */
+  const porCodigoBarras = new Map<string, ProdutoNosso>();
+  for (const p of nossos) {
+    const ean = (p.codigoBarras || '').trim();
+    if (!ean || p.variacaoErp > 0) continue;
+    if (!porCodigoBarras.has(ean)) porCodigoBarras.set(ean, p);
+  }
+  /** Já usados nesta passada — um produto nosso não pode casar com dois do ERP. */
+  const religados = new Set<number>();
 
   const vistos = new Set<number>();
 
@@ -157,7 +206,22 @@ export function planejarImportacao(
       continue;
     }
 
-    const nosso = porVariacao.get(produto.variacao);
+    /*
+     * PELA VARIAÇÃO PRIMEIRO, PELO CÓDIGO DE BARRAS DEPOIS. A ordem importa: a
+     * variação é o vínculo explícito, o EAN é o reconhecimento de última hora.
+     */
+    let nosso = porVariacao.get(produto.variacao);
+    if (!nosso) {
+      const ean = (produto.codigoBarras || '').trim();
+      const achado = ean ? porCodigoBarras.get(ean) : undefined;
+      if (achado && !religados.has(achado.id)) {
+        religados.add(achado.id);
+        plano.religar.push({ id: achado.id, variacao: produto.variacao });
+        /* Daqui para baixo ele é tratado como qualquer produto vinculado: o
+           vínculo é que estava faltando, não o produto. */
+        nosso = { ...achado, variacaoErp: produto.variacao };
+      }
+    }
     if (!nosso) {
       plano.criar.push({
         variacao: produto.variacao,
@@ -293,7 +357,7 @@ export function peneirarPorCatalogo(
 
 /** O plano não faz nada? Para a tela não dizer "importado" sem ter importado. */
 export function planoVazio(p: PlanoImportacao): boolean {
-  return p.criar.length === 0 && p.atualizar.length === 0 && p.pausar.length === 0;
+  return p.religar.length === 0 && p.criar.length === 0 && p.atualizar.length === 0 && p.pausar.length === 0;
 }
 
 /**
@@ -307,6 +371,9 @@ export function resumoDoPlano(p: PlanoImportacao): string {
   if (p.criar.length) partes.push(`${p.criar.length} produto${p.criar.length > 1 ? 's' : ''} novo${p.criar.length > 1 ? 's' : ''}`);
   if (p.atualizar.length) partes.push(`${p.atualizar.length} atualizado${p.atualizar.length > 1 ? 's' : ''}`);
   if (p.pausar.length) partes.push(`${p.pausar.length} pausado${p.pausar.length > 1 ? 's' : ''}`);
+  /* RELIGADO NÃO É NOVO NEM EDITADO: é o vínculo que faltava. Sem a palavra
+     própria, o lojista leria "100 novos" num cardápio que não ganhou nenhum. */
+  if (p.religar.length) partes.push(`${p.religar.length} religado${p.religar.length > 1 ? 's' : ''} ao ERP`);
   if (!partes.length) return p.semMudanca ? `Nada mudou — ${p.semMudanca} já estavam iguais.` : 'Nada para importar.';
   const frase = partes.join(', ');
   /* O aviso do preço vai JUNTO do sucesso, não numa tela de ajuda: produto novo

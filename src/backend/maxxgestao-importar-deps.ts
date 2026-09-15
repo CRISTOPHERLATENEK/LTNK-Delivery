@@ -20,12 +20,12 @@ import type { PlanoImportacao, ProdutoNosso, EspelhoErp } from './maxxgestao-imp
 export async function produtosDaLoja(lojaId: number): Promise<ProdutoNosso[]> {
   const linhas = await db.prepare(
     `SELECT id, nome, descricao, categoria, maxxgestao_variacao_id, disponivel,
-            preco_centavos, sku, maxxgestao_espelho
+            preco_centavos, sku, maxxgestao_espelho, codigo_barras
        FROM produtos WHERE loja_id = ? AND excluido = 0`
   ).all(lojaId) as Array<{
     id: number; nome: string; descricao: string | null; categoria: string | null;
     maxxgestao_variacao_id: number; disponivel: number; preco_centavos: number;
-    sku: string | null; maxxgestao_espelho: string | null;
+    sku: string | null; maxxgestao_espelho: string | null; codigo_barras: string | null;
   }>;
   return linhas.map(l => ({
     id: l.id,
@@ -36,6 +36,9 @@ export async function produtosDaLoja(lojaId: number): Promise<ProdutoNosso[]> {
     disponivel: !!l.disponivel,
     precoCentavos: Number(l.preco_centavos ?? 0),
     sku: l.sku ?? '',
+    /* O segundo jeito de reconhecer o mesmo produto quando o vínculo com o ERP
+       se perdeu — ver `codigoBarras` em `ProdutoNosso`. */
+    codigoBarras: l.codigo_barras ?? '',
     /*
      * Espelho ilegível vale COMO AUSENTE, não como vazio: ausente significa
      * "trate como não editado" (o comportamento antigo), e vazio significaria
@@ -66,12 +69,43 @@ export interface ResultadoGravacao {
   criados: number;
   atualizados: number;
   pausados: number;
+  /** Já existiam aqui e ganharam de volta o vínculo com o ERP. */
+  religados: number;
+  /**
+   * O QUE NÃO ENTROU, e por quê.
+   *
+   * Existe porque UMA linha recusada pelo banco derrubava a gravação INTEIRA —
+   * medido no Mostruário: um `Duplicate entry ... uq_produto_ean` levou junto
+   * 1.118 atualizações legítimas, e no laço automático isso se repetiria toda
+   * hora, em silêncio, para sempre.
+   */
+  falhas: string[];
 }
 
 /** Aplica o plano. Só isto escreve no banco. */
 export async function aplicarPlano(lojaId: number, plano: PlanoImportacao): Promise<ResultadoGravacao> {
   const agora = agoraUTC();
+  const falhas: string[] = [];
   let criados = 0;
+
+  /*
+   * O VÍNCULO QUE FALTAVA, ANTES DE TUDO.
+   *
+   * Religar primeiro importa: são produtos que já existem aqui e cujo EAN o ERP
+   * também tem. Se um `criar` da mesma passada rodasse antes, ele bateria no
+   * índice único do EAN — que é exatamente o defeito que isto conserta.
+   */
+  let religados = 0;
+  for (const r of plano.religar) {
+    try {
+      await db.prepare(
+        'UPDATE produtos SET maxxgestao_variacao_id = ? WHERE id = ? AND loja_id = ?'
+      ).run(r.variacao, r.id, lojaId);
+      religados++;
+    } catch (e) {
+      falhas.push(`religar produto ${r.id}: ${(e as Error).message}`);
+    }
+  }
 
   for (const p of plano.criar) {
     /*
@@ -85,15 +119,30 @@ export async function aplicarPlano(lojaId: number, plano: PlanoImportacao): Prom
      * produtos na loja de alguém porque uma importação rodou seria decidir pelo
      * lojista o que ele vende — e ele descobriria pelo cliente pedindo.
      */
-    await db.prepare(
-      `INSERT INTO produtos (loja_id, nome, descricao, categoria, preco_centavos,
-                             codigo_barras, maxxgestao_variacao_id, sku,
-                             maxxgestao_espelho,
-                             disponivel, disponivel_pdv, criado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`
-    ).run(lojaId, p.nome, p.descricao, p.categoria, p.precoCentavos,
-          p.codigoBarras, p.variacao, p.sku, JSON.stringify(p.espelho), agora);
-    criados++;
+    /*
+     * UMA LINHA RECUSADA NÃO DERRUBA A PASSADA.
+     *
+     * Antes um `INSERT` recusado pelo banco estourava para fora de
+     * `aplicarPlano` e levava junto TODO o resto — medido no Mostruário, um
+     * `Duplicate entry ... uq_produto_ean` custou 1.118 atualizações legítimas.
+     * No laço automático o estrago é maior: falharia toda hora, em silêncio.
+     *
+     * O EAN duplicado em si foi resolvido pelo religamento acima; isto aqui é
+     * a rede embaixo — para o PRÓXIMO motivo, que ninguém previu.
+     */
+    try {
+      await db.prepare(
+        `INSERT INTO produtos (loja_id, nome, descricao, categoria, preco_centavos,
+                               codigo_barras, maxxgestao_variacao_id, sku,
+                               maxxgestao_espelho,
+                               disponivel, disponivel_pdv, criado_em)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`
+      ).run(lojaId, p.nome, p.descricao, p.categoria, p.precoCentavos,
+            p.codigoBarras, p.variacao, p.sku, JSON.stringify(p.espelho), agora);
+      criados++;
+    } catch (e) {
+      falhas.push(`criar "${p.nome}": ${(e as Error).message}`);
+    }
   }
 
   let atualizados = 0;
@@ -113,18 +162,26 @@ export async function aplicarPlano(lojaId: number, plano: PlanoImportacao): Prom
     if (a.espelho !== undefined) { sets.push('maxxgestao_espelho = ?'); vals.push(JSON.stringify(a.espelho)); }
     if (!sets.length) continue;
     vals.push(a.id, lojaId);
-    await db.prepare(`UPDATE produtos SET ${sets.join(', ')} WHERE id = ? AND loja_id = ?`).run(...vals);
-    atualizados++;
+    try {
+      await db.prepare(`UPDATE produtos SET ${sets.join(', ')} WHERE id = ? AND loja_id = ?`).run(...vals);
+      atualizados++;
+    } catch (e) {
+      falhas.push(`atualizar produto ${a.id}: ${(e as Error).message}`);
+    }
   }
 
   let pausados = 0;
   for (const id of plano.pausar) {
     /* PAUSA, NÃO EXCLUI: o histórico de pedidos aponta para este produto. */
-    await db.prepare(
-      'UPDATE produtos SET disponivel = 0, disponivel_pdv = 0 WHERE id = ? AND loja_id = ?'
-    ).run(id, lojaId);
-    pausados++;
+    try {
+      await db.prepare(
+        'UPDATE produtos SET disponivel = 0, disponivel_pdv = 0 WHERE id = ? AND loja_id = ?'
+      ).run(id, lojaId);
+      pausados++;
+    } catch (e) {
+      falhas.push(`pausar produto ${id}: ${(e as Error).message}`);
+    }
   }
 
-  return { criados, atualizados, pausados };
+  return { criados, atualizados, pausados, religados, falhas };
 }

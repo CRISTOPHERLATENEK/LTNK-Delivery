@@ -20,7 +20,7 @@ const nosso = (id: number, nome: string, extra: Partial<ProdutoNosso> = {}): Pro
   id, nome, descricao: '', categoria: 'Lanches', variacaoErp: id, disponivel: true,
   /* Por padrão já precificado: o caso do marcador é escrito explicitamente nos
      testes que tratam dele, para não passar sem alguém ver. */
-  precoCentavos: 1500, sku: '',
+  precoCentavos: 1500, sku: '', codigoBarras: '',
   /* Por padrão, espelho IGUAL ao valor: produto importado e não editado. */
   espelho: { nome, descricao: '', categoria: 'Lanches' }, ...extra,
 });
@@ -540,5 +540,92 @@ describe('edição do lojista não é desfeita pela importação', () => {
     expect(podeAtualizar('igual', 'igual')).toBe(true);
     expect(podeAtualizar('editado', 'do erp')).toBe(false);
     expect(podeAtualizar('qualquer', undefined)).toBe(true);
+  });
+});
+
+describe('produto que perdeu o vínculo é RELIGADO, não duplicado', () => {
+  /*
+   * O DEFEITO, MEDIDO NO MOSTRUÁRIO EM 14/09/2026:
+   *
+   *   FALHOU: Duplicate entry '1-7622210533005' for key 'uq_produto_ean'
+   *
+   * O casamento era só por `variacaoErp`. Quando o vínculo se perde — produto
+   * cadastrado à mão antes de ligar o ERP, recadastro lá que troca a variação,
+   * alguém zerando o campo — o mesmo produto passa a parecer NOVO. O plano
+   * mandava criar, o banco recusava pelo índice único de EAN por loja, e a
+   * gravação INTEIRA morria: 1.118 atualizações legítimas foram junto.
+   *
+   * No laço automático o estrago é maior: falharia toda hora, em silêncio,
+   * para sempre.
+   */
+  it('reconhece pelo código de barras em vez de criar', () => {
+    const p = planejarImportacao(
+      [doErp(10, 'Biscoito', { codigoBarras: '7622210533005' })],
+      [nosso(50, 'Biscoito', { variacaoErp: 0, codigoBarras: '7622210533005' })],
+    );
+    expect(p.criar).toEqual([]);
+    expect(p.religar).toEqual([{ id: 50, variacao: 10 }]);
+  });
+
+  /*
+   * E SEGUE SENDO TRATADO COMO VINCULADO daí para baixo: o que faltava era o
+   * vínculo, não o produto. Sem isso ele seria religado e ignorado na mesma
+   * passada, e o preço do marcador só entraria na hora seguinte.
+   */
+  it('religado no marcador recebe o preço do ERP na mesma passada', () => {
+    const item = doErp(10, 'Biscoito', { codigoBarras: '789' });
+    item.precoCentavos = 690;
+    const p = planejarImportacao(
+      [item],
+      [nosso(50, 'Biscoito', { variacaoErp: 0, codigoBarras: '789', precoCentavos: PRECO_MARCADOR })],
+    );
+    expect(p.religar).toEqual([{ id: 50, variacao: 10 }]);
+    expect(p.atualizar[0]?.precoCentavos).toBe(690);
+  });
+
+  /*
+   * PRODUTO JÁ VINCULADO A OUTRA VARIAÇÃO NÃO É ROUBADO. O mesmo EAN aparece em
+   * embalagens diferentes do mesmo item; trocar dois produtos de lugar em
+   * silêncio é muito pior que a duplicata que se está evitando.
+   */
+  it('não rouba produto que já tem vínculo', () => {
+    const p = planejarImportacao(
+      [doErp(10, 'Biscoito', { codigoBarras: '789' })],
+      [nosso(50, 'Biscoito', { variacaoErp: 77, codigoBarras: '789' })],
+    );
+    expect(p.religar).toEqual([]);
+    expect(p.criar).toHaveLength(1);
+  });
+
+  it('sem código de barras não há como reconhecer', () => {
+    /* EAN vazio casando com EAN vazio juntaria produtos que nada têm a ver. */
+    const p = planejarImportacao(
+      [doErp(10, 'Biscoito', { codigoBarras: '' })],
+      [nosso(50, 'Outra coisa', { variacaoErp: 0, codigoBarras: '' })],
+    );
+    expect(p.religar).toEqual([]);
+    expect(p.criar).toHaveLength(1);
+  });
+
+  it('um produto nosso não casa com dois do ERP', () => {
+    /* Dois itens do ERP com o mesmo EAN: o primeiro religa, o segundo é novo —
+       e o segundo vai esbarrar no índice único, que é o que `falhas` cobre. */
+    const p = planejarImportacao(
+      [doErp(10, 'Biscoito', { codigoBarras: '789' }), doErp(11, 'Biscoito 2', { codigoBarras: '789' })],
+      [nosso(50, 'Biscoito', { variacaoErp: 0, codigoBarras: '789' })],
+    );
+    expect(p.religar).toHaveLength(1);
+    expect(p.criar).toHaveLength(1);
+  });
+
+  it('religar conta como plano com conteúdo', () => {
+    /* Se `planoVazio` ignorasse `religar`, a passada acharia que não há o que
+       fazer e o vínculo nunca seria acertado. */
+    const p = planejarImportacao(
+      [doErp(10, 'Biscoito', { codigoBarras: '789' })],
+      [nosso(50, 'Biscoito', { variacaoErp: 0, codigoBarras: '789' })],
+    );
+    expect(planoVazio(p)).toBe(false);
+    expect(resumoDoPlano(p)).toContain('religado');
   });
 });
