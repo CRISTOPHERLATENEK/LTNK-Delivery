@@ -67,6 +67,8 @@ export interface EstadoErp {
   sinc_em: string;
   /** O catálogo do ERP que esta loja publica. 0 = a empresa inteira. */
   catalogo: number;
+  /** De qual local de estoque do ERP o saldo vem. 0 = estoque não sincroniza. */
+  local_estoque: number;
   /**
    * O que o CANAL desta loja abre.
    *
@@ -96,6 +98,23 @@ interface CatalogoErp {
   descricao: string;
   ativo: boolean;
   itens: number;
+}
+
+/**
+ * Um local de estoque do ERP — com a conta que decide a escolha.
+ *
+ * `sairiam_do_ar` é quantos produtos À VENDA hoje ficariam SEM saldo se este
+ * local fosse o escolhido E o bloqueio de venda fosse ligado. Vem do servidor
+ * porque só lá dá para cruzar o saldo do ERP com o cardápio. Nulo quando o
+ * local não respondeu.
+ */
+interface LocalEstoque {
+  codigo: number;
+  descricao: string;
+  ativo: boolean;
+  variacoes: number | null;
+  a_venda: number | null;
+  sairiam_do_ar: number | null;
 }
 
 interface RespostaImportacao {
@@ -131,6 +150,9 @@ export function PainelMaxxGestao({ estado, aoMudar }: {
   const [ligando, setLigando] = useState(false);
   const [ligandoAuto, setLigandoAuto] = useState(false);
   const [ligandoSinc, setLigandoSinc] = useState(false);
+  const [locais, setLocais] = useState<LocalEstoque[] | null>(null);
+  const [carregandoLocais, setCarregandoLocais] = useState(false);
+  const [salvandoLocal, setSalvandoLocal] = useState(false);
   const [empresa, setEmpresa] = useState<EmpresaErp | null>(null);
 
   const [catalogos, setCatalogos] = useState<CatalogoErp[] | null>(null);
@@ -262,6 +284,45 @@ Ligar assim mesmo?`,
       if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
     } finally {
       setLigandoAuto(false);
+    }
+  }
+
+  /*
+   * A LISTA SÓ É BUSCADA QUANDO O LOJISTA PEDE, e não ao abrir a tela: cada
+   * local custa até 13 chamadas ao ERP para contar quantos produtos ficariam
+   * sem saldo, e o orçamento é o mesmo que emite a NFC-e de cada pedido.
+   */
+  async function carregarLocais() {
+    if (carregandoLocais) return;
+    setCarregandoLocais(true);
+    try {
+      const r = await api<{ locais: LocalEstoque[] }>('GET', '/api/lojista/erp/locais-estoque');
+      setLocais(r.locais);
+    } catch (err) {
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setCarregandoLocais(false);
+    }
+  }
+
+  async function escolherLocal(local: number) {
+    if (!estado || salvandoLocal) return;
+    const antes = estado;
+    aoMudar({ ...estado, local_estoque: local });
+    setSalvandoLocal(true);
+    try {
+      await api<{ local: number }>('PUT', '/api/lojista/erp/local-estoque', { local });
+      mostrar({
+        tipo: 'sucesso',
+        titulo: local
+          ? 'O saldo do Maxx Gestão passa a alimentar o estoque'
+          : 'O estoque deixou de vir do Maxx Gestão',
+      });
+    } catch (err) {
+      aoMudar(antes);
+      if (err instanceof ApiError) mostrar({ tipo: 'erro', titulo: err.message });
+    } finally {
+      setSalvandoLocal(false);
     }
   }
 
@@ -754,6 +815,97 @@ Ligar?`,
           <b>Saldo de estoque não entra</b> — a API do Maxx Gestão não informa
           quantidade.
         </p>
+      </Linha>
+      )}
+
+      {/* erp-sincronizar-auto — o saldo de estoque, que vem junto */}
+      {liberada('erp-sincronizar-auto') && (
+      <Linha
+        titulo="De onde vem o estoque"
+        descricao={
+          !configurado ? 'Cole o token do Maxx Gestão primeiro.'
+            : estado?.local_estoque
+              ? `O saldo vem do local ${estado.local_estoque} do Maxx Gestão, junto com a sincronização.`
+              : 'O estoque não vem do Maxx Gestão. Escolha um local para trazer o saldo.'
+        }
+        acao={
+          <button
+            type="button"
+            disabled={!configurado || carregandoLocais}
+            onClick={() => void carregarLocais()}
+            className="h-9 shrink-0 rounded-lg border border-input px-3 text-[12.5px] font-bold disabled:opacity-50"
+          >
+            {carregandoLocais ? 'Consultando…' : locais ? 'Consultar de novo' : 'Ver os locais'}
+          </button>
+        }
+      >
+        <div className="mt-2 space-y-3">
+          {/*
+            O QUE ESCOLHER O LOCAL FAZ E O QUE NÃO FAZ.
+            "Sincronizar estoque" é lido como "o que zerar some da loja" — e no
+            cadastro real do Galderio isso tiraria 210 dos 644 produtos à venda
+            do ar no primeiro minuto, Coca-Cola Zero 2L incluída. Escolher o
+            local só TRAZ O NÚMERO; quem some quando zera continua sendo
+            decisão de cada produto.
+          */}
+          <p className="max-w-[58ch] text-[12.5px] leading-relaxed text-muted-foreground">
+            Escolher o local faz o saldo do Maxx Gestão <b>preencher a quantidade</b> de
+            cada produto, de hora em hora. <b>Nenhum produto sai do ar por causa disso</b>:
+            quem some quando zera continua sendo o ajuste &quot;controlar estoque&quot; de
+            cada produto.
+          </p>
+
+          {locais && locais.length === 0 && (
+            <p className="text-[12.5px] text-muted-foreground">O Maxx Gestão não devolveu nenhum local de estoque.</p>
+          )}
+
+          {locais && locais.length > 0 && (
+            <div className="space-y-2">
+              {locais.map(l => (
+                <button
+                  key={l.codigo}
+                  type="button"
+                  disabled={salvandoLocal}
+                  onClick={() => void escolherLocal(estado?.local_estoque === l.codigo ? 0 : l.codigo)}
+                  className={cn(
+                    'flex w-full items-start justify-between gap-3 rounded-xl border-2 p-3 text-left transition-colors disabled:opacity-50',
+                    estado?.local_estoque === l.codigo
+                      ? 'border-primary bg-primary/5' : 'border-border hover:bg-accent/40',
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span className="block text-sm font-bold">{l.descricao || `Local ${l.codigo}`}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {l.variacoes === null
+                        ? 'não consegui ler o saldo deste local'
+                        : `${l.variacoes} itens com saldo registrado`}
+                    </span>
+                  </span>
+                  {/*
+                    O NÚMERO QUE DECIDE, e ele fica ao lado da escolha — não
+                    numa tela de ajuda. Sem ele, ligar o bloqueio depois é uma
+                    aposta; com ele, é uma escolha.
+                  */}
+                  {l.sairiam_do_ar !== null && l.a_venda !== null && (
+                    <span className="shrink-0 text-right text-[11.5px] leading-tight">
+                      <span className={cn('block font-bold tabular-nums',
+                        l.sairiam_do_ar > 0 ? 'text-warning' : 'text-muted-foreground')}>
+                        {l.sairiam_do_ar} de {l.a_venda}
+                      </span>
+                      <span className="block text-muted-foreground">sem saldo hoje</span>
+                    </span>
+                  )}
+                </button>
+              ))}
+              <p className="max-w-[58ch] text-[12.5px] leading-relaxed text-muted-foreground">
+                &quot;Sem saldo hoje&quot; é quantos produtos <b>à venda agora</b> ficariam
+                zerados por este local. Eles <b>continuam à venda</b> — o número está
+                aqui para você saber o que aconteceria se um dia ligar o bloqueio por
+                estoque.
+              </p>
+            </div>
+          )}
+        </div>
       </Linha>
       )}
 

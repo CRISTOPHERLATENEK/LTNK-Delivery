@@ -1330,6 +1330,20 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * numa loja que publica 39. Gravado na importação, lido pela passada.
      */
     ['lojas', 'maxxgestao_catalogo', 'maxxgestao_catalogo INT NOT NULL DEFAULT 0'],
+    /*
+     * DE QUAL LOCAL DE ESTOQUE DO ERP VEM O SALDO. Zero = não sincronizar.
+     *
+     * Zero por padrão porque só o lojista sabe qual dos locais é a prateleira
+     * da loja: o Mostruário tem três ("Local de estoque padrão", "Estoque I",
+     * "Estoque II"), e escolher por ele traria o saldo do depósito errado como
+     * se fosse o que está à venda.
+     *
+     * A sincronização grava só a coluna `estoque`; `controla_estoque` (que é o
+     * que BLOQUEIA a venda) continua sendo decisão do lojista, produto a
+     * produto. Medido no Galderio: ligar o bloqueio para todos tiraria 210 dos
+     * 644 produtos à venda do ar no primeiro minuto.
+     */
+    ['lojas', 'maxxgestao_local_estoque', 'maxxgestao_local_estoque INT NOT NULL DEFAULT 0'],
     /* Quando a última passada automática terminou. Só para a tela poder dizer
        "sincronizado às 14h" — sem isso, "está ligado" e "está funcionando" são
        indistinguíveis para quem olha. */

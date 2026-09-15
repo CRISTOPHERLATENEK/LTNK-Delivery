@@ -8,6 +8,7 @@
 import db from './db-mysql';
 import { agoraUTC } from './util';
 import type { PlanoImportacao, ProdutoNosso, EspelhoErp } from './maxxgestao-importar';
+import type { AjusteDeEstoque, ProdutoComEstoque } from './maxxgestao-estoque';
 
 /**
  * O cardápio do delivery, do jeito que a decisão precisa ver.
@@ -184,4 +185,49 @@ export async function aplicarPlano(lojaId: number, plano: PlanoImportacao): Prom
   }
 
   return { criados, atualizados, pausados, religados, falhas };
+}
+
+/* ────────────────────────────── ESTOQUE ──────────────────────────────── */
+
+/** Os produtos vinculados ao ERP, do jeito que a decisão de estoque precisa. */
+export async function produtosComEstoque(lojaId: number): Promise<ProdutoComEstoque[]> {
+  const linhas = await db.prepare(
+    `SELECT id, maxxgestao_variacao_id, estoque, controla_estoque, disponivel
+       FROM produtos WHERE loja_id = ? AND excluido = 0 AND maxxgestao_variacao_id > 0`
+  ).all(lojaId) as Array<{
+    id: number; maxxgestao_variacao_id: number; estoque: number | null;
+    controla_estoque: number; disponivel: number;
+  }>;
+  return linhas.map(l => ({
+    id: l.id,
+    variacaoErp: Number(l.maxxgestao_variacao_id ?? 0),
+    estoque: Number(l.estoque ?? 0),
+    controlaEstoque: !!l.controla_estoque,
+    disponivel: !!l.disponivel,
+  }));
+}
+
+/**
+ * Grava os saldos. SÓ A COLUNA `estoque` — `controla_estoque` não é tocado.
+ *
+ * Ligar o bloqueio junto tiraria 33% do cardápio do Galderio do ar no primeiro
+ * minuto (medido: 210 de 644). Quem decide isso é o lojista, e o painel mostra
+ * o número dele antes do clique.
+ */
+export async function aplicarEstoque(
+  lojaId: number,
+  ajustes: AjusteDeEstoque[],
+): Promise<{ ajustados: number; falhas: string[] }> {
+  const falhas: string[] = [];
+  let ajustados = 0;
+  for (const a of ajustes) {
+    try {
+      await db.prepare('UPDATE produtos SET estoque = ? WHERE id = ? AND loja_id = ?')
+        .run(a.estoque, a.id, lojaId);
+      ajustados++;
+    } catch (e) {
+      falhas.push(`estoque do produto ${a.id}: ${(e as Error).message}`);
+    }
+  }
+  return { ajustados, falhas };
 }

@@ -22,17 +22,25 @@
  * produto vem na resposta e serve para EXPLICAR o que mudou — não para evitar
  * a leitura.
  *
- * ─────────────────────────── O QUE NÃO DÁ PARA FAZER ────────────────────────
+ * ───────────────────────────── E O ESTOQUE, SIM ─────────────────────────────
  *
- * QUANTIDADE EM ESTOQUE NÃO ESTÁ NA API DELES. Os 52 campos da mercadoria
- * trazem `qtdEstoqueMinimo`, `qtdEstoqueMaximo` e `permitirEstoqueNegativo` —
- * que são CONFIGURAÇÃO, não saldo — e nenhum endpoint de saldo respondeu
- * (25 caminhos prováveis testados; `/api/inventario/v1` existe e devolve
- * sempre `total: 0`, `/api/local-estoque/v1` lista os locais e mais nada).
+ * EU DISSE QUE O SALDO NÃO EXISTIA NA API DELES, E ESTAVA ERRADO. Em 14/09 eu
+ * havia sondado 25 caminhos prováveis (`/api/estoque/v1`,
+ * `/api/mercadoria/v1/{id}/estoque/v1`, `/api/saldo/v1`…), todos 404, e conclui
+ * que não havia. A forma real é
+ * `/api/local-estoque/{id}/estoques/v1` — e ela só apareceu quando o lojista
+ * abriu o swagger deles, que exige login. Adivinhar URL é um jeito ruim de
+ * concluir que algo não existe.
  *
- * Por isso este ciclo sincroniza CADASTRO, não saldo. Quando o Maxx Gestão
- * expuser o saldo, ele entra aqui: a leitura vira mais uma chamada dentro de
- * `lerCardapioDoErp`, e o campo `estoque` de `produtos` já existe.
+ * O saldo entra na mesma passada, e custa 11 a 13 chamadas (listagem por local,
+ * de 100 em 100) — não uma por produto, que seria quase uma hora.
+ *
+ * O QUE ELE NÃO FAZ: tirar produto do ar. Medido no cadastro do Galderio,
+ * ligar "sem saldo = fora do ar" apagaria 210 dos 644 produtos à venda (33%),
+ * Coca-Cola Zero 2L e Pepsi 2L incluídas, com saldo zero — e 175 itens estão
+ * com saldo NEGATIVO lá. O estoque do ERP não é mantido item a item, e isso é
+ * o normal do comércio. A passada grava o número; quem liga o bloqueio é o
+ * lojista, pelo `controla_estoque` que já existe. Ver `maxxgestao-estoque.ts`.
  *
  * ─────────────────────── O LIMITE É O QUE MANDA NO RITMO ────────────────────
  *
@@ -63,6 +71,9 @@ import {
   type ItemDoCatalogo, type PlanoImportacao,
 } from './maxxgestao-importar';
 import { aplicarPlano, produtosDaLoja, type ResultadoGravacao } from './maxxgestao-importar-deps';
+import { aplicarEstoque, produtosComEstoque } from './maxxgestao-importar-deps';
+import { planejarEstoque, planoEstoqueVazio } from './maxxgestao-estoque';
+import { saldosDoLocal } from './maxxgestao-catalogo';
 
 /** O que uma passada devolve. */
 export interface ResultadoSincronizacaoErp extends ResultadoGravacao {
@@ -72,11 +83,13 @@ export interface ResultadoSincronizacaoErp extends ResultadoGravacao {
   semMudanca: number;
   /** Frase curta para o log; vazia quando não houve gravação. */
   resumo: string;
+  /** Quantos produtos tiveram o saldo atualizado nesta passada. */
+  estoqueAjustado: number;
 }
 
 export const SEM_MUDANCA: ResultadoSincronizacaoErp = Object.freeze({
   criados: 0, atualizados: 0, pausados: 0, religados: 0, falhas: [],
-  lidos: 0, semMudanca: 0, resumo: '',
+  lidos: 0, semMudanca: 0, resumo: '', estoqueAjustado: 0,
 });
 
 /**
@@ -175,6 +188,8 @@ export async function sincronizarLojaErp(
   token: string,
   lojaId: number,
   catalogo: number,
+  /** O local de estoque do ERP. 0 = não sincronizar saldo. */
+  localEstoque = 0,
   op: OpcoesMaxxGestao = {},
 ): Promise<ResultadoSincronizacaoErp> {
   const leitura = await lerCardapioDoErp(token, catalogo, op);
@@ -185,21 +200,73 @@ export async function sincronizarLojaErp(
     pausarAusentes: podePausarAusentes(leitura),
   });
 
-  if (planoVazio(plano)) {
-    return { ...SEM_MUDANCA, lidos: leitura.itens.length, semMudanca: plano.semMudanca };
-  }
+  const gravado = planoVazio(plano)
+    ? { criados: 0, atualizados: 0, pausados: 0, religados: 0, falhas: [] as string[] }
+    : await aplicarPlano(lojaId, plano);
 
-  const gravado = await aplicarPlano(lojaId, plano);
+  /*
+   * O SALDO VEM DEPOIS DO CADASTRO, e a ordem importa: um produto criado ou
+   * religado nesta mesma passada só tem `maxxgestao_variacao_id` DEPOIS da
+   * gravação acima. Lendo o estoque antes, ele ficaria de fora e só receberia
+   * saldo na hora seguinte.
+   */
+  const estoque = await sincronizarEstoqueDaLoja(token, lojaId, localEstoque, op);
+
+  const resumo = [
+    planoVazio(plano) ? '' : resumoDoPlano(plano),
+    estoque.ajustados ? `${estoque.ajustados} com saldo novo.` : '',
+  ].filter(Boolean).join(' ');
+
   return {
     ...gravado,
+    falhas: [...gravado.falhas, ...estoque.falhas],
     lidos: leitura.itens.length,
     semMudanca: plano.semMudanca,
-    resumo: resumoDoPlano(plano),
+    estoqueAjustado: estoque.ajustados,
+    resumo,
   };
+}
+
+/**
+ * O SALDO DO LOCAL ESCOLHIDO, gravado na coluna `estoque`.
+ *
+ * Sem local escolhido não faz nada — e isso é o padrão. Só o lojista sabe qual
+ * dos locais do ERP é a prateleira da loja; o Mostruário tem três ("Local de
+ * estoque padrão", "Estoque I", "Estoque II"), e escolher por ele traria o
+ * saldo do depósito errado como se fosse o que está à venda.
+ *
+ * NUNCA LIGA O BLOQUEIO DE VENDA: só escreve o número. Ver o cabeçalho de
+ * `maxxgestao-estoque.ts` para o que isso evita (33% do cardápio do Galderio
+ * fora do ar no primeiro minuto).
+ */
+export async function sincronizarEstoqueDaLoja(
+  token: string,
+  lojaId: number,
+  localEstoque: number,
+  op: OpcoesMaxxGestao = {},
+): Promise<{ ajustados: number; semLinha: number; falhas: string[] }> {
+  if (!localEstoque || localEstoque <= 0) return { ajustados: 0, semLinha: 0, falhas: [] };
+  try {
+    const saldos = await saldosDoLocal(token, localEstoque, op);
+    /* Lista vazia é tratada como "não consegui ler", e não como "tudo zerado":
+       a diferença entre as duas, aplicada, é o cardápio inteiro sem estoque. */
+    if (!saldos.size) return { ajustados: 0, semLinha: 0, falhas: [] };
+
+    const nossos = await produtosComEstoque(lojaId);
+    const plano = planejarEstoque(saldos, nossos);
+    if (planoEstoqueVazio(plano)) return { ajustados: 0, semLinha: plano.semLinha, falhas: [] };
+
+    const r = await aplicarEstoque(lojaId, plano.ajustar);
+    return { ajustados: r.ajustados, semLinha: plano.semLinha, falhas: r.falhas };
+  } catch (e) {
+    /* Falha ao ler o saldo NÃO derruba a passada do cadastro, que já gravou. */
+    return { ajustados: 0, semLinha: 0, falhas: [`estoque: ${(e as Error).message}`] };
+  }
 }
 
 /** Só para o chamador não precisar repetir a comparação. */
 export function passadaMudouAlgo(r: ResultadoSincronizacaoErp): boolean {
+  if (r.estoqueAjustado > 0) return true;
   /* `religados` conta: é o vínculo com o ERP sendo acertado, e é a linha de log
      que explica por que um cardápio que parecia ter produtos novos não tinha. */
   return r.criados > 0 || r.atualizados > 0 || r.pausados > 0 || r.religados > 0;

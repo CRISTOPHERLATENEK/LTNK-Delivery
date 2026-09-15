@@ -362,3 +362,69 @@ export function segundosEstimados(quantidadeDeProdutos: number, porPagina = 100,
   const comEspera = Math.max(0, paginas - porMinuto);
   return Math.ceil((comEspera * 60) / porMinuto);
 }
+
+/* ────────────────────────────── ESTOQUE ──────────────────────────────── */
+
+/**
+ * O SALDO EXISTE NA API DELES — e eu disse que não existia.
+ *
+ * Em 14/09/2026 sondei 25 caminhos prováveis (`/api/estoque/v1`,
+ * `/api/mercadoria/v1/{id}/estoque/v1`, `/api/saldo/v1`…) e todos deram 404.
+ * Conclui que não havia. ESTAVA ERRADO: a forma é
+ * `/api/mercadoria/{id}/local-estoque/{id}/estoque/v1` — sem o `/v1` depois de
+ * `mercadoria` —, e só apareceu quando o lojista abriu o swagger deles (que
+ * exige login). Fica escrito porque adivinhar URL é um jeito ruim de concluir
+ * que algo não existe, e o custo aqui foi um dia.
+ */
+
+/** Um local de estoque do ERP. A loja escolhe de qual deles o saldo vem. */
+export interface LocalEstoqueErp {
+  codigo: number;
+  descricao: string;
+  ativo: boolean;
+}
+
+export async function locaisDeEstoque(
+  token: string,
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<LocalEstoqueErp[]> {
+  const brutos = await todasAsPaginas<Record<string, unknown>>(async p =>
+    pagina(await chamarMaxxGestao(token, `/api/local-estoque/v1?page=${p}&limit=100`, opcoes)));
+  return brutos
+    .map(l => ({
+      codigo: Number(l.codigo ?? 0),
+      descricao: String(l.descricao ?? '').trim(),
+      ativo: String(l.ativo ?? 'S').toUpperCase() === 'S',
+    }))
+    .filter(l => l.codigo > 0);
+}
+
+/**
+ * O SALDO DE TODAS AS MERCADORIAS DE UM LOCAL.
+ *
+ * É a LISTAGEM do local, e não uma consulta por produto: a consulta individual
+ * (`/api/mercadoria/{id}/local-estoque/{id}/estoque/v1`) custaria uma chamada
+ * por item — 1.100 itens a 20 por minuto é quase uma hora, e o orçamento é o
+ * mesmo que emite a NFC-e. A listagem resolve em 11 a 13 chamadas de 100.
+ *
+ * `qtdSaldo` vem com casas decimais (mercadoria a peso). O cardápio trabalha em
+ * unidades inteiras, então o valor é ARREDONDADO PARA BAIXO: 2,8 caixas viram
+ * 2, e prometer a terceira é prometer o que não tem.
+ */
+export async function saldosDoLocal(
+  token: string,
+  idLocalEstoque: number,
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<Map<number, number>> {
+  const brutos = await todasAsPaginas<Record<string, unknown>>(async p =>
+    pagina(await chamarMaxxGestao(
+      token, `/api/local-estoque/${idLocalEstoque}/estoques/v1?page=${p}&limit=100`, opcoes)));
+  const saldo = new Map<number, number>();
+  for (const l of brutos) {
+    const variacao = Number(l.idMercadoriaVariacao ?? 0);
+    if (!Number.isFinite(variacao) || variacao <= 0) continue;
+    const bruto = Number(l.qtdSaldo ?? 0);
+    saldo.set(variacao, Number.isFinite(bruto) ? Math.floor(bruto) : 0);
+  }
+  return saldo;
+}

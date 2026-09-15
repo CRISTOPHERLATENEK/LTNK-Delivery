@@ -40,9 +40,10 @@ import { itensSemProduto, descrever, comoResolver } from '../ifood-sem-produto';
 import { sugerirCardapio, SemChaveIA } from '../cardapio-ia';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
 import { consultarEmpresa, formatarCnpj, chamarMaxxGestao, LimiteMaxxGestao } from '../maxxgestao-cliente';
-import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarCatalogos, precosDaTabela, LETRAS_VARREDURA } from '../maxxgestao-catalogo';
+import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarCatalogos, precosDaTabela, LETRAS_VARREDURA, locaisDeEstoque, saldosDoLocal } from '../maxxgestao-catalogo';
 import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, peneirarPorCatalogo, type ItemDoCatalogo } from '../maxxgestao-importar';
-import { produtosDaLoja, aplicarPlano } from '../maxxgestao-importar-deps';
+import { produtosDaLoja, aplicarPlano, produtosComEstoque } from '../maxxgestao-importar-deps';
+import { quantosSairiamDoAr } from '../maxxgestao-estoque';
 import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '../maxxgestao-preambulo';
 import { enviarPedidoAoErp, fecharDocumentoNoErp } from '../maxxgestao-emitir';
 import {
@@ -4150,13 +4151,14 @@ router.get('/erp', async (req, res, next) => {
     const linha = await db.prepare(
       `SELECT nfce_emissor, maxxgestao_auto_emitir, maxxgestao_modelo, maxxgestao_status,
               maxxgestao_id_caixa, maxxgestao_sinc_auto, maxxgestao_sinc_em,
-              maxxgestao_catalogo
+              maxxgestao_catalogo, maxxgestao_local_estoque
          FROM lojas WHERE id = ?`
     ).get(loja.id) as {
       nfce_emissor: string | null; maxxgestao_auto_emitir: number | null;
       maxxgestao_modelo: string | null; maxxgestao_status: string | null;
       maxxgestao_id_caixa: number | null; maxxgestao_sinc_auto: number | null;
       maxxgestao_sinc_em: string | null; maxxgestao_catalogo: number | null;
+      maxxgestao_local_estoque: number | null;
     } | undefined;
     res.json({
       token: mascarar(token),
@@ -4174,6 +4176,8 @@ router.get('/erp', async (req, res, next) => {
          entre as duas é justamente o que o lojista precisa saber. */
       sinc_em: String(linha?.maxxgestao_sinc_em ?? ''),
       catalogo: Math.max(0, Number(linha?.maxxgestao_catalogo ?? 0)),
+      /* De qual local do ERP o saldo vem. 0 = estoque não sincroniza. */
+      local_estoque: Math.max(0, Number(linha?.maxxgestao_local_estoque ?? 0)),
       /*
        * O QUE O CANAL DESTA LOJA ABRE.
        *
@@ -4327,6 +4331,71 @@ router.put('/erp/caixa', async (req, res, next) => {
  * acompanha é CADASTRO: nome, descrição, categoria, código de barras, preço
  * enquanto ninguém precificou aqui, e produto que saiu do catálogo de lá.
  */
+/**
+ * OS LOCAIS DE ESTOQUE DO ERP, e o que cada um faria com o cardápio.
+ *
+ * Não é uma lista seca: vem com a conta que decide a escolha. Para cada local,
+ * quantos produtos À VENDA hoje ficariam SEM saldo — porque é essa a pergunta
+ * de quem vai escolher, e ela não tem resposta óbvia. Medido no Galderio: no
+ * local padrão, 210 dos 644 à venda ficariam sem saldo (33%), Coca-Cola Zero
+ * 2L e Pepsi 2L entre eles, e 175 itens lá estão com saldo NEGATIVO.
+ *
+ * Mostrar o número ANTES é a diferença entre o lojista escolher e o lojista
+ * descobrir na sexta à noite.
+ */
+router.get('/erp/locais-estoque', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    exigirFuncionalidade(loja, 'erp-sincronizar-auto');
+    const token = await tokenMaxxGestaoDaLoja(loja.id);
+    if (!token) return res.status(400).json({ erro: 'Cole o token do Maxx Gestão primeiro.' });
+
+    const op = { esperaMaximaMs: 8_000 };
+    const locais = await locaisDeEstoque(token, op);
+    const nossos = await produtosComEstoque(loja.id);
+
+    /*
+     * A CONTA SÓ DOS LOCAIS ATIVOS, e no máximo três: cada um custa até 13
+     * chamadas, e o ERP dá 20 por minuto — varrer seis locais deixaria a tela
+     * pendurada e ainda comeria o orçamento que emite a NFC-e.
+     */
+    const comConta = [];
+    for (const l of locais.filter(x => x.ativo).slice(0, 3)) {
+      try {
+        const saldos = await saldosDoLocal(token, l.codigo, op);
+        const { aVenda, sairiam } = quantosSairiamDoAr(saldos, nossos);
+        comConta.push({ ...l, variacoes: saldos.size, a_venda: aVenda, sairiam_do_ar: sairiam });
+      } catch {
+        /* Local que não respondeu entra SEM a conta, em vez de sumir da lista:
+           some seria o lojista não achar o local que ele sabe que existe. */
+        comConta.push({ ...l, variacoes: null, a_venda: null, sairiam_do_ar: null });
+      }
+    }
+    res.json({ locais: comConta, escolhido: Number((loja as { maxxgestao_local_estoque?: number }).maxxgestao_local_estoque ?? 0) });
+  } catch (e) { next(e); }
+});
+
+/**
+ * DE QUAL LOCAL O SALDO VEM. Zero desliga a sincronização de estoque.
+ *
+ * Escolher o local NÃO liga o bloqueio de venda: a passada grava a coluna
+ * `estoque` e nada mais. Quem some do ar quando zera continua sendo decisão do
+ * lojista, produto a produto, pelo `controla_estoque` que já existe.
+ */
+router.put('/erp/local-estoque', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    exigirFuncionalidade(loja, 'erp-sincronizar-auto');
+    const n = Math.trunc(Number(req.body?.local ?? 0));
+    if (!Number.isFinite(n) || n < 0) {
+      return res.status(400).json({ erro: 'Informe o número do local de estoque, ou 0 para não sincronizar.' });
+    }
+    await db.prepare('UPDATE lojas SET maxxgestao_local_estoque = ? WHERE id = ?').run(n, loja.id);
+    console.log(`[erp-sinc] loja ${loja.id}: saldo passa a vir ${n > 0 ? `do local ${n}` : 'de lugar nenhum (desligado)'}`);
+    res.json({ local: n });
+  } catch (e) { next(e); }
+});
+
 router.put('/erp/sincronizacao-automatica', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);

@@ -21,7 +21,12 @@ import type { ItemDoCatalogo } from './maxxgestao-importar';
  *                                       ACEITO E IGNORADO. Com
  *                                       `dataAlteracao=2099-01-01` a busca
  *                                       devolve os mesmos 1.076 itens.
- *   saldo de estoque .................. não existe (25 caminhos prováveis)
+ *
+ * O SALDO DE ESTOQUE, ESSE EXISTE — e eu tinha escrito aqui que não. Em 14/09
+ * sondei 25 caminhos prováveis, todos 404, e conclui que não havia; a forma
+ * real é `/api/local-estoque/{id}/estoques/v1`, e só apareceu quando o lojista
+ * abriu o swagger deles (que exige login). Ele entra na mesma passada — ver
+ * `maxxgestao-estoque.test.ts`, que é onde a decisão dele é provada.
  *
  * A trava que estes testes mais protegem é `podePausarAusentes`: ela é a única
  * coisa entre uma leitura incompleta e metade do cardápio fora do ar.
@@ -91,6 +96,12 @@ describe('quando é seguro PAUSAR o que não apareceu', () => {
 describe('uma passada que não mexeu em nada é silenciosa', () => {
   it('SEM_MUDANCA não conta como mudança', () => {
     expect(passadaMudouAlgo(SEM_MUDANCA)).toBe(false);
+  });
+
+  /* Saldo novo TAMBÉM é mudança: é a razão de existir da sincronização de
+     estoque, e uma passada que só ajustou saldo não pode sair calada. */
+  it('saldo ajustado conta como mudança', () => {
+    expect(passadaMudouAlgo({ ...SEM_MUDANCA, estoqueAjustado: 3 })).toBe(true);
   });
 
   it('qualquer gravação conta', () => {
