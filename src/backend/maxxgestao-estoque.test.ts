@@ -293,3 +293,51 @@ describe('esgotar sozinho quando o saldo zera', () => {
     expect(p.ligarControle).toEqual([]);
   });
 });
+
+describe('ligar o interruptor vale NA HORA', () => {
+  /*
+   * DEFEITO QUE O LOJISTA ACHOU, em 15/09/2026, minutos depois de ligar.
+   *
+   * Ele ligou "esgotar sozinho" às 11:41. A rota gravava a coluna e pronto —
+   * quem APLICAVA era a passada de hora em hora, e a próxima era às 12:00. Ele
+   * abriu a vitrine, viu um produto com saldo -1 no Maxx Gestão ainda à venda,
+   * e mandou um print com "???".
+   *
+   * Da tela, "vai valer daqui a uma hora" é indistinguível de "não funcionou" —
+   * e a conclusão natural é que o sistema está quebrado. A aplicação custa 11 a
+   * 13 chamadas ao ERP, o que cabe numa requisição.
+   */
+  const rotas = fs.readFileSync(path.join(__dirname, 'rotas', 'lojista.ts'), 'utf8');
+  const semComent = (t: string) =>
+    t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const CODIGO = semComent(rotas);
+
+  it('a rota do esgotamento aplica sem esperar a passada', () => {
+    const i = CODIGO.indexOf("router.put('/erp/estoque-esgota'");
+    expect(i).toBeGreaterThan(0);
+    const corpo = CODIGO.slice(i, CODIGO.indexOf("router.put('/erp/sincronizacao-automatica'", i));
+    expect(corpo).toContain('sincronizarEstoqueDaLoja(');
+    /* E a gravação da coluna vem ANTES: aplicar com o valor antigo não faria
+       nada, e a tela mostraria zero. */
+    expect(corpo.indexOf('maxxgestao_estoque_esgota = ?'))
+      .toBeLessThan(corpo.indexOf('sincronizarEstoqueDaLoja('));
+  });
+
+  it('escolher o local traz o saldo na hora', () => {
+    const i = CODIGO.indexOf("router.put('/erp/local-estoque'");
+    expect(i).toBeGreaterThan(0);
+    const corpo = CODIGO.slice(i, i + 2000);
+    expect(corpo).toContain('sincronizarEstoqueDaLoja(');
+  });
+
+  /*
+   * E SE O LIMITE DO ERP ESTOURAR, A RESPOSTA NÃO MENTE. Um número inventado
+   * seria pior que a espera: o lojista conferiria a vitrine contra ele.
+   */
+  it('falha ao aplicar não derruba a troca do ajuste', () => {
+    const i = CODIGO.indexOf("router.put('/erp/estoque-esgota'");
+    const corpo = CODIGO.slice(i, CODIGO.indexOf("router.put('/erp/sincronizacao-automatica'", i));
+    expect(corpo).toMatch(/\.catch\(\(\) => null\)/);
+    expect(corpo).toContain('aplicado_agora');
+  });
+});

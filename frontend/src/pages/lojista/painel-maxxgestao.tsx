@@ -319,11 +319,14 @@ Ligar assim mesmo?`,
     aoMudar({ ...estado, local_estoque: local });
     setSalvandoLocal(true);
     try {
-      await api<{ local: number }>('PUT', '/api/lojista/erp/local-estoque', { local });
+      const r = await api<{ local: number; saldos_atualizados: number }>(
+        'PUT', '/api/lojista/erp/local-estoque', { local });
       mostrar({
         tipo: 'sucesso',
         titulo: local
-          ? 'O saldo do Maxx Gestão passa a alimentar o estoque'
+          ? (r.saldos_atualizados
+              ? `Saldo trazido: ${r.saldos_atualizados} produto${r.saldos_atualizados === 1 ? '' : 's'} atualizado${r.saldos_atualizados === 1 ? '' : 's'}`
+              : 'O saldo do Maxx Gestão passa a alimentar o estoque')
           : 'O estoque deixou de vir do Maxx Gestão',
       });
     } catch (err) {
@@ -364,12 +367,28 @@ Ligar?`,
     aoMudar({ ...estado, estoque_esgota: novo });
     setLigandoEsgota(true);
     try {
-      await api<{ ligado: boolean }>('PUT', '/api/lojista/erp/estoque-esgota', { ligado: novo });
+      /*
+       * O SERVIDOR APLICA NA HORA e devolve quantos mudaram — e o aviso diz o
+       * número. Antes ele só gravava a configuração e o efeito vinha na
+       * varredura seguinte, até uma hora depois: da tela, indistinguível de
+       * "não funcionou". O lojista ligou, olhou a vitrine, e o produto com
+       * saldo negativo continuava à venda.
+       */
+      const r = await api<{
+        ligado: boolean; aplicado_agora: boolean;
+        passaram_a_esgotar: number; deixaram_de_esgotar: number;
+      }>('PUT', '/api/lojista/erp/estoque-esgota', { ligado: novo });
+
+      const quantos = novo ? r.passaram_a_esgotar : r.deixaram_de_esgotar;
       mostrar({
         tipo: 'sucesso',
         titulo: novo
-          ? 'Produto sem saldo no Maxx Gestão passa a ficar esgotado'
-          : 'Os produtos voltam a vender sem olhar o saldo',
+          ? (r.aplicado_agora
+              ? `${quantos} produto${quantos === 1 ? '' : 's'} passaram a esgotar pelo saldo`
+              : 'Ligado — vai valer na próxima sincronização')
+          : (r.aplicado_agora
+              ? `${quantos} produto${quantos === 1 ? '' : 's'} voltaram a vender sem olhar saldo`
+              : 'Desligado — vai valer na próxima sincronização'),
       });
     } catch (err) {
       aoMudar(antes);

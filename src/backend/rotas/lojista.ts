@@ -44,6 +44,7 @@ import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarC
 import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, peneirarPorCatalogo, type ItemDoCatalogo } from '../maxxgestao-importar';
 import { produtosDaLoja, aplicarPlano, produtosComEstoque } from '../maxxgestao-importar-deps';
 import { quantosSairiamDoAr } from '../maxxgestao-estoque';
+import { sincronizarEstoqueDaLoja } from '../maxxgestao-sincronizar-ciclo';
 import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '../maxxgestao-preambulo';
 import { enviarPedidoAoErp, fecharDocumentoNoErp } from '../maxxgestao-emitir';
 import {
@@ -4393,7 +4394,20 @@ router.put('/erp/local-estoque', async (req, res, next) => {
     }
     await db.prepare('UPDATE lojas SET maxxgestao_local_estoque = ? WHERE id = ?').run(n, loja.id);
     console.log(`[erp-sinc] loja ${loja.id}: saldo passa a vir ${n > 0 ? `do local ${n}` : 'de lugar nenhum (desligado)'}`);
-    res.json({ local: n });
+
+    /* O SALDO CHEGA NA HORA, pela mesma razão do interruptor de esgotamento:
+       escolher o local e não ver número nenhum mudar parece defeito. */
+    let aplicado = null;
+    if (n > 0) {
+      const token = await tokenMaxxGestaoDaLoja(loja.id);
+      const esgota = Number((loja as { maxxgestao_estoque_esgota?: number }).maxxgestao_estoque_esgota ?? 0) === 1;
+      if (token) {
+        aplicado = await sincronizarEstoqueDaLoja(
+          token, loja.id, n, esgota, { esperaMaximaMs: 8_000 },
+        ).catch(() => null);
+      }
+    }
+    res.json({ local: n, saldos_atualizados: aplicado?.ajustados ?? 0 });
   } catch (e) { next(e); }
 });
 
@@ -4429,10 +4443,34 @@ router.put('/erp/estoque-esgota', async (req, res, next) => {
     if (ligado && local <= 0) {
       return res.status(400).json({ erro: 'Escolha primeiro de qual local de estoque o saldo vem.' });
     }
+    const token = await tokenMaxxGestaoDaLoja(loja.id);
+    if (!token) return res.status(400).json({ erro: 'Cole o token do Maxx Gestão primeiro.' });
 
     await db.prepare('UPDATE lojas SET maxxgestao_estoque_esgota = ? WHERE id = ?').run(ligado ? 1 : 0, loja.id);
     console.log(`[erp-sinc] loja ${loja.id}: esgotar sozinho por saldo ${ligado ? 'LIGADO' : 'desligado'}`);
-    res.json({ ligado });
+
+    /*
+     * VALE NA HORA, e não na próxima passada.
+     *
+     * Erro meu, e o lojista bateu nele: ligar só gravava a coluna, e o efeito
+     * aparecia na varredura seguinte — até uma hora depois. Da tela, isso é
+     * indistinguível de "não funcionou": o interruptor diz LIGADO, a vitrine
+     * continua igual, e a conclusão natural é que está quebrado.
+     *
+     * A aplicação custa 11 a 13 chamadas ao ERP (a listagem do local), o que
+     * cabe numa requisição. Se o limite do minuto estourar, a resposta diz que
+     * vai valer na próxima passada em vez de mentir um número.
+     */
+    const aplicado = await sincronizarEstoqueDaLoja(
+      token, loja.id, local, ligado, { esperaMaximaMs: 8_000 },
+    ).catch(() => null);
+
+    res.json({
+      ligado,
+      aplicado_agora: !!aplicado && !aplicado.falhas.length,
+      passaram_a_esgotar: aplicado?.passaramAEsgotar ?? 0,
+      deixaram_de_esgotar: aplicado?.deixaramDeEsgotar ?? 0,
+    });
   } catch (e) { next(e); }
 });
 
