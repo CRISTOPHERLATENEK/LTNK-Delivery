@@ -1120,6 +1120,8 @@ interface CamposProduto {
   foto_url: string; fotoCredito: string; destaque: 0 | 1; disponivel: 0 | 1; disponivelPdv: 0 | 1;
   vendidoPor: 'un' | 'kg'; codigoBarras: string;
   controlaEstoque: 0 | 1; estoque: number;
+  /** O lojista mandou a sincronização do ERP não mexer no estoque deste. */
+  estoqueErpIgnorar: 0 | 1;
   vendidoSozinho: 0 | 1;
 }
 
@@ -1181,6 +1183,11 @@ function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProdut
   const controlaEstoque: 0 | 1 = corpo.controla_estoque !== undefined
     ? (corpo.controla_estoque ? 1 : 0)
     : (((atual as any).controla_estoque ?? 0) as 0 | 1);
+  /* A marca do lojista de que a sincronização do ERP não deve tocar no estoque
+     deste produto — ver a coluna em schema-mysql.ts. */
+  const estoqueErpIgnorar: 0 | 1 = corpo.estoque_erp_ignorar !== undefined
+    ? (corpo.estoque_erp_ignorar ? 1 : 0)
+    : (((atual as any).estoque_erp_ignorar ?? 0) as 0 | 1);
   // Aceita 0 (esgotado) — inteiroPositivo rejeitaria; por isso o parse manual.
   let estoque: number = (atual as any).estoque ?? 0;
   if (corpo.estoque !== undefined) {
@@ -1218,7 +1225,7 @@ function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProdut
     // disponibilidade-produto.ts, com testes.
     disponivel: canais.cardapio,
     disponivelPdv: canais.pdv,
-    vendidoPor, codigoBarras, controlaEstoque, estoque,
+    vendidoPor, codigoBarras, controlaEstoque, estoqueErpIgnorar, estoque,
   };
 }
 
@@ -1404,10 +1411,11 @@ router.put('/produtos/:id', async (req, res, next) => {
       `UPDATE produtos SET nome = ?, descricao = ?, categoria = ?, subcategoria = ?, preco_centavos = ?,
               preco_promocional_centavos = ?, promo_fim = ?, serve_pessoas = ?, destaque = ?,
               foto_url = ?, foto_credito = ?, disponivel = ?, disponivel_pdv = ?, vendido_por = ?, codigo_barras = ?,
-              controla_estoque = ?, estoque = ?, vendido_sozinho = ? WHERE id = ?`
+              controla_estoque = ?, estoque = ?, vendido_sozinho = ?,
+              estoque_erp_ignorar = ? WHERE id = ?`
     ).run(c.nome, c.descricao, c.categoria, c.subcategoria, c.preco, c.promo, c.promoFim, c.servePessoas,
           c.destaque, c.foto_url, c.fotoCredito, c.disponivel, c.disponivelPdv, c.vendidoPor, c.codigoBarras,
-          c.controlaEstoque, c.estoque, c.vendidoSozinho, produto.id);
+          c.controlaEstoque, c.estoque, c.vendidoSozinho, c.estoqueErpIgnorar, produto.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });

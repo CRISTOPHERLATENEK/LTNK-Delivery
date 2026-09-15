@@ -37,7 +37,7 @@ const FORM_VAZIO = {
   preco: '', preco_promocional: '', promo_fim: '', foto_url: '', foto_credito: '',
   disponivel: true, disponivel_pdv: true, destaque: false, vendido_sozinho: true, serve_pessoas: '',
   vendido_por: 'un' as 'un' | 'kg', codigo_barras: '',
-  controla_estoque: false, estoque: '',
+  controla_estoque: false, estoque: '', estoque_erp_ignorar: false,
   // Dados fiscais (NFC-e) — mesmos valores padrão usados pelo backend ao
   // criar um produto (garantirColuna em db.ts), pra não sobrescrever com
   // vazio quando o lojista não mexe nessa seção.
@@ -424,6 +424,7 @@ export function ProdutosLoja() {
       codigo_barras: p.codigo_barras || '',
       controla_estoque: !!p.controla_estoque,
       estoque: p.controla_estoque ? String(p.estoque ?? 0) : '',
+      estoque_erp_ignorar: !!(p as { estoque_erp_ignorar?: number }).estoque_erp_ignorar,
       ncm: p.ncm || '21069090',
       cfop: p.cfop || '5102',
       csosn: p.csosn || '102',
@@ -502,6 +503,7 @@ export function ProdutosLoja() {
       codigo_barras: form.codigo_barras,
       controla_estoque: form.controla_estoque,
       estoque: form.controla_estoque ? (form.estoque === '' ? 0 : Number(form.estoque)) : 0,
+      estoque_erp_ignorar: form.estoque_erp_ignorar,
     };
   }
 
@@ -1787,6 +1789,41 @@ export function ProdutosLoja() {
                         </div>
                       )}
                     </LinhaInterruptor>
+
+                    {/*
+                      ─── QUANDO O SALDO DO ERP NÃO DESCREVE A PRATELEIRA ───
+
+                      Só aparece em produto vindo do Maxx Gestão: sem vínculo,
+                      não há sincronização nenhuma para desligar.
+
+                      O caso que criou isto é o pote montado. "POTE DE JACK
+                      TRADICIONAL" existe lá com saldo −7, porque quem sai da
+                      prateleira é o gelo e o whisky, não o pote. Com o saldo
+                      negativo a rotina ligava o bloqueio e o pote amanhecia
+                      Esgotado — e desligar "Controlar estoque" aqui não
+                      adiantava: dois minutos depois a rotina ligava de novo,
+                      porque para ela um produto com linha no ERP e controle
+                      desligado é sempre "ainda não liguei este".
+
+                      Nas palavras do lojista: "a única coisa que vou controlar
+                      vai ser o gelo mesmo".
+                    */}
+                    {!!(produtoEmEdicao as { maxxgestao_variacao_id?: number } | null)?.maxxgestao_variacao_id && (
+                      <LinhaInterruptor
+                        titulo="Não sincronizar o estoque deste produto"
+                        descricao="A sincronização do Maxx Gestão deixa este produto em paz"
+                        ativo={form.estoque_erp_ignorar}
+                        onAlternar={() => setForm(f => ({ ...f, estoque_erp_ignorar: !f.estoque_erp_ignorar }))}
+                      >
+                        {!!form.estoque_erp_ignorar && (
+                          <p className="mt-3 text-[12.5px] text-muted-foreground">
+                            O saldo e o esgotamento automático passam a ser só seus. Use em
+                            produto montado — pote, balde, combo — cujo saldo lá não descreve
+                            nada que exista na prateleira.
+                          </p>
+                        )}
+                      </LinhaInterruptor>
+                    )}
                   </div>
                 </div>
               )}

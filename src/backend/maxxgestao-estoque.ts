@@ -50,6 +50,20 @@ export interface ProdutoComEstoque {
   estoqueDoErp: boolean;
   disponivel: boolean;
   /**
+   * O LOJISTA MANDOU A SINCRONIZAÇÃO NÃO MEXER NESTE PRODUTO.
+   *
+   * Nasceu do pote montado: "POTE DE JACK TRADICIONAL" existe no ERP com saldo
+   * −7 (nunca foi inventariado direito, porque quem sai da prateleira é o gelo
+   * e o whisky). Com o saldo negativo, a rotina ligava o bloqueio e o pote
+   * amanhecia Esgotado — e desligar no painel não adiantava: dois minutos
+   * depois a rotina via "tem linha no ERP e o controle está desligado" e ligava
+   * de novo.
+   *
+   * O que faltava era o painel poder dizer "foi de propósito". Nas palavras do
+   * lojista: "a única coisa que vou controlar vai ser o gelo mesmo".
+   */
+  ignorarErp?: boolean;
+  /**
    * DE QUE ESTE PRODUTO É FEITO, quando ele é caixa/kit.
    *
    * Vazio no caso normal. Preenchido, o estoque dele é DERIVADO do componente
@@ -150,6 +164,10 @@ export function planejarEstoque(
 
   for (const p of nossos) {
     if (p.variacaoErp <= 0) continue;
+    /* PRODUTO MARCADO PELO LOJISTA NÃO É TOCADO — nem no saldo, nem no
+       bloqueio. É o caso do pote montado, cujo saldo no ERP não descreve
+       nada que exista na prateleira. */
+    if (p.ignorarErp) continue;
 
     /*
      * SALDO PRÓPRIO PRIMEIRO, COMPOSIÇÃO DEPOIS.
@@ -225,6 +243,14 @@ export function planejarControleDeEstoque(
 
   for (const p of nossos) {
     if (p.variacaoErp <= 0) continue;
+    /*
+     * O "NÃO MEXE" VALE INCLUSIVE PARA DESLIGAR.
+     *
+     * Tentador seria devolver ao normal o que a rotina tinha ligado antes da
+     * marca. Mas o lojista pode ter deixado o controle LIGADO de propósito
+     * (contando o estoque na mão) — e a marca diz "não mexa", não "desligue".
+     */
+    if (p.ignorarErp) continue;
 
     if (!esgotarSozinho) {
       /* Desligado: devolve ao normal SÓ o que esta função ligou. */

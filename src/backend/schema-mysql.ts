@@ -1420,6 +1420,17 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['produtos', 'estoque_do_erp', 'estoque_do_erp TINYINT NOT NULL DEFAULT 0'],
     /*
+     * "A SINCRONIZAÇÃO NÃO MEXE NO ESTOQUE DESTE PRODUTO."
+     *
+     * O caso que a criou: POTE DE JACK TRADICIONAL existe no Maxx Gestão com
+     * saldo −7, porque quem sai da prateleira é o gelo e o whisky, não o pote.
+     * Com o saldo negativo a rotina ligava o bloqueio e o pote amanhecia
+     * Esgotado; desligar no painel não adiantava, porque dois minutos depois a
+     * rotina via "tem linha no ERP e o controle está desligado" e ligava de
+     * novo. Faltava o painel poder dizer que foi de propósito.
+     */
+    ['produtos', 'estoque_erp_ignorar', 'estoque_erp_ignorar TINYINT NOT NULL DEFAULT 0'],
+    /*
      * DE QUE ESTE PRODUTO É FEITO NO ERP — para a caixa saber seu estoque.
      *
      * JSON: `[{"v": 5, "q": 12}]` = 12 unidades da variação 5 por caixa.

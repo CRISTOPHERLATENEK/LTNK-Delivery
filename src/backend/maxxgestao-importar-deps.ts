@@ -193,12 +193,12 @@ export async function aplicarPlano(lojaId: number, plano: PlanoImportacao): Prom
 export async function produtosComEstoque(lojaId: number): Promise<ProdutoComEstoque[]> {
   const linhas = await db.prepare(
     `SELECT id, maxxgestao_variacao_id, estoque, controla_estoque, disponivel,
-            estoque_do_erp, composicao_erp
+            estoque_do_erp, estoque_erp_ignorar, composicao_erp
        FROM produtos WHERE loja_id = ? AND excluido = 0 AND maxxgestao_variacao_id > 0`
   ).all(lojaId) as Array<{
     id: number; maxxgestao_variacao_id: number; estoque: number | null;
     controla_estoque: number; disponivel: number; estoque_do_erp: number;
-    composicao_erp: string | null;
+    estoque_erp_ignorar: number; composicao_erp: string | null;
   }>;
   return linhas.map(l => ({
     id: l.id,
@@ -206,6 +206,7 @@ export async function produtosComEstoque(lojaId: number): Promise<ProdutoComEsto
     estoque: Number(l.estoque ?? 0),
     controlaEstoque: !!l.controla_estoque,
     estoqueDoErp: !!l.estoque_do_erp,
+    ignorarErp: !!l.estoque_erp_ignorar,
     composicao: lerComposicao(l.composicao_erp),
     disponivel: !!l.disponivel,
   }));
