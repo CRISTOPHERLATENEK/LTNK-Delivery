@@ -192,11 +192,13 @@ export async function aplicarPlano(lojaId: number, plano: PlanoImportacao): Prom
 /** Os produtos vinculados ao ERP, do jeito que a decisão de estoque precisa. */
 export async function produtosComEstoque(lojaId: number): Promise<ProdutoComEstoque[]> {
   const linhas = await db.prepare(
-    `SELECT id, maxxgestao_variacao_id, estoque, controla_estoque, disponivel, estoque_do_erp
+    `SELECT id, maxxgestao_variacao_id, estoque, controla_estoque, disponivel,
+            estoque_do_erp, composicao_erp
        FROM produtos WHERE loja_id = ? AND excluido = 0 AND maxxgestao_variacao_id > 0`
   ).all(lojaId) as Array<{
     id: number; maxxgestao_variacao_id: number; estoque: number | null;
     controla_estoque: number; disponivel: number; estoque_do_erp: number;
+    composicao_erp: string | null;
   }>;
   return linhas.map(l => ({
     id: l.id,
@@ -204,6 +206,7 @@ export async function produtosComEstoque(lojaId: number): Promise<ProdutoComEsto
     estoque: Number(l.estoque ?? 0),
     controlaEstoque: !!l.controla_estoque,
     estoqueDoErp: !!l.estoque_do_erp,
+    composicao: lerComposicao(l.composicao_erp),
     disponivel: !!l.disponivel,
   }));
 }
@@ -283,4 +286,50 @@ export async function lerLinhasDeEstoque(lojaId: number): Promise<number> {
 export async function gravarLinhasDeEstoque(lojaId: number, linhas: number): Promise<void> {
   await db.prepare('UPDATE lojas SET maxxgestao_estoque_linhas = ? WHERE id = ?')
     .run(Math.max(0, Math.trunc(linhas)), lojaId);
+}
+
+/**
+ * A composição gravada, ou `undefined`.
+ *
+ * JSON ilegível vale COMO AUSENTE, e não como lista vazia: ausente quer dizer
+ * "não sei do que é feito" (o produto fica em paz), e vazio diria "não é
+ * composto" — que zeraria a caixa por causa de um JSON estragado.
+ */
+function lerComposicao(bruto: string | null): Array<{ variacao: number; quantidade: number }> | undefined {
+  if (!bruto) return undefined;
+  try {
+    const d = JSON.parse(bruto) as Array<{ v?: number; q?: number }>;
+    if (!Array.isArray(d) || !d.length) return undefined;
+    const itens = d
+      .map(i => ({ variacao: Number(i?.v ?? 0), quantidade: Number(i?.q ?? 0) }))
+      .filter(i => i.variacao > 0 && i.quantidade > 0);
+    return itens.length ? itens : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Quais produtos ainda não sabemos se são compostos. */
+export async function produtosSemComposicaoConhecida(lojaId: number): Promise<Array<{ id: number; variacao: number }>> {
+  const linhas = await db.prepare(
+    `SELECT id, maxxgestao_variacao_id v FROM produtos
+      WHERE loja_id = ? AND excluido = 0 AND maxxgestao_variacao_id > 0
+        AND (composicao_erp IS NULL OR composicao_erp = '')`
+  ).all(lojaId) as Array<{ id: number; v: number }>;
+  return linhas.map(l => ({ id: l.id, variacao: Number(l.v) }));
+}
+
+/**
+ * Grava a composição. Produto NÃO composto grava `[]` — e isso é deliberado:
+ * sem marcar, ele voltaria para a fila de consulta em toda passada, gastando
+ * uma chamada ao ERP por hora, para sempre, para reouvir "não é composto".
+ */
+export async function gravarComposicao(
+  lojaId: number,
+  produtoId: number,
+  itens: Array<{ variacao: number; quantidade: number }>,
+): Promise<void> {
+  const json = JSON.stringify(itens.map(i => ({ v: i.variacao, q: i.quantidade })));
+  await db.prepare('UPDATE produtos SET composicao_erp = ? WHERE id = ? AND loja_id = ?')
+    .run(json, produtoId, lojaId);
 }

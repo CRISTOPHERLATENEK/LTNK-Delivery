@@ -465,3 +465,59 @@ export async function saldoDeUmProduto(
     throw e;
   }
 }
+
+/* ──────────────────────── COMPOSIÇÃO (CAIXA / KIT) ───────────────────────── */
+
+/**
+ * DE QUE UM PRODUTO É FEITO — e por que isto importa para o estoque.
+ *
+ * O lojista cadastra "SCHIN CAIXA" como COMPOSIÇÃO de 12× "SCHIN UNIDADE". A
+ * caixa não tem saldo próprio no ERP: quem tem estoque é a unidade, e a
+ * disponibilidade da caixa é derivada. Foi isto que apareceu como "16 produtos
+ * sem estoque cadastrado" — e o diagnóstico anterior ("nunca inventariados")
+ * estava errado: 9 dos 16 são caixas.
+ *
+ * Medido no Galderio em 15/09/2026:
+ *
+ *   SKOL CAIXA      12× var 6  (97 un)  →  8 caixas
+ *   ORIGINAL CAIXA  12× var 2  (120 un) → 10 caixas
+ *   SCHIN CAIXA     12× var 5  (40 un)  →  3 caixas
+ *   ITAIPAVA CAIXA  12× var 13 (0 un)   →  0 → esgotado
+ *
+ * SÓ O MODO "MULTIPLICAR QUANTIDADE PELO ESTOQUE" (`tipoComposicaoEntrada: M`)
+ * é traduzido. É o único que existe nas caixas conferidas, e é o único cuja
+ * conta eu sei estar certa: um item da composição vale `qtdComposicao` unidades
+ * do componente. Outros modos voltam vazio em vez de virar palpite — estoque
+ * errado numa loja é venda que não existe.
+ */
+export interface ItemComposicao {
+  /** A variação do COMPONENTE (a unidade). */
+  variacao: number;
+  /** Quantas unidades do componente cabem numa deste produto. */
+  quantidade: number;
+}
+
+export async function composicaoDoProduto(
+  token: string,
+  variacao: number,
+  opcoes: OpcoesMaxxGestao = {},
+): Promise<ItemComposicao[]> {
+  let bruto: unknown;
+  try {
+    bruto = await chamarMaxxGestao(token, `/api/mercadoria/${variacao}/composicoes/v1`, opcoes);
+  } catch (e) {
+    /* 404 é RESPOSTA: este produto não é composto. */
+    if ((e as { httpStatus?: number }).httpStatus === 404) return [];
+    throw e;
+  }
+  const p = pagina<Record<string, unknown>>(bruto);
+  const itens: ItemComposicao[] = [];
+  for (const i of p.items ?? []) {
+    if (String(i.tipoComposicaoEntrada ?? '').toUpperCase() !== 'M') continue;
+    const v = Number(i.idMercadoriaVariacaoComposicao ?? 0);
+    const q = Number(i.qtdComposicao ?? 0);
+    if (!Number.isFinite(v) || v <= 0 || !Number.isFinite(q) || q <= 0) continue;
+    itens.push({ variacao: v, quantidade: q });
+  }
+  return itens;
+}

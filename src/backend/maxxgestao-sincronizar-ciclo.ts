@@ -72,9 +72,10 @@ import {
 } from './maxxgestao-importar';
 import { aplicarPlano, produtosDaLoja, type ResultadoGravacao } from './maxxgestao-importar-deps';
 import { aplicarEstoque, aplicarControleDeEstoque, produtosComEstoque,
-  lerLinhasDeEstoque, gravarLinhasDeEstoque } from './maxxgestao-importar-deps';
+  lerLinhasDeEstoque, gravarLinhasDeEstoque,
+  produtosSemComposicaoConhecida, gravarComposicao } from './maxxgestao-importar-deps';
 import { planejarEstoque, planoEstoqueVazio, leituraDeEstoqueConfiavel } from './maxxgestao-estoque';
-import { saldosDoLocal } from './maxxgestao-catalogo';
+import { saldosDoLocal, composicaoDoProduto } from './maxxgestao-catalogo';
 
 export interface ResultadoEstoque {
   ajustados: number;
@@ -227,6 +228,19 @@ export async function sincronizarLojaErp(
    * gravação acima. Lendo o estoque antes, ele ficaria de fora e só receberia
    * saldo na hora seguinte.
    */
+  /*
+   * DESCOBRIR AS CAIXAS — de hora em hora, não a cada 2 minutos.
+   *
+   * A composição ("esta caixa é 12× aquela unidade") muda uma vez por ano;
+   * relê-la a cada passada de estoque custaria uma chamada por caixa a cada 2
+   * minutos, do mesmo balde que emite a NFC-e. Guardada no banco, a conta do
+   * estoque derivado sai de graça: os saldos dos componentes já vêm na listagem.
+   *
+   * VEM ANTES DO ESTOQUE de propósito: a caixa descoberta agora já entra na
+   * gravação desta mesma passada, em vez de esperar mais uma hora.
+   */
+  await descobrirComposicoes(token, lojaId, op);
+
   const estoque = await sincronizarEstoqueDaLoja(token, lojaId, localEstoque, esgotarSozinho, op);
 
   const resumo = [
@@ -244,6 +258,46 @@ export async function sincronizarLojaErp(
     estoqueAjustado: estoque.ajustados,
     resumo,
   };
+}
+
+/**
+ * QUANTAS COMPOSIÇÕES PERGUNTAR POR PASSADA.
+ *
+ * Uma chamada cada, e o teto do ERP é 20 por minuto — o mesmo que emite a
+ * NFC-e. Vinte por hora descobre o cardápio do Galderio (16 desconhecidos) na
+ * primeira passada e, numa loja com centenas de kits, converge em algumas
+ * horas sem nunca competir com a nota de um pedido.
+ */
+export const COMPOSICOES_POR_PASSADA = 20;
+
+/**
+ * Pergunta ao ERP de que são feitos os produtos que ainda não sabemos, e grava.
+ *
+ * Produto NÃO composto grava lista vazia — sem essa marca ele voltaria para a
+ * fila toda hora, para sempre, para reouvir "não é composto".
+ */
+export async function descobrirComposicoes(
+  token: string,
+  lojaId: number,
+  op: OpcoesMaxxGestao = {},
+): Promise<number> {
+  let quantos = 0;
+  try {
+    const pendentes = (await produtosSemComposicaoConhecida(lojaId)).slice(0, COMPOSICOES_POR_PASSADA);
+    for (const p of pendentes) {
+      try {
+        const itens = await composicaoDoProduto(token, p.variacao, op);
+        await gravarComposicao(lojaId, p.id, itens);
+        if (itens.length) quantos++;
+      } catch {
+        /* Um produto que não respondeu fica para a próxima passada; parar aqui
+           deixaria os seguintes sem descobrir por causa de um tropeço. */
+      }
+    }
+  } catch (e) {
+    console.log(`[erp-sinc] loja ${lojaId}: falha ao descobrir composicoes: ${(e as Error).message}`);
+  }
+  return quantos;
 }
 
 /**

@@ -49,6 +49,13 @@ export interface ProdutoComEstoque {
    */
   estoqueDoErp: boolean;
   disponivel: boolean;
+  /**
+   * DE QUE ESTE PRODUTO É FEITO, quando ele é caixa/kit.
+   *
+   * Vazio no caso normal. Preenchido, o estoque dele é DERIVADO do componente
+   * em vez de lido direto — ver `estoqueDerivado`.
+   */
+  composicao?: Array<{ variacao: number; quantidade: number }>;
 }
 
 export interface AjusteDeEstoque {
@@ -94,6 +101,25 @@ export function saldoParaEstoque(saldo: number): number {
  * inventariou. No Galderio são 16 produtos; numa loja que só inventaria bebida,
  * seriam todos os salgadinhos.
  */
+/**
+ * O SALDO QUE VALE PARA ESTE PRODUTO — próprio ou derivado da composição.
+ *
+ * UM LUGAR SÓ porque três decisões dependem dele: o que gravar, quem passa a
+ * esgotar sozinho, e a conta que a tela mostra antes de o lojista ligar. Com a
+ * regra repetida três vezes, a caixa entraria numa e ficaria de fora das
+ * outras — e ninguém descobre isso olhando a tela.
+ *
+ * `null` = não dá para saber, e é diferente de zero: zero esgota o produto,
+ * `null` deixa em paz.
+ */
+export function saldoEfetivo(
+  p: ProdutoComEstoque,
+  saldos: Map<number, number>,
+): number | null {
+  if (saldos.has(p.variacaoErp)) return saldoParaEstoque(saldos.get(p.variacaoErp) as number);
+  return estoqueDerivado(p.composicao, saldos);
+}
+
 export function planejarEstoque(
   saldos: Map<number, number>,
   nossos: ProdutoComEstoque[],
@@ -105,9 +131,16 @@ export function planejarEstoque(
 
   for (const p of nossos) {
     if (p.variacaoErp <= 0) continue;
-    if (!saldos.has(p.variacaoErp)) { plano.semLinha++; continue; }
 
-    const novo = saldoParaEstoque(saldos.get(p.variacaoErp) as number);
+    /*
+     * SALDO PRÓPRIO PRIMEIRO, COMPOSIÇÃO DEPOIS.
+     *
+     * A ordem importa: um produto que tem estoque próprio NO ERP é o que o ERP
+     * diz que ele é. A composição só responde por quem não tem linha nenhuma —
+     * a caixa, cujo saldo mora na unidade.
+     */
+    const novo = saldoEfetivo(p, saldos);
+    if (novo === null) { plano.semLinha++; continue; }
     if (novo === p.estoque) { plano.semMudanca++; continue; }
     plano.ajustar.push({ id: p.id, estoque: novo });
   }
@@ -136,7 +169,7 @@ export function quantosSairiamDoAr(
     /* SEM LINHA CONTA COMO SAIR: com o bloqueio ligado e estoque zero gravado,
        o produto some do mesmo jeito. O número na tela tem que ser o que vai
        acontecer, não o que seria elegante. */
-    if (saldoParaEstoque(saldos.get(p.variacaoErp) ?? 0) <= 0) sairiam++;
+    if ((saldoEfetivo(p, saldos) ?? 0) <= 0) sairiam++;
   }
   return { aVenda, sairiam };
 }
@@ -180,7 +213,10 @@ export function planejarControleDeEstoque(
       continue;
     }
 
-    const temLinha = saldos.has(p.variacaoErp);
+    /* A CAIXA CONTA COMO "TEM LINHA": o saldo dela é derivado da unidade, e
+       deixá-la de fora aqui seria justamente o defeito que a composição veio
+       resolver — caixa vendendo para sempre com a unidade zerada. */
+    const temLinha = saldoEfetivo(p, saldos) !== null;
     if (temLinha && !p.controlaEstoque) { ligar.push(p.id); continue; }
     /*
      * PERDEU A LINHA NO ERP e quem tinha ligado fomos nós: desliga. O produto
@@ -219,4 +255,41 @@ export function leituraDeEstoqueConfiavel(agora: number, anterior: number): bool
   if (agora <= 0) return false;
   if (anterior <= 0) return true;
   return agora >= anterior * QUEDA_MAXIMA_DA_LEITURA;
+}
+
+/* ──────────────────── ESTOQUE DE CAIXA (produto composto) ────────────────── */
+
+/**
+ * QUANTAS CAIXAS DÁ PARA MONTAR com o que existe da unidade.
+ *
+ * O lojista cadastra "SCHIN CAIXA" como composição de 12× "SCHIN UNIDADE". A
+ * caixa não tem saldo próprio no ERP — quem tem estoque é a unidade. Sem esta
+ * conta, ela aparecia como "sem estoque cadastrado" e ficava fora do controle:
+ * vendia sempre, mesmo com a unidade zerada.
+ *
+ * DIVISÃO INTEIRA, PARA BAIXO: 40 unidades dão 3 caixas de 12, não 3,33. A
+ * fração que sobra não é caixa nenhuma, e prometer a quarta é prometer o que
+ * não existe.
+ *
+ * O MENOR COMPONENTE MANDA. Um kit de 2 componentes só existe até o que acabar
+ * primeiro — é a mesma conta de uma receita: com 10 pães e 2 hambúrgueres, dá
+ * para montar 2 lanches.
+ *
+ * DEVOLVE `null` QUANDO NÃO DÁ PARA SABER — componente sem linha de estoque no
+ * ERP. E `null` é diferente de zero: zero esgota o produto, `null` deixa ele em
+ * paz. Chutar zero aqui tiraria do ar a caixa cuja unidade ninguém inventariou.
+ */
+export function estoqueDerivado(
+  composicao: Array<{ variacao: number; quantidade: number }> | undefined,
+  saldos: Map<number, number>,
+): number | null {
+  if (!composicao || !composicao.length) return null;
+  let menor: number | null = null;
+  for (const item of composicao) {
+    if (!(item.quantidade > 0)) return null;
+    if (!saldos.has(item.variacao)) return null;
+    const disponivel = Math.floor(saldoParaEstoque(saldos.get(item.variacao) as number) / item.quantidade);
+    menor = menor === null ? disponivel : Math.min(menor, disponivel);
+  }
+  return menor;
 }

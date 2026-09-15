@@ -1420,6 +1420,19 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['produtos', 'estoque_do_erp', 'estoque_do_erp TINYINT NOT NULL DEFAULT 0'],
     /*
+     * DE QUE ESTE PRODUTO É FEITO NO ERP — para a caixa saber seu estoque.
+     *
+     * JSON: `[{"v": 5, "q": 12}]` = 12 unidades da variação 5 por caixa.
+     * Vazio no caso normal (produto com saldo próprio).
+     *
+     * GUARDADO AQUI, E NÃO LIDO A CADA PASSADA, porque a passada de estoque
+     * roda a cada 2 minutos e a composição muda uma vez por ano: lê-la sempre
+     * custaria uma chamada por caixa a cada 2 minutos, do mesmo balde de 20 por
+     * minuto que emite a NFC-e. Guardada, a conta sai de graça — os saldos dos
+     * componentes já vêm na listagem que a passada faz de qualquer jeito.
+     */
+    ['produtos', 'composicao_erp', 'composicao_erp TEXT'],
+    /*
      * O DOCUMENTO DO PEDIDO NO MAXX GESTÃO.
      *
      * `POST /documento` não é idempotente do lado deles: chamar duas vezes cria
