@@ -239,9 +239,14 @@ export async function sincronizarLojaErp(
    * VEM ANTES DO ESTOQUE de propósito: a caixa descoberta agora já entra na
    * gravação desta mesma passada, em vez de esperar mais uma hora.
    */
-  await descobrirComposicoes(token, lojaId, op);
+  const saldos = localEstoque > 0
+    ? await saldosDoLocal(token, localEstoque, op).catch(() => new Map<number, number>())
+    : new Map<number, number>();
 
-  const estoque = await sincronizarEstoqueDaLoja(token, lojaId, localEstoque, esgotarSozinho, op);
+  await descobrirComposicoes(token, lojaId, saldos, op);
+
+  const estoque = await sincronizarEstoqueDaLoja(
+    token, lojaId, localEstoque, esgotarSozinho, op, saldos.size ? saldos : undefined);
 
   const resumo = [
     planoVazio(plano) ? '' : resumoDoPlano(plano),
@@ -279,11 +284,26 @@ export const COMPOSICOES_POR_PASSADA = 20;
 export async function descobrirComposicoes(
   token: string,
   lojaId: number,
+  /**
+   * Os saldos já lidos. QUEM NÃO ESTÁ AQUI É QUEM INTERESSA.
+   *
+   * Sem esta prioridade a fila anda na ordem do banco, e a caixa está no fim:
+   * medido no Galderio, as 20 primeiras perguntas caíram em produtos que já
+   * tinham saldo próprio, e a 20 por hora as caixas só seriam alcançadas em 56
+   * horas. Produto com saldo próprio NUNCA precisa de composição — perguntar
+   * por ele é gastar a chamada para confirmar o que já se sabe.
+   */
+  saldos: Map<number, number>,
   op: OpcoesMaxxGestao = {},
 ): Promise<number> {
   let quantos = 0;
   try {
-    const pendentes = (await produtosSemComposicaoConhecida(lojaId)).slice(0, COMPOSICOES_POR_PASSADA);
+    const todos = await produtosSemComposicaoConhecida(lojaId);
+    const semSaldoProprio = todos.filter(p => !saldos.has(p.variacao));
+    /* Os que têm saldo próprio ficam para o fim da fila — são respondidos com o
+       tempo, sem atrapalhar, e marcá-los evita reperguntar para sempre. */
+    const pendentes = [...semSaldoProprio, ...todos.filter(p => saldos.has(p.variacao))]
+      .slice(0, COMPOSICOES_POR_PASSADA);
     for (const p of pendentes) {
       try {
         const itens = await composicaoDoProduto(token, p.variacao, op);
@@ -319,10 +339,15 @@ export async function sincronizarEstoqueDaLoja(
   /** Saldo zero no ERP esgota o produto na vitrine? Nasce desligado. */
   esgotarSozinho = false,
   op: OpcoesMaxxGestao = {},
+  /** Já lidos por quem chamou, para não pagar a leitura duas vezes. */
+  saldosJaLidos?: Map<number, number>,
 ): Promise<ResultadoEstoque> {
   if (!localEstoque || localEstoque <= 0) return SEM_ESTOQUE;
   try {
-    const saldos = await saldosDoLocal(token, localEstoque, op);
+    /* Os saldos podem vir prontos de quem já leu (a passada de cadastro lê uma
+       vez e usa para a descoberta E para o estoque) — reler custaria 13
+       chamadas do mesmo balde, para receber a mesma resposta. */
+    const saldos = saldosJaLidos ?? await saldosDoLocal(token, localEstoque, op);
     /*
      * LISTA VAZIA É "NÃO CONSEGUI LER", E NÃO "TUDO ZERADO".
      *

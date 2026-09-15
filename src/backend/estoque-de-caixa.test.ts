@@ -162,6 +162,33 @@ describe('a composição é lida de hora em hora, não a cada 2 minutos', () => 
     expect(corpo).not.toContain('descobrirComposicoes');
   });
 
+  /*
+   * PERGUNTA PRIMEIRO DE QUEM NÃO TEM SALDO PRÓPRIO — e isto não é otimização,
+   * é o que faz a função chegar às caixas.
+   *
+   * Medido no Galderio: sem a prioridade, a fila anda na ordem do banco e as 20
+   * primeiras perguntas caem em produtos que já têm saldo. A caixa está no fim
+   * do cadastro; a 20 por hora, ela só seria alcançada em 56 horas. Produto com
+   * saldo próprio nunca precisa de composição.
+   */
+  it('a fila começa por quem não tem saldo próprio', () => {
+    const i = C.indexOf('export async function descobrirComposicoes');
+    const corpo = C.slice(i, i + 1200);
+    expect(corpo).toContain('!saldos.has(p.variacao)');
+    /* E os com saldo vêm DEPOIS, não são descartados: marcá-los evita
+       reperguntar para sempre. */
+    expect(corpo).toMatch(/\[\.\.\.semSaldoProprio, \.\.\.todos\.filter/);
+  });
+
+  /* A passada lê os saldos UMA vez e usa nas duas coisas: reler custaria 13
+     chamadas do mesmo balde para receber a mesma resposta. */
+  it('os saldos são lidos uma vez só por passada', () => {
+    const i = C.indexOf('export async function sincronizarLojaErp');
+    const corpo = C.slice(i, C.indexOf('export async function descobrirComposicoes'));
+    const leituras = [...corpo.matchAll(/saldosDoLocal\(/g)];
+    expect(leituras.length).toBe(1);
+  });
+
   /* Teto por passada: uma loja com centenas de kits não pode gastar o
      orçamento do ERP de uma vez. */
   it('pergunta no máximo 20 por passada', () => {
