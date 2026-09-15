@@ -316,10 +316,24 @@ export async function descobrirComposicoes(
      *    ser kit, mas se for, o número dele ao menos não está mentindo para
      *    baixo enquanto a vez não chega.
      */
-    const semLinha = todos.filter(p => !saldos.has(p.variacao));
-    const zerados = todos.filter(p => saldos.has(p.variacao) && (saldos.get(p.variacao) as number) <= 0);
-    const resto = todos.filter(p => saldos.has(p.variacao) && (saldos.get(p.variacao) as number) > 0);
-    const pendentes = [...semLinha, ...zerados, ...resto].slice(0, COMPOSICOES_POR_PASSADA);
+    const zeroOuSem = (p: { variacao: number }) =>
+      !saldos.has(p.variacao) || (saldos.get(p.variacao) as number) <= 0;
+
+    /*
+     * QUEM ESTÁ APARECENDO ESGOTADO VEM PRIMEIRO, e esta fila nasceu de um
+     * defeito que o lojista viu na loja dele: AMSTEL CAIXA e STELLA LONG PACK
+     * apareciam ESGOTADAS com 61 latas na prateleira, esperando a vez na fila.
+     *
+     * A ordem é por CUSTO DE ESTAR ERRADO, não por probabilidade de ser kit:
+     * um produto esgotado que talvez seja composição é venda parada AGORA, na
+     * tela do cliente. Os outros, no pior caso, mostram um número a mais.
+     */
+    const esgotados = todos.filter(p => p.esgotadoAgora);
+    const semLinha = todos.filter(p => !p.esgotadoAgora && !saldos.has(p.variacao));
+    const zerados = todos.filter(p => !p.esgotadoAgora && saldos.has(p.variacao) && zeroOuSem(p));
+    const resto = todos.filter(p => !p.esgotadoAgora && saldos.has(p.variacao) && !zeroOuSem(p));
+    const pendentes = [...esgotados, ...semLinha, ...zerados, ...resto]
+      .slice(0, COMPOSICOES_POR_PASSADA);
     for (const p of pendentes) {
       try {
         const itens = await composicaoDoProduto(token, p.variacao, op);

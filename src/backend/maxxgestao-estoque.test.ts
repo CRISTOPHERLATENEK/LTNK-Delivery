@@ -169,8 +169,18 @@ describe('a sincronização NÃO liga o bloqueio de venda', () => {
     for (const a of arquivos) {
       const codigo = semComentarios(fs.readFileSync(path.join(__dirname, a), 'utf8'));
       for (const m of codigo.matchAll(/controla_estoque\s*=\s*1/g)) {
-        /* Qual função contém esta linha? A última declarada antes dela. */
+        /*
+         * SÓ ESCRITA CONTA. `controla_estoque = 1` aparece também em LEITURA —
+         * a consulta que marca quem está esgotado agora usa isso como condição.
+         * A primeira versão deste teste somava as duas e acusou um SELECT como
+         * se fosse alguém ligando o bloqueio às escondidas.
+         *
+         * O teste é sobre QUEM ESCREVE: olha para trás até o `UPDATE` ou o
+         * `SELECT` mais próximo, e só conta quando o UPDATE vem depois.
+         */
         const antes = codigo.slice(0, m.index);
+        if (antes.lastIndexOf('SELECT') > antes.lastIndexOf('UPDATE')) continue;
+        /* Qual função contém esta linha? A última declarada antes dela. */
         const decl = [...antes.matchAll(/function (\w+)/g)].pop();
         ondeLiga.push(`${a}:${decl ? decl[1] : '(solta)'}`);
       }

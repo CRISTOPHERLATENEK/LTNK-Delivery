@@ -310,13 +310,19 @@ function lerComposicao(bruto: string | null): Array<{ variacao: number; quantida
 }
 
 /** Quais produtos ainda não sabemos se são compostos. */
-export async function produtosSemComposicaoConhecida(lojaId: number): Promise<Array<{ id: number; variacao: number }>> {
+export async function produtosSemComposicaoConhecida(
+  lojaId: number,
+): Promise<Array<{ id: number; variacao: number; esgotadoAgora: boolean }>> {
   const linhas = await db.prepare(
-    `SELECT id, maxxgestao_variacao_id v FROM produtos
+    `SELECT id, maxxgestao_variacao_id v,
+            (controla_estoque = 1 AND estoque <= 0 AND disponivel = 1) esgotado
+       FROM produtos
       WHERE loja_id = ? AND excluido = 0 AND maxxgestao_variacao_id > 0
         AND (composicao_erp IS NULL OR composicao_erp = '')`
-  ).all(lojaId) as Array<{ id: number; v: number }>;
-  return linhas.map(l => ({ id: l.id, variacao: Number(l.v) }));
+  ).all(lojaId) as Array<{ id: number; v: number; esgotado: number }>;
+  return linhas.map(l => ({
+    id: l.id, variacao: Number(l.v), esgotadoAgora: !!l.esgotado,
+  }));
 }
 
 /**

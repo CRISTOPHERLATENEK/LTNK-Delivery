@@ -164,6 +164,9 @@ describe('a composição é lida de hora em hora, não a cada 2 minutos', () => 
   const semComentarios = (t: string) =>
     t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
   const C = semComentarios(ciclo);
+  /* Quebra de linha seguida de `}` — o fecho de uma funcao de topo. Montada
+     assim porque escapes literais neste arquivo ja se perderam duas vezes. */
+  const FIM_DE_FUNCAO = String.fromCharCode(10) + '}';
 
   /*
    * A composição muda uma vez por ano; relê-la a cada passada de estoque
@@ -195,15 +198,39 @@ describe('a composição é lida de hora em hora, não a cada 2 minutos', () => 
    * do cadastro; a 20 por hora, ela só seria alcançada em 56 horas. Produto com
    * saldo próprio nunca precisa de composição.
    */
-  it('a fila é sem-linha, depois zerados, depois o resto', () => {
+  /*
+   * QUEM ESTÁ APARECENDO ESGOTADO VEM PRIMEIRO — e esta fila nasceu de um
+   * defeito que o lojista viu na loja dele: AMSTEL CAIXA e STELLA LONG PACK
+   * apareciam ESGOTADAS com 61 latas na prateleira, esperando a vez.
+   *
+   * A ordem é por CUSTO DE ESTAR ERRADO, não por probabilidade de ser kit: um
+   * produto esgotado que talvez seja composição é venda parada AGORA, na tela
+   * do cliente. Os outros, no pior caso, mostram um número a mais.
+   */
+  it('quem está esgotado agora é perguntado primeiro', () => {
     const i = C.indexOf('export async function descobrirComposicoes');
-    const corpo = C.slice(i, i + 1800);
+    const corpo = C.slice(i, i + 2200);
+    expect(corpo).toContain('p.esgotadoAgora');
+    expect(corpo).toMatch(/\[\.\.\.esgotados, \.\.\.semLinha, \.\.\.zerados, \.\.\.resto\]/);
+  });
+
+  /* E a consulta traz esse sinal do banco, senão a fila não teria como ordenar. */
+  it('o banco informa quem está esgotado', () => {
+    const deps = fs.readFileSync(path.join(__dirname, 'maxxgestao-importar-deps.ts'), 'utf8');
+    const i = deps.indexOf('export async function produtosSemComposicaoConhecida');
+    const corpo = deps.slice(i, i + 900);
+    expect(corpo).toContain('controla_estoque = 1 AND estoque <= 0 AND disponivel = 1');
+    expect(corpo).toContain('esgotadoAgora');
+  });
+
+  it('a fila segue por sem-linha, zerados e o resto', () => {
+    const i = C.indexOf('export async function descobrirComposicoes');
+    const corpo = C.slice(i, i + 2200);
     expect(corpo).toContain('!saldos.has(p.variacao)');
     /* O SALDO ZERO É A SEGUNDA FILA por causa da HEINEKEN CAIXA: ela tem
        registro próprio com 0 e é composição de 12 latas. "Tem saldo" não
        exclui "é kit". */
-    expect(corpo).toMatch(/<= 0\)/);
-    expect(corpo).toMatch(/\[\.\.\.semLinha, \.\.\.zerados, \.\.\.resto\]/);
+    expect(corpo).toMatch(/<= 0/);
   });
 
   /* A passada lê os saldos UMA vez e usa nas duas coisas: reler custaria 13
@@ -223,8 +250,12 @@ describe('a composição é lida de hora em hora, não a cada 2 minutos', () => 
        cadastro do Galderio levaria 56 horas; a 60, leva 19. E 60 chamadas são
        5% do orçamento de uma hora. */
     expect(C).toContain('export const COMPOSICOES_POR_PASSADA = 60;');
+    /* ATE O FIM DA FUNCAO, e nao uma janela de 700 caracteres: a funcao cresceu
+       quando a fila ganhou um degrau e o teste passou a recortar antes da linha
+       que ele confere. Janela fixa envelhece junto com o codigo. */
     const i = C.indexOf('export async function descobrirComposicoes');
-    expect(C.slice(i, i + 700)).toContain('.slice(0, COMPOSICOES_POR_PASSADA)');
+    const corpo = C.slice(i, C.indexOf(FIM_DE_FUNCAO, C.indexOf('return quantos;', i)));
+    expect(corpo).toContain('.slice(0, COMPOSICOES_POR_PASSADA)');
   });
 
   /*
@@ -233,7 +264,7 @@ describe('a composição é lida de hora em hora, não a cada 2 minutos', () => 
    */
   it('produto sem composição também é gravado', () => {
     const i = C.indexOf('export async function descobrirComposicoes');
-    const corpo = C.slice(i, i + 900);
+    const corpo = C.slice(i, C.indexOf(FIM_DE_FUNCAO, C.indexOf('return quantos;', i)));
     /* A gravação está FORA do `if (itens.length)` — ela roda sempre. */
     expect(corpo).toMatch(/await gravarComposicao\(lojaId, p\.id, itens\);\s*\n\s*if \(itens\.length\)/);
   });
