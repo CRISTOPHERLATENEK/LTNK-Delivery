@@ -54,6 +54,29 @@ function ehVendido(p: { disponivel?: number | null; disponivel_pdv?: number | nu
 }
 
 /**
+ * ESGOTADO É O QUE O CLIENTE VÊ ESGOTADO — mesmo critério da vitrine.
+ *
+ * TRÊS CONDIÇÕES, e cada uma corta um caso que atrapalharia:
+ *
+ * 1. CONTROLA ESTOQUE. Sem controle, `estoque = 0` é só uma coluna que ninguém
+ *    olha e o produto vende normalmente — marcá-lo aqui encheria o filtro de
+ *    produto que está à venda.
+ * 2. SALDO ZERO OU NEGATIVO. É o mesmo teste que a vitrine faz.
+ * 3. ESTÁ À VENDA. Esta é a que não parece óbvia: produto PAUSADO com saldo
+ *    zero não está esgotado para ninguém — ele nem está no ar. No Galderio são
+ *    273 assim, e sem este corte o filtro "Esgotados" mostraria 473 quando a
+ *    resposta útil é 200. Além disso os dois filtros deixariam de ser
+ *    excludentes, e um produto apareceria nos dois — que é o jeito mais rápido
+ *    de um filtro perder a confiança de quem usa.
+ */
+function ehEsgotado(p: {
+  controla_estoque?: number | null; estoque?: number | null;
+  disponivel?: number | null; disponivel_pdv?: number | null;
+}): boolean {
+  return ehVendido(p) && !!p.controla_estoque && Number(p.estoque ?? 0) <= 0;
+}
+
+/**
  * Rótulo do estado de venda. Com dois canais, "À venda"/"Pausado" deixou de
  * bastar: um item vendido só no balcão apareceria como "Pausado", o que é
  * mentira — e o lojista iria procurar o problema onde não estava.
@@ -215,6 +238,14 @@ export function ProdutosLoja() {
   const [busca, setBusca] = useState('');
   /** Chip de categoria da toolbar. '' = todas. */
   const [filtroCategoria, setFiltroCategoria] = useState('');
+  /*
+   * A SITUAÇÃO DO PRODUTO, ao lado da categoria.
+   *
+   * Com 1.116 itens no cardápio, "quais estão esgotados?" e "o que ainda não
+   * botei à venda?" são perguntas de rotina — e a única resposta era rolar a
+   * lista inteira procurando um selo cinza.
+   */
+  const [filtroSituacao, setFiltroSituacao] = useState<'' | 'esgotado' | 'pausado'>('');
   const [mostrarFiscal, setMostrarFiscal] = useState(false);
   type Aba = 'item' | 'complementos' | 'composicao' | 'config' | 'fiscal';
   const [aba, setAba] = useState<Aba>('item');
@@ -708,6 +739,8 @@ export function ProdutosLoja() {
   const termo = busca.trim().toLowerCase();
   const filtrados = todos.filter(p => {
     if (filtroCategoria && (p.categoria || 'Geral') !== filtroCategoria) return false;
+    if (filtroSituacao === 'esgotado' && !ehEsgotado(p)) return false;
+    if (filtroSituacao === 'pausado' && ehVendido(p)) return false;
     if (!termo) return true;
     return p.nome.toLowerCase().includes(termo)
       || (p.categoria || '').toLowerCase().includes(termo)
@@ -745,6 +778,16 @@ export function ProdutosLoja() {
   const disponiveis = todos.filter(ehVendido).length;
 
   /*
+   * A CONTAGEM VEM DE TODOS, não dos filtrados — mesma razão da contagem por
+   * categoria: o número no chip diz quanto EXISTE, não quanto sobrou da busca
+   * atual. Com o filtrado, escolher "Esgotados" faria "Pausados" marcar zero.
+   */
+  const contagemSituacao = useMemo(() => ({
+    esgotados: todos.filter(ehEsgotado).length,
+    pausados: todos.filter(p => !ehVendido(p)).length,
+  }), [todos]);
+
+  /*
    * ARRASTAR SÓ COM A LISTA INTEIRA NA TELA.
    *
    * Reordenar é uma operação sobre o cardápio TODO: a posição de destino é o
@@ -755,7 +798,7 @@ export function ProdutosLoja() {
    * Some a alça em vez de deixá-la sem efeito: alça que não arrasta é pior que
    * alça nenhuma.
    */
-  const podeOrdenar = !termo && !filtroCategoria;
+  const podeOrdenar = !termo && !filtroCategoria && !filtroSituacao;
 
   const [arrastandoCat, setArrastandoCat] = useState<number | null>(null);
   const [ordemCatLocal, setOrdemCatLocal] = useState<string[] | null>(null);
@@ -1018,6 +1061,20 @@ export function ProdutosLoja() {
               aoEscolher={setFiltroCategoria}
             />
           )}
+
+          {/*
+            SITUAÇÃO DO PRODUTO — e o número vem junto do rótulo.
+            Com 1.116 itens, "quais estão esgotados?" e "o que ainda não botei à
+            venda?" eram perguntas que só se respondiam rolando a lista inteira
+            atrás de um selo cinza. O número no chip responde antes do clique:
+            quando ele marca zero, a resposta já é "nenhum".
+          */}
+          <FiltroSituacao
+            valor={filtroSituacao}
+            aoEscolher={setFiltroSituacao}
+            esgotados={contagemSituacao.esgotados}
+            pausados={contagemSituacao.pausados}
+          />
         </div>
 
         {/*
@@ -1818,7 +1875,7 @@ export function ProdutosLoja() {
            * Com busca ou filtro ativo, NÃO recolhe: quem filtrou quer ver o
            * resultado, e o resultado é pequeno por definição.
            */
-          iniciarRecolhida={!termo && !filtroCategoria && comecarRecolhido(filtrados.length)}
+          iniciarRecolhida={!termo && !filtroCategoria && !filtroSituacao && comecarRecolhido(filtrados.length)}
           arrasto={podeOrdenar ? {
             arrastando: arrastandoCat === iCat,
             ativo: arrastandoCat !== null,
@@ -4893,6 +4950,68 @@ function GruposEditor({ produto }: { produto: Produto }) {
               </CardContent>
             </Card>
           )}
+    </div>
+  );
+}
+
+/* ─────────────────── filtro de situação ─────────────────── */
+
+/**
+ * ESGOTADOS E PAUSADOS — as duas perguntas que um cardápio grande não responde.
+ *
+ * Com 1.116 itens, "quais estão esgotados?" e "o que ainda não botei à venda?"
+ * só se respondiam rolando a lista inteira atrás de um selo cinza. E são
+ * perguntas de rotina: o esgotado é dinheiro parado que o cliente não vê, e o
+ * pausado é o produto importado do ERP esperando a decisão do lojista (no
+ * Galderio são 472 deles).
+ *
+ * O NÚMERO VEM JUNTO DO RÓTULO, e não depois do clique: quando marca zero, a
+ * resposta já está dada sem filtrar nada. Sem isso, "não tem nenhum esgotado" e
+ * "o filtro não funcionou" seriam a mesma tela vazia.
+ *
+ * CLICAR NO CHIP ATIVO DESLIGA. Um filtro de duas opções sem "Todos" precisa de
+ * saída óbvia, e a saída óbvia é o mesmo botão.
+ */
+function FiltroSituacao({ valor, aoEscolher, esgotados, pausados }: {
+  valor: '' | 'esgotado' | 'pausado';
+  aoEscolher: (v: '' | 'esgotado' | 'pausado') => void;
+  esgotados: number;
+  pausados: number;
+}) {
+  const opcoes = [
+    { id: 'esgotado' as const, rotulo: 'Esgotados', n: esgotados },
+    { id: 'pausado' as const, rotulo: 'Pausados', n: pausados },
+  ];
+  /* Nenhum dos dois existe: a linha inteira some. Dois chips marcando zero
+     ocupam a dobra para não dizer nada. */
+  if (!esgotados && !pausados) return null;
+
+  return (
+    <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {opcoes.map(o => {
+        const ativo = valor === o.id;
+        return (
+          <button
+            key={o.id}
+            type="button"
+            /* O MESMO BOTÃO DESLIGA: sem "Todos", é a única saída óbvia. */
+            onClick={() => aoEscolher(ativo ? '' : o.id)}
+            aria-pressed={ativo}
+            className={cn(
+              'flex h-[34px] shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 text-[13.5px] font-semibold transition-colors',
+              ativo
+                ? 'bg-foreground text-background'
+                : 'border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground',
+            )}
+          >
+            {o.rotulo}
+            <span className={cn('text-[11.5px] tabular-nums',
+              ativo ? 'text-background/60' : 'text-muted-foreground/70')}>
+              {o.n}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
