@@ -33,6 +33,7 @@
  * num produto e opcional em outro passaria a ler o padrão do grupo nos dois.
  */
 export const COLUNAS_GRUPO = `g.id, g.nome, g.tipo, g.papel, g.modo_preco, g.loja_id,
+       g.baixa_estoque,
        pg.produto_id, pg.ordem, pg.obrigatorio, pg.max_escolhas`;
 
 /** O JOIN que liga grupo e produto. Sempre `pg` como apelido da ligação. */

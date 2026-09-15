@@ -23,6 +23,7 @@
  */
 import db from './db-mysql';
 import { agoraUTC } from './util';
+import { explodirItem } from './erp-explodir-item';
 
 /**
  * AGORA EM HORÁRIO DE BRASÍLIA, no formato que o ERP usa: sem fuso, sem `Z`.
@@ -525,26 +526,81 @@ export async function enviarPedidoAoErp(
   if (!token) return { emitiu: false, motivo: 'token do Maxx Gestão não configurado' };
 
   const itens = await db.prepare(
-    `SELECT i.nome_produto, i.quantidade, i.preco_unit_centavos,
-            COALESCE(p.maxxgestao_variacao_id, 0) AS variacao
+    `SELECT i.nome_produto, i.quantidade, i.preco_unit_centavos, i.opcoes_ids,
+            COALESCE(p.maxxgestao_variacao_id, 0) AS variacao,
+            COALESCE(p.preco_centavos, 0) AS preco_tabela
        FROM itens_pedido i
        LEFT JOIN produtos p ON p.id = i.produto_id
       WHERE i.pedido_id = ?`
   ).all(pedidoId) as Array<{
-    nome_produto: string; quantidade: number; preco_unit_centavos: number; variacao: number;
+    nome_produto: string; quantidade: number; preco_unit_centavos: number;
+    variacao: number; preco_tabela: number; opcoes_ids: string | null;
   }>;
+
+  /*
+   * AS OPÇÕES ESCOLHIDAS VIRAM PEÇAS — é o que faz o gelo do pote baixar.
+   *
+   * O complemento nunca foi linha do documento: era texto dentro do item. Então
+   * o sabor que saiu da câmara fria não existia para o ERP. Agora cada opção
+   * pode apontar para um produto (com SKU), e o grupo dela decide se baixa.
+   *
+   * Ver `erp-explodir-item.ts` para a regra e o rateio do preço.
+   */
+  const escolhasPorItem = await Promise.all(itens.map(async (i) => {
+    let ids: number[] = [];
+    try {
+      const cru = JSON.parse(i.opcoes_ids || '[]') as Array<number | { s: number; o: number }>;
+      ids = cru.map(x => (typeof x === 'number' ? x : Number(x?.o ?? 0))).filter(n => n > 0);
+    } catch { ids = []; }
+    if (!ids.length) return [];
+
+    /* Repetição é QUANTIDADE: "2× gelo de coco" chega como o mesmo id duas
+       vezes, e é assim que o cliente pediu. */
+    const vezes = new Map<number, number>();
+    for (const id of ids) vezes.set(id, (vezes.get(id) ?? 0) + 1);
+
+    const unicos = [...vezes.keys()];
+    const linhas = await db.prepare(
+      `SELECT o.id, o.nome, o.produto_id, g.baixa_estoque,
+              COALESCE(pr.maxxgestao_variacao_id, 0) AS variacao,
+              COALESCE(pr.preco_centavos, 0) AS preco_tabela
+         FROM opcoes_itens o
+         JOIN grupos_opcoes g ON g.id = o.grupo_id
+         LEFT JOIN produtos pr ON pr.id = o.produto_id AND pr.excluido = 0
+        WHERE o.id IN (${unicos.map(() => '?').join(',')})`
+    ).all(...unicos) as Array<{
+      id: number; nome: string; produto_id: number; baixa_estoque: number;
+      variacao: number; preco_tabela: number;
+    }>;
+
+    return linhas.map(l => ({
+      quantidade: vezes.get(l.id) ?? 1,
+      produtoId: Number(l.produto_id) || 0,
+      variacaoErp: Number(l.variacao) || 0,
+      nome: l.nome ?? '',
+      grupoBaixaEstoque: Number(l.baixa_estoque) === 1,
+      precoTabelaCentavos: Number(l.preco_tabela) || 0,
+    }));
+  }));
 
   const dados: DadosDoPedido = {
     id: pedido.id,
     totalCentavos: Number(pedido.total_centavos) || 0,
     formaPagamento: String(pedido.forma_pagamento ?? ''),
     tipoEntrega: String(pedido.tipo_entrega ?? 'entrega') === 'retirada' ? 'retirada' : 'entrega',
-    itens: itens.map((i): ItemPedido => ({
+    itens: itens.flatMap((i, k): ItemPedido[] => explodirItem({
       nome: i.nome_produto ?? '',
       quantidade: Number(i.quantidade) || 1,
       precoUnitarioCentavos: Number(i.preco_unit_centavos) || 0,
       variacaoErp: Number(i.variacao) || 0,
-    })),
+      precoTabelaCentavos: Number(i.preco_tabela) || 0,
+      escolhas: escolhasPorItem[k],
+    }).map(l => ({
+      nome: l.nome,
+      quantidade: l.quantidade,
+      precoUnitarioCentavos: l.precoUnitarioCentavos,
+      variacaoErp: l.variacaoErp,
+    }))),
   };
 
   /*

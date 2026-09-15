@@ -1433,6 +1433,28 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['produtos', 'composicao_erp', 'composicao_erp TEXT'],
     /*
+     * ESTE GRUPO DE COMPLEMENTO BAIXA ESTOQUE?
+     *
+     * O caso que pediu isto, nas palavras do lojista: no pote de whisky ele
+     * controla o GELO mas não o ENERGÉTICO. Sem um interruptor por grupo, a
+     * saída seria gambiarra — deixar a opção sem vínculo e lembrar disso para
+     * sempre, ou criar produto fantasma só para não baixar.
+     *
+     * NASCE DESLIGADO, e isso não é só cautela: ligado por padrão, todo grupo
+     * de complemento que já existe passaria a mexer em estoque no dia do
+     * deploy, sem ninguém ter pedido.
+     */
+    ['grupos_opcoes', 'baixa_estoque', 'baixa_estoque TINYINT NOT NULL DEFAULT 0'],
+    /*
+     * QUAL PRODUTO ESTA OPÇÃO CONSOME. Zero = nenhum (o padrão).
+     *
+     * É o que liga "Gelo de coco" (texto numa lista) ao produto GELO DE COCO
+     * TRADICIONAL, que tem SKU no Maxx Gestão e estoque. Sem isso, a opção
+     * escolhida pelo cliente não existe para o ERP, e o sabor que saiu da
+     * prateleira nunca é descontado.
+     */
+    ['opcoes_itens', 'produto_id', 'produto_id INT NOT NULL DEFAULT 0'],
+    /*
      * O DOCUMENTO DO PEDIDO NO MAXX GESTÃO.
      *
      * `POST /documento` não é idempotente do lado deles: chamar duas vezes cria

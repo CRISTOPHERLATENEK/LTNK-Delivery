@@ -1667,6 +1667,31 @@ router.get('/produtos/:id/combo/candidatos', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * OS PRODUTOS QUE UMA OPÇÃO DE COMPLEMENTO PODE CONSUMIR.
+ *
+ * "Gelo de coco" dentro do pote é só texto; quem tem saldo é o produto GELO DE
+ * COCO TRADICIONAL. Esta lista é o que o lojista escolhe para ligar os dois.
+ *
+ * Vem o cardápio inteiro, e não só o que tem SKU: quem ainda não importou do
+ * Maxx Gestão precisa poder montar o vínculo hoje e importar depois. Mas
+ * `variacao_erp` vai junto para a tela poder dizer quais NÃO vão baixar — sem
+ * isso o lojista liga tudo e descobre pelo estoque errado no fim do mês.
+ */
+router.get('/produtos-vinculaveis', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const produtos = await db.prepare(
+      `SELECT id, nome, categoria, preco_centavos, estoque, controla_estoque,
+              maxxgestao_variacao_id AS variacao_erp
+         FROM produtos
+        WHERE loja_id = ? AND excluido = 0
+        ORDER BY (maxxgestao_variacao_id > 0) DESC, nome`
+    ).all(loja.id) as unknown[];
+    res.json({ produtos });
+  } catch (e) { next(e); }
+});
+
 /** Põe um produto no próximo slot do combo. */
 router.post('/produtos/:id/combo', async (req, res, next) => {
   try {
@@ -2005,12 +2030,23 @@ router.put('/grupos/:id', async (req, res, next) => {
      * da divergência: dois lugares com a mesma verdade, um lido e outro não. As
      * colunas do grupo ficam como PADRÃO para ligações novas, e ninguém as lê.
      */
+    /*
+     * `baixa_estoque` É DO GRUPO, e não da ligação — de propósito.
+     *
+     * "Este grupo mexe em estoque" é uma propriedade do que o grupo É (uma
+     * lista de gelos que saem da câmara fria), não de onde ele está usado. O
+     * lojista pediu justamente para não ter que repetir a decisão em cada
+     * produto: "pra mim não ter que ficar fazendo gambiarra".
+     */
     await db.prepare(
-      'UPDATE grupos_opcoes SET nome = ?, tipo = ?, papel = ?, modo_preco = ? WHERE id = ?'
+      'UPDATE grupos_opcoes SET nome = ?, tipo = ?, papel = ?, modo_preco = ?, baixa_estoque = ? WHERE id = ?'
     ).run(nome,
           req.body.tipo !== undefined ? (req.body.tipo === 'multiplo' ? 'multiplo' : 'unico') : grupo.tipo,
           papel,
           req.body.modo_preco !== undefined ? modoPrecoValido(req.body.modo_preco) : ((grupo as unknown as { modo_preco?: string }).modo_preco ?? 'somar'),
+          req.body.baixa_estoque !== undefined
+            ? (req.body.baixa_estoque ? 1 : 0)
+            : ((grupo as unknown as { baixa_estoque?: number }).baixa_estoque ?? 0),
           grupo.id);
 
     /*
@@ -2399,10 +2435,14 @@ router.post('/produtos/:id/grupos/:grupoId/soltar', async (req, res, next) => {
       ).all(grupo.id) as Array<Record<string, unknown>>;
       for (const o of opcoes) {
         await tx.prepare(
-          `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao, imagem)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao, imagem, produto_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(clone, o.nome, o.preco_adicional_centavos, o.disponivel, o.ordem,
-              o.sabores || 0, o.secao || '', o.descricao || '', o.imagem || '');
+              o.sabores || 0, o.secao || '', o.descricao || '', o.imagem || '',
+              /* O VÍNCULO DE ESTOQUE VAI JUNTO. Sem ele o clone parece igual na
+                 tela e não baixa nada — exatamente o defeito que o comentário
+                 acima descreve, agora com o estoque como sintoma. */
+              o.produto_id || 0);
       }
 
       /* Aponta o vínculo DESTE produto pro clone. Os outros produtos seguem no
@@ -2450,10 +2490,35 @@ router.put('/opcoes/:id', async (req, res, next) => {
       if (v === null || v < 0) throw erroHttp(400, 'Preço adicional inválido.');
       precoAdicional = v;
     }
-    const atual = opcao as unknown as { sabores?: number; secao?: string; descricao?: string; imagem?: string };
+    const atual = opcao as unknown as {
+      sabores?: number; secao?: string; descricao?: string; imagem?: string; produto_id?: number;
+    };
+
+    /*
+     * QUAL PRODUTO ESTA OPÇÃO CONSOME.
+     *
+     * Só aceita produto DESTA loja: sem a conferência, um id de outro tenant
+     * gravaria aqui e o estoque de outra empresa começaria a cair. Zero apaga o
+     * vínculo, que é como o lojista desliga uma opção do controle sem apagar a
+     * opção.
+     */
+    let produtoVinculado = atual.produto_id ?? 0;
+    if (req.body.produto_id !== undefined) {
+      const pedido = inteiroPositivo(req.body.produto_id) || 0;
+      if (pedido === 0) {
+        produtoVinculado = 0;
+      } else {
+        const existe = await db.prepare(
+          'SELECT id FROM produtos WHERE id = ? AND loja_id = ? AND excluido = 0'
+        ).get(pedido, loja.id) as { id: number } | undefined;
+        if (!existe) throw erroHttp(400, 'Produto do complemento não encontrado nesta loja.');
+        produtoVinculado = existe.id;
+      }
+    }
+
     await db.prepare(
       `UPDATE opcoes_itens SET nome = ?, preco_adicional_centavos = ?, disponivel = ?,
-              sabores = ?, secao = ?, descricao = ?, imagem = ? WHERE id = ?`
+              sabores = ?, secao = ?, descricao = ?, imagem = ?, produto_id = ? WHERE id = ?`
     ).run(nome, precoAdicional,
           req.body.disponivel !== undefined ? (req.body.disponivel ? 1 : 0) : opcao.disponivel,
           // Quantos sabores esta opção libera (só nas opções de tamanho).
@@ -2464,8 +2529,9 @@ router.put('/opcoes/:id', async (req, res, next) => {
           req.body.secao !== undefined ? textoLimpo(req.body.secao, 40) : (atual.secao ?? ''),
           req.body.descricao !== undefined ? textoLimpo(req.body.descricao, 160) : (atual.descricao ?? ''),
           req.body.imagem !== undefined ? textoLimpo(req.body.imagem, 500) : (atual.imagem ?? ''),
+          produtoVinculado,
           opcao.id);
-    res.json({ ok: true });
+    res.json({ ok: true, produto_id: produtoVinculado });
   } catch (e) { next(e); }
 });
 

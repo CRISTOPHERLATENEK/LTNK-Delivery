@@ -6,7 +6,7 @@ import { Ajuda } from '@/components/ui/ajuda';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { MontarCardapioIA } from './cardapio-ia';
 import { SeletorCategoria, type OpcaoCategoria } from './seletor-categoria';
-import { Check, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Image as ImageIcon, Layers, Minus, Pencil, Plus, RefreshCw, Rows3, Rows4, Search, Square, Sparkles, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
+import { Boxes, Check, CheckSquare, ChevronDown, ChevronUp, Copy, FileText, GripVertical, Image as ImageIcon, Layers, Minus, Pencil, Plus, RefreshCw, Rows3, Rows4, Search, Square, Sparkles, Star, ToggleLeft, ToggleRight, Trash2, UtensilsCrossed, X } from 'lucide-react';
 import { reordenar } from '@/lib/ordem-cardapio';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -112,6 +112,14 @@ interface OpcaoItem {
   descricao?: string | null;
   /** Foto do sabor (URL). Vazio = sem foto. */
   imagem?: string | null;
+  /**
+   * O produto do estoque que esta opção consome. 0 = nenhum.
+   *
+   * É o que liga "Gelo de coco" (texto) ao produto GELO DE COCO TRADICIONAL,
+   * que tem SKU no Maxx Gestão. Sem o vínculo, o sabor escolhido pelo cliente
+   * não existe para o ERP e nunca é descontado.
+   */
+  produto_id?: number;
   disponivel: number;
   ordem: number;
 }
@@ -128,6 +136,14 @@ interface GrupoOpcoes {
   obrigatorio: number;
   max_escolhas: number;
   ordem: number;
+  /**
+   * As escolhas deste grupo saem do estoque?
+   *
+   * Pedido do lojista com o pote de whisky: ele controla o GELO e não controla
+   * o ENERGÉTICO, no mesmo produto. Nasce desligado — nenhum grupo que já
+   * existe muda de comportamento.
+   */
+  baixa_estoque?: number;
   opcoes: OpcaoItem[];
 }
 
@@ -2875,6 +2891,14 @@ interface CandidatoCombo {
   preco_centavos: number; vendido_sozinho: number; grupos: number;
 }
 
+/** Um produto que uma opção de complemento pode consumir do estoque. */
+interface ProdutoVinculavel {
+  id: number; nome: string; categoria: string; preco_centavos: number;
+  estoque: number; controla_estoque: number;
+  /** SKU no Maxx Gestão. 0 = não baixa lá, só aqui. */
+  variacao_erp: number;
+}
+
 /** Uma linha da biblioteca de grupos da loja. `usos` = em quantos produtos está. */
 interface GrupoBiblioteca {
   id: number; nome: string; tipo: 'unico' | 'multiplo';
@@ -3407,6 +3431,25 @@ function GruposEditor({ produto }: { produto: Produto }) {
   const [abertoId, setAbertoId] = useState<number | null>(null);
   /** Índice sendo arrastado, pra saber o que soltar onde. */
   const [arrastando, setArrastando] = useState<number | null>(null);
+
+  /** Qual opção está escolhendo o produto do estoque (só uma por vez). */
+  const [vinculando, setVinculando] = useState<number | null>(null);
+  const [buscaVinculo, setBuscaVinculo] = useState('');
+
+  /*
+   * O CARDÁPIO INTEIRO, só quando o lojista abre o seletor de vínculo.
+   *
+   * É uma lista de mil linhas em loja grande, e a esmagadora maioria das
+   * sessões de cadastro nunca abre este painel — carregar junto com a tela
+   * seria pagar por todo mundo o que um usa.
+   */
+  const { data: vinculaveis } = useQuery({
+    queryKey: ['lojista-produtos-vinculaveis'],
+    queryFn: () => api<{ produtos: ProdutoVinculavel[] }>('GET', '/api/lojista/produtos-vinculaveis')
+      .then(r => r.produtos),
+    enabled: vinculando !== null,
+    staleTime: 60_000,
+  });
 
   /*
    * As opções que ESTA LOJA já usa, por nome de grupo.
@@ -4108,6 +4151,30 @@ function GruposEditor({ produto }: { produto: Produto }) {
                       </div>
 
                       {/*
+                        BAIXAR DO ESTOQUE — o interruptor que o lojista pediu.
+                        No pote de whisky ele controla o GELO e não controla o
+                        ENERGÉTICO, no mesmo produto: sem um botão por grupo, a
+                        saída seria gambiarra. Fica ao lado de Obrigatório
+                        porque é da mesma natureza — uma regra do grupo.
+                      */}
+                      <button
+                        type="button"
+                        onClick={() => salvarGrupo(grupo, { baixa_estoque: !grupo.baixa_estoque })}
+                        title={grupo.baixa_estoque
+                          ? 'As escolhas deste grupo saem do estoque (cada opção precisa apontar para um produto)'
+                          : 'As escolhas deste grupo não mexem em estoque'}
+                        className={cn(
+                          'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[9px] px-2.5 py-1 text-[11.5px] font-semibold transition-colors',
+                          grupo.baixa_estoque
+                            ? 'bg-primary/10 text-primary ring-1 ring-primary/30'
+                            : 'bg-muted text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        <Boxes className="size-3.5" />
+                        {grupo.baixa_estoque ? 'Baixa estoque' : 'Sem estoque'}
+                      </button>
+
+                      {/*
                         STEPPER DO TETO. Substitui o par "Única/Múltipla" + "Máx.":
                         eram dois controles pra uma decisão, e permitiam o
                         impossível (única escolha com máximo 3). Teto 1 É escolha
@@ -4647,6 +4714,101 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                         className="h-6 min-w-[11rem] flex-1 rounded-md bg-transparent px-1 text-[11.5px] outline-none transition-colors placeholder:text-muted-foreground/60 hover:bg-accent/60 focus:bg-background focus:ring-2 focus:ring-primary"
                                       />
                                     </div>
+
+                                    {/*
+                                      ─── DE QUAL PRODUTO ESTA ESCOLHA SAI ───
+
+                                      Só aparece com o grupo baixando estoque: em
+                                      grupo de borda de pizza esta linha seria
+                                      ruído em cima de ruído.
+
+                                      "Gelo de coco" é texto; quem tem saldo é o
+                                      produto GELO DE COCO TRADICIONAL, que tem
+                                      SKU no Maxx Gestão. Sem o vínculo o sabor
+                                      escolhido não existe para o estoque e o
+                                      grupo ligado não baixa nada — por isso a
+                                      opção sem vínculo aparece em destaque, e
+                                      não em cinza.
+                                    */}
+                                    {!!grupo.baixa_estoque && (
+                                      <div className="mt-1 pl-11">
+                                        <button
+                                          type="button"
+                                          onClick={() => { setVinculando(vinculando === o.id ? null : o.id); setBuscaVinculo(''); }}
+                                          className={cn(
+                                            'flex max-w-full items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] transition-colors',
+                                            o.produto_id
+                                              ? 'bg-muted/60 text-muted-foreground hover:bg-accent'
+                                              : 'bg-amber-500/10 font-semibold text-amber-700 hover:bg-amber-500/20 dark:text-amber-400',
+                                          )}
+                                        >
+                                          <Boxes className="size-3.5 shrink-0" />
+                                          <span className="truncate">
+                                            {o.produto_id
+                                              ? `Sai de: ${(vinculaveis ?? []).find(p => p.id === o.produto_id)?.nome ?? `produto #${o.produto_id}`}`
+                                              : 'Escolher de qual produto sai'}
+                                          </span>
+                                        </button>
+
+                                        {vinculando === o.id && (
+                                          <div className="mt-1.5 rounded-xl border border-border bg-background p-2">
+                                            <div className="flex items-center gap-2">
+                                              <Input
+                                                autoFocus
+                                                value={buscaVinculo}
+                                                onChange={e => setBuscaVinculo(e.target.value)}
+                                                placeholder="Buscar produto do estoque…"
+                                                aria-label="Buscar produto do estoque"
+                                                className="h-8 text-xs"
+                                              />
+                                              {!!o.produto_id && (
+                                                <button type="button"
+                                                  onClick={() => { salvarOpcao(o, { produto_id: 0 }); setVinculando(null); }}
+                                                  className="shrink-0 rounded-lg px-2 py-1 text-[11.5px] font-semibold text-destructive transition-colors hover:bg-destructive/10">
+                                                  Desvincular
+                                                </button>
+                                              )}
+                                              <button type="button" onClick={() => setVinculando(null)}
+                                                className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-accent">
+                                                <X className="size-4" />
+                                              </button>
+                                            </div>
+                                            <div className="mt-1.5 max-h-56 divide-y divide-border/60 overflow-y-auto rounded-lg border border-border">
+                                              {(() => {
+                                                if (!vinculaveis) return <p className="px-3 py-2 text-[11.5px] text-muted-foreground">Carregando…</p>;
+                                                const alvo = buscaVinculo.trim().toLowerCase();
+                                                /* TETO DE 40 LINHAS. Sem busca, a lista é o
+                                                   cardápio inteiro — mil linhas num painel de
+                                                   14rem não ajudam ninguém a achar o gelo. */
+                                                const achados = vinculaveis
+                                                  .filter(p => !alvo || p.nome.toLowerCase().includes(alvo))
+                                                  .slice(0, 40);
+                                                if (achados.length === 0) {
+                                                  return <p className="px-3 py-2 text-[11.5px] text-muted-foreground">Nenhum produto com esse nome.</p>;
+                                                }
+                                                return achados.map(p => (
+                                                  <button key={p.id} type="button"
+                                                    onClick={() => { salvarOpcao(o, { produto_id: p.id }); setVinculando(null); }}
+                                                    className={cn('flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-accent/50',
+                                                      p.id === o.produto_id && 'bg-primary/10')}>
+                                                    <span className="min-w-0 flex-1">
+                                                      <span className="block truncate text-[12.5px] font-semibold">{p.nome}</span>
+                                                      <span className="block text-[11px] text-muted-foreground">
+                                                        {p.variacao_erp > 0
+                                                          ? `Maxx Gestão ${p.variacao_erp}`
+                                                          : 'sem código do Maxx Gestão — não vai baixar lá'}
+                                                        {!!p.controla_estoque && ` · ${p.estoque} em estoque`}
+                                                      </span>
+                                                    </span>
+                                                    {p.id === o.produto_id && <Check className="size-3.5 shrink-0 text-primary" />}
+                                                  </button>
+                                                ));
+                                              })()}
+                                            </div>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
 
                                     {/* Foto: painel próprio, aberto sob demanda. O
                                         ImageUpload tem área de arrastar e três
