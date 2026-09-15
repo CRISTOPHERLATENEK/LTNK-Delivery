@@ -35,10 +35,48 @@ const RAIO: Record<FormatoCategoria, string> = {
  * linhas no tamanho pequeno e desalinhar a faixa inteira — por isso a folga
  * cresce menos que a bolha.
  */
+/*
+ * ─────────── O TAMANHO ESCOLHIDO É O DO CELULAR; O DESKTOP SOBE UM DEGRAU ───
+ *
+ * Antes eram três medidas FIXAS, iguais num telefone de 375px e num monitor de
+ * 1500px. Medido na loja de demonstração, com a faixa ocupando 702px de largura
+ * no desktop:
+ *
+ *   médio  → bolha de 56px, rótulo de 11px  → 8% da faixa por categoria
+ *   grande → bolha de 80px, rótulo de 12px
+ *
+ * Um rótulo de 11px a meio metro do monitor é a mesma altura aparente de 6px no
+ * celular a 30cm. O lojista olhou a própria loja no computador e disse "acredito
+ * que a visualização esteja pequena" — e estava mesmo.
+ *
+ * A ESCOLHA DELE VIRA A BASE, não o teto: quem escolheu "pequeno" continua com
+ * a faixa discreta no telefone, e ganha legibilidade no desktop. Mexer só no
+ * desktop é o que permite corrigir isso sem estragar o celular, que é onde a
+ * maioria dos pedidos entra e onde as medidas atuais já estavam boas.
+ *
+ * O RÓTULO CRESCE MAIS QUE A BOLHA (11 → 13px no médio, +18%; a bolha vai de 56
+ * a 80, +43% — mas ela já era legível). Ler o nome da categoria é o que a faixa
+ * existe para permitir; a bolha é enfeite com ícone dentro.
+ */
 const MEDIDA: Record<TamanhoCategoria, { bolha: string; botao: string; icone: string; texto: string }> = {
-  pequeno: { bolha: 'size-11', botao: 'w-[60px]', icone: 'size-5',   texto: 'text-[10px]' },
-  medio:   { bolha: 'size-14', botao: 'w-[68px]', icone: 'size-6',   texto: 'text-[11px]' },
-  grande:  { bolha: 'size-20', botao: 'w-[88px]', icone: 'size-8',   texto: 'text-[12px]' },
+  pequeno: {
+    bolha: 'size-11 sm:size-14',
+    botao: 'w-[60px] sm:w-[72px]',
+    icone: 'size-5 sm:size-6',
+    texto: 'text-[10px] sm:text-[11.5px]',
+  },
+  medio: {
+    bolha: 'size-14 sm:size-16 lg:size-20',
+    botao: 'w-[68px] sm:w-[80px] lg:w-[92px]',
+    icone: 'size-6 sm:size-7 lg:size-8',
+    texto: 'text-[11px] sm:text-[12px] lg:text-[13px]',
+  },
+  grande: {
+    bolha: 'size-20 sm:size-24',
+    botao: 'w-[88px] sm:w-[104px]',
+    icone: 'size-8 sm:size-10',
+    texto: 'text-[12px] sm:text-[13px] lg:text-[14px]',
+  },
 };
 
 export function normalizarFormato(v: unknown): FormatoCategoria {
