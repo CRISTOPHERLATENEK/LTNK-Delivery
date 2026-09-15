@@ -102,12 +102,29 @@ export function saldoParaEstoque(saldo: number): number {
  * seriam todos os salgadinhos.
  */
 /**
- * O SALDO QUE VALE PARA ESTE PRODUTO — próprio ou derivado da composição.
+ * O SALDO QUE VALE PARA ESTE PRODUTO — derivado da composição, ou próprio.
  *
  * UM LUGAR SÓ porque três decisões dependem dele: o que gravar, quem passa a
  * esgotar sozinho, e a conta que a tela mostra antes de o lojista ligar. Com a
  * regra repetida três vezes, a caixa entraria numa e ficaria de fora das
  * outras — e ninguém descobre isso olhando a tela.
+ *
+ * ────────────── A COMPOSIÇÃO GANHA DO SALDO PRÓPRIO, e isto é o contrário
+ * do que eu escrevi na primeira versão. O lojista achou em uma hora:
+ *
+ *   HEINEKEN CAIXA (var 716) É composição de 12× HEINEKEN LATA (var 715)
+ *   HEINEKEN LATA ............ 35 unidades → dá 2 caixas
+ *   MAS a caixa TEM linha de estoque própria, com saldo 0
+ *
+ * Com "saldo próprio primeiro", o zero ganhava e a caixa aparecia ESGOTADA
+ * com 35 latas na prateleira.
+ *
+ * O zero da caixa é RESÍDUO, não informação: no modo "Multiplicar Quantidade
+ * pelo Estoque" quem movimenta é o componente, e o registro do kit fica parado
+ * onde estava. As outras nove caixas do cadastro nem linha têm — a Heineken
+ * tem porque um dia alguém mexeu nela.
+ *
+ * Então: é composição, a composição responde. Não é, vale o saldo próprio.
  *
  * `null` = não dá para saber, e é diferente de zero: zero esgota o produto,
  * `null` deixa em paz.
@@ -116,8 +133,10 @@ export function saldoEfetivo(
   p: ProdutoComEstoque,
   saldos: Map<number, number>,
 ): number | null {
+  const derivado = estoqueDerivado(p.composicao, saldos);
+  if (derivado !== null) return derivado;
   if (saldos.has(p.variacaoErp)) return saldoParaEstoque(saldos.get(p.variacaoErp) as number);
-  return estoqueDerivado(p.composicao, saldos);
+  return null;
 }
 
 export function planejarEstoque(

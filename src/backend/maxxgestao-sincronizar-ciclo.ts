@@ -268,12 +268,16 @@ export async function sincronizarLojaErp(
 /**
  * QUANTAS COMPOSIÇÕES PERGUNTAR POR PASSADA.
  *
- * Uma chamada cada, e o teto do ERP é 20 por minuto — o mesmo que emite a
- * NFC-e. Vinte por hora descobre o cardápio do Galderio (16 desconhecidos) na
- * primeira passada e, numa loja com centenas de kits, converge em algumas
- * horas sem nunca competir com a nota de um pedido.
+ * Uma chamada cada, e o teto do ERP é 20 por minuto (1.200 por hora) — o mesmo
+ * que emite a NFC-e.
+ *
+ * SUBIU DE 20 PARA 60 quando ficou claro que TODO produto precisa ser
+ * perguntado, e não só os sem saldo: a HEINEKEN CAIXA é composição E tem linha
+ * de estoque própria. A 20 por hora, o cadastro do Galderio (1.116 itens) levaria
+ * 56 horas para ser varrido; a 60, leva 19 — e 60 chamadas são 5% do orçamento
+ * de uma hora, gastas numa passada que já não é urgente.
  */
-export const COMPOSICOES_POR_PASSADA = 20;
+export const COMPOSICOES_POR_PASSADA = 60;
 
 /**
  * Pergunta ao ERP de que são feitos os produtos que ainda não sabemos, e grava.
@@ -299,11 +303,23 @@ export async function descobrirComposicoes(
   let quantos = 0;
   try {
     const todos = await produtosSemComposicaoConhecida(lojaId);
-    const semSaldoProprio = todos.filter(p => !saldos.has(p.variacao));
-    /* Os que têm saldo próprio ficam para o fim da fila — são respondidos com o
-       tempo, sem atrapalhar, e marcá-los evita reperguntar para sempre. */
-    const pendentes = [...semSaldoProprio, ...todos.filter(p => saldos.has(p.variacao))]
-      .slice(0, COMPOSICOES_POR_PASSADA);
+    /*
+     * TRÊS FILAS, e a ordem saiu de dois defeitos medidos:
+     *
+     * 1. SEM LINHA DE ESTOQUE — é a cara da caixa comum: nove das dez do
+     *    Galderio são assim. Sem esta prioridade a fila andava na ordem do
+     *    banco e as 40 primeiras perguntas caíam em produto que já tinha saldo.
+     * 2. SALDO ZERO — a cara do kit que um dia teve linha e parou: a HEINEKEN
+     *    CAIXA tem registro próprio com 0 e é composição de 12 latas. Foi ela
+     *    que mostrou que "tem saldo" não exclui "é kit".
+     * 3. O RESTO — perguntado com o tempo. Produto com saldo positivo até pode
+     *    ser kit, mas se for, o número dele ao menos não está mentindo para
+     *    baixo enquanto a vez não chega.
+     */
+    const semLinha = todos.filter(p => !saldos.has(p.variacao));
+    const zerados = todos.filter(p => saldos.has(p.variacao) && (saldos.get(p.variacao) as number) <= 0);
+    const resto = todos.filter(p => saldos.has(p.variacao) && (saldos.get(p.variacao) as number) > 0);
+    const pendentes = [...semLinha, ...zerados, ...resto].slice(0, COMPOSICOES_POR_PASSADA);
     for (const p of pendentes) {
       try {
         const itens = await composicaoDoProduto(token, p.variacao, op);

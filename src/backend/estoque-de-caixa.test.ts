@@ -83,19 +83,43 @@ describe('quantas caixas dá para montar', () => {
   });
 });
 
-describe('saldo próprio vem antes da composição', () => {
+describe('a composição ganha do saldo próprio', () => {
   /*
-   * A ORDEM IMPORTA: um produto que TEM estoque próprio no ERP é o que o ERP
-   * diz que ele é. A composição só responde por quem não tem linha nenhuma.
+   * O CASO HEINEKEN, que o lojista achou em uma hora e derrubou a primeira
+   * versão desta regra:
+   *
+   *   HEINEKEN CAIXA (var 716) É composição de 12× HEINEKEN LATA (var 715)
+   *   HEINEKEN LATA ............ 35 unidades → dá 2 caixas
+   *   MAS a caixa TEM linha de estoque própria, com saldo 0
+   *
+   * Com "saldo próprio primeiro" (o que eu escrevi antes), o zero ganhava e a
+   * caixa aparecia ESGOTADA com 35 latas na prateleira.
+   *
+   * O zero da caixa é RESÍDUO, não informação: no modo "Multiplicar Quantidade
+   * pelo Estoque" quem movimenta é o componente, e o registro do kit fica
+   * parado. As outras nove caixas do cadastro nem linha têm — a Heineken tem
+   * porque um dia alguém mexeu nela.
    */
-  it('com linha própria, a composição é ignorada', () => {
-    const p = caixa(1004, 5, 12);
-    expect(saldoEfetivo(p, new Map([[1004, 7], [5, 120]]))).toBe(7);
+  it('caixa com saldo próprio ZERO vale pelo componente', () => {
+    const heineken = caixa(716, 715, 12);
+    expect(saldoEfetivo(heineken, new Map([[716, 0], [715, 35]]))).toBe(2);
   });
 
-  it('sem linha própria, usa a composição', () => {
+  it('e vale pelo componente mesmo com saldo próprio positivo', () => {
+    /* O registro do kit não é mantido; o do componente é. */
     const p = caixa(1004, 5, 12);
-    expect(saldoEfetivo(p, new Map([[5, 40]]))).toBe(3);
+    expect(saldoEfetivo(p, new Map([[1004, 7], [5, 120]]))).toBe(10);
+  });
+
+  it('sem composição, o saldo próprio responde', () => {
+    expect(saldoEfetivo(nosso(9, { estoque: 0 }), new Map([[9, 42]]))).toBe(42);
+  });
+
+  /* Composição que não dá para resolver (componente sem linha) CAI no saldo
+     próprio, em vez de deixar o produto sem resposta. */
+  it('composição irresolvível cai no saldo próprio', () => {
+    const p = caixa(1004, 999, 12);
+    expect(saldoEfetivo(p, new Map([[1004, 7]]))).toBe(7);
   });
 });
 
@@ -171,13 +195,15 @@ describe('a composição é lida de hora em hora, não a cada 2 minutos', () => 
    * do cadastro; a 20 por hora, ela só seria alcançada em 56 horas. Produto com
    * saldo próprio nunca precisa de composição.
    */
-  it('a fila começa por quem não tem saldo próprio', () => {
+  it('a fila é sem-linha, depois zerados, depois o resto', () => {
     const i = C.indexOf('export async function descobrirComposicoes');
-    const corpo = C.slice(i, i + 1200);
+    const corpo = C.slice(i, i + 1800);
     expect(corpo).toContain('!saldos.has(p.variacao)');
-    /* E os com saldo vêm DEPOIS, não são descartados: marcá-los evita
-       reperguntar para sempre. */
-    expect(corpo).toMatch(/\[\.\.\.semSaldoProprio, \.\.\.todos\.filter/);
+    /* O SALDO ZERO É A SEGUNDA FILA por causa da HEINEKEN CAIXA: ela tem
+       registro próprio com 0 e é composição de 12 latas. "Tem saldo" não
+       exclui "é kit". */
+    expect(corpo).toMatch(/<= 0\)/);
+    expect(corpo).toMatch(/\[\.\.\.semLinha, \.\.\.zerados, \.\.\.resto\]/);
   });
 
   /* A passada lê os saldos UMA vez e usa nas duas coisas: reler custaria 13
@@ -191,8 +217,12 @@ describe('a composição é lida de hora em hora, não a cada 2 minutos', () => 
 
   /* Teto por passada: uma loja com centenas de kits não pode gastar o
      orçamento do ERP de uma vez. */
-  it('pergunta no máximo 20 por passada', () => {
-    expect(C).toContain('export const COMPOSICOES_POR_PASSADA = 20;');
+  it('pergunta no máximo 60 por passada', () => {
+    /* SUBIU DE 20 PARA 60 quando ficou claro que TODO produto precisa ser
+       perguntado, e não só os sem saldo (caso Heineken): a 20 por hora o
+       cadastro do Galderio levaria 56 horas; a 60, leva 19. E 60 chamadas são
+       5% do orçamento de uma hora. */
+    expect(C).toContain('export const COMPOSICOES_POR_PASSADA = 60;');
     const i = C.indexOf('export async function descobrirComposicoes');
     expect(C.slice(i, i + 700)).toContain('.slice(0, COMPOSICOES_POR_PASSADA)');
   });
