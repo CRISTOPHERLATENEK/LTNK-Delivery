@@ -44,6 +44,11 @@ export function CoresTab({ estado, atualizar, restaurarPadrao }: Props) {
             onChange={v => atualizar('cores.cor_rodape', v)} />
           <ColorField label="Cor do texto" value={estado.cores.cor_texto} fallback="#1f1f1f"
             onChange={v => atualizar('cores.cor_texto', v)} />
+          {/* O PREÇO TEM COR PRÓPRIA porque é a informação que o cliente
+              procura primeiro. Vazio herda a cor do texto — que é o que
+              acontecia antes deste campo existir. */}
+          <ColorField label="Cor do preço" value={estado.cores.cor_preco} fallback="#1f1f1f"
+            onChange={v => atualizar('cores.cor_preco', v)} />
           <ColorField label="Cor dos badges" value={estado.cores.cor_badges} fallback="#16a34a"
             onChange={v => atualizar('cores.cor_badges', v)} />
         </CardContent>

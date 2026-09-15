@@ -579,6 +579,7 @@ function validarVisualJson(bruto: unknown, atualStr: string): string {
       cor_cabecalho: cor(coresNovo.cor_cabecalho, coresAtual.cor_cabecalho || ''),
       cor_rodape: cor(coresNovo.cor_rodape, coresAtual.cor_rodape || ''),
       cor_texto: cor(coresNovo.cor_texto, coresAtual.cor_texto || ''),
+      cor_preco: cor(coresNovo.cor_preco, coresAtual.cor_preco || ''),
       cor_badges: cor(coresNovo.cor_badges, coresAtual.cor_badges || ''),
     },
     logo: {

@@ -95,6 +95,14 @@ export interface VisualJson {
     cor_cabecalho: string;
     cor_rodape: string;
     cor_texto: string;
+    /**
+     * A cor do PREÇO no cardápio. Vazio = herda a cor do texto.
+     *
+     * Ganhou campo próprio porque o preço é a informação que o cliente procura
+     * primeiro, e num cardápio de bebidas ele costuma querer destacá-lo do
+     * resto do texto.
+     */
+    cor_preco: string;
     cor_badges: string;
   };
   logo: {

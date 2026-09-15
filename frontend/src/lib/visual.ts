@@ -21,7 +21,7 @@ export const DEFAULT_VISUAL: VisualJson = {
   },
   cores: {
     cor_botoes: '', cor_cards: '', cor_fundo: '', cor_cabecalho: '',
-    cor_rodape: '', cor_texto: '', cor_badges: '',
+    cor_rodape: '', cor_texto: '', cor_preco: '', cor_badges: '',
   },
   logo: {
     tamanho: 64, formato: 'arredondado',

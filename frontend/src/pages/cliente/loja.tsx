@@ -1070,9 +1070,15 @@ function VitrineDestaques({ produtos, podeAbrir, onAbrir, visual, corMarca }: {
                       da listagem usa, e resolve pra cor da marca da loja. Com
                       cor cravada aqui, o mesmo produto tinha preço vermelho na
                       vitrine e laranja no card, dois passos abaixo. */}
-                  <span className={cn('tabular-nums',
-                    c.preco_destacado ? 'text-sm font-extrabold' : 'text-[13px] font-semibold',
-                    temPromo ? 'text-primary' : 'text-foreground')}>
+                  {/* Mesma regra do outro card: herda a cor da loja, com a
+                      `cor_preco` por cima quando houver. Com `text-foreground`
+                      o preço sumia no modo escuro sobre o card claro. */}
+                  <span
+                    className={cn('tabular-nums',
+                      c.preco_destacado ? 'text-sm font-extrabold' : 'text-[13px] font-semibold',
+                      !visual.cores.cor_preco && temPromo && 'text-primary')}
+                    style={{ color: visual.cores.cor_preco || undefined }}
+                  >
                     {brl(preco)}
                   </span>
                   {temPromo && (
@@ -1335,7 +1341,23 @@ function CardProduto({ produto, podeAbrir, onAbrir, onAdicionar, visual, corMarc
                 {aPartirDe && (
                   <span className="block text-[9.5px] font-semibold uppercase tracking-wide text-muted-foreground">a partir de</span>
                 )}
-                <span className={cn(c.preco_destacado ? 'font-extrabold text-[14px]' : 'font-semibold text-[12px]', temPromo ? 'text-primary' : 'text-foreground')}>
+                {/*
+                  O PREÇO HERDA A COR DA LOJA — e isso era um defeito, não um
+                  gosto. Ele tinha `text-foreground` cravado: a cor do TEMA, que
+                  inverte no modo escuro. Como o card usa `cor_cards` (uma cor
+                  FIXA do Visual, branca por padrão), no escuro o cartão
+                  continuava branco e o preço virava quase branco também —
+                  invisível. O nome do produto escapava porque não crava cor
+                  nenhuma e herda a `cor_texto` do container.
+
+                  Agora o preço segue o mesmo caminho do nome, com a `cor_preco`
+                  por cima quando o lojista escolher uma.
+                */}
+                <span
+                  className={cn(c.preco_destacado ? 'font-extrabold text-[14px]' : 'font-semibold text-[12px]',
+                    !visual.cores.cor_preco && temPromo && 'text-primary')}
+                  style={{ color: visual.cores.cor_preco || undefined }}
+                >
                   {brl(precoExibido)}
                 </span>
               </>
