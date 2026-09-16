@@ -216,3 +216,31 @@ describe('servido de verdade', () => {
     expect(OG).toContain('loja.descricao || `Peça online na ${loja.nome}');
   });
 });
+
+describe('a verificação do Search Console', () => {
+  /*
+   * O ARQUIVO DO GOOGLE É FRÁGIL POR NATUREZA: é um arquivo solto, sem nada no
+   * código apontando para ele, e some numa limpeza de `public/` sem que nada
+   * quebre. O efeito de perdê-lo não aparece na hora — a propriedade sai de
+   * verificada semanas depois, e com ela o envio do sitemap e os relatórios de
+   * indexação.
+   *
+   * Ele é servido pelo `express.static` em QUALQUER host da plataforma. Isso é
+   * de propósito e é o que faz a verificação funcionar sem saber de antemão
+   * qual domínio o lojista cadastrou no Search Console — mas vale saber: num
+   * domínio próprio de cliente, este token continua sendo o da plataforma.
+   */
+  it('o arquivo de verificação continua no lugar', () => {
+    const arquivo = path.join(__dirname, '..', '..', 'frontend', 'public',
+      'googled7c37f86d0ad2e53.html');
+    expect(fs.existsSync(arquivo)).toBe(true);
+    expect(fs.readFileSync(arquivo, 'utf8').trim())
+      .toBe('google-site-verification: googled7c37f86d0ad2e53.html');
+  });
+
+  /* O robots não pode bloquear a raiz, senão o Google não busca o arquivo. */
+  it('o robots não atrapalha a verificação', () => {
+    const t = robots('https://x.com.br', true);
+    expect(t).not.toMatch(/^Disallow: \/$/m);
+  });
+});
