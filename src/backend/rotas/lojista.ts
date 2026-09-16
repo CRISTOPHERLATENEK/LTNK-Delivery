@@ -2530,14 +2530,16 @@ router.post('/produtos/:id/grupos/:grupoId/soltar', async (req, res, next) => {
       ).all(grupo.id) as Array<Record<string, unknown>>;
       for (const o of opcoes) {
         await tx.prepare(
-          `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao, imagem, produto_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao, imagem, produto_id, sem_estoque)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(clone, o.nome, o.preco_adicional_centavos, o.disponivel, o.ordem,
               o.sabores || 0, o.secao || '', o.descricao || '', o.imagem || '',
               /* O VÍNCULO DE ESTOQUE VAI JUNTO. Sem ele o clone parece igual na
                  tela e não baixa nada — exatamente o defeito que o comentário
-                 acima descreve, agora com o estoque como sintoma. */
-              o.produto_id || 0);
+                 acima descreve, agora com o estoque como sintoma. E a marca de
+                 "não baixa de propósito" vai junto também, senão o clone volta
+                 a pedir vínculo que ninguém vai dar. */
+              o.produto_id || 0, o.sem_estoque || 0);
       }
 
       /* Aponta o vínculo DESTE produto pro clone. Os outros produtos seguem no
@@ -2586,7 +2588,8 @@ router.put('/opcoes/:id', async (req, res, next) => {
       precoAdicional = v;
     }
     const atual = opcao as unknown as {
-      sabores?: number; secao?: string; descricao?: string; imagem?: string; produto_id?: number;
+      sabores?: number; secao?: string; descricao?: string; imagem?: string;
+      produto_id?: number; sem_estoque?: number;
     };
 
     /*
@@ -2611,9 +2614,21 @@ router.put('/opcoes/:id', async (req, res, next) => {
       }
     }
 
+    /*
+     * "VINCULADO" E "NÃO BAIXA" SÃO EXCLUSIVOS, e o servidor é quem garante:
+     * escolher um produto desliga a marca, e marcar "não baixa" apaga o
+     * vínculo. Os dois juntos seriam um estado que a tela não sabe desenhar e
+     * que ninguém saberia ler depois.
+     */
+    let semEstoque = atual.sem_estoque ? 1 : 0;
+    if (req.body.sem_estoque !== undefined) semEstoque = req.body.sem_estoque ? 1 : 0;
+    if (req.body.produto_id !== undefined && produtoVinculado > 0) semEstoque = 0;
+    if (semEstoque === 1) produtoVinculado = 0;
+
     await db.prepare(
       `UPDATE opcoes_itens SET nome = ?, preco_adicional_centavos = ?, disponivel = ?,
-              sabores = ?, secao = ?, descricao = ?, imagem = ?, produto_id = ? WHERE id = ?`
+              sabores = ?, secao = ?, descricao = ?, imagem = ?, produto_id = ?,
+              sem_estoque = ? WHERE id = ?`
     ).run(nome, precoAdicional,
           req.body.disponivel !== undefined ? (req.body.disponivel ? 1 : 0) : opcao.disponivel,
           // Quantos sabores esta opção libera (só nas opções de tamanho).
@@ -2625,8 +2640,9 @@ router.put('/opcoes/:id', async (req, res, next) => {
           req.body.descricao !== undefined ? textoLimpo(req.body.descricao, 160) : (atual.descricao ?? ''),
           req.body.imagem !== undefined ? textoLimpo(req.body.imagem, 500) : (atual.imagem ?? ''),
           produtoVinculado,
+          semEstoque,
           opcao.id);
-    res.json({ ok: true, produto_id: produtoVinculado });
+    res.json({ ok: true, produto_id: produtoVinculado, sem_estoque: semEstoque });
   } catch (e) { next(e); }
 });
 

@@ -115,8 +115,8 @@ describe('o clone do grupo leva o vínculo junto', () => {
   it('a cópia das opções inclui produto_id', () => {
     const i = LOJISTA.indexOf('INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores');
     expect(i).toBeGreaterThan(0);
-    const trecho = LOJISTA.slice(i, i + 600);
-    expect(trecho).toContain('produto_id)');
+    const trecho = LOJISTA.slice(i, i + 700);
+    expect(trecho).toContain('produto_id, sem_estoque)');
     expect(trecho).toContain('o.produto_id || 0');
   });
 });
@@ -135,7 +135,10 @@ describe('a tela dos complementos', () => {
   });
 
   it('escolher um produto grava produto_id na opção', () => {
-    expect(TELA).toContain('salvarOpcao(o, { produto_id: p.id })');
+    /* `sem_estoque: false` vai junto desde que existe a marca explícita: os dois
+       estados se excluem, e mandar só um deixaria a linha piscando com o estado
+       velho até a releitura chegar. */
+    expect(TELA).toContain('salvarOpcao(o, { produto_id: p.id, sem_estoque: false })');
   });
 
   it('dá pra desvincular', () => {
@@ -177,5 +180,62 @@ describe('a tela dos complementos', () => {
     const i = TELA.indexOf("queryKey: ['lojista-produtos-vinculaveis']");
     expect(i).toBeGreaterThan(0);
     expect(TELA.slice(i, i + 400)).toContain('enabled: vinculando !== null');
+  });
+});
+
+describe('"não baixa estoque" como decisão, e não como esquecimento', () => {
+  /*
+   * O CASO REAL: no grupo "Energético" do balde, Monster e Red Bull saem do
+   * estoque e os cinco Balys não — o Baly do balde vem de outra compra.
+   *
+   * Antes desta marca, opção sem vínculo num grupo ligado só podia significar
+   * esquecimento, e a tela avisava em âmbar para sempre. Cinco alertas que
+   * ninguém pode resolver ensinam a ignorar o alerta — e aí o esquecimento de
+   * verdade passa junto com eles.
+   */
+  it('a coluna existe e nasce desligada', () => {
+    const i = SCHEMA.indexOf("'opcoes_itens', 'sem_estoque'");
+    expect(i).toBeGreaterThan(0);
+    expect(SCHEMA.slice(i, i + 160)).toContain('DEFAULT 0');
+  });
+
+  /*
+   * OS DOIS ESTADOS SÃO EXCLUSIVOS, e quem garante é o servidor: escolher um
+   * produto desliga a marca, e marcar "não baixa" apaga o vínculo. Juntos
+   * seriam um estado que a tela não sabe desenhar e que ninguém saberia ler.
+   */
+  it('vincular e "não baixa" se excluem, no servidor', () => {
+    const i = LOJISTA.indexOf("router.put('/opcoes/:id'");
+    const corpo = LOJISTA.slice(i, LOJISTA.indexOf('\n});', i));
+    expect(corpo).toContain('if (req.body.produto_id !== undefined && produtoVinculado > 0) semEstoque = 0;');
+    expect(corpo).toContain('if (semEstoque === 1) produtoVinculado = 0;');
+    expect(corpo).toContain('sem_estoque = ?');
+  });
+
+  /* O clone leva a decisão junto, senão volta a pedir vínculo que ninguém dará. */
+  it('duplicar o grupo preserva a marca', () => {
+    const i = LOJISTA.indexOf('INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores');
+    const trecho = LOJISTA.slice(i, i + 700);
+    expect(trecho).toContain('sem_estoque)');
+    expect(trecho).toContain('o.sem_estoque || 0');
+  });
+
+  /*
+   * ÂMBAR SÓ PARA PENDÊNCIA DE VERDADE. É o ponto inteiro da mudança: decisão
+   * tomada é cinza.
+   */
+  it('a marca tira o âmbar da linha', () => {
+    expect(TELA).toContain('o.produto_id || o.sem_estoque');
+    expect(TELA).toContain("'Não baixa estoque'");
+  });
+
+  it('dá para marcar pelo seletor', () => {
+    expect(TELA).toContain('salvarOpcao(o, { sem_estoque: true })');
+  });
+
+  /* Escolher produto tem que limpar a marca também na tela, senão a linha
+     pisca com o estado velho até a releitura chegar. */
+  it('escolher produto limpa a marca', () => {
+    expect(TELA).toContain('salvarOpcao(o, { produto_id: p.id, sem_estoque: false })');
   });
 });

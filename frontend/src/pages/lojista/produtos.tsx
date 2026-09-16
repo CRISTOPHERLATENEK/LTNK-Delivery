@@ -120,6 +120,15 @@ interface OpcaoItem {
    * não existe para o ERP e nunca é descontado.
    */
   produto_id?: number;
+  /**
+   * O lojista disse que esta opção NÃO baixa estoque, de propósito.
+   *
+   * Existe para separar "faltou vincular" de "não quis vincular". No grupo
+   * "Energético" do balde, Monster e Red Bull saem do estoque e os cinco Balys
+   * não — sem esta marca, os cinco ficariam com aviso de pendência para sempre,
+   * e aviso que não se pode resolver ensina a ignorar todos os avisos.
+   */
+  sem_estoque?: number;
   disponivel: number;
   ordem: number;
 }
@@ -5096,7 +5105,14 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                           onClick={() => { setVinculando(vinculando === o.id ? null : o.id); setBuscaVinculo(''); }}
                                           className={cn(
                                             'flex max-w-full items-center gap-1.5 rounded-lg px-2 py-1 text-[11.5px] transition-colors',
-                                            o.produto_id
+                                            /*
+                                              ÂMBAR SÓ PARA PENDÊNCIA DE VERDADE.
+                                              "Não baixa" é decisão tomada, e decisão
+                                              tomada é cinza: pintar as duas de âmbar
+                                              faria o lojista com cinco Balys ver cinco
+                                              alertas que ele não pode resolver.
+                                            */
+                                            o.produto_id || o.sem_estoque
                                               ? 'bg-muted/60 text-muted-foreground hover:bg-accent'
                                               : 'bg-amber-500/10 font-semibold text-amber-700 hover:bg-amber-500/20 dark:text-amber-400',
                                           )}
@@ -5105,7 +5121,9 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                           <span className="truncate">
                                             {o.produto_id
                                               ? `Sai de: ${(vinculaveis ?? []).find(p => p.id === o.produto_id)?.nome ?? `produto #${o.produto_id}`}`
-                                              : 'Escolher de qual produto sai'}
+                                              : o.sem_estoque
+                                                ? 'Não baixa estoque'
+                                                : 'Escolher de qual produto sai'}
                                           </span>
                                         </button>
 
@@ -5132,6 +5150,21 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                                 <X className="size-4" />
                                               </button>
                                             </div>
+                                            {/*
+                                              A DECISÃO EXPLÍCITA VEM PRIMEIRO, antes da
+                                              lista de produtos: quem abre este painel
+                                              para um Baly não quer procurar produto
+                                              nenhum — quer dizer que ali não sai nada.
+                                            */}
+                                            <button
+                                              type="button"
+                                              onClick={() => { salvarOpcao(o, { sem_estoque: true }); setVinculando(null); }}
+                                              className={cn('mt-1.5 flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-[12.5px] font-semibold transition-colors hover:bg-accent/50',
+                                                o.sem_estoque ? 'border-primary/40 bg-primary/10' : 'border-border')}>
+                                              <span className="flex-1">Não baixa estoque</span>
+                                              {!!o.sem_estoque && <Check className="size-3.5 shrink-0 text-primary" />}
+                                            </button>
+
                                             <div className="mt-1.5 max-h-56 divide-y divide-border/60 overflow-y-auto rounded-lg border border-border">
                                               {(() => {
                                                 if (!vinculaveis) return <p className="px-3 py-2 text-[11.5px] text-muted-foreground">Carregando…</p>;
@@ -5147,7 +5180,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                                 }
                                                 return achados.map(p => (
                                                   <button key={p.id} type="button"
-                                                    onClick={() => { salvarOpcao(o, { produto_id: p.id }); setVinculando(null); }}
+                                                    onClick={() => { salvarOpcao(o, { produto_id: p.id, sem_estoque: false }); setVinculando(null); }}
                                                     className={cn('flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-accent/50',
                                                       p.id === o.produto_id && 'bg-primary/10')}>
                                                     <span className="min-w-0 flex-1">

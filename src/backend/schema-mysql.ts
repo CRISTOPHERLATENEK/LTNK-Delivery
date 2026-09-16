@@ -1449,6 +1449,20 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['produtos', 'estoque_minimo', 'estoque_minimo INT NOT NULL DEFAULT 0'],
     /*
+     * "ESTA OPÇÃO NÃO BAIXA ESTOQUE, E É DE PROPÓSITO."
+     *
+     * Sem esta coluna, opção sem produto vinculado num grupo que baixa só podia
+     * significar uma coisa: esquecimento — e a tela avisava em âmbar, para
+     * sempre. O caso real que a criou: no grupo "Energético" do balde, Monster e
+     * Red Bull saem do estoque e os cinco Balys não, porque o Baly do balde vem
+     * de outra compra. Cinco avisos permanentes que ninguém pode resolver
+     * ensinam a ignorar o aviso — e aí o esquecimento de verdade passa junto.
+     *
+     * Não muda o que baixa: quem decide isso continua sendo grupo ligado +
+     * produto vinculado. Isto é só a diferença entre "faltou" e "não quis".
+     */
+    ['opcoes_itens', 'sem_estoque', 'sem_estoque TINYINT NOT NULL DEFAULT 0'],
+    /*
      * DE QUE ESTE PRODUTO É FEITO NO ERP — para a caixa saber seu estoque.
      *
      * JSON: `[{"v": 5, "q": 12}]` = 12 unidades da variação 5 por caixa.
