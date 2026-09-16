@@ -354,3 +354,29 @@ label[for] {
 .mapa-dessaturado {
   filter: grayscale(1) contrast(0.9) brightness(1.08);
 }
+
+/*
+ * IMPRIMIR SÓ O CARTAZ DO QR, e não a tela inteira.
+ *
+ * `window.print()` no painel mandaria para o papel o menu, os botões e o
+ * formulário em volta de um quadrado de 4 cm — uma folha gasta e um cartaz que
+ * ninguém cola. Aqui tudo some, menos `#qr-para-impressao`, que volta a ocupar
+ * a página sozinho.
+ *
+ * `visibility` e não `display: none`: escondendo por display, os ancestrais do
+ * cartaz sumiriam junto com ele. Visibilidade se herda e se reverte — some
+ * tudo, e o cartaz se declara visível de novo.
+ */
+@media print {
+  body * { visibility: hidden; }
+  #qr-para-impressao, #qr-para-impressao * { visibility: visible; }
+  #qr-para-impressao {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    border: none;
+    /* O papel já é branco; a borda e a sombra da tela viram sujeira na folha. */
+    box-shadow: none;
+  }
+}

@@ -1,7 +1,8 @@
 /**
  * Rotas públicas (sem login): banners, vitrine, destaques e cardápio.
  */
-import { Router } from 'express';
+import { Router, type Request } from 'express';
+import QRCode from 'qrcode';
 import db, { bancoTenantAtual } from '../db-mysql';
 import { erroHttp, dataBrasilia} from '../util';
 import { sqlPromocaoVigente } from '../preco-produto';
@@ -538,6 +539,58 @@ export async function montarCardapio(idOuSlug: string) {
 
     return { loja, cardapio, categorias_meta, zonas, banners };
 }
+
+/**
+ * O QR CODE DA LOJA — para imprimir e colar.
+ *
+ * ─────────────────────────── POR QUE É PÚBLICO ─────────────────────────────
+ *
+ * Ele codifica UMA coisa: o endereço público desta loja, deduzido do Host da
+ * requisição. Não aceita URL de fora, e é por isso que pode ser aberto: um
+ * gerador que aceitasse `?url=` viraria fábrica de QR de phishing hospedada no
+ * domínio do lojista.
+ *
+ * Aberto também é o que permite o download funcionar: `<a download href>` não
+ * manda cabeçalho de autenticação, e uma rota protegida obrigaria a baixar por
+ * fetch e remontar o arquivo em memória para ganhar nada.
+ *
+ * ───────────────────────── AS ESCOLHAS DO DESENHO ──────────────────────────
+ *
+ * CORREÇÃO DE ERRO ALTA (H) e não a média: o código vai para adesivo em porta
+ * de geladeira, sacola e balcão — lugares onde ele risca, molha e dobra. H
+ * recupera até ~30% do código danificado, e é o que também deixa pôr o logo no
+ * meio depois sem quebrar a leitura.
+ *
+ * MARGEM DE 2 MÓDULOS: o QR precisa de "zona quieta" em volta. Sem ela, o
+ * código colado junto de uma borda escura não lê em parte dos celulares — e o
+ * lojista descobre isso com mil adesivos impressos.
+ *
+ * SVG É O FORMATO PARA GRÁFICA (não perde qualidade em nenhum tamanho); o PNG
+ * existe para WhatsApp e redes, que não abrem SVG.
+ */
+const QR_OPCOES = { errorCorrectionLevel: 'H' as const, margin: 2 };
+
+function urlDaLoja(req: Request): string {
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  return `${proto}://${req.headers.host}/`;
+}
+
+router.get('/qr-da-loja.svg', async (req, res, next) => {
+  try {
+    const svg = await QRCode.toString(urlDaLoja(req), { ...QR_OPCOES, type: 'svg' });
+    res.type('image/svg+xml').send(svg);
+  } catch (e) { next(e); }
+});
+
+router.get('/qr-da-loja.png', async (req, res, next) => {
+  try {
+    /* Teto de 2048: acima disso o arquivo cresce sem ganhar nitidez (o QR é
+       geometria, não foto) e viraria um jeito barato de gastar CPU do servidor. */
+    const tamanho = Math.min(2048, Math.max(128, Number(req.query.tamanho) || 1024));
+    const png = await QRCode.toBuffer(urlDaLoja(req), { ...QR_OPCOES, type: 'png', width: tamanho });
+    res.type('image/png').send(png);
+  } catch (e) { next(e); }
+});
 
 router.get('/lojas/:id', async (req, res, next) => {
   try {

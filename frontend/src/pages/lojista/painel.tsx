@@ -29,7 +29,7 @@ import { cn } from '@/lib/utils';
 import { ErroLogin } from '@/components/ui/tela-login';
 import { urgenciaPedido } from '@/lib/urgencia-pedido';
 import { alturaLogo } from '@/lib/logo-escala';
-import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag, MessageCircle, ShieldCheck, Check } from 'lucide-react';
+import { Home, Box, Settings, BarChart3, Users, Phone, Mail, Palette, Ticket, Clock, Bike, Image, ShoppingCart, UtensilsCrossed, LayoutGrid, Star, ChevronRight, Plus, Trash2, ExternalLink, CreditCard, FileText, Tag, MessageCircle, ShieldCheck, Check, QrCode } from 'lucide-react';
 import { ImageUpload } from '@/components/ui/image-upload';
 import {
   garantirPermissaoNotificacao, notificarNovoPedido,
@@ -51,6 +51,7 @@ import { BalcaoLoja } from './balcao';
 import { DashboardLoja } from './dashboard';
 import { CuponsLoja } from './cupons';
 import { BannersLoja } from './banners';
+import { QrCodeLoja } from './qrcode';
 import type { Pedido, ItemPedido } from '@/types';
 
 type PedidoComItens = Pedido & { itens: ItemPedido[] };
@@ -346,7 +347,7 @@ export function PainelLojista() {
 type AbaConfig =
   | 'loja' | 'horario' | 'entrega' | 'entregadores' | 'visual'
   | 'banners' | 'pagamentos' | 'impressao' | 'fiscal' | 'seguranca' | 'usuarios'
-  | 'integracoes';
+  | 'integracoes' | 'qrcode';
 
 /**
  * Agrupadas por TAREFA, não pela ordem em que foram construídas: eram 11 abas
@@ -397,6 +398,9 @@ const GRUPOS_CONFIG: { titulo: string; itens: { id: AbaConfig; label: string; ic
     itens: [
       { id: 'visual', label: 'Visual', icone: Palette },
       { id: 'banners', label: 'Banners', icone: Image },
+      /* Ao lado de Banners: os dois são divulgação — o que o cliente vê antes
+         de comprar. O QR é o único que sai do sistema e vai para o papel. */
+      { id: 'qrcode', label: 'QR Code', icone: QrCode },
       // Ao lado de Segurança: quem entra no painel é assunto de acesso, não de
       // operação. Fica logo antes dela porque criar usuário vem antes de
       // proteger o login deles.
@@ -459,6 +463,7 @@ function ConfiguracoesLoja() {
       {aba === 'impressao' && <ImpressaoLoja />}
       {aba === 'visual' && <VisualLoja />}
       {aba === 'banners' && <BannersLoja />}
+      {aba === 'qrcode' && <QrCodeLoja />}
       {aba === 'usuarios' && <UsuariosLoja />}
       {aba === 'seguranca' && <SegurancaLoja />}
     </>
