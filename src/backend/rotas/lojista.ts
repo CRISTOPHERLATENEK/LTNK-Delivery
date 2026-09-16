@@ -1537,12 +1537,12 @@ router.post('/produtos/:id/duplicar', async (req, res, next) => {
        * montar a composição, então os componentes são sempre produtos simples.
        */
       const componentes = await tx.prepare(
-        'SELECT slot, produto_id, rotulo FROM combo_itens WHERE combo_id = ? ORDER BY slot'
-      ).all(original.id) as Array<{ slot: number; produto_id: number; rotulo: string }>;
+        'SELECT slot, produto_id, rotulo, quantidade FROM combo_itens WHERE combo_id = ? ORDER BY slot'
+      ).all(original.id) as Array<{ slot: number; produto_id: number; rotulo: string; quantidade: number }>;
       for (const c of componentes) {
         await tx.prepare(
-          'INSERT INTO combo_itens (combo_id, slot, produto_id, rotulo) VALUES (?, ?, ?, ?)'
-        ).run(novoId, c.slot, c.produto_id, c.rotulo);
+          'INSERT INTO combo_itens (combo_id, slot, produto_id, rotulo, quantidade) VALUES (?, ?, ?, ?, ?)'
+        ).run(novoId, c.slot, c.produto_id, c.rotulo, c.quantidade || 1);
       }
 
       return novoId;
@@ -1637,9 +1637,21 @@ router.get('/produtos/:id/combo', async (req, res, next) => {
     const loja = await minhaLoja(req);
     const produto = await meuProduto(loja, req.params.id);
     const itens = await db.prepare(
-      `SELECT ci.id, ci.slot, ci.produto_id, ci.rotulo,
-              p.nome AS produto_nome, p.preco_centavos, p.foto_url,
-              (SELECT COUNT(*) FROM produto_grupos pg WHERE pg.produto_id = p.id) AS grupos
+      `SELECT ci.id, ci.slot, ci.produto_id, ci.rotulo, ci.quantidade,
+              p.nome AS produto_nome, p.categoria, p.preco_centavos, p.foto_url,
+              (SELECT COUNT(*) FROM produto_grupos pg WHERE pg.produto_id = p.id) AS grupos,
+              /*
+               * OS COMPLEMENTOS HERDADOS, POR NOME E REGRA.
+               *
+               * A tela precisa mostrar "Sabor (escolha 1) · Borda (opcional)"
+               * na linha do item: é a única coisa que explica por que o mesmo
+               * produto entra duas vezes em vez de virar quantidade 2.
+               */
+              (SELECT SUBSTRING(GROUP_CONCAT(
+                        CONCAT(g.nome, IF(pg.obrigatorio, CONCAT(' (escolhe ', pg.max_escolhas, ')'), ' (opcional)'))
+                        ORDER BY pg.ordem, g.id SEPARATOR ' · '), 1, 160)
+                 FROM produto_grupos pg JOIN grupos_opcoes g ON g.id = pg.grupo_id
+                WHERE pg.produto_id = p.id) AS complementos
          FROM combo_itens ci JOIN produtos p ON p.id = ci.produto_id
         WHERE ci.combo_id = ? ORDER BY ci.slot`
     ).all(produto.id) as unknown[];
@@ -1752,12 +1764,79 @@ router.put('/produtos/:id/combo/:itemId', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
     const combo = await meuProduto(loja, req.params.id);
-    const rotulo = textoLimpo(req.body.rotulo, 40);
-    if (!rotulo) throw erroHttp(400, 'Informe o nome deste item do combo.');
+    const itemId = inteiroPositivo(req.params.itemId);
     // `combo_id` no WHERE é a autorização: o item tem que ser deste combo, que
     // `meuProduto` já provou ser desta loja.
-    await db.prepare('UPDATE combo_itens SET rotulo = ? WHERE id = ? AND combo_id = ?')
-      .run(rotulo, inteiroPositivo(req.params.itemId), combo.id);
+    const atual = await db.prepare(
+      'SELECT rotulo, quantidade FROM combo_itens WHERE id = ? AND combo_id = ?'
+    ).get(itemId, combo.id) as { rotulo: string; quantidade: number } | undefined;
+    if (!atual) throw erroHttp(404, 'Item não encontrado neste combo.');
+
+    let rotulo = atual.rotulo;
+    if (req.body.rotulo !== undefined) {
+      rotulo = textoLimpo(req.body.rotulo, 40);
+      if (!rotulo) throw erroHttp(400, 'Informe o nome deste item do combo.');
+    }
+
+    /*
+     * O TETO DE 20 É DA TELA, e é repetido aqui de propósito: o stepper para
+     * em 20, mas quem chama a rota não é obrigado a ser a tela — e "999 Coca"
+     * num combo é engano ou abuso, não pedido.
+     */
+    let quantidade = atual.quantidade;
+    if (req.body.quantidade !== undefined) {
+      quantidade = Math.min(20, Math.max(1, Math.trunc(Number(req.body.quantidade)) || 1));
+    }
+
+    await db.prepare('UPDATE combo_itens SET rotulo = ?, quantidade = ? WHERE id = ? AND combo_id = ?')
+      .run(rotulo, quantidade, itemId, combo.id);
+    res.json({ ok: true, rotulo, quantidade });
+  } catch (e) { next(e); }
+});
+
+/**
+ * A NOVA ORDEM DOS COMPONENTES, depois de arrastar.
+ *
+ * Recebe a lista inteira de ids na ordem desejada e regrava os slots em bloco.
+ * Mandar só "este foi do 3 para o 1" obrigaria o servidor a recalcular o resto
+ * e a UNIQUE (combo_id, slot) recusaria no meio do caminho — com a lista
+ * inteira, a nova numeração é dada, não deduzida.
+ */
+router.put('/produtos/:id/combo', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const combo = await meuProduto(loja, req.params.id);
+    const pedidos: number[] = Array.isArray(req.body.ordem) ? req.body.ordem.map(Number) : [];
+    if (!pedidos.length) throw erroHttp(400, 'Informe a nova ordem dos itens.');
+
+    await comTransacao(async (tx) => {
+      const meus = await tx.prepare(
+        'SELECT id FROM combo_itens WHERE combo_id = ?'
+      ).all(combo.id) as Array<{ id: number }>;
+      const validos = new Set(meus.map(m => m.id));
+      /* Ids de outro combo são ignorados em silêncio: o WHERE já protege, e
+         recusar a requisição inteira por um id velho de aba aberta faria o
+         arrasto falhar sem que a pessoa entendesse. */
+      const nova = pedidos.filter(id => validos.has(id));
+      const resto = meus.map(m => m.id).filter(id => !nova.includes(id));
+
+      /*
+       * DOIS PASSOS, POR CAUSA DA UNIQUE (combo_id, slot).
+       *
+       * Regravar direto esbarra em slot já ocupado no meio da renumeração —
+       * o banco recusa antes de a ordem final existir. Por isso todos vão
+       * primeiro para uma faixa negativa, que ninguém usa, e só então para a
+       * posição definitiva.
+       */
+      for (const [i, id] of [...nova, ...resto].entries()) {
+        await tx.prepare('UPDATE combo_itens SET slot = ? WHERE id = ? AND combo_id = ?')
+          .run(-(i + 1), id, combo.id);
+      }
+      for (const [i, id] of [...nova, ...resto].entries()) {
+        await tx.prepare('UPDATE combo_itens SET slot = ? WHERE id = ? AND combo_id = ?')
+          .run(i + 1, id, combo.id);
+      }
+    });
     res.json({ ok: true });
   } catch (e) { next(e); }
 });

@@ -133,8 +133,13 @@ describe('composição de combo: duplicar e excluir', () => {
    */
   it('duplicar leva a composição junto', () => {
     const rota = trecho("router.post('/produtos/:id/duplicar'", "router.post('/produtos/bulk'");
-    expect(rota).toMatch(/SELECT slot, produto_id, rotulo FROM combo_itens WHERE combo_id = \?/);
-    expect(rota).toMatch(/INSERT INTO combo_itens \(combo_id, slot, produto_id, rotulo\)/);
+    expect(rota).toMatch(/SELECT slot, produto_id, rotulo, quantidade FROM combo_itens WHERE combo_id = \?/);
+    /* A QUANTIDADE VAI JUNTO. Um combo de "2× Coca" duplicado sem ela vira um
+       combo de 1 Coca pelo mesmo preço — o clone parece igual na lista e está
+       errado por dentro, que é o defeito que esta suíte já persegue nos outros
+       campos. */
+    expect(rota).toMatch(/INSERT INTO combo_itens \(combo_id, slot, produto_id, rotulo, quantidade\)/);
+    expect(rota).toContain('c.quantidade || 1');
   });
 
   /* Sem `vendido_sozinho`, duplicar um componente oculto publicava a cópia no

@@ -1431,6 +1431,15 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['produtos', 'estoque_erp_ignorar', 'estoque_erp_ignorar TINYINT NOT NULL DEFAULT 0'],
     /*
+     * QUANTAS UNIDADES DESTE COMPONENTE O COMBO LEVA.
+     *
+     * O slot continua sendo posição — "Pizza 1" e "Pizza 2" são dois slots
+     * porque cada uma é configurada separada. A quantidade é a outra coisa:
+     * duas Coca-Cola iguais, que ninguém configura, não precisam de duas
+     * linhas na tela do lojista nem de dois passos na do cliente.
+     */
+    ['combo_itens', 'quantidade', 'quantidade INT NOT NULL DEFAULT 1'],
+    /*
      * DE QUE ESTE PRODUTO É FEITO NO ERP — para a caixa saber seu estoque.
      *
      * JSON: `[{"v": 5, "q": 12}]` = 12 unidades da variação 5 por caixa.
