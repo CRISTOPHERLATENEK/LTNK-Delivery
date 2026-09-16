@@ -90,7 +90,17 @@ function metaDaLoja(loja: LinhaLoja, tipo: MetaOg['tipo'] = 'website'): MetaOg {
     // Capa antes do logo: o cartão do WhatsApp é largo, e logo quadrado pequeno
     // fica com bordas vazias enormes. Capa é a imagem feita pra esse formato.
     imagem: loja.capa_url || loja.logo_url || '',
-    descricao: loja.descricao || '',
+    /*
+     * DESCRIÇÃO VAZIA TEM PLANO B, e o plano B é o nome da loja numa frase.
+     *
+     * Medido no Galdério em 16/09/2026: a coluna está vazia, e o resultado era
+     * `<meta name="description" content="" />` — para o Google, uma página sem
+     * descrição nenhuma, e para o WhatsApp um cartão só com o título. A frase
+     * abaixo não inventa nada: usa o nome que a loja já tem.
+     *
+     * Não substitui o texto do lojista — só aparece quando não há texto.
+     */
+    descricao: loja.descricao || `Peça online na ${loja.nome}. Cardápio, preços e entrega.`,
     tipo,
   };
 }
@@ -179,7 +189,12 @@ function urlAbsoluta(valor: string, base: string): string {
  * <meta name="description"> existentes em vez de duplicar — dois títulos deixam
  * o resultado à sorte de qual o robô lê primeiro.
  */
-export function injetarMeta(html: string, meta: MetaOg, urlBase: string, urlCompleta: string): string {
+export function injetarMeta(
+  html: string, meta: MetaOg, urlBase: string, urlCompleta: string,
+  /* Tags de indexação (canonical, JSON-LD) — ver seo.ts. Lista vazia mantém o
+     comportamento anterior, que é o que vale para toda rota que não é vitrine. */
+  extras: string[] = [],
+): string {
   const imagem = urlAbsoluta(meta.imagem, urlBase);
   const tags = [
     `<meta property="og:type" content="${meta.tipo}" />`,
@@ -195,6 +210,7 @@ export function injetarMeta(html: string, meta: MetaOg, urlBase: string, urlComp
     `<meta name="twitter:title" content="${esc(meta.titulo)}" />`,
     `<meta name="twitter:description" content="${esc(meta.descricao)}" />`,
     ...(imagem ? [`<meta name="twitter:image" content="${esc(imagem)}" />`] : []),
+    ...extras,
   ].join('\n    ');
 
   return html

@@ -12,6 +12,7 @@ import 'dotenv/config';
 import path from 'path';
 import fs from 'fs';
 import { metaDaRota, injetarMeta, paginaSuspensa, contatoSuporte } from './og';
+import { lojaDoHost, robots, sitemap, canonical, dadosEstruturados } from './seo';
 import { montarDadosIniciais, injetarDados } from './dados-iniciais';
 import express, { ErrorRequestHandler } from 'express';
 
@@ -538,6 +539,37 @@ app.use(express.static(path.join(__dirname, '..', '..', 'public'), {
   },
 }));
 
+/*
+ * ROBOTS.TXT E SITEMAP.XML — POR HOST.
+ *
+ * Antes os dois davam 404, e sem sitemap o Google não tem por onde começar:
+ * a vitrine monta o cardápio por JavaScript, e sem endereço declarado ela nem
+ * entra na fila de renderização dele.
+ *
+ * Precisam vir ANTES do `express.static` e do fallback do SPA: com ponto no
+ * nome, os dois cairiam no estático, que responderia 404 — que foi exatamente
+ * o que a medição mostrou.
+ *
+ * Falha em silêncio de propósito: erro de banco aqui devolve o arquivo sem a
+ * linha do sitemap em vez de 500. Robô que leva 500 no robots.txt trata o site
+ * inteiro como proibido.
+ */
+app.get('/robots.txt', (req, res) => {
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  const base = `${proto}://${req.headers.host}`;
+  lojaDoHost(req.headers.host)
+    .then(loja => res.type('text/plain').send(robots(base, !!loja)))
+    .catch(() => res.type('text/plain').send(robots(base, false)));
+});
+
+app.get('/sitemap.xml', (req, res) => {
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  const base = `${proto}://${req.headers.host}`;
+  lojaDoHost(req.headers.host)
+    .then(loja => res.type('application/xml').send(sitemap(base, loja)))
+    .catch(() => res.type('application/xml').send(sitemap(base, null)));
+});
+
 // SPA fallback: rotas client-side do React Router devolvem o index.html.
 // A loja do domínio vive na raiz por slug (`/minha-loja`, sem prefixo fixo —
 // ver App.tsx `<Route path="/:id">`), então qualquer caminho de 1 nível sem
@@ -610,7 +642,20 @@ app.use((req, res, next) => {
      * bloco, com o app buscando pela rota como antes.
      */
     const dados = await montarDadosIniciais(req.path, req.headers.host);
-    const html = injetarMeta(lerHtmlBase(), meta, base, base + req.originalUrl);
+    /*
+     * CANONICAL E DADOS ESTRUTURADOS (ver seo.ts).
+     *
+     * `lojaDoHost` nunca lança — devolve null e as duas tags simplesmente não
+     * saem, que é o comportamento de antes desta linha existir.
+     */
+    const loja = await lojaDoHost(req.headers.host);
+    const urlCompleta = base + req.originalUrl;
+    const ldJson = dadosEstruturados(loja, base);
+    const extras = [
+      `<link rel="canonical" href="${canonical(urlCompleta, loja).replace(/"/g, '&quot;')}" />`,
+      ...(ldJson ? [ldJson] : []),
+    ];
+    const html = injetarMeta(lerHtmlBase(), meta, base, urlCompleta, extras);
     res.type('html').send(injetarDados(html, dados));
   })().catch(() => {
     // Falhou montando o preview? Serve o HTML como estava — a página funciona,
