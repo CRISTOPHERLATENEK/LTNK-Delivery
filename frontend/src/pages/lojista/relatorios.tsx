@@ -183,7 +183,8 @@ const SOBRE_CLASSE: Record<'A' | 'B' | 'C', string> = {
 /** O nome de cada etapa do pedido, do jeito que o lojista fala. */
 const NOME_ETAPA: Record<string, string> = {
   pendente: 'Chegou', aceito: 'Aceite', preparando: 'Preparo',
-  pronto: 'Pronto', saiu: 'Saiu para entrega', entregue: 'Entregue',
+  pronto: 'Pronto', em_entrega: 'Saiu para entrega', entregue: 'Entregue',
+  cancelado: 'Cancelado', recusado: 'Recusado',
 };
 
 const ABAS: Array<[Aba, string]> = [
