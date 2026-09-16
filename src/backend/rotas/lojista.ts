@@ -1711,7 +1711,7 @@ router.get('/produtos-vinculaveis', async (req, res, next) => {
     const loja = await minhaLoja(req);
     const produtos = await db.prepare(
       `SELECT id, nome, categoria, preco_centavos, estoque, controla_estoque,
-              maxxgestao_variacao_id AS variacao_erp
+              codigo_barras, maxxgestao_variacao_id AS variacao_erp
          FROM produtos
         WHERE loja_id = ? AND excluido = 0
         ORDER BY (maxxgestao_variacao_id > 0) DESC, nome`
@@ -2563,14 +2563,38 @@ router.post('/grupos/:id/opcoes', async (req, res, next) => {
     const precoAdicional = req.body.preco_adicional ? reaisParaCentavos(req.body.preco_adicional) : 0;
     if (precoAdicional === null || precoAdicional < 0) throw erroHttp(400, 'Preço adicional inválido.');
 
+    /*
+     * A OPÇÃO JÁ NASCE VINCULADA, quando quem cria escolheu um produto.
+     *
+     * Sem isto, pôr "Monster tradicional" num grupo que baixa estoque era duas
+     * buscas pelo mesmo produto: uma para digitar o nome, outra no seletor de
+     * vínculo depois. E entre uma e outra a opção existia sem vínculo, que é o
+     * estado que a tela marca como pendência.
+     *
+     * A conferência de loja é a mesma do PUT: id de outra empresa gravado aqui
+     * faria o estoque DELA cair a cada pedido daqui.
+     */
+    let produtoVinculado = 0;
+    if (req.body.produto_id !== undefined) {
+      const pedido = inteiroPositivo(req.body.produto_id) || 0;
+      if (pedido > 0) {
+        const existe = await db.prepare(
+          'SELECT id FROM produtos WHERE id = ? AND loja_id = ? AND excluido = 0'
+        ).get(pedido, loja.id) as { id: number } | undefined;
+        if (!existe) throw erroHttp(400, 'Produto do complemento não encontrado nesta loja.');
+        produtoVinculado = existe.id;
+      }
+    }
+
     const info = await db.prepare(
-      `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao, imagem)
-       VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)`
+      `INSERT INTO opcoes_itens (grupo_id, nome, preco_adicional_centavos, disponivel, ordem, sabores, secao, descricao, imagem, produto_id)
+       VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`
     ).run(grupo.id, nome, precoAdicional, inteiroPositivo(req.body.ordem) || 0,
           inteiroPositivo(req.body.sabores) || 0,
           textoLimpo(req.body.secao, 40),
           textoLimpo(req.body.descricao, 160),
-          textoLimpo(req.body.imagem, 500));
+          textoLimpo(req.body.imagem, 500),
+          produtoVinculado);
     res.status(201).json({ opcao_id: Number(info.lastInsertRowid) });
   } catch (e) { next(e); }
 });

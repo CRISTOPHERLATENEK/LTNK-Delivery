@@ -163,15 +163,13 @@ describe('a tela dos complementos', () => {
   it('a lista do seletor tem busca e teto', () => {
     expect(TELA).toContain('value={buscaVinculo}');
     /*
-     * O TETO É MEDIDO DENTRO DO SELETOR, e não no arquivo inteiro. Existe outro
-     * `.slice(0, 40)` nesta tela (o corte do nome de seção), e procurar solto
-     * fazia o teste passar com o teto REMOVIDO — foi o que a sabotagem mostrou.
+     * A BUSCA MUDOU DE LUGAR: virou `lib/busca-produto.ts`, com teste próprio
+     * (`busca-produto.test.ts`) — ela ignora acento, aceita as palavras em
+     * qualquer ordem e entende código de barras e SKU. O que este teste ainda
+     * guarda é o TETO, que continua sendo da tela: sem ele a lista é o cardápio
+     * inteiro, mil linhas num painel de 14rem.
      */
-    const i = TELA.indexOf('const achados = vinculaveis');
-    expect(i).toBeGreaterThan(0);
-    const bloco = TELA.slice(i, i + 300);
-    expect(bloco).toContain('.filter(');
-    expect(bloco).toContain('.slice(0, 40)');
+    expect(TELA).toContain('buscarProdutos(vinculaveis, buscaVinculo, 40)');
   });
 
   /* Carregar o cardápio inteiro junto com a tela seria pagar por todos o que um

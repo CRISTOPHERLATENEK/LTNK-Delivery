@@ -28,6 +28,7 @@ import { gtinValido } from '@/lib/gtin';
 import { agruparPorSecao } from '@/lib/opcoes-preco';
 import { familiasDuplicadas, saoIdenticos, melhorSobrevivente, diferencasEntre, type GrupoComparavel } from '@/lib/grupos-biblioteca';
 import { ingredientesDeTexto, textoDeIngredientes, comIngredientes, fraseDaRegra, rotuloTeto, limiteDeSabores, linhasColadas } from '@/lib/complementos-editor';
+import { buscarProdutos } from '@/lib/busca-produto';
 import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes, indiceDeSugestoes, type SugestaoSalva, campoQueFalta } from '@/lib/avisos-produto';
 import type { Produto } from '@/types';
 
@@ -2965,6 +2966,7 @@ function centavosDoCampo(texto: string): number {
 interface ProdutoVinculavel {
   id: number; nome: string; categoria: string; preco_centavos: number;
   estoque: number; controla_estoque: number;
+  codigo_barras?: string | null;
   /** SKU no Maxx Gestão. 0 = não baixa lá, só aqui. */
   variacao_erp: number;
 }
@@ -3804,20 +3806,6 @@ function GruposEditor({ produto }: { produto: Produto }) {
   const [vinculando, setVinculando] = useState<number | null>(null);
   const [buscaVinculo, setBuscaVinculo] = useState('');
 
-  /*
-   * O CARDÁPIO INTEIRO, só quando o lojista abre o seletor de vínculo.
-   *
-   * É uma lista de mil linhas em loja grande, e a esmagadora maioria das
-   * sessões de cadastro nunca abre este painel — carregar junto com a tela
-   * seria pagar por todo mundo o que um usa.
-   */
-  const { data: vinculaveis } = useQuery({
-    queryKey: ['lojista-produtos-vinculaveis'],
-    queryFn: () => api<{ produtos: ProdutoVinculavel[] }>('GET', '/api/lojista/produtos-vinculaveis')
-      .then(r => r.produtos),
-    enabled: vinculando !== null,
-    staleTime: 60_000,
-  });
 
   /*
    * As opções que ESTA LOJA já usa, por nome de grupo.
@@ -3877,6 +3865,26 @@ function GruposEditor({ produto }: { produto: Produto }) {
   });
 
   const grupos = data ?? [];
+
+  /*
+   * O CARDÁPIO INTEIRO, só quando o lojista abre o seletor de vínculo.
+   *
+   * É uma lista de mil linhas em loja grande, e a esmagadora maioria das
+   * sessões de cadastro nunca abre este painel — carregar junto com a tela
+   * seria pagar por todo mundo o que um usa.
+   */
+  const { data: vinculaveis } = useQuery({
+    queryKey: ['lojista-produtos-vinculaveis'],
+    queryFn: () => api<{ produtos: ProdutoVinculavel[] }>('GET', '/api/lojista/produtos-vinculaveis')
+      .then(r => r.produtos),
+    /*
+     * Carrega também quando ALGUM grupo deste produto baixa estoque: é o que
+     * permite sugerir o produto já no campo de adicionar item, em vez de obrigar
+     * a cadastrar primeiro e vincular depois.
+     */
+    enabled: vinculando !== null || (grupos ?? []).some(g => !!g.baixa_estoque),
+    staleTime: 60_000,
+  });
 
   // Ao criar um grupo, abre o painel dele e põe o cursor no campo de item: o
   // grupo vazio não serve pra nada, e o passo seguinte é sempre o mesmo.
@@ -4280,15 +4288,18 @@ function GruposEditor({ produto }: { produto: Produto }) {
   }
 
 
-  async function criarOpcao(grupoId: number) {
+  async function criarOpcao(grupoId: number, doProduto?: ProdutoVinculavel) {
     const f = opcaoForm(grupoId);
-    if (!f.nome.trim()) return;
+    /* Vindo de um produto, o nome é o DELE — o campo pode estar com "mons". */
+    const nome = doProduto ? doProduto.nome : f.nome.trim();
+    if (!nome) return;
     try {
       await api('POST', `/api/lojista/grupos/${grupoId}/opcoes`, {
-        nome: f.nome.trim(),
+        nome,
         preco_adicional: f.preco || '0',
         secao: f.secao || '',
         descricao: f.descricao || '',
+        ...(doProduto ? { produto_id: doProduto.id } : {}),
       });
       await qc.refetchQueries({ queryKey });
       qc.invalidateQueries({ queryKey: ['lojista-sugestoes-opcoes'] });
@@ -5134,7 +5145,20 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                                 autoFocus
                                                 value={buscaVinculo}
                                                 onChange={e => setBuscaVinculo(e.target.value)}
-                                                placeholder="Buscar produto do estoque…"
+                                                /*
+                                                  ENTER PEGA O PRIMEIRO RESULTADO. Quem digita
+                                                  o código de barras inteiro já sabe qual é o
+                                                  produto — obrigar a tirar a mão do teclado
+                                                  para clicar numa lista de um item só é
+                                                  trabalho sem função.
+                                                */
+                                                onKeyDown={e => {
+                                                  if (e.key !== 'Enter') return;
+                                                  e.preventDefault();
+                                                  const primeiro = buscarProdutos(vinculaveis ?? [], buscaVinculo, 1)[0];
+                                                  if (primeiro) { salvarOpcao(o, { produto_id: primeiro.id, sem_estoque: false }); setVinculando(null); }
+                                                }}
+                                                placeholder="Nome, código de barras ou SKU…"
                                                 aria-label="Buscar produto do estoque"
                                                 className="h-8 text-xs"
                                               />
@@ -5168,15 +5192,21 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                             <div className="mt-1.5 max-h-56 divide-y divide-border/60 overflow-y-auto rounded-lg border border-border">
                                               {(() => {
                                                 if (!vinculaveis) return <p className="px-3 py-2 text-[11.5px] text-muted-foreground">Carregando…</p>;
-                                                const alvo = buscaVinculo.trim().toLowerCase();
-                                                /* TETO DE 40 LINHAS. Sem busca, a lista é o
-                                                   cardápio inteiro — mil linhas num painel de
-                                                   14rem não ajudam ninguém a achar o gelo. */
-                                                const achados = vinculaveis
-                                                  .filter(p => !alvo || p.nome.toLowerCase().includes(alvo))
-                                                  .slice(0, 40);
+                                                /*
+                                                  A BUSCA MORA EM `lib/busca-produto.ts`, com
+                                                  teste próprio: ela ignora acento, aceita as
+                                                  palavras em qualquer ordem, entende código de
+                                                  barras e SKU, e ordena por relevância. Era
+                                                  `nome.includes(texto)`, que não achava
+                                                  "maca verde" nem "tradicional monster".
+
+                                                  O teto de 40 continua: sem busca, a lista é o
+                                                  cardápio inteiro — mil linhas num painel de
+                                                  14rem não ajudam ninguém a achar o gelo.
+                                                */
+                                                const achados = buscarProdutos(vinculaveis, buscaVinculo, 40);
                                                 if (achados.length === 0) {
-                                                  return <p className="px-3 py-2 text-[11.5px] text-muted-foreground">Nenhum produto com esse nome.</p>;
+                                                  return <p className="px-3 py-2 text-[11.5px] text-muted-foreground">Nenhum produto com esse nome ou código.</p>;
                                                 }
                                                 return achados.map(p => (
                                                   <button key={p.id} type="button"
@@ -5271,16 +5301,74 @@ function GruposEditor({ produto }: { produto: Produto }) {
                         {/* ─── Adicionar item: uma linha ─── */}
                         <div className="border-t border-border/60 px-3 py-3">
                           <div className="flex flex-wrap items-center gap-2">
-                            <Input
-                              id={`opcao-nome-${grupo.id}`}
-                              placeholder={SUGESTOES[grupo.nome]?.[0]
-                                ? `Ex.: ${SUGESTOES[grupo.nome][0]} — Enter para adicionar`
-                                : 'Nome do item — Enter para adicionar'}
-                              value={opcaoForm(grupo.id).nome}
-                              onChange={e => setOpcaoForm(grupo.id, 'nome', e.target.value)}
-                              onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), criarOpcao(grupo.id))}
-                              className="h-10 min-w-[10rem] flex-1 text-sm"
-                            />
+                            {(() => {
+                              /*
+                                ─── O PRODUTO DO ESTOQUE SUGERIDO NA HORA ───
+
+                                Só em grupo que baixa estoque. Antes, pôr "Monster
+                                tradicional" num grupo desses era buscar o mesmo
+                                produto DUAS vezes: uma para digitar o nome aqui,
+                                outra no seletor de vínculo depois de criado. E
+                                entre as duas a opção existia sem vínculo — o
+                                estado que a tela marca como pendência.
+
+                                Escolher aqui cria a opção com o nome do produto E
+                                o vínculo, num passo. A busca é a de
+                                `lib/busca-produto.ts`: ignora acento, aceita as
+                                palavras em qualquer ordem e entende código de
+                                barras e SKU.
+                              */
+                              const digitado = opcaoForm(grupo.id).nome;
+                              const sugerir = !!grupo.baixa_estoque && digitado.trim().length >= 2;
+                              const achados = sugerir ? buscarProdutos(vinculaveis ?? [], digitado, 6) : [];
+                              return (
+                                <span className="relative min-w-[10rem] flex-1">
+                                  <Input
+                                    id={`opcao-nome-${grupo.id}`}
+                                    placeholder={grupo.baixa_estoque
+                                      ? 'Nome do item, ou busque o produto do estoque'
+                                      : SUGESTOES[grupo.nome]?.[0]
+                                        ? `Ex.: ${SUGESTOES[grupo.nome][0]} — Enter para adicionar`
+                                        : 'Nome do item — Enter para adicionar'}
+                                    value={digitado}
+                                    onChange={e => setOpcaoForm(grupo.id, 'nome', e.target.value)}
+                                    onKeyDown={e => {
+                                      if (e.key !== 'Enter') return;
+                                      e.preventDefault();
+                                      /*
+                                        ENTER PEGA A PRIMEIRA SUGESTÃO quando ela
+                                        existe. Quem digitou o código de barras
+                                        inteiro já decidiu; criar um item de texto
+                                        com o número dentro seria o oposto do que
+                                        ele pediu.
+                                      */
+                                      if (achados.length > 0) criarOpcao(grupo.id, achados[0]);
+                                      else criarOpcao(grupo.id);
+                                    }}
+                                    className="h-10 w-full text-sm"
+                                  />
+                                  {achados.length > 0 && (
+                                    <span className="absolute left-0 right-0 top-full z-20 mt-1 block max-h-56 divide-y divide-border/60 overflow-y-auto rounded-lg border border-border bg-background shadow-lg">
+                                      {achados.map(pr => (
+                                        <button key={pr.id} type="button"
+                                          onClick={() => criarOpcao(grupo.id, pr)}
+                                          className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors hover:bg-accent/50">
+                                          <Boxes className="size-3.5 shrink-0 text-primary" />
+                                          <span className="min-w-0 flex-1">
+                                            <span className="block truncate text-[12.5px] font-semibold">{pr.nome}</span>
+                                            <span className="block truncate text-[11px] text-muted-foreground">
+                                              {pr.variacao_erp > 0 ? `Maxx Gestão ${pr.variacao_erp}` : 'sem código do Maxx Gestão'}
+                                              {!!pr.controla_estoque && ` · ${pr.estoque} em estoque`}
+                                            </span>
+                                          </span>
+                                          <span className="shrink-0 text-[11.5px] text-muted-foreground">{brl(pr.preco_centavos)}</span>
+                                        </button>
+                                      ))}
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })()}
                             {usaSecoes && (
                               <select
                                 value={opcaoForm(grupo.id).secao}
