@@ -120,16 +120,24 @@ export function QrCodeLoja() {
           cortado ao meio, com o código metade numa folha e metade na outra —
           e um QR pela metade não lê.
         */}
+        {/*
+          A PRÉVIA TEM A FORMA DA FOLHA (A4 é 1:1,414) e as linhas esticam para
+          preencher — é o mesmo que a regra de impressão faz no papel.
+
+          Antes os cartões eram do tamanho do conteúdo: doze deles ocupavam o
+          terço de cima da folha e sobravam dois palmos de branco embaixo. Numa
+          folha de adesivo, esse branco é dinheiro.
+        */}
         <div
           id="qr-para-impressao"
-          className={cn('grid gap-2 rounded-2xl border border-border bg-white p-3 text-black',
+          className={cn('grid aspect-[1/1.414] auto-rows-fr gap-2 rounded-2xl border border-border bg-white p-3 text-black',
             arranjo.colunas)}
         >
           {Array.from({ length: copias }, (_, i) => (
             <div
               key={i}
               style={{ breakInside: 'avoid' }}
-              className={cn('rounded-xl border border-dashed border-neutral-300 text-center',
+              className={cn('flex min-h-0 flex-col items-center justify-center rounded-xl border border-dashed border-neutral-300 text-center',
                 copias === 1 ? 'p-5' : copias <= 4 ? 'p-3' : 'p-2')}
             >
               {loja?.logo_url && copias <= 4 && (
@@ -144,11 +152,16 @@ export function QrCodeLoja() {
                 copias === 1 ? 'text-[12.5px]' : copias <= 4 ? 'text-[10.5px]' : 'text-[9px]')}>
                 {chamada}
               </p>
+              {/*
+                O CÓDIGO É O QUE ESTICA. `min-h-0` é o que permite encolher
+                dentro do flex (sem ele o item usa o tamanho do conteúdo como
+                mínimo e estoura o cartão); `aspect-square` mantém o quadrado,
+                que é o que faz o QR continuar legível.
+              */}
               <img
                 src={`${base}/api/qr-da-loja.svg`}
                 alt={`QR code de ${loja?.nome || 'sua loja'}`}
-                className={cn('mx-auto mt-2 aspect-square w-full',
-                  copias === 1 ? 'max-w-[240px]' : copias <= 4 ? 'max-w-[130px]' : 'max-w-[92px]')}
+                className="qr-imagem my-1 min-h-0 w-auto flex-1 self-center object-contain"
               />
               <p className={cn('mt-1 break-all font-bold leading-tight text-neutral-700',
                 copias === 1 ? 'text-[12px]' : copias <= 4 ? 'text-[9.5px]' : 'text-[8px]')}>

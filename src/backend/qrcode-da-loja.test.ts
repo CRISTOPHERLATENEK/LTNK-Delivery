@@ -180,3 +180,47 @@ describe('a folha com várias cópias', () => {
     expect(CSS).toMatch(/@page \{\s*margin: 8mm;/);
   });
 });
+
+describe('a folha é ocupada inteira', () => {
+  /*
+   * O LOJISTA IMPRIMIU E OS DOZE CARTÕES OCUPARAM O TERÇO DE CIMA, com meia
+   * folha em branco embaixo. Numa folha de adesivo, esse branco é dinheiro.
+   *
+   * O que faltava: a grade tinha a altura do CONTEÚDO. Agora as linhas dividem
+   * a altura em partes iguais (`auto-rows-fr`) e o código é o elemento que
+   * estica dentro do cartão.
+   */
+  it('as linhas dividem a altura em partes iguais', () => {
+    expect(TELA).toContain('auto-rows-fr');
+  });
+
+  /* A prévia tem a forma da folha (A4 é 1:1,414) — prévia que não bate com o
+     papel faz gastar folha para descobrir o arranjo. */
+  it('a prévia tem a proporção de uma folha A4', () => {
+    expect(TELA).toContain('aspect-[1/1.414]');
+  });
+
+  /*
+   * `min-h-0` É O QUE PERMITE ENCOLHER. Sem ele, o item flex usa o tamanho do
+   * conteúdo como mínimo e o cartão estoura em vez de caber.
+   */
+  it('o código estica com o cartão, sem estourar', () => {
+    expect(TELA).toContain('qr-imagem my-1 min-h-0 w-auto flex-1 self-center object-contain');
+    expect(TELA).toContain('flex min-h-0 flex-col items-center justify-center');
+  });
+
+  /* `height: 100%` só vale se os pais tiverem altura — daí html e body. */
+  it('no papel, a grade ocupa a página toda', () => {
+    const i = CSS.indexOf('@media print');
+    const bloco = CSS.slice(i, i + 1400);
+    expect(bloco).toContain('html, body { height: 100%; }');
+    /* Dentro da REGRA do cartaz, e não solto no bloco: `height: 100%` casava
+       com a linha do html/body acima, e o teste passava com a altura da grade
+       removida (sabotagem mostrou). */
+    const regra = bloco.slice(bloco.indexOf('#qr-para-impressao {'));
+    expect(regra.slice(0, 300)).toContain('height: 100%;');
+    expect(regra.slice(0, 300)).toContain('inset: 0;');
+    /* A proporção da prévia é da TELA; no papel quem manda é a folha. */
+    expect(bloco).toContain('aspect-ratio: auto;');
+  });
+});

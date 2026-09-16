@@ -370,11 +370,23 @@ label[for] {
 @media print {
   body * { visibility: hidden; }
   #qr-para-impressao, #qr-para-impressao * { visibility: visible; }
+  /*
+   * A FOLHA INTEIRA, e não o terço de cima dela.
+   *
+   * `height: 100%` só vale se os pais tiverem altura — daí html e body aqui.
+   * Sem isso a grade tem a altura do conteúdo, os doze cartões ocupam o terço
+   * superior e sobra meia folha em branco. Numa folha de adesivo, esse branco é
+   * dinheiro.
+   */
+  html, body { height: 100%; }
+
   #qr-para-impressao {
     position: absolute;
-    left: 0;
-    top: 0;
+    inset: 0;
     width: 100%;
+    height: 100%;
+    /* A proporção da prévia é da TELA; no papel quem manda é a folha. */
+    aspect-ratio: auto;
     border: none;
     /* O papel já é branco; a borda e a sombra da tela viram sujeira na folha. */
     box-shadow: none;
