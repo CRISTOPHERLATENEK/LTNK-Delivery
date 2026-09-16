@@ -135,3 +135,49 @@ describe('a tela', () => {
     expect(bloco).not.toContain('body * { display: none');
   });
 });
+
+describe('a folha com várias cópias', () => {
+  /*
+   * É O MESMO CÓDIGO, VÁRIAS VEZES. O lojista não quer doze códigos diferentes
+   * — quer doze adesivos iguais para pôr em doze sacolas. Imprimir doze folhas
+   * com um código cada era o trabalho que esta tela existe para tirar.
+   */
+  it('dá para escolher quantos saem por folha', () => {
+    expect(TELA).toContain('const ARRANJOS');
+    for (const n of ['copias: 1', 'copias: 4', 'copias: 8', 'copias: 12']) {
+      expect(TELA).toContain(n);
+    }
+    expect(TELA).toContain('Array.from({ length: copias }');
+  });
+
+  /* Cada arranjo diz PARA QUE serve: "12 por folha" sozinho não ajuda a
+     escolher; "12 por folha · cartão de mão" ajuda. */
+  it('cada arranjo diz para que serve', () => {
+    expect(TELA).toContain("para: 'porta e parede'");
+    expect(TELA).toContain("para: 'sacola'");
+  });
+
+  /*
+   * O CARTÃO NÃO PODE SER PARTIDO PELA QUEBRA DE PÁGINA: metade do código numa
+   * folha e metade na outra é um QR que não lê.
+   */
+  it('o cartão não parte entre páginas', () => {
+    expect(TELA).toContain("breakInside: 'avoid'");
+  });
+
+  /* A linha tracejada é onde recortar — e o navegador só a imprime se mandarem. */
+  it('a folha sai com a linha de recorte', () => {
+    expect(TELA).toContain('border-dashed');
+    /* As DUAS linhas: o Chrome e o Safari ainda pedem a versão com prefixo, e
+       procurar só `print-color-adjust` casa dentro de `-webkit-print-...` —
+       o teste passava com a regra sem prefixo desfeita (sabotagem mostrou). */
+    expect(CSS).toContain('-webkit-print-color-adjust: exact;');
+    expect(CSS).toMatch(/
+\s*print-color-adjust: exact;/);
+  });
+
+  /* A margem padrão do navegador rouba quase um cartão de uma grade de 12. */
+  it('a página imprime com margem curta', () => {
+    expect(CSS).toMatch(/@page \{\s*margin: 8mm;/);
+  });
+});

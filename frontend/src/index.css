@@ -379,4 +379,27 @@ label[for] {
     /* O papel já é branco; a borda e a sombra da tela viram sujeira na folha. */
     box-shadow: none;
   }
+
+  /*
+   * O QUE A IMPRESSORA CORTA POR CONTA PRÓPRIA.
+   *
+   * Por padrão o navegador não imprime cor de fundo nem imagem de fundo — e o
+   * cartão ficaria sem a linha tracejada de recorte em parte dos navegadores.
+   * `print-color-adjust` é o pedido para imprimir como está na tela.
+   */
+  #qr-para-impressao * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
+/*
+ * A FOLHA COM MARGEM CURTA.
+ *
+ * A margem padrão do navegador (~1,5 cm de cada lado) rouba quase um cartão de
+ * uma grade de 12. 8mm é o que a maioria das impressoras domésticas consegue
+ * imprimir sem cortar.
+ */
+@page {
+  margin: 8mm;
 }
