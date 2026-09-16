@@ -172,8 +172,7 @@ describe('a folha com várias cópias', () => {
        procurar só `print-color-adjust` casa dentro de `-webkit-print-...` —
        o teste passava com a regra sem prefixo desfeita (sabotagem mostrou). */
     expect(CSS).toContain('-webkit-print-color-adjust: exact;');
-    expect(CSS).toMatch(/
-\s*print-color-adjust: exact;/);
+    expect(CSS).toMatch(/\n\s*print-color-adjust: exact;/);
   });
 
   /* A margem padrão do navegador rouba quase um cartão de uma grade de 12. */
