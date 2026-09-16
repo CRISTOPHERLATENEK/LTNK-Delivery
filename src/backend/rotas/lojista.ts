@@ -1122,6 +1122,8 @@ interface CamposProduto {
   controlaEstoque: 0 | 1; estoque: number;
   /** O lojista mandou a sincronização do ERP não mexer no estoque deste. */
   estoqueErpIgnorar: 0 | 1;
+  /** Abaixo disto o relatório pede reposição. 0 = padrão da loja. */
+  estoqueMinimo: number;
   vendidoSozinho: 0 | 1;
 }
 
@@ -1188,6 +1190,11 @@ function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProdut
   const estoqueErpIgnorar: 0 | 1 = corpo.estoque_erp_ignorar !== undefined
     ? (corpo.estoque_erp_ignorar ? 1 : 0)
     : (((atual as any).estoque_erp_ignorar ?? 0) as 0 | 1);
+  /* A partir de quantas unidades este produto precisa ser reposto. Zero = usa o
+     padrão da loja — ver MINIMO_PADRAO no relatório de estoque. */
+  const estoqueMinimo: number = corpo.estoque_minimo !== undefined
+    ? Math.max(0, Math.trunc(Number(corpo.estoque_minimo)) || 0)
+    : Number((atual as any).estoque_minimo ?? 0);
   // Aceita 0 (esgotado) — inteiroPositivo rejeitaria; por isso o parse manual.
   let estoque: number = (atual as any).estoque ?? 0;
   if (corpo.estoque !== undefined) {
@@ -1225,7 +1232,7 @@ function camposProduto(req: Request, atual: Partial<Produto> = {}): CamposProdut
     // disponibilidade-produto.ts, com testes.
     disponivel: canais.cardapio,
     disponivelPdv: canais.pdv,
-    vendidoPor, codigoBarras, controlaEstoque, estoqueErpIgnorar, estoque,
+    vendidoPor, codigoBarras, controlaEstoque, estoqueErpIgnorar, estoqueMinimo, estoque,
   };
 }
 
@@ -1412,10 +1419,11 @@ router.put('/produtos/:id', async (req, res, next) => {
               preco_promocional_centavos = ?, promo_fim = ?, serve_pessoas = ?, destaque = ?,
               foto_url = ?, foto_credito = ?, disponivel = ?, disponivel_pdv = ?, vendido_por = ?, codigo_barras = ?,
               controla_estoque = ?, estoque = ?, vendido_sozinho = ?,
-              estoque_erp_ignorar = ? WHERE id = ?`
+              estoque_erp_ignorar = ?, estoque_minimo = ? WHERE id = ?`
     ).run(c.nome, c.descricao, c.categoria, c.subcategoria, c.preco, c.promo, c.promoFim, c.servePessoas,
           c.destaque, c.foto_url, c.fotoCredito, c.disponivel, c.disponivelPdv, c.vendidoPor, c.codigoBarras,
-          c.controlaEstoque, c.estoque, c.vendidoSozinho, c.estoqueErpIgnorar, produto.id);
+          c.controlaEstoque, c.estoque, c.vendidoSozinho, c.estoqueErpIgnorar,
+          c.estoqueMinimo, produto.id);
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -6728,6 +6736,24 @@ router.get('/relatorios', async (req, res, next) => {
         GROUP BY hora ORDER BY hora`
     ).all(loja.id, inicio, fim) as Array<{ hora: number; qtd: number }>;
 
+    /*
+     * FATURAMENTO POR DIA — a forma do período, não só o total dele.
+     *
+     * Dois períodos com o mesmo faturamento podem ser um movimento constante ou
+     * um sábado que carregou a semana inteira, e a decisão que o lojista toma
+     * (comprar, escalar gente) depende de qual dos dois é.
+     *
+     * O dia é o de BRASÍLIA: `criado_em` é ISO em UTC, e agrupar sem o
+     * deslocamento jogaria toda venda das 21h à meia-noite para o dia seguinte.
+     */
+    const porDia = await db.prepare(
+      `SELECT DATE(SUBTIME(STR_TO_DATE(criado_em, '%Y-%m-%dT%H:%i:%s'), '03:00:00')) AS dia,
+              COUNT(*) AS qtd, COALESCE(SUM(total_centavos), 0) AS total_centavos
+         FROM pedidos
+        WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ? AND criado_em <= ?
+        GROUP BY dia ORDER BY dia`
+    ).all(loja.id, inicio, fim) as Array<{ dia: string; qtd: number; total_centavos: number }>;
+
     // Financeiro: bruto, comissão da plataforma e líquido a receber.
     const bruto = resumo.faturamento_centavos;
     const comissao = resumo.comissao_centavos;
@@ -6794,6 +6820,7 @@ router.get('/relatorios', async (req, res, next) => {
       por_canal: porCanal,
       cancelamento: { cancelados: contagem.cancelados || 0, total: contagem.total || 0, taxa_percent: taxaCancelamento },
       por_hora: porHora,
+      por_dia: porDia,
       financeiro,
       estoque: {
         itens: estoque,
@@ -6803,6 +6830,357 @@ router.get('/relatorios', async (req, res, next) => {
         baixo: estoque.filter(p => p.estoque > 0 && p.estoque <= 5).length,
         valor_total_centavos: estoque.reduce((s, p) => s + p.valor_centavos, 0),
       },
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * O ESTOQUE COMO RELATÓRIO, e não como lista.
+ *
+ * A tela antiga listava "sem estoque" e mais nada: sem quantidade, sem mínimo,
+ * sem giro, sem valor. Dava para saber O QUE acabou, nunca O QUE COMPRAR.
+ *
+ * ───────────────── POR QUE OS TOTAIS VÊM DAQUI ──────────────────────────────
+ *
+ * A tabela é UMA PÁGINA do catálogo, não o catálogo. Com 1.116 produtos, contar
+ * no navegador dá o tamanho da página — "10 sem estoque" numa loja com 463. O
+ * número que o lojista clica no cartão tem que ser o mesmo que ele encontra no
+ * chip e no rodapé; dois valores sob o mesmo rótulo invalidam o relatório
+ * inteiro. Por isso toda contagem e todo valor saem de consulta agregada, e a
+ * página devolve `total_do_filtro` junto com as linhas.
+ *
+ * ─────────────────── OS BALDES SÃO EXCLUSIVOS ───────────────────────────────
+ *
+ * zerados  = estoque <= 0                     (fora do cardápio agora)
+ * repor    = 0 < estoque <= mínimo            (vai acabar)
+ * parados  = acima do mínimo e sem venda há PARADO_DIAS
+ * ok       = o resto
+ *
+ * Um produto cai em um balde só. Sem isso o mesmo item aparece em dois chips e
+ * a soma dos chips não bate com "Todos" — e quem confere uma vez e vê que não
+ * fecha não confia no relatório de novo.
+ *
+ * ───────────────────────── O QUE NÃO EXISTE ─────────────────────────────────
+ *
+ * MARGEM não é calculável: não há custo cadastrado em lugar nenhum do sistema,
+ * e `valor` aqui é a PREÇO DE VENDA. Inventar margem a partir do preço seria
+ * devolver o preço com outro nome.
+ *
+ * HISTÓRICO DE MOVIMENTAÇÃO também não: nada registra entrada, perda ou
+ * contagem — o estoque é um número que a venda decrementa e a sincronização
+ * sobrescreve. Uma tabela de movimentos é outra feature, não uma consulta.
+ */
+const MINIMO_PADRAO = 5;
+const PARADO_DIAS = 60;
+
+router.get('/relatorios/estoque', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const filtro = String(req.query.filtro || 'repor');
+    const busca = textoLimpo(req.query.busca, 60);
+    const limite = Math.min(200, Math.max(5, inteiroPositivo(req.query.limite) || 10));
+    const pagina = Math.max(0, Number(req.query.pagina) || 0);
+
+    const corteParado = new Date(Date.now() - PARADO_DIAS * 86400_000).toISOString();
+    /* O giro é a média semanal das últimas quatro semanas: é o número que
+       responde "quantas eu vendo por semana", que é a pergunta de quem compra. */
+    const corteGiro = new Date(Date.now() - 28 * 86400_000).toISOString();
+
+    /*
+     * O MÍNIMO EFETIVO EM SQL, e não em JavaScript: ele entra no WHERE de três
+     * baldes e no ORDER, então precisa existir antes das linhas serem escolhidas.
+     */
+    const MIN = `IF(p.estoque_minimo > 0, p.estoque_minimo, ${MINIMO_PADRAO})`;
+    const VENDA_RECENTE = `(SELECT MAX(pe.criado_em) FROM itens_pedido ip
+                              JOIN pedidos pe ON pe.id = ip.pedido_id
+                             WHERE ip.produto_id = p.id AND pe.status = 'entregue')`;
+    const BASE = `FROM produtos p
+                  WHERE p.loja_id = ? AND p.excluido = 0 AND p.controla_estoque = 1`;
+
+    const ONDE: Record<string, string> = {
+      zerados: 'AND p.estoque <= 0',
+      repor: `AND p.estoque > 0 AND p.estoque <= ${MIN}`,
+      parados: `AND p.estoque > ${MIN} AND COALESCE(${VENDA_RECENTE}, '') < ?`,
+      todos: '',
+    };
+    const onde = ONDE[filtro] !== undefined ? ONDE[filtro] : ONDE.repor;
+    const params = (extra: unknown[] = []) => {
+      const p: unknown[] = [loja.id];
+      if (onde.includes('?')) p.push(corteParado);
+      return [...p, ...extra];
+    };
+
+    /* Busca por nome OU código de barras: quem está com o produto na mão lê o
+       código, quem está olhando a prateleira lembra do nome. */
+    const filtroBusca = busca ? ' AND (p.nome LIKE ? OR p.codigo_barras LIKE ?)' : '';
+    const argsBusca = busca ? [`%${busca}%`, `%${busca}%`] : [];
+
+    const [{ n: totalDoFiltro, valor: valorDoFiltro }] = await db.prepare(
+      `SELECT COUNT(*) AS n, COALESCE(SUM(p.estoque * p.preco_centavos), 0) AS valor
+         ${BASE} ${onde}${filtroBusca}`
+    ).all(...params(argsBusca)) as Array<{ n: number; valor: number }>;
+
+    const itens = await db.prepare(
+      `SELECT p.id, p.nome, p.categoria, p.estoque, p.preco_centavos, p.codigo_barras,
+              ${MIN} AS minimo,
+              (p.estoque * p.preco_centavos) AS valor_centavos,
+              ${VENDA_RECENTE} AS ultima_venda,
+              COALESCE((SELECT SUM(ip.quantidade) FROM itens_pedido ip
+                          JOIN pedidos pe ON pe.id = ip.pedido_id
+                         WHERE ip.produto_id = p.id AND pe.status = 'entregue'
+                           AND pe.criado_em >= ?), 0) / 4 AS giro_semana
+         ${BASE} ${onde}${filtroBusca}
+         ORDER BY p.estoque ASC, p.nome ASC
+         LIMIT ? OFFSET ?`
+    ).all(corteGiro, ...params([...argsBusca, limite, pagina * limite])) as unknown[];
+
+    /* Os quatro números dos cartões, numa consulta só: quatro COUNT separados
+       varreriam a tabela quatro vezes para responder a mesma pergunta. */
+    const [totais] = await db.prepare(
+      `SELECT
+         SUM(p.estoque <= 0) AS zerados,
+         SUM(p.estoque > 0 AND p.estoque <= ${MIN}) AS repor,
+         SUM(p.estoque > ${MIN} AND COALESCE(${VENDA_RECENTE}, '') < ?) AS parados,
+         COUNT(*) AS todos,
+         COALESCE(SUM(p.estoque * p.preco_centavos), 0) AS valor_total,
+         COALESCE(SUM(IF(p.estoque > ${MIN} AND COALESCE(${VENDA_RECENTE}, '') < ?,
+                         p.estoque * p.preco_centavos, 0)), 0) AS valor_parado
+       ${BASE}`
+    ).all(corteParado, corteParado, loja.id) as Array<Record<string, number>>;
+
+    res.json({
+      filtro, busca, pagina, limite,
+      total_do_filtro: Number(totalDoFiltro) || 0,
+      valor_do_filtro_centavos: Number(valorDoFiltro) || 0,
+      tem_mais: (pagina + 1) * limite < (Number(totalDoFiltro) || 0),
+      itens,
+      totais: {
+        zerados: Number(totais.zerados) || 0,
+        repor: Number(totais.repor) || 0,
+        parados: Number(totais.parados) || 0,
+        todos: Number(totais.todos) || 0,
+        valor_total_centavos: Number(totais.valor_total) || 0,
+        valor_parado_centavos: Number(totais.valor_parado) || 0,
+      },
+      /* A tela precisa dizer de onde vem o corte, senão "parado" é opinião. */
+      regras: { minimo_padrao: MINIMO_PADRAO, parado_dias: PARADO_DIAS },
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * O QUE AS OUTRAS ABAS DO RELATÓRIO PEDEM — financeiro, produtos, clientes e
+ * operação, num período.
+ *
+ * Separado de `/relatorios` de propósito: aquela consulta já é grande e serve a
+ * primeira tela, que tem que abrir rápido. Estas aqui só são pedidas quando a
+ * aba correspondente é aberta.
+ *
+ * O QUE NÃO ESTÁ AQUI, e por quê:
+ *  - TAXA DE CARTÃO E PIX: o sistema não guarda a taxa do gateway em lugar
+ *    nenhum. Estimar por percentual de mercado seria inventar dedução em
+ *    relatório financeiro.
+ *  - PRAZO DE RECEBIMENTO ("cartão em 30 dias"): é contrato de adquirente, não
+ *    dado nosso.
+ *  - MARGEM POR PRODUTO: não existe custo cadastrado.
+ */
+router.get('/relatorios/detalhes', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const apelidos: Record<string, NomePeriodo> = { dia: 'hoje', hoje: 'hoje', ontem: 'ontem',
+      semana: 'semana', mes: 'mes', mes_passado: 'mes_passado', personalizado: 'personalizado' };
+    const nomePeriodo = apelidos[String(req.query.periodo || 'hoje')] || 'hoje';
+    const intervalo = resolverPeriodo(nomePeriodo, { de: req.query.de, ate: req.query.ate });
+    const { inicio, fim } = intervalo;
+    const anterior = periodoAnterior(intervalo);
+
+    /* ── FINANCEIRO: a cascata do que entra até o que sobra ── */
+    const [fin] = await db.prepare(
+      `SELECT COALESCE(SUM(subtotal_centavos), 0)     AS itens_centavos,
+              COALESCE(SUM(desconto_centavos), 0)     AS descontos_centavos,
+              COALESCE(SUM(taxa_entrega_centavos), 0) AS entrega_centavos,
+              COALESCE(SUM(comissao_centavos), 0)     AS comissao_centavos,
+              COALESCE(SUM(total_centavos), 0)        AS bruto_centavos
+         FROM pedidos
+        WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ? AND criado_em <= ?`
+    ).all(loja.id, inicio, fim) as Array<Record<string, number>>;
+
+    /* O CANCELADO NÃO ESTÁ NO BRUTO — ele nunca entrou. Vai na cascata como
+       informação ("o que deixou de entrar"), não como dedução, senão o líquido
+       sai menor do que a loja de fato recebe. */
+    const [cancel] = await db.prepare(
+      `SELECT COUNT(*) AS qtd, COALESCE(SUM(total_centavos), 0) AS total_centavos
+         FROM pedidos
+        WHERE loja_id = ? AND status IN ('cancelado','recusado')
+          AND criado_em >= ? AND criado_em <= ?`
+    ).all(loja.id, inicio, fim) as Array<{ qtd: number; total_centavos: number }>;
+
+    const caixas = await db.prepare(
+      `SELECT id, aberto_em, fechado_em, usuario_abertura_nome, usuario_fechamento_nome,
+              valor_esperado_centavos, valor_contado_centavos, diferenca_centavos,
+              vendas_dinheiro_centavos, vendas_cartao_centavos, vendas_pix_centavos,
+              vendas_quantidade, status
+         FROM caixas
+        WHERE loja_id = ? AND aberto_em >= ? AND aberto_em <= ?
+        ORDER BY aberto_em DESC LIMIT 12`
+    ).all(loja.id, inicio, fim) as unknown[];
+
+    /* ── PRODUTOS ── */
+    const encalhados = await db.prepare(
+      `SELECT p.id, p.nome, p.categoria, p.estoque, p.preco_centavos,
+              (p.estoque * p.preco_centavos) AS valor_centavos,
+              (SELECT MAX(pe.criado_em) FROM itens_pedido ip
+                 JOIN pedidos pe ON pe.id = ip.pedido_id
+                WHERE ip.produto_id = p.id AND pe.status = 'entregue') AS ultima_venda
+         FROM produtos p
+        WHERE p.loja_id = ? AND p.excluido = 0 AND p.disponivel = 1
+          AND NOT EXISTS (SELECT 1 FROM itens_pedido ip
+                            JOIN pedidos pe ON pe.id = ip.pedido_id
+                           WHERE ip.produto_id = p.id AND pe.status = 'entregue'
+                             AND pe.criado_em >= ? AND pe.criado_em <= ?)
+        ORDER BY valor_centavos DESC, p.nome LIMIT 15`
+    ).all(loja.id, inicio, fim) as unknown[];
+
+    /*
+     * COMPLEMENTOS MAIS PEDIDOS.
+     *
+     * `opcoes_ids` é um JSON gravado por item, e não uma tabela de ligação —
+     * então o caminho honesto é contar do lado do servidor, item a item, em vez
+     * de inventar um LIKE que casaria "12" dentro de "120".
+     */
+    const linhasOpcoes = await db.prepare(
+      `SELECT i.opcoes_ids, i.quantidade
+         FROM itens_pedido i JOIN pedidos p ON p.id = i.pedido_id
+        WHERE p.loja_id = ? AND p.status = 'entregue'
+          AND p.criado_em >= ? AND p.criado_em <= ? AND i.opcoes_ids <> ''`
+    ).all(loja.id, inicio, fim) as Array<{ opcoes_ids: string; quantidade: number }>;
+    const vezes = new Map<number, number>();
+    for (const l of linhasOpcoes) {
+      let ids: unknown = [];
+      try { ids = JSON.parse(l.opcoes_ids || '[]'); } catch { ids = []; }
+      const lista = Array.isArray(ids)
+        ? ids.flatMap(x => (x && typeof x === 'object' && Array.isArray((x as { ids?: unknown[] }).ids)
+          ? (x as { ids: unknown[] }).ids : [x]))
+        : [];
+      for (const id of lista) {
+        const n = Number(id);
+        if (n > 0) vezes.set(n, (vezes.get(n) ?? 0) + (Number(l.quantidade) || 1));
+      }
+    }
+    const idsOpcoes = [...vezes.keys()];
+    const complementos = idsOpcoes.length === 0 ? [] : (await db.prepare(
+      `SELECT o.id, o.nome, o.preco_adicional_centavos, g.nome AS grupo
+         FROM opcoes_itens o JOIN grupos_opcoes g ON g.id = o.grupo_id
+        WHERE o.id IN (${idsOpcoes.map(() => '?').join(',')})`
+    ).all(...idsOpcoes) as Array<{ id: number; nome: string; preco_adicional_centavos: number; grupo: string }>)
+      .map(o => ({
+        ...o,
+        quantidade: vezes.get(o.id) ?? 0,
+        total_centavos: (vezes.get(o.id) ?? 0) * o.preco_adicional_centavos,
+      }))
+      .sort((a, b) => b.quantidade - a.quantidade)
+      .slice(0, 15);
+
+    /* ── CLIENTES ── */
+    const [clientes] = await db.prepare(
+      `SELECT COUNT(DISTINCT cliente_id) AS compraram,
+              COUNT(*) AS pedidos
+         FROM pedidos
+        WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ? AND criado_em <= ?`
+    ).all(loja.id, inicio, fim) as Array<{ compraram: number; pedidos: number }>;
+
+    /* NOVO é quem não tinha pedido ANTES do período — e não quem se cadastrou
+       nele: cliente que criou conta em março e comprou agora é novo comprando,
+       não cliente novo. */
+    const [novos] = await db.prepare(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT p.cliente_id FROM pedidos p
+          WHERE p.loja_id = ? AND p.status = 'entregue' AND p.criado_em >= ? AND p.criado_em <= ?
+            AND NOT EXISTS (SELECT 1 FROM pedidos a
+                             WHERE a.loja_id = p.loja_id AND a.cliente_id = p.cliente_id
+                               AND a.status = 'entregue' AND a.criado_em < ?)
+          GROUP BY p.cliente_id) x`
+    ).all(loja.id, inicio, fim, inicio) as Array<{ n: number }>;
+
+    const topClientes = await db.prepare(
+      `SELECT u.id, u.nome, u.telefone, COUNT(*) AS pedidos,
+              COALESCE(SUM(p.total_centavos), 0) AS total_centavos,
+              COALESCE(AVG(p.total_centavos), 0) AS ticket_centavos,
+              MAX(p.criado_em) AS ultimo
+         FROM pedidos p JOIN usuarios u ON u.id = p.cliente_id
+        WHERE p.loja_id = ? AND p.status = 'entregue' AND p.criado_em >= ? AND p.criado_em <= ?
+        GROUP BY u.id, u.nome, u.telefone
+        ORDER BY total_centavos DESC LIMIT 10`
+    ).all(loja.id, inicio, fim) as unknown[];
+
+    /* ── OPERAÇÃO ── */
+    /*
+     * TEMPO MÉDIO POR ETAPA, do histórico de status.
+     *
+     * `criado_em` é texto ISO, então a diferença sai em segundos via
+     * TIMESTAMPDIFF sobre STR_TO_DATE. Só pedidos ENTREGUES entram: um pedido
+     * que parou no meio não tem etapa seguinte, e incluí-lo puxaria a média
+     * para baixo justamente nos dias ruins.
+     */
+    const etapas = await db.prepare(
+      `SELECT h.status,
+              AVG(TIMESTAMPDIFF(SECOND,
+                    STR_TO_DATE(p.criado_em, '%Y-%m-%dT%H:%i:%s'),
+                    STR_TO_DATE(h.criado_em, '%Y-%m-%dT%H:%i:%s'))) AS segundos,
+              COUNT(*) AS amostras
+         FROM historico_status h JOIN pedidos p ON p.id = h.pedido_id
+        WHERE p.loja_id = ? AND p.status = 'entregue'
+          AND p.criado_em >= ? AND p.criado_em <= ?
+        GROUP BY h.status`
+    ).all(loja.id, inicio, fim) as unknown[];
+
+    const motivos = await db.prepare(
+      `SELECT COALESCE(NULLIF(TRIM(motivo_recusa), ''), 'sem motivo registrado') AS motivo,
+              COUNT(*) AS qtd, COALESCE(SUM(total_centavos), 0) AS total_centavos
+         FROM pedidos
+        WHERE loja_id = ? AND status IN ('cancelado','recusado')
+          AND criado_em >= ? AND criado_em <= ?
+        GROUP BY motivo ORDER BY qtd DESC LIMIT 10`
+    ).all(loja.id, inicio, fim) as unknown[];
+
+    const entregadores = await db.prepare(
+      `SELECT u.id, u.nome, COUNT(*) AS entregas,
+              COALESCE(SUM(p.taxa_entrega_centavos), 0) AS taxas_centavos,
+              AVG(TIMESTAMPDIFF(SECOND,
+                    STR_TO_DATE(p.criado_em, '%Y-%m-%dT%H:%i:%s'),
+                    STR_TO_DATE(p.atualizado_em, '%Y-%m-%dT%H:%i:%s'))) AS segundos
+         FROM pedidos p JOIN usuarios u ON u.id = p.entregador_id
+        WHERE p.loja_id = ? AND p.status = 'entregue'
+          AND p.criado_em >= ? AND p.criado_em <= ?
+        GROUP BY u.id, u.nome ORDER BY entregas DESC LIMIT 10`
+    ).all(loja.id, inicio, fim) as unknown[];
+
+    const [antes] = await db.prepare(
+      `SELECT COUNT(DISTINCT cliente_id) AS compraram, COUNT(*) AS pedidos
+         FROM pedidos
+        WHERE loja_id = ? AND status = 'entregue' AND criado_em >= ? AND criado_em <= ?`
+    ).all(loja.id, anterior.inicio, anterior.fim) as Array<{ compraram: number; pedidos: number }>;
+
+    res.json({
+      financeiro: {
+        itens_centavos: Number(fin.itens_centavos) || 0,
+        descontos_centavos: Number(fin.descontos_centavos) || 0,
+        entrega_centavos: Number(fin.entrega_centavos) || 0,
+        comissao_centavos: Number(fin.comissao_centavos) || 0,
+        bruto_centavos: Number(fin.bruto_centavos) || 0,
+        liquido_centavos: (Number(fin.bruto_centavos) || 0) - (Number(fin.comissao_centavos) || 0),
+        cancelado: { qtd: Number(cancel.qtd) || 0, total_centavos: Number(cancel.total_centavos) || 0 },
+        caixas,
+      },
+      produtos: { encalhados, complementos },
+      clientes: {
+        compraram: Number(clientes.compraram) || 0,
+        pedidos: Number(clientes.pedidos) || 0,
+        novos: Number(novos.n) || 0,
+        top: topClientes,
+        anterior: { compraram: Number(antes.compraram) || 0, pedidos: Number(antes.pedidos) || 0 },
+      },
+      operacao: { etapas, motivos, entregadores },
     });
   } catch (e) { next(e); }
 });

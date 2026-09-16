@@ -110,10 +110,18 @@ describe('número grande cabe no cartão', () => {
    * dado que a tela existe para mostrar.
    */
   it('o valor do indicador encolhe no celular', () => {
-    const i = RELATORIOS.indexOf('function Metric');
-    const corpo = RELATORIOS.slice(i, i + 900);
-    expect(corpo).toContain('text-xl');
-    expect(corpo).toContain('sm:text-2xl');
+    /* O cartão mudou de arquivo quando o relatório virou seis abas: as peças de
+       montar saíram para `relatorios-partes.tsx`. A regra não mudou. */
+    const partes = fs.readFileSync(
+      path.join(__dirname, '../../frontend/src/pages/lojista/relatorios-partes.tsx'), 'utf8');
+    const i = partes.indexOf('export function Cartao');
+    expect(i).toBeGreaterThan(0);
+    /* Até a PRÓXIMA função, e não até o primeiro `\n}`: o bloco de tipos do
+       `Cartao` fecha com `}) {` no começo da linha, e cortar ali parava antes da
+       primeira linha de marcação. */
+    const corpo = partes.slice(i, partes.indexOf('export function', i + 10));
+    expect(corpo).toContain('text-[18px]');
+    expect(corpo).toContain('sm:text-[22px]');
   });
 });
 

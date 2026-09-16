@@ -1440,6 +1440,15 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['combo_itens', 'quantidade', 'quantidade INT NOT NULL DEFAULT 1'],
     /*
+     * A PARTIR DE QUANTAS UNIDADES ESTE PRODUTO PRECISA SER REPOSTO.
+     *
+     * Zero = usa o padrão da loja (MINIMO_PADRAO, 5). Um número por produto é o
+     * que separa "repor" de "está tudo bem": cinco caixas de cerveja é estoque
+     * curto; cinco garrafas de whisky importado é estoque normal. Sem a coluna,
+     * o relatório chamava os dois de "baixo" com a mesma régua.
+     */
+    ['produtos', 'estoque_minimo', 'estoque_minimo INT NOT NULL DEFAULT 0'],
+    /*
      * DE QUE ESTE PRODUTO É FEITO NO ERP — para a caixa saber seu estoque.
      *
      * JSON: `[{"v": 5, "q": 12}]` = 12 unidades da variação 5 por caixa.
