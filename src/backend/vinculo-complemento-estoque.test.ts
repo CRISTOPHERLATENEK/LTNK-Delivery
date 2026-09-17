@@ -378,3 +378,65 @@ describe('a ajuda não promete o que o sistema não faz mais', () => {
     expect(AJUDA).toContain('trinta pizzas é trinta edições');
   });
 });
+
+describe('o cabeçalho do grupo, depois do desenho', () => {
+  /*
+   * A LINHA TINHA SEIS CONTROLES e dizia a mesma regra três vezes: o segmentado
+   * "Obrigatório | Opcional", o contador "exatamente 1" e a frase "Precisa
+   * escolher 1". Em 360px não cabia — e nenhuma das três era mais legível que
+   * as outras duas.
+   *
+   * Agora a linha LÊ ("Obrigatório · escolher 1 · baixa estoque") e os controles
+   * aparecem em "Alterar regra". Nada foi removido: mudou onde mora.
+   */
+  it('a regra vira uma frase, e os controles ficam atrás de "Alterar regra"', () => {
+    expect(TELA).toContain("{regraAberta === grupo.id && (<>");
+    expect(TELA).toContain("{regraAberta === grupo.id ? 'Pronto' : 'Alterar regra'}");
+    expect(TELA).toContain("{grupo.obrigatorio ? 'Obrigatório' : 'Opcional'}");
+    expect(TELA).toContain("!!grupo.baixa_estoque && ' · baixa estoque'");
+  });
+
+  /*
+   * A PENDÊNCIA COM NÚMERO NO CABEÇALHO. Item sem origem é a única razão para o
+   * estoque não cair num grupo ligado, e ela vivia no meio de oito linhas com o
+   * mesmo peso das resolvidas.
+   */
+  it('o cabeçalho conta os itens sem origem', () => {
+    expect(TELA).toContain("const semOrigem = grupo.opcoes.filter(o => !o.produto_id && !o.sem_estoque).length;");
+    expect(TELA).toContain('{semOrigem} {semOrigem === 1 ? ');
+    /* Só em grupo que baixa estoque: em borda de pizza, "sem origem" é o estado
+       normal de todo item e o selo seria ruído permanente. */
+    expect(TELA).toContain('{!!grupo.baixa_estoque && semOrigem > 0 && (');
+  });
+
+  it('o pendente sobe para o topo da lista', () => {
+    expect(TELA).toContain('const pendentePrimeiro = (lista: OpcaoItem[]) =>');
+    expect(TELA).toContain('!grupo.baixa_estoque ? lista');
+    expect(TELA).toContain('opcoes: pendentePrimeiro(grupo.opcoes)');
+  });
+
+  /* Com seções ligadas a ordem é a da seção: reordenar por cima disso quebraria
+     o agrupamento que o lojista montou. */
+  it('com seções, a ordem da seção manda', () => {
+    const i = TELA.indexOf('const blocos = usaSecoes');
+    const bloco = TELA.slice(i, i + 300);
+    expect(bloco).toContain('agruparPorSecao(grupo.opcoes)');
+    expect(bloco).not.toContain('pendentePrimeiro(agruparPorSecao');
+  });
+
+  /* A barra âmbar é o que faz a pendência ser vista de relance. */
+  it('a linha pendente se destaca', () => {
+    expect(TELA).toContain("pendente && 'border-l-2 border-amber-500 bg-amber-500/[0.06]'");
+  });
+
+  /*
+   * MINIATURA SÓ COM FOTO. Numa lista de oito sabores sem imagem eram oito
+   * quadrados cinzas ocupando a esquerda e empurrando o nome, que é o assunto
+   * da linha.
+   */
+  it('a miniatura só aparece quando há foto', () => {
+    expect(TELA).toContain('{o.imagem && (');
+    expect(TELA).toContain('{!o.imagem && (');
+    expect(TELA).toContain('aria-label={`Adicionar foto de ${o.nome}`}');
+  });
+});

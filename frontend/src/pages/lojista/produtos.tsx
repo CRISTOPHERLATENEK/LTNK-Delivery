@@ -3957,6 +3957,14 @@ function GruposEditor({ produto }: { produto: Produto }) {
   const [vinculando, setVinculando] = useState<number | null>(null);
   /** Item do complemento sendo arrastado. */
   const [arrastandoOpcao, setArrastandoOpcao] = useState<number | null>(null);
+  /**
+   * Qual grupo está com os controles da REGRA abertos.
+   *
+   * Os controles (obrigatório, teto, baixa estoque) viviam abertos na linha do
+   * grupo — seis coisas competindo, e em 360px a linha nem cabia. Agora a linha
+   * mostra a regra em UMA frase e os controles só aparecem quando se pede.
+   */
+  const [regraAberta, setRegraAberta] = useState<number | null>(null);
   const [buscaVinculo, setBuscaVinculo] = useState('');
 
 
@@ -4637,13 +4645,36 @@ function GruposEditor({ produto }: { produto: Produto }) {
 
                 /* Blocos a renderizar: os do banco + as seções recém-criadas
                    ainda vazias, pra o cabeçalho existir antes do primeiro item. */
+                /*
+                  PENDENTE SOBE PARA O TOPO.
+                  Item sem origem num grupo que baixa estoque é a única razão
+                  para o estoque não cair — e no meio de oito linhas iguais ele
+                  tinha o mesmo peso das resolvidas. Pendência que não se destaca
+                  não é pendência.
+                  Só quando o grupo BAIXA ESTOQUE: em grupo de borda de pizza,
+                  "sem origem" é o estado normal de todo item, e subir todos não
+                  ordenaria nada.
+                  Com SEÇÕES ligadas, a ordem é a da seção: reordenar por cima
+                  disso quebraria o agrupamento que o lojista montou.
+                */
+                const pendentePrimeiro = (lista: OpcaoItem[]) =>
+                  !grupo.baixa_estoque ? lista
+                    : [...lista].sort((a, b) => {
+                      const pa = !a.produto_id && !a.sem_estoque ? 0 : 1;
+                      const pb = !b.produto_id && !b.sem_estoque ? 0 : 1;
+                      return pa - pb;
+                    });
+
                 const blocos = usaSecoes
                   ? [...agruparPorSecao(grupo.opcoes), ...secoesNovas.map(secao => ({ secao, opcoes: [] as OpcaoItem[] }))]
-                  : [{ secao: '', opcoes: grupo.opcoes }];
+                  : [{ secao: '', opcoes: pendentePrimeiro(grupo.opcoes) }];
 
                 /* No grupo de sabores, o teto do grupo só vale quando NENHUM
                    tamanho define — ver `maxEscolhasEfetivo`. */
                 const tetoVemDoTamanho = grupo.papel === 'sabores' && !!faixaSabores;
+                /* Quantos itens deste grupo ainda não dizem de onde saem. É a
+                   única razão para o estoque não cair num grupo ligado. */
+                const semOrigem = grupo.opcoes.filter(o => !o.produto_id && !o.sem_estoque).length;
 
                 /* Obrigatório com uma opção só não é escolha, é informação: o app
                    marca sozinho pra não travar o botão de adicionar. Dizer isso
@@ -4725,6 +4756,14 @@ function GruposEditor({ produto }: { produto: Produto }) {
                         className="min-w-[7rem] max-w-[16rem] flex-1 rounded-md bg-transparent px-1.5 py-1 text-[15px] font-extrabold outline-none transition-colors hover:bg-accent focus:bg-background focus:ring-2 focus:ring-primary"
                       />
 
+                      {/*
+                        OS CONTROLES DA REGRA, ATRÁS DE "ALTERAR REGRA".
+                        Eles não sumiram: saíram da linha. Obrigatório, teto e
+                        baixa estoque são decisões que se tomam uma vez e se
+                        conferem muitas — a leitura fica na frase, a edição fica
+                        aqui.
+                      */}
+                      {regraAberta === grupo.id && (<>
                       {/* Obrigatório | Opcional — segmentado, porque são duas
                           faces de uma decisão, não uma caixa pra marcar. */}
                       <div className="flex shrink-0 overflow-hidden rounded-[9px] bg-muted p-0.5 text-[11.5px] font-semibold">
@@ -4828,10 +4867,39 @@ function GruposEditor({ produto }: { produto: Produto }) {
                         está como opcional, coisa que `obrigatorio: 0` nunca
                         mostrou.
                       */}
-                      <span className="hidden h-4 w-px bg-border sm:block" />
-                      <span className="shrink-0 text-[11.5px] text-muted-foreground">
-                        {fraseDaRegra(grupo, tetoVemDoTamanho ? faixaSabores : null)}
+                      </>)}
+
+                      {/*
+                        A REGRA EM UMA FRASE — e o que baixa estoque junto dela.
+                        Antes a mesma informação aparecia três vezes na linha
+                        (segmentado + contador + esta frase), e ainda assim não
+                        cabia em 360px.
+                      */}
+                      <span className="min-w-0 shrink text-[12px] text-muted-foreground">
+                        {grupo.obrigatorio ? 'Obrigatório' : 'Opcional'}
+                        {' · '}{fraseDaRegra(grupo, tetoVemDoTamanho ? faixaSabores : null).replace(/^Precisa escolher/, 'escolher').replace(/^Pode pular · /, '')}
+                        {!!grupo.baixa_estoque && ' · baixa estoque'}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => setRegraAberta(regraAberta === grupo.id ? null : grupo.id)}
+                        className="shrink-0 whitespace-nowrap rounded-lg px-1.5 py-1 text-[12px] font-semibold text-primary transition-colors hover:bg-primary/10"
+                      >
+                        {regraAberta === grupo.id ? 'Pronto' : 'Alterar regra'}
+                      </button>
+
+                      {/*
+                        A PENDÊNCIA NO CABEÇALHO, com número.
+                        Item sem origem num grupo que baixa estoque é a única
+                        razão para o estoque não cair — e ela vivia escondida no
+                        meio de oito linhas, com o mesmo peso das resolvidas.
+                      */}
+                      {!!grupo.baixa_estoque && semOrigem > 0 && (
+                        <span className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full bg-amber-500/15 px-2 py-0.5 text-[11.5px] font-bold text-amber-700 dark:text-amber-400">
+                          <Boxes className="size-3.5" />
+                          {semOrigem} {semOrigem === 1 ? 'item sem origem' : 'itens sem origem'}
+                        </span>
+                      )}
                       {/*
                         SELO DE USO, permanente e não em tooltip.
                         Mexer no preço do Catupiry num grupo usado por 30 pizzas
@@ -5122,6 +5190,8 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                 /* A posição DENTRO DO GRUPO — é ela que as setas
                                    movem, e é a ordem que o cliente lê. */
                                 const iNoGrupo = grupo.opcoes.findIndex(x => x.id === o.id);
+                                /* Sem origem, num grupo que baixa estoque. */
+                                const pendente = !!grupo.baixa_estoque && !o.produto_id && !o.sem_estoque;
                                 const anterior = grupo.opcoes[iNoGrupo - 1];
                                 const proximo = grupo.opcoes[iNoGrupo + 1];
                                 return (
@@ -5130,7 +5200,10 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                     onDrop={() => { if (arrastandoOpcao !== null) { moverOpcao(grupo, arrastandoOpcao, o.id); setArrastandoOpcao(null); } }}
                                     className={cn('group rounded-lg px-2 py-2 transition-colors hover:bg-accent/30',
                                       !o.disponivel && 'opacity-60',
-                                      arrastandoOpcao === o.id && 'opacity-40')}
+                                      arrastandoOpcao === o.id && 'opacity-40',
+                                      /* A BARRA ÂMBAR é o que faz a pendência ser vista de
+                                         relance numa lista de oito linhas iguais. */
+                                      pendente && 'border-l-2 border-amber-500 bg-amber-500/[0.06]')}
                                   >
                                     <div className="flex flex-wrap items-center gap-2">
                                       {/*
@@ -5180,16 +5253,24 @@ function GruposEditor({ produto }: { produto: Produto }) {
 
                                       {/* Miniatura: dá pra conferir quais sabores já
                                           têm foto sem abrir um por um. */}
-                                      <button
-                                        type="button"
-                                        onClick={() => setFotoAberta(fotoAberta === o.id ? null : o.id)}
-                                        title={o.imagem ? 'Trocar a foto' : 'Adicionar foto'}
-                                        className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted text-muted-foreground/60 transition-colors hover:border-primary hover:text-primary"
-                                      >
-                                        {o.imagem
-                                          ? <img src={o.imagem} alt="" loading="lazy" className="size-full object-cover" />
-                                          : <ImageIcon className="size-4" />}
-                                      </button>
+                                      {/*
+                                        MINIATURA SÓ QUANDO HÁ FOTO.
+                                        Numa lista de oito sabores sem imagem, eram
+                                        oito quadrados cinzas ocupando a esquerda e
+                                        empurrando o nome — o assunto da linha. Sem
+                                        foto, a câmera vira um botão discreto no fim
+                                        da linha (junto das outras ações).
+                                      */}
+                                      {o.imagem && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setFotoAberta(fotoAberta === o.id ? null : o.id)}
+                                          title="Trocar a foto"
+                                          className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/60 bg-muted transition-colors hover:border-primary"
+                                        >
+                                          <img src={o.imagem} alt="" loading="lazy" className="size-full object-cover" />
+                                        </button>
+                                      )}
 
                                       <input
                                         key={`op-${o.id}-${o.nome}`}
@@ -5298,6 +5379,17 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                         </span>
                                       </button>
 
+                                      {!o.imagem && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setFotoAberta(fotoAberta === o.id ? null : o.id)}
+                                          title="Adicionar foto"
+                                          aria-label={`Adicionar foto de ${o.nome}`}
+                                          className="shrink-0 rounded p-1 text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground"
+                                        >
+                                          <ImageIcon className="size-4" />
+                                        </button>
+                                      )}
                                       <button
                                         type="button"
                                         onClick={() => excluirOpcao(o.id)}
