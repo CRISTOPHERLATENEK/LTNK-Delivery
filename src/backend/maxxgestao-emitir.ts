@@ -764,6 +764,14 @@ export async function enviarPedidoAoErp(
           await db.prepare('UPDATE usuarios SET maxxgestao_endereco_retirada = ? WHERE id = ?')
             .run(idEnderecoRetirada, pedido.cliente_id);
           console.log(`[erp] pedido ${pedidoId}: endereco de retirada ${idEnderecoRetirada} na ficha do cliente ${pedido.cliente_id}`);
+        } else {
+          /*
+           * O ZERO PRECISA APARECER NO LOG. Foi o silêncio que escondeu o
+           * documento 2789 com a aba Endereço em branco: a função pulou de
+           * propósito, "pulei de propósito" não é exceção, e nenhuma linha
+           * saiu — restou olhar o banco para descobrir o que tinha acontecido.
+           */
+          console.log(`[erp] pedido ${pedidoId}: endereco de retirada NAO preparado (pessoa ${idPessoa}) — o endereco vai so na observacao`);
         }
       } catch (e) {
         /* Não segura o pedido: sem o campo, o endereço continua saindo na

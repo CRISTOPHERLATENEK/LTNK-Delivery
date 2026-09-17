@@ -21,15 +21,20 @@ import { montarDocumento, type DadosDoPedido, type ConfigDocumento } from './max
  * escolheu, com o custo na mesa: o endereço da loja entra na ficha do cliente
  * como um endereço extra, "Retirada na loja", com `principal: 'N'`.
  *
- * ─────────────── A ARMADILHA ───────────────
+ * ─────────────── O PRIMEIRO ENDEREÇO VIRA PRINCIPAL ───────────────
  *
  * "Quando for o primeiro endereço da pessoa, ele será definido como principal
- * automaticamente" — e pessoa sem endereço EXISTE aqui: `pessoaDoCliente` cria
- * assim quando a cidade do cliente não é a da empresa.
+ * automaticamente" — e pessoa sem endereço EXISTE aqui.
  *
- * Nessa ficha, o nosso viraria o principal, e toda ENTREGA futura para esse
- * cliente sairia com o endereço da loja — a mercadoria voltando ao balcão de
- * onde saiu. Por isso ficha sem nenhum endereço fica de fora.
+ * A primeira versão pulava essas fichas para proteger a entrega, e foi isso que
+ * deixou o documento 2789 com a aba Endereço em branco: o cliente da retirada
+ * não tinha endereço na ficha, nada foi criado, e o log não disse nada porque
+ * "pulei de propósito" não era erro.
+ *
+ * Decisão do lojista, com a consequência na mesa: cria mesmo assim. O endereço
+ * da loja vira o principal daquela ficha e passa a sair também nos documentos
+ * de ENTREGA desse cliente. O argumento que pesou: hoje esse campo sai em
+ * BRANCO nesses documentos.
  */
 
 const raiz = path.join(__dirname, '..', '..');
@@ -130,14 +135,17 @@ describe('quando criar o endereço na ficha do cliente', () => {
   });
 
   /*
-   * ESTA É A ASSERÇÃO QUE PROTEGE A ENTREGA. Ficha vazia: o nosso viraria
-   * principal, e a próxima entrega para este cliente sairia com o endereço da
-   * loja. Um campo bonito no documento não vale uma entrega perdida.
+   * FICHA VAZIA RECEBE — é a mudança, e é o caso do documento 2789. O cliente
+   * da retirada não tinha endereço nenhum, a versão anterior pulava, e a aba
+   * Endereço saía em branco.
    */
-  it('ficha SEM endereço nenhum não recebe nada', async () => {
+  it('ficha vazia recebe o endereço da loja', async () => {
     const erp = erpFalso([]);
-    expect(await enderecoDeRetirada(erp.listar, erp.criar, EMPRESA)).toBe(0);
-    expect(erp.criados.length).toBe(0);
+    expect(await enderecoDeRetirada(erp.listar, erp.criar, EMPRESA)).toBe(99);
+    expect(erp.criados.length).toBe(1);
+    /* `N` vai assim mesmo: a API promove o primeiro por conta própria, e pedir
+       `S` seria pedir a promoção em vez de apenas aceitá-la. */
+    expect(erp.criados[0].principal).toBe('N');
   });
 
   it('empresa sem endereço utilizável não cria', async () => {
@@ -146,8 +154,12 @@ describe('quando criar o endereço na ficha do cliente', () => {
     expect(erp.criados.length).toBe(0);
   });
 
-  /* Listagem que não respondeu conta como ficha vazia — e ficha vazia não
-     recebe. Criar às cegas é exatamente o caso perigoso. */
+  /*
+   * LISTAGEM QUE NÃO RESPONDEU NÃO É FICHA VAZIA. `null` é "não sei"; `[]` é
+   * "sei que não há". Só a segunda autoriza escrever — criar às cegas numa
+   * ficha que já tem o nosso endereço criaria o segundo, e o terceiro no
+   * pedido seguinte.
+   */
   it('listagem sem resposta não cria', async () => {
     const erp = erpFalso(null);
     expect(await enderecoDeRetirada(erp.listar, erp.criar, EMPRESA)).toBe(0);
@@ -205,6 +217,17 @@ describe('o envio', () => {
     expect(EMITIR).toContain('empresaDoErp = empresa as EnderecoDaEmpresa | null;');
     expect(EMITIR).toContain('empresaDoErp,');
     expect((EMITIR.match(/'\/api\/empresa\/v1'/g) || []).length).toBe(1);
+  });
+
+  /*
+   * O ZERO APARECE NO LOG. Foi o silêncio que escondeu o documento 2789 com a
+   * aba Endereço em branco: a função pulou de propósito, "pulei de propósito"
+   * não é exceção, e nenhuma linha saiu — restou olhar o banco.
+   */
+  it('diz no log quando não preparou', () => {
+    expect(EMITIR).toContain('endereco de retirada NAO preparado');
+    const i = EMITIR.indexOf('endereco de retirada NAO preparado');
+    expect(EMITIR.slice(i - 400, i)).toContain('} else {');
   });
 
   /* Falha não segura o pedido: sem o campo, o endereço continua saindo na

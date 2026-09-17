@@ -13,20 +13,26 @@
  * loja entra na ficha do cliente como um endereço extra, chamado "Retirada na
  * loja", com `principal: 'N'`.
  *
- * ─────────────── A ARMADILHA DO PRIMEIRO ENDEREÇO ───────────────
+ * ─────────────── O PRIMEIRO ENDEREÇO VIRA PRINCIPAL ───────────────
  *
  * A documentação do campo diz: "quando for o primeiro endereço da pessoa, ele
  * será definido como principal automaticamente". E pessoa sem endereço EXISTE
- * de verdade aqui — `pessoaDoCliente` cria assim quando a cidade do cliente não
- * é a da empresa ("pessoa criada sem endereço", está no log).
+ * de verdade aqui — `pessoaDoCliente` cria assim quando o cliente não tem
+ * endereço nenhum, ou quando a cidade dele não é a da empresa.
  *
- * Nessa pessoa, criar o endereço da loja o tornaria PRINCIPAL. A partir daí,
- * toda ENTREGA para esse cliente que não informasse endereço sairia com o
- * endereço da loja — a mercadoria voltaria para o balcão de onde saiu.
+ * A PRIMEIRA VERSÃO PULAVA ESSAS FICHAS, e foi exatamente isso que deixou o
+ * documento 2789 com a aba Endereço em branco: o cliente do pedido de retirada
+ * não tinha endereço na ficha, então nada foi criado — e o log não disse nada,
+ * porque "pulei de propósito" não era erro.
  *
- * Então: pessoa sem nenhum endereço NÃO RECEBE. O documento dela continua com o
- * endereço na observação, que é o que já funciona. Um campo bonito não vale uma
- * entrega perdida.
+ * Decisão do lojista, com a consequência na mesa: cria mesmo assim. O endereço
+ * da loja vira o principal daquela ficha, e passa a sair também nos documentos
+ * de ENTREGA desse cliente. O argumento que pesou: hoje esse campo sai em
+ * BRANCO nesses documentos, e branco não é melhor que o endereço da loja.
+ *
+ * `principal: 'N'` continua indo no corpo. Quando a ficha já tem endereço, ele
+ * é respeitado e o nosso fica como extra; quando é o primeiro, a API promove
+ * assim mesmo. Mandar o contrário seria pedir a promoção.
  *
  * ─────────────── DE ONDE VEM O ENDEREÇO ───────────────
  *
@@ -138,17 +144,19 @@ export async function enderecoDeRetirada(
   empresa: EnderecoDaEmpresa | null,
 ): Promise<number> {
   const lista = await listar();
-  const items = lista?.items ?? [];
+  /*
+   * LISTAGEM QUE NÃO RESPONDEU NÃO VIRA "ficha vazia". Sem esta linha, uma
+   * falha de rede faria criar às cegas — e criar às cegas numa ficha que já
+   * tem o nosso endereço cria o segundo, e o terceiro no pedido seguinte.
+   *
+   * `null` é a resposta de quem não sabe; `{ items: [] }` é a de quem sabe que
+   * não há nada. São coisas diferentes e só uma delas autoriza escrever.
+   */
+  if (!lista) return 0;
+  const items = lista.items ?? [];
 
   const jaTem = acharEnderecoNosso(items);
   if (jaTem > 0) return jaTem;
-
-  /*
-   * FICHA SEM NENHUM ENDEREÇO NÃO RECEBE — é a armadilha do cabeçalho. O nosso
-   * viraria o principal, e a próxima ENTREGA para este cliente sairia com o
-   * endereço da loja.
-   */
-  if (!items.length) return 0;
 
   const corpo = corpoDoEndereco(empresa);
   if (!corpo) return 0;
