@@ -2665,6 +2665,46 @@ router.post('/grupos/:id/opcoes', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+/**
+ * A NOVA ORDEM DOS ITENS DE UM COMPLEMENTO.
+ *
+ * A ordem aqui é a ordem em que o CLIENTE lê a lista. Num grupo de oito sabores
+ * de gelo, "Gelo de coco" no fim e "Gelo normal" no meio não é detalhe de
+ * cadastro: é o que o cliente vê primeiro, e o que ele escolhe mais.
+ *
+ * Recebe a lista inteira de ids, como a reordenação dos itens do combo: mandar
+ * "este foi do 5 para o 2" obrigaria o servidor a recalcular o resto, e a conta
+ * feita em dois lugares é a conta que diverge.
+ *
+ * Ids que não são deste grupo são ignorados em silêncio — o WHERE já protege, e
+ * recusar a requisição inteira por um id velho de aba aberta faria o arrasto
+ * falhar sem que a pessoa entendesse.
+ */
+router.put('/grupos/:id/opcoes/ordem', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const grupo = await meuGrupo(loja, req.params.id);
+    const pedidos: number[] = Array.isArray(req.body.ordem) ? req.body.ordem.map(Number) : [];
+    if (!pedidos.length) throw erroHttp(400, 'Informe a nova ordem dos itens.');
+
+    await comTransacao(async (tx) => {
+      const meus = await tx.prepare(
+        'SELECT id FROM opcoes_itens WHERE grupo_id = ?'
+      ).all(grupo.id) as Array<{ id: number }>;
+      const validos = new Set(meus.map(m => m.id));
+      const nova = pedidos.filter(id => validos.has(id));
+      /* Quem não veio na lista vai para o fim, na ordem que já tinha: assim uma
+         aba desatualizada não apaga item nenhum da lista. */
+      const resto = meus.map(m => m.id).filter(id => !nova.includes(id));
+      for (const [i, id] of [...nova, ...resto].entries()) {
+        await tx.prepare('UPDATE opcoes_itens SET ordem = ? WHERE id = ? AND grupo_id = ?')
+          .run(i + 1, id, grupo.id);
+      }
+    });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 router.put('/opcoes/:id', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);

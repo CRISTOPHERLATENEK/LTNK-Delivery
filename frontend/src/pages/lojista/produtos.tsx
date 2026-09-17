@@ -3818,6 +3818,8 @@ function GruposEditor({ produto }: { produto: Produto }) {
 
   /** Qual opção está escolhendo o produto do estoque (só uma por vez). */
   const [vinculando, setVinculando] = useState<number | null>(null);
+  /** Item do complemento sendo arrastado. */
+  const [arrastandoOpcao, setArrastandoOpcao] = useState<number | null>(null);
   const [buscaVinculo, setBuscaVinculo] = useState('');
 
 
@@ -4368,6 +4370,31 @@ function GruposEditor({ produto }: { produto: Produto }) {
   }
 
   /** Grava quantos sabores a opção de tamanho libera. */
+  /**
+   * A NOVA ORDEM DOS ITENS DO COMPLEMENTO.
+   *
+   * A ordem aqui é a ordem em que o CLIENTE lê a lista — num grupo de oito
+   * sabores, o que está em cima é o que mais sai. Antes só dava para reordenar
+   * apagando e recadastrando na sequência certa.
+   *
+   * Manda a lista INTEIRA do grupo, e não só o que mudou: a conta feita nos dois
+   * lados é a conta que diverge.
+   */
+  async function moverOpcao(grupo: GrupoOpcoes, opcaoId: number, destinoId: number) {
+    if (opcaoId === destinoId) return;
+    const ids = grupo.opcoes.map(x => String(x.id));
+    const destino = ids.indexOf(String(destinoId));
+    if (destino < 0) return;
+    const nova = reordenar(ids, String(opcaoId), destino + 1).map(Number);
+    try {
+      await api('PUT', `/api/lojista/grupos/${grupo.id}/opcoes/ordem`, { ordem: nova });
+      await qc.refetchQueries({ queryKey });
+    } catch (e) {
+      mostrar({ tipo: 'erro', titulo: e instanceof ApiError ? e.message : 'Erro ao reordenar.' });
+      await qc.refetchQueries({ queryKey });
+    }
+  }
+
   async function definirSabores(opcao: OpcaoItem, sabores: number) {
     try {
       await api('PUT', `/api/lojista/opcoes/${opcao.id}`, { sabores });
@@ -4955,12 +4982,65 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                 function gravarChips(novos: string[]) {
                                   salvarOpcao(o, { descricao: textoDeIngredientes(novos) });
                                 }
+                                /* A posição DENTRO DO GRUPO — é ela que as setas
+                                   movem, e é a ordem que o cliente lê. */
+                                const iNoGrupo = grupo.opcoes.findIndex(x => x.id === o.id);
+                                const anterior = grupo.opcoes[iNoGrupo - 1];
+                                const proximo = grupo.opcoes[iNoGrupo + 1];
                                 return (
                                   <div key={o.id}
+                                    onDragOver={e => { if (arrastandoOpcao !== null) e.preventDefault(); }}
+                                    onDrop={() => { if (arrastandoOpcao !== null) { moverOpcao(grupo, arrastandoOpcao, o.id); setArrastandoOpcao(null); } }}
                                     className={cn('group rounded-lg px-2 py-2 transition-colors hover:bg-accent/30',
-                                      !o.disponivel && 'opacity-60')}
+                                      !o.disponivel && 'opacity-60',
+                                      arrastandoOpcao === o.id && 'opacity-40')}
                                   >
                                     <div className="flex flex-wrap items-center gap-2">
+                                      {/*
+                                        ─── ARRASTAR E AS SETAS ───
+
+                                        A ordem aqui é a que o cliente lê, e num
+                                        grupo de oito sabores o que está em cima é
+                                        o que mais sai. Antes só dava para mudar
+                                        apagando e recadastrando na sequência.
+
+                                        As setas não são redundância do arrasto:
+                                        `draggable` do HTML5 é inerte em toque —
+                                        no celular a alça não faz nada — e
+                                        invisível para quem navega por teclado.
+                                      */}
+                                      <span className="flex shrink-0 flex-col items-center">
+                                        <span
+                                          draggable
+                                          onDragStart={() => setArrastandoOpcao(o.id)}
+                                          onDragEnd={() => setArrastandoOpcao(null)}
+                                          title="Arraste para mudar a ordem"
+                                          className="cursor-grab text-muted-foreground/50 transition-colors hover:text-foreground active:cursor-grabbing"
+                                        >
+                                          <GripVertical className="size-3.5" />
+                                        </span>
+                                      </span>
+                                      <span className="flex shrink-0 flex-col">
+                                        <button
+                                          type="button"
+                                          aria-label={`Subir ${o.nome}`}
+                                          disabled={!anterior}
+                                          onClick={() => anterior && moverOpcao(grupo, o.id, anterior.id)}
+                                          className="rounded text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent"
+                                        >
+                                          <ChevronUp className="size-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          aria-label={`Descer ${o.nome}`}
+                                          disabled={!proximo}
+                                          onClick={() => proximo && moverOpcao(grupo, o.id, proximo.id)}
+                                          className="rounded text-muted-foreground/60 transition-colors hover:bg-accent hover:text-foreground disabled:opacity-25 disabled:hover:bg-transparent"
+                                        >
+                                          <ChevronDown className="size-3.5" />
+                                        </button>
+                                      </span>
+
                                       {/* Miniatura: dá pra conferir quais sabores já
                                           têm foto sem abrir um por um. */}
                                       <button
