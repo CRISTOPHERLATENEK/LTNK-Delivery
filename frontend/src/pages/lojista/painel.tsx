@@ -671,20 +671,28 @@ function NfceDeliveryLoja() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-sm">#{p.id}</span>
                   <span className="text-sm truncate">{p.cliente_nome}</span>
+                  {/* 10px era o menor texto da tela inteira, e carregava o
+                      número da nota — o dado que o contador pede. */}
                   {p.nota_status && (
-                    <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-bold', BADGE[p.nota_status] ?? 'bg-muted text-muted-foreground')}>
+                    <span className={cn('rounded-full px-2 py-0.5 text-[12px] font-bold', BADGE[p.nota_status] ?? 'bg-muted text-muted-foreground')}>
                       {p.nota_status === 'autorizada' ? `NF nº${p.nota_numero}` : p.nota_status}
                     </span>
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground">{dataLocal(p.criado_em)}</div>
+                {/* 11px era menor que o "R$" ao lado, num texto que é a única
+                    explicação de por que a nota não saiu — e é ele que diz o que
+                    corrigir antes de tentar de novo. */}
                 {(p.nota_status === 'rejeitada' || p.nota_status === 'erro') && p.nota_motivo && (
-                  <div className="text-[11px] text-red-600 line-clamp-1 mt-0.5">{p.nota_cstat} — {p.nota_motivo}</div>
+                  <div className="mt-0.5 line-clamp-2 text-[13px] text-red-600">{p.nota_cstat} — {p.nota_motivo}</div>
                 )}
               </div>
               <span className="text-sm font-bold tabular-nums shrink-0">{brl(p.total_centavos)}</span>
+              {/* Esta pílula OCUPA O LUGAR do botão de emitir: ela diz por que
+                  não dá para emitir daqui. Menor que o botão que substitui,
+                  passa por enfeite. */}
               {laFora && !autorizada ? (
-                <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-[12.5px] font-medium text-muted-foreground">
                   {laFora}
                 </span>
               ) : (

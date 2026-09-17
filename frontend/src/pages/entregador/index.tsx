@@ -671,21 +671,21 @@ function EntregaAtiva() {
             <div className="flex items-center gap-2">
               <RouteIcon className="size-4 text-muted-foreground" />
               <div>
-                <div className="text-[11px] text-muted-foreground leading-none">Distância total</div>
+                <div className="text-[12.5px] leading-none text-muted-foreground">Distância total</div>
                 <div className="text-sm font-bold tabular-nums mt-0.5">{rota ? `${rota.distanciaKm.toFixed(1)} km` : '—'}</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <Clock className="size-4 text-muted-foreground" />
               <div>
-                <div className="text-[11px] text-muted-foreground leading-none">Tempo estimado</div>
+                <div className="text-[12.5px] leading-none text-muted-foreground">Tempo estimado</div>
                 <div className="text-sm font-bold tabular-nums mt-0.5">{rota ? `${Math.round(rota.duracaoMin)} min` : '—'}</div>
               </div>
             </div>
             <div className="flex items-center gap-2">
               <Wallet className="size-4 text-muted-foreground" />
               <div>
-                <div className="text-[11px] text-muted-foreground leading-none">Ganhos da corrida</div>
+                <div className="text-[12.5px] leading-none text-muted-foreground">Ganhos da corrida</div>
                 <div className="text-sm font-bold tabular-nums mt-0.5 text-success">{brl(p.taxa_entrega_centavos)}</div>
               </div>
             </div>
@@ -883,7 +883,9 @@ function EntregaAtiva() {
                     )}>
                       {etapa.rotulo}
                     </div>
-                    <div className="text-xs text-muted-foreground sm:text-[11px]">
+                    {/* Encolher o HORÁRIO da etapa no desktop era o inverso do
+                        que se quer: é o dado que prova quando a entrega andou. */}
+                    <div className="text-xs text-muted-foreground">
                       {horario
                         ? new Date(horario).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
                         : estado === 'atual' ? 'agora' : ''}
@@ -1120,7 +1122,9 @@ function PreferenciaChat() {
             Meu WhatsApp
           </button>
         </div>
-        <p className="text-[11px] text-muted-foreground">
+        {/* Única explicação de uma escolha que expõe (ou não) o número pessoal
+            do entregador — não é nota de rodapé. */}
+        <p className="text-[12.5px] text-muted-foreground">
           "Meu WhatsApp" abre uma conversa direto no seu número quando o cliente tocar em "Chat" — a plataforma não guarda essa conversa.
         </p>
       </CardContent>

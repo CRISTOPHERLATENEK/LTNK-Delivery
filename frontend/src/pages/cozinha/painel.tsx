@@ -348,7 +348,13 @@ function TelaKDS() {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <span className="hidden sm:flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
+            {/*
+              A FILA MUDA SOZINHA (refetch de 4s). Para quem vê a tela, o número
+              trocar já é o aviso; para quem usa leitor de tela, nada acontecia.
+              `polite` fala no intervalo entre frases, sem cortar a leitura do
+              ticket que a pessoa está ouvindo.
+            */}
+            <span aria-live="polite" className="hidden sm:flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
               <Soup className="size-4" /> {pedidos.length} na fila
             </span>
             <span className="hidden lg:flex items-center gap-1.5 text-xs text-muted-foreground" title="↑/↓ anda na coluna · ←/→ troca de coluna · Enter avança o ticket selecionado">
@@ -429,7 +435,13 @@ function TelaKDS() {
                   <div className="mb-2 flex items-center gap-2 border-b border-border/60 pb-2">
                     <IconeRaia className="size-4 text-muted-foreground" />
                     <h2 className="text-sm font-extrabold uppercase tracking-wide">{raia.titulo}</h2>
-                    <span className="ml-auto rounded-full bg-accent px-2 py-0.5 text-xs font-bold tabular-nums">
+                    {/* Mesmo motivo do total no topo — aqui por coluna. O rótulo
+                        vai junto porque "3" sozinho não diz 3 de quê. */}
+                    <span
+                      aria-live="polite"
+                      aria-label={`${raia.itens.length} em ${raia.titulo}`}
+                      className="ml-auto rounded-full bg-accent px-2 py-0.5 text-xs font-bold tabular-nums"
+                    >
                       {raia.itens.length}
                     </span>
                   </div>
@@ -516,8 +528,12 @@ function TicketCozinha({
       </div>
       <CardContent className="p-3">
         {/* O estágio (novo / em preparo) não é repetido aqui: a COLUNA já diz.
-            Sobra só a origem (Delivery / Salão / Balcão), que a coluna não diz. */}
-        <div className="text-[11px] uppercase tracking-wide text-muted-foreground mb-2">
+            Sobra só a origem (Delivery / Salão / Balcão), que a coluna não diz.
+
+            12.5px e não 11px: a tela da cozinha é lida DE LONGE, de pé, e essa
+            linha é a única que separa um pedido de delivery de um do salão —
+            trocar os dois manda a moto para uma mesa. */}
+        <div className="text-[12.5px] uppercase tracking-wide text-muted-foreground mb-2">
           {Fonte.rotulo}
         </div>
         <div className="space-y-1.5">
