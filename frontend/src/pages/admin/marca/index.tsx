@@ -222,7 +222,7 @@ export function TelaMarca() {
             </Linha>
             <Linha
               rotulo="Banner do login"
-              apoio="No topo do card de /conta · vazio = ilustração padrão · ideal ~1200×480"
+              apoio="Usado nas lojas que não puseram o próprio (Visual → Capa) · vazio = ilustração padrão · ideal ~1200×480"
               empilhado
             >
               <ImageUpload label="" value={form.login_banner_url}

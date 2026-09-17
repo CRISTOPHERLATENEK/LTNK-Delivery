@@ -10,4 +10,5 @@ export type EstadoVisual = {
   logo_url: string;
   capa_url: string;
   favicon_url: string;
+  login_banner_url: string;
 } & VisualJson;

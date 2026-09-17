@@ -13,6 +13,7 @@ function montarEstado(loja: any): EstadoVisual {
     logo_url: loja.logo_url || '',
     capa_url: loja.capa_url || '',
     favicon_url: loja.favicon_url || '',
+    login_banner_url: loja.login_banner_url || '',
     ...visual,
   };
 }
@@ -32,7 +33,7 @@ export function useVisualForm() {
   const { mostrar } = useToast();
   const [lojaId, setLojaId] = useState<number | null>(null);
   const [tenantSlug, setTenantSlug] = useState<string | null>(null);
-  const [estado, setEstado] = useState<EstadoVisual>({ ...DEFAULT_VISUAL, nome: '', cor_marca: '#dc2640', cor_secundaria: '', logo_url: '', capa_url: '', favicon_url: '' });
+  const [estado, setEstado] = useState<EstadoVisual>({ ...DEFAULT_VISUAL, nome: '', cor_marca: '#dc2640', cor_secundaria: '', logo_url: '', capa_url: '', favicon_url: '', login_banner_url: '' });
   const [carregado, setCarregado] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const estadoInicialRef = useRef<string>('');
@@ -78,9 +79,9 @@ export function useVisualForm() {
   async function salvar() {
     setSalvando(true);
     try {
-      const { nome, cor_marca, cor_secundaria, logo_url, capa_url, favicon_url, ...visual } = estado;
+      const { nome, cor_marca, cor_secundaria, logo_url, capa_url, favicon_url, login_banner_url, ...visual } = estado;
       const r = await api<{ loja: any }>('PUT', '/api/lojista/loja', {
-        nome, cor_marca, cor_secundaria, logo_url, capa_url, favicon_url,
+        nome, cor_marca, cor_secundaria, logo_url, capa_url, favicon_url, login_banner_url,
         visual_json: JSON.stringify(visual),
       });
       const novo = montarEstado(r.loja);

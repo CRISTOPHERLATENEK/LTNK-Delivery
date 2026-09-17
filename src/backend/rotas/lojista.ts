@@ -476,7 +476,8 @@ router.put('/loja', async (req, res, next) => {
     await db.prepare(
       `UPDATE lojas SET nome = ?, descricao = ?, categoria = ?, endereco = ?, lat = ?, lon = ?,
               taxa_entrega_centavos = ?, tempo_estimado_min = ?, horario_funcionamento = ?,
-              logo_url = ?, capa_url = ?, favicon_url = ?, cor_marca = ?, cor_secundaria = ?, slug = ?,
+              logo_url = ?, capa_url = ?, favicon_url = ?, login_banner_url = ?,
+              cor_marca = ?, cor_secundaria = ?, slug = ?,
               dominio_personalizado = ?,
               horario_json = ?, auto_horario = ?, minimo_pedido_centavos = ?, aceita_retirada = ?,
               pagamento_online = ?,
@@ -491,6 +492,7 @@ router.put('/loja', async (req, res, next) => {
           validarUrl('logo_url', lojaQualquer.logo_url || ''),
           validarUrl('capa_url', lojaQualquer.capa_url || ''),
           validarUrl('favicon_url', lojaQualquer.favicon_url || ''),
+          validarUrl('login_banner_url', lojaQualquer.login_banner_url || ''),
           validarCor('cor_marca', lojaQualquer.cor_marca || ''),
           validarCor('cor_secundaria', lojaQualquer.cor_secundaria || ''),
           slug, dominioPersonalizado,

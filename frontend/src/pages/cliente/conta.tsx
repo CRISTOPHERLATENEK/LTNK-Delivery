@@ -98,9 +98,17 @@ function TelaAuth({ onLogar }: { onLogar: (u: UsuarioSessao) => void }) {
   );
 }
 
-/* Hero do topo do card de login. Se o admin definiu um banner próprio
-   (Admin → Marca → Banner do login), mostra a imagem; senão, a ilustração
-   padrão desenhada em SVG com a cor da marca. */
+/*
+ * Hero do topo do card de login, em três degraus:
+ *
+ *   1. o banner DA LOJA (Lojista → Visual → Capa → Banner da tela de entrar);
+ *   2. senão, o da plataforma (Admin → Marca → Banner do login);
+ *   3. senão, a ilustração desenhada em SVG com a cor da marca.
+ *
+ * Quem escolhe entre 1 e 2 é o `/api/tema`, que já resolve a loja pelo domínio
+ * — a tela recebe um campo só, resolvido. Decidir aqui obrigaria esta tela a
+ * saber qual loja é, e a mesma regra viveria em dois lugares.
+ */
 function HeroAuth({ nome, banner }: { nome: string; banner?: string }) {
   if (banner) {
     return (

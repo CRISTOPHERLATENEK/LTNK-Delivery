@@ -80,6 +80,45 @@ export function CapaTab({ estado, atualizar, restaurarPadrao }: Props) {
           <Escolha opcoes={[{ id: 'cover', label: 'Cover' }, { id: 'contain', label: 'Contain' }, { id: 'repeat', label: 'Repetir' }] as const}
             valor={estado.capa.ajuste} onEscolher={v => atualizar('capa.ajuste', v)} />
         </div>
+
+        {/*
+          O BANNER DA TELA DE ENTRAR — antes só o super admin trocava.
+          `marca_login_banner_url` era configuração da PLATAFORMA: uma imagem só
+          para todos os clientes, num produto que é white-label justamente para
+          não parecer isso. No domínio da loja, nome, logo, favicon e cores já
+          são dela; o banner era o último lugar em que a plataforma aparecia —
+          e logo na PRIMEIRA tela que o cliente vê.
+
+          Vive aqui, junto da capa, porque é a mesma decisão: uma faixa larga
+          com o nome por cima. Quem acabou de escolher a capa está com a régua
+          certa na cabeça para escolher esta.
+        */}
+        <div className="border-t border-border/60 pt-4">
+          <Label className="mb-1 block">Banner da tela de entrar</Label>
+          <p className="mb-2 text-[12px] text-muted-foreground">
+            Aparece no topo da tela em que o cliente faz login e cria a conta.
+            Formato <strong>largo</strong> (~1200×480). O nome da loja fica
+            escrito por cima, no canto de baixo — evite texto importante ali.
+            Sem imagem, fica a ilustração padrão com a cor da sua marca.
+          </p>
+          <ImageUpload value={estado.login_banner_url}
+            onChange={url => atualizar('login_banner_url', url)} aspectRatio="wide" />
+          {estado.login_banner_url && (
+            /*
+              PRÉVIA COM O DEGRADÊ E O NOME POR CIMA, e não a imagem crua: é
+              embaixo, onde o degradê escurece, que o nome da loja entra — e é
+              exatamente ali que uma foto clara engole o texto. Mostrar a
+              imagem limpa esconderia o único jeito de errar.
+            */
+            <div className="relative mt-3 h-28 overflow-hidden rounded-xl sm:h-32">
+              <img src={estado.login_banner_url} alt="" className="absolute inset-0 size-full object-cover" />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-transparent" />
+              <div className="absolute bottom-3 left-4 text-[11px] font-bold uppercase tracking-widest text-white/85 drop-shadow">
+                {estado.nome || 'Sua loja'}
+              </div>
+            </div>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

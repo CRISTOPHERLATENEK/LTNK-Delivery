@@ -1924,6 +1924,19 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * a leitura de quem viesse depois. Quem autoriza cobrança é o access token,
      * esse sim cifrado.
      */
+    /*
+     * O BANNER DA TELA DE LOGIN, POR LOJA.
+     *
+     * Existia só como configuração da PLATAFORMA (`marca_login_banner_url`),
+     * editável no painel do super admin — o que dava a mesma imagem para todos
+     * os clientes num produto que é white-label justamente para não parecer
+     * isso. No domínio da loja, tudo o mais já é dela (nome, logo, favicon,
+     * cores); o banner era o último lugar em que a plataforma aparecia.
+     *
+     * A coluna vazia mantém o banner da plataforma, e a plataforma vazia mantém
+     * a ilustração desenhada — dois degraus, nenhuma tela em branco.
+     */
+    ['login_banner_url', 'login_banner_url TEXT'],
     ['mercadopago_public_key', 'mercadopago_public_key VARCHAR(120)'],
   ] as const) {
     const [existe] = await pool.query(

@@ -89,13 +89,14 @@ export async function montarTema(host?: string) {
     const logoEscala = Number(await valor('marca_logo_escala', '50'));
     const credito = await lerRodapeCredito();
     let descricao = await valor('marca_descricao');
+    let bannerLogin = await valor('marca_login_banner_url');
 
     if (lojaId > 0) {
       const loja = await db.prepare(
-        'SELECT nome, descricao, favicon_url, logo_url, cor_marca, cor_secundaria FROM lojas WHERE id = ?'
+        'SELECT nome, descricao, favicon_url, logo_url, cor_marca, cor_secundaria, login_banner_url FROM lojas WHERE id = ?'
       ).get(lojaId) as {
         nome: string; descricao: string; favicon_url: string; logo_url: string;
-        cor_marca: string; cor_secundaria: string;
+        cor_marca: string; cor_secundaria: string; login_banner_url: string | null;
       } | undefined;
 
       // O FAVICON DA LOJA GANHA DO DA PLATAFORMA aqui, e não o contrário: no
@@ -122,6 +123,15 @@ export async function montarTema(host?: string) {
       }
       if (loja?.logo_url?.trim()) logo = loja.logo_url.trim();
       if (loja?.descricao?.trim()) descricao = loja.descricao.trim();
+      /*
+       * O BANNER DO LOGIN DA LOJA GANHA DO DA PLATAFORMA — mesma regra do
+       * favicon, e pelo mesmo motivo: no domínio dela, a imagem da plataforma
+       * é a marca de outra empresa na primeira tela que o cliente vê.
+       *
+       * Vazio NÃO apaga: cai no banner da plataforma, e se ele também estiver
+       * vazio, na ilustração desenhada. Nenhum degrau deixa buraco.
+       */
+      if (loja?.login_banner_url?.trim()) bannerLogin = loja.login_banner_url.trim();
     }
 
     // Conteúdo da landing page do produto (só relevante quando lojaId=0, mas
@@ -146,7 +156,7 @@ export async function montarTema(host?: string) {
       fonte:             await valor('marca_fonte', 'inter'),
       descricao,
       og_image:          await valor('marca_og_image'),
-      login_banner_url:  await valor('marca_login_banner_url'),
+      login_banner_url:  bannerLogin,
       loja_id:           lojaId,
       // Só o tenant master (banco padrão da plataforma) expõe o painel admin
       // — domínio de loja/demo não deve nem mostrar a tela de login dele.

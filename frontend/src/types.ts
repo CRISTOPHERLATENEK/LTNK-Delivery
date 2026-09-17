@@ -51,6 +51,8 @@ export interface Loja {
   logo_url?: string;
   capa_url?: string;
   favicon_url?: string;
+  /** Banner do topo do card de login (/conta). Vazio herda o da plataforma. */
+  login_banner_url?: string;
   cor_marca?: string;
   cor_secundaria?: string;
   /** Horário automático — agenda semanal em JSON e flags. */
