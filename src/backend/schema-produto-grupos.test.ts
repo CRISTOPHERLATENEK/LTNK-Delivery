@@ -312,8 +312,13 @@ describe('fase 3 — ligar, desligar, soltar', () => {
    * foi o que aconteceu duas vezes na duplicação de produto.
    */
   it('soltar clona o grupo com todos os campos do item', () => {
-    const i = lojista.indexOf("/grupos/:grupoId/soltar");
-    const rota = lojista.slice(i, lojista.indexOf("router.post('/grupos/:id/opcoes'", i));
+    /* O CLONE VIROU FUNÇÃO (`copiarGrupoPara`), usada pelos dois caminhos: o
+       "soltar" e a biblioteca, que agora sempre copia. Duas cópias do mesmo
+       código já divergiram duas vezes neste arquivo — primeiro em `sabores`,
+       depois no vínculo de estoque. */
+    const i = lojista.indexOf('async function copiarGrupoPara');
+    expect(i).toBeGreaterThan(0);
+    const rota = lojista.slice(i, lojista.indexOf('return clone;', i));
     /*
      * OLHA OS ARGUMENTOS, NÃO A LISTA DE COLUNAS.
      *
@@ -329,22 +334,34 @@ describe('fase 3 — ligar, desligar, soltar', () => {
       expect(run).toContain(`o.${campo}`);
     }
     /* E o vínculo DESTE produto passa a apontar pro clone — sem isso o clone
-       nasce órfão e o produto continua no grupo compartilhado. */
-    expect(rota).toMatch(/UPDATE produto_grupos SET grupo_id = \? WHERE produto_id = \? AND grupo_id = \?/);
+       nasce órfão e o produto continua no grupo compartilhado. Isso é do
+       "soltar", não da função de cópia: a biblioteca cria vínculo novo em vez
+       de reapontar um que já existe. */
+    const j = lojista.indexOf('/grupos/:grupoId/soltar');
+    const soltar = lojista.slice(j, lojista.indexOf("router.post('/grupos/:id/opcoes'", j));
+    expect(soltar).toMatch(/UPDATE produto_grupos SET grupo_id = \? WHERE produto_id = \? AND grupo_id = \?/);
+    expect(soltar).toContain('copiarGrupoPara(');
   });
 
   /*
-   * DUPLICAR PASSA A LIGAR. É o coração do recurso: as 30 pizzas de uma pizzaria
-   * nascem de duplicação, e copiando os grupos cada uma ganhava a SUA borda — a
-   * dor inteira recriada a cada clique.
+   * DUPLICAR COPIA, NÃO COMPARTILHA.
+   *
+   * Era o contrário — e era o coração do reaproveitamento: trinta pizzas nascem
+   * de duplicação, e ligando os mesmos grupos subir o Catupiry era uma edição
+   * em vez de trinta.
+   *
+   * O lojista desfez essa troca com a experiência dele: ajustou o complemento
+   * de um balde e mexeu em dez outros sem querer. "As composições são
+   * individuais de cada produto, não pode interferir em outro se eu mudar
+   * algo." O custo — trinta bordas para manter — é dele e é sabido.
    */
-  it('duplicar produto liga os mesmos grupos, não copia', () => {
+  it('duplicar produto copia os grupos, não liga os mesmos', () => {
     const i = lojista.indexOf("router.post('/produtos/:id/duplicar'");
     const rota = lojista.slice(i, lojista.indexOf("router.post('/produtos/bulk'", i));
-    expect(rota).toMatch(/INSERT INTO produto_grupos/);
-    /* Se voltar a copiar, estas duas reaparecem — e o teste diz onde. */
-    expect(rota).not.toMatch(/INSERT INTO grupos_opcoes/);
-    expect(rota).not.toMatch(/INSERT INTO opcoes_itens/);
+    expect(rota).toContain('copiarGrupoPara(tx, loja.id, novoId, g, l)');
+    /* A ligação nova aponta pro CLONE. Apontar pro original seria compartilhar
+       de novo, com um passo a mais. */
+    expect(rota).toMatch(/\.run\(novoId, clone, l\.ordem/);
   });
 
   /*
@@ -352,9 +369,17 @@ describe('fase 3 — ligar, desligar, soltar', () => {
    * cardápio. O UNIQUE barra, e a rota traduz o erro do banco em mensagem.
    */
   it('ligar duas vezes devolve 409, não erro de banco', () => {
+    /*
+     * A GUARDA MUDOU DE DONO. Antes quem barrava o duplo clique era a UNIQUE
+     * (produto_id, grupo_id) do banco. Agora cada vinda da biblioteca é uma
+     * CÓPIA com id próprio — o banco não tem mais como reclamar, e dois cliques
+     * deixariam o cliente vendo "Borda" duas vezes no mesmo produto.
+     *
+     * Quem barra agora é o NOME, que é o que o cliente lê.
+     */
     const i = lojista.indexOf("router.post('/produtos/:id/grupos/:grupoId',");
     const rota = lojista.slice(i, lojista.indexOf("router.delete('/produtos/:id/grupos/:grupoId'", i));
-    expect(rota).toMatch(/ER_DUP_ENTRY/);
+    expect(rota).toMatch(/LOWER\(g\.nome\) = LOWER\(\?\)/);
     expect(rota).toMatch(/erroHttp\(409/);
   });
 

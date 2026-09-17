@@ -237,3 +237,70 @@ describe('"não baixa estoque" como decisão, e não como esquecimento', () => {
     expect(TELA).toContain('salvarOpcao(o, { produto_id: p.id, sem_estoque: false })');
   });
 });
+
+describe('complemento é de UM produto só', () => {
+  /*
+   * O DEFEITO, NAS PALAVRAS DO LOJISTA: "usei uma composição pronta lá, aí eu
+   * alterei em outros, alterou em todas as outras composições de outros
+   * produtos. A composição de um produto não pode interferir no outro."
+   *
+   * Ele tem razão sobre o efeito, e o efeito era intencional: trazer um grupo da
+   * biblioteca criava uma LIGAÇÃO com o mesmo grupo, para que a pizzaria com 30
+   * pizzas tivesse UMA borda para manter. A tela avisava ("em 10 produtos",
+   * "mudar aqui muda em todos") e o aviso não bastou.
+   *
+   * A regra passou a ser a dele: cada produto tem o seu. O custo — 30 bordas
+   * para manter — é sabido e foi aceito.
+   */
+  it('trazer da biblioteca COPIA, não liga o mesmo grupo', () => {
+    const i = LOJISTA.indexOf("router.post('/produtos/:id/grupos/:grupoId',");
+    expect(i).toBeGreaterThan(0);
+    const rota = LOJISTA.slice(i, LOJISTA.indexOf("router.delete('/produtos/:id/grupos/:grupoId'", i));
+    expect(rota).toContain('copiarGrupoPara(');
+    /* A ligação nova aponta pro CLONE. Apontar pro original é o defeito. */
+    expect(rota).toMatch(/\.run\(produto\.id, clone, proxima/);
+  });
+
+  /*
+   * DUPLICAR PRODUTO TAMBÉM COPIA. É a mesma armadilha por outra porta: duplicar
+   * um balde e ajustar o gelo de um mexeria no outro.
+   */
+  it('duplicar produto também copia os complementos', () => {
+    const i = LOJISTA.indexOf("router.post('/produtos/:id/duplicar'");
+    const rota = LOJISTA.slice(i, LOJISTA.indexOf("router.post('/produtos/bulk'", i));
+    expect(rota).toContain('copiarGrupoPara(tx, loja.id, novoId, g, l)');
+  });
+
+  /*
+   * A CÓPIA LEVA O INTERRUPTOR DE ESTOQUE. Sem ele a cópia nasce sem baixar
+   * nada, e o lojista descobre pelo estoque errado no fim do mês.
+   */
+  it('a cópia leva baixa_estoque e os vínculos dos itens', () => {
+    const i = LOJISTA.indexOf('async function copiarGrupoPara');
+    const corpo = LOJISTA.slice(i, LOJISTA.indexOf('return clone;', i));
+    /* O ARGUMENTO, não o nome da coluna: trocar o valor por `0` deixava a
+       coluna na lista do INSERT e o teste passava — a cópia nascia sem baixar
+       estoque nenhum, em silêncio. */
+    expect(corpo).toContain('grupo.baixa_estoque ? 1 : 0');
+    expect(corpo).toContain('o.produto_id || 0, o.sem_estoque || 0');
+  });
+
+  /*
+   * DUPLO CLIQUE NÃO PODE VIRAR DOIS COMPLEMENTOS IGUAIS. Quem barrava era a
+   * UNIQUE (produto_id, grupo_id); com cópias, cada uma tem id próprio e o banco
+   * não reclama mais. Agora quem barra é o nome, que é o que o cliente lê.
+   */
+  it('o mesmo complemento não entra duas vezes no produto', () => {
+    const i = LOJISTA.indexOf("router.post('/produtos/:id/grupos/:grupoId',");
+    const rota = LOJISTA.slice(i, LOJISTA.indexOf("router.delete('/produtos/:id/grupos/:grupoId'", i));
+    expect(rota).toMatch(/LOWER\(g\.nome\) = LOWER\(\?\)/);
+    /* A GUARDA TEM QUE DEPENDER DA CONSULTA. `if (false)` mantinha a consulta e
+       o 409 no arquivo, e o teste passava com a proteção desligada. */
+    expect(rota).toMatch(/if \(jaTem\) throw erroHttp\(409/);
+  });
+
+  /* A tela não pode mais prometer o que o servidor não faz. */
+  it('a tela diz que a biblioteca traz uma cópia', () => {
+    expect(TELA).toContain('vem uma cópia pronta com os itens e os preços');
+  });
+});

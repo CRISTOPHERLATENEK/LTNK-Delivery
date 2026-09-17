@@ -5507,7 +5507,8 @@ function GruposEditor({ produto }: { produto: Produto }) {
               {reaproveitaveis.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[12.5px] text-muted-foreground">
-                    Da sua loja — usar o mesmo grupo em vários produtos deixa preço e itens num lugar só:
+                    Da sua loja — vem uma cópia pronta com os itens e os preços. Mexer nela
+                    depois não mexe nos outros produtos:
                   </p>
                   {/*
                     UMA COLUNA POR LINHA, não chips lado a lado.
@@ -5531,11 +5532,17 @@ function GruposEditor({ produto }: { produto: Produto }) {
                             <span className="text-[11px] text-muted-foreground">
                               {g.itens} {g.itens === 1 ? 'item' : 'itens'}
                             </span>
-                            {/* Compartilhado é informação de PESO: trazer este grupo
-                                significa que editá-lo depois mexe em todos. */}
+                            {/*
+                              "em N produtos" virou informação NEUTRA: desde que a
+                              biblioteca copia, trazer o grupo não cria mais laço
+                              nenhum com esses produtos. Continua útil para
+                              escolher entre dois grupos de mesmo nome — o mais
+                              usado costuma ser o certo —, mas em cinza, porque
+                              não há mais consequência a avisar.
+                            */}
                             {g.usos > 1 && (
-                              <span className="rounded-full border border-[#F1E3C4] bg-[#FBF3E4] px-1.5 text-[10.5px] font-bold text-[#92610A] dark:border-amber-900 dark:bg-amber-950/60 dark:text-amber-300">
-                                em {g.usos} produtos
+                              <span className="text-[10.5px] text-muted-foreground">
+                                usado em {g.usos} produtos
                               </span>
                             )}
                           </span>
