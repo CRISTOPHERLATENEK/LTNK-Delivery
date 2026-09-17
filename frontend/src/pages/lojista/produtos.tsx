@@ -3855,7 +3855,29 @@ function GruposEditor({ produto }: { produto: Produto }) {
    * O filtro é aqui e não na rota de propósito: a rota é a biblioteca, e a tela
    * de biblioteca (fase 4) precisa ver o vazio pra poder apagá-lo.
    */
-  const reaproveitaveis = (biblioteca ?? []).filter(g => g.itens > 0);
+  /*
+   * UMA LINHA POR COMPLEMENTO, e não uma por cópia.
+   *
+   * Desde que a biblioteca passou a COPIAR, cada produto tem o seu grupo — e a
+   * lista virou o mesmo complemento repetido uma vez por produto: "REFRIGERANTE"
+   * cinco vezes, "Sabor do gelo — leva 1" seis, todas idênticas. Escolher
+   * qualquer uma dá exatamente o mesmo resultado (uma cópia), então mostrar as
+   * seis é só trabalho de rolagem.
+   *
+   * A chave é NOME + O QUE TEM DENTRO. Dois grupos de mesmo nome com itens
+   * diferentes continuam sendo duas linhas — são coisas diferentes, e é
+   * justamente aí que a prévia e o "hoje em" servem para escolher.
+   */
+  const reaproveitaveis = (() => {
+    const porConteudo = new Map<string, GrupoBiblioteca & { copias: number }>();
+    for (const g of (biblioteca ?? []).filter(x => x.itens > 0)) {
+      const chave = `${g.nome.trim().toLowerCase()}|${g.previa ?? ''}`;
+      const visto = porConteudo.get(chave);
+      if (visto) { visto.copias += 1; continue; }
+      porConteudo.set(chave, { ...g, copias: 1 });
+    }
+    return [...porConteudo.values()];
+  })();
 
   const { data, isLoading } = useQuery({
     queryKey,
@@ -5540,9 +5562,12 @@ function GruposEditor({ produto }: { produto: Produto }) {
                               usado costuma ser o certo —, mas em cinza, porque
                               não há mais consequência a avisar.
                             */}
-                            {g.usos > 1 && (
+                            {/* Quantos produtos já têm este complemento — some
+                                as cópias idênticas, porque para quem escolhe é
+                                um complemento só. */}
+                            {(g.copias > 1 || g.usos > 1) && (
                               <span className="text-[10.5px] text-muted-foreground">
-                                usado em {g.usos} produtos
+                                usado em {Math.max(g.copias, g.usos)} produtos
                               </span>
                             )}
                           </span>
@@ -5553,8 +5578,10 @@ function GruposEditor({ produto }: { produto: Produto }) {
                               {g.previa}
                             </span>
                           )}
-                          {/* "em Pizza Margherita" identifica; "em 1 produto" não. */}
-                          {g.usos === 1 && g.onde && (
+                          {/* "em Pizza Margherita" identifica; "em 1 produto" não.
+                              Com cópias agrupadas, mostrar o dono de UMA delas
+                              confundiria — aí o número acima é que responde. */}
+                          {g.copias === 1 && g.usos === 1 && g.onde && (
                             <span className="block truncate text-[11px] text-muted-foreground/70">
                               hoje em {g.onde}
                             </span>

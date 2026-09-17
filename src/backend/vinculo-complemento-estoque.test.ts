@@ -304,3 +304,36 @@ describe('complemento é de UM produto só', () => {
     expect(TELA).toContain('vem uma cópia pronta com os itens e os preços');
   });
 });
+
+describe('a biblioteca não repete o mesmo complemento', () => {
+  /*
+   * EFEITO COLATERAL DA CÓPIA, visto na tela pelo lojista: "tá cheio igual".
+   *
+   * Desde que cada produto tem o seu grupo, a lista "Da sua loja" passou a
+   * mostrar o mesmo complemento uma vez por produto — "REFRIGERANTE" cinco
+   * vezes, "Sabor do gelo — leva 1" seis, todas idênticas. Escolher qualquer
+   * uma dá exatamente o mesmo resultado (uma cópia), então as seis linhas eram
+   * só rolagem.
+   */
+  it('agrupa por nome + conteúdo', () => {
+    expect(TELA).toContain('const porConteudo = new Map<string, GrupoBiblioteca & { copias: number }>()');
+    expect(TELA).toContain('const chave = `${g.nome.trim().toLowerCase()}|${g.previa ?? \'\'}`');
+  });
+
+  /*
+   * DOIS GRUPOS DE MESMO NOME COM ITENS DIFERENTES CONTINUAM SENDO DOIS. Juntar
+   * por nome só esconderia a diferença que a prévia existe para mostrar — e o
+   * lojista levaria o grupo errado sem ter como perceber.
+   */
+  it('o conteúdo entra na chave, não só o nome', () => {
+    /* A chave DESTA lista: existe outra `const chave` na tela (a do combo), e
+       procurar solto pegava a errada. */
+    const i = TELA.indexOf('const chave = `${g.nome');
+    expect(i).toBeGreaterThan(0);
+    expect(TELA.slice(i, i + 120)).toContain('g.previa');
+  });
+
+  it('a contagem soma as cópias', () => {
+    expect(TELA).toContain('usado em {Math.max(g.copias, g.usos)} produtos');
+  });
+});
