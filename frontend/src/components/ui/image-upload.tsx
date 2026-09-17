@@ -8,10 +8,10 @@
  * (Trocar / URL / Remover) — sem repetir a área de arrastar-e-soltar embaixo.
  */
 import { useRef, useState, useCallback } from 'react';
-import { Upload, Link2, X, Image as ImageIcon, Loader2, RefreshCw } from 'lucide-react';
+import { Upload, Link2, X, Image as ImageIcon, Loader2, RefreshCw, Images, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { tokenSessao } from '@/lib/api';
+import { api, tokenSessao } from '@/lib/api';
 import { reduzirImagem } from '@/lib/reduzir-imagem';
 import { cn } from '@/lib/utils';
 
@@ -19,6 +19,19 @@ interface Props {
   value: string;
   onChange: (url: string) => void;
   label?: string;
+  /**
+   * MOSTRA A GALERIA DAS IMAGENS QUE A LOJA JÁ TEM.
+   *
+   * Opcional porque a rota é do painel do LOJISTA: no painel admin (marca,
+   * landing) ela devolveria 403, e um botão que só sabe dar erro é pior que
+   * botão nenhum.
+   *
+   * Pedido do lojista cadastrando foto de complemento: o item "MONSTER ULTRA
+   * FIESTA" aponta para o produto MONSTER ULTRA FIESTA, que JÁ tem foto — e ele
+   * ia procurar o arquivo no computador para subir a mesma imagem de novo.
+   * Dezesseis energéticos, dezesseis uploads do que já estava lá.
+   */
+  galeria?: boolean;
   /**
    * `square`     — miniatura de 96px com as ações ao lado (logo, favicon).
    * `square-lg`  — 256px com as ações EMBAIXO: usado onde a foto é o assunto da
@@ -29,8 +42,28 @@ interface Props {
   className?: string;
 }
 
-export function ImageUpload({ value, onChange, label, aspectRatio = 'free', className }: Props) {
+export function ImageUpload({ value, onChange, label, aspectRatio = 'free', galeria, className }: Props) {
   const [urlAberta, setUrlAberta] = useState(false);
+  const [galeriaAberta, setGaleriaAberta] = useState(false);
+  const [buscaGaleria, setBuscaGaleria] = useState('');
+  const [doSistema, setDoSistema] = useState<Array<{ imagem: string; nome: string }> | null>(null);
+
+  /*
+   * A LISTA SÓ É PEDIDA QUANDO A GALERIA ABRE. São até 400 linhas, e a esmagadora
+   * maioria dos cadastros não abre este painel — carregar junto com a tela seria
+   * pagar por todos o que um usa.
+   *
+   * Falha em silêncio com lista vazia: sem galeria, subir arquivo e colar URL
+   * continuam funcionando, e um erro aqui não pode travar o cadastro da foto.
+   */
+  async function abrirGaleria() {
+    setGaleriaAberta(v => !v);
+    if (doSistema !== null) return;
+    try {
+      const r = await api<{ imagens: Array<{ imagem: string; nome: string }> }>('GET', '/api/lojista/imagens');
+      setDoSistema(r.imagens || []);
+    } catch { setDoSistema([]); }
+  }
   const [carregando, setCarregando] = useState(false);
   const [arrastandoSobre, setArrastandoSobre] = useState(false);
   const [erro, setErro] = useState('');
@@ -125,6 +158,11 @@ export function ImageUpload({ value, onChange, label, aspectRatio = 'free', clas
             <Button type="button" size="sm" variant="outline" className="min-h-11 sm:min-h-9" onClick={() => inputRef.current?.click()} disabled={carregando}>
               {carregando ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />} Trocar
             </Button>
+            {galeria && (
+              <Button type="button" size="sm" variant="outline" className="min-h-11 sm:min-h-9" onClick={abrirGaleria}>
+                <Images className="size-3.5" /> Do sistema
+              </Button>
+            )}
             <Button type="button" size="sm" variant="outline" className="min-h-11 sm:min-h-9" onClick={() => { setUrlAberta(v => !v); setUrlDigitada(value); }}>
               <Link2 className="size-3.5" /> URL
             </Button>
@@ -177,10 +215,20 @@ export function ImageUpload({ value, onChange, label, aspectRatio = 'free', clas
               </div>
             </>
           )}
+          {galeria && (
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); abrirGaleria(); }}
+              className="relative z-10 ml-auto flex min-h-11 shrink-0 items-center gap-1 whitespace-nowrap rounded-lg px-3 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Images className="size-3" /> Do sistema
+            </button>
+          )}
           <button
             type="button"
             onClick={e => { e.stopPropagation(); setUrlAberta(v => !v); }}
-            className="relative z-10 ml-auto flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            className={cn('relative z-10 flex min-h-11 shrink-0 items-center gap-1 rounded-lg px-3 text-[11px] font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground',
+              !galeria && 'ml-auto')}
           >
             <Link2 className="size-3" /> URL
           </button>
@@ -204,6 +252,73 @@ export function ImageUpload({ value, onChange, label, aspectRatio = 'free', clas
             placeholder="https://exemplo.com/foto.jpg"
           />
           <Button type="button" size="sm" onClick={confirmarUrl} className="min-h-11 shrink-0 sm:min-h-9">OK</Button>
+        </div>
+      )}
+
+      {/*
+        ─── AS IMAGENS QUE A LOJA JÁ TEM ───
+
+        Grade de miniaturas, não lista com nome: quem procura foto reconhece a
+        FOTO. O nome fica embaixo em letra pequena, para desempatar duas
+        parecidas.
+      */}
+      {galeriaAberta && (
+        <div className="rounded-xl border border-border p-2">
+          <div className="flex items-center gap-2">
+            <span className="relative flex-1">
+              <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                autoFocus
+                value={buscaGaleria}
+                onChange={e => setBuscaGaleria(e.target.value)}
+                placeholder="Buscar pelo nome do produto"
+                aria-label="Buscar imagem já salva"
+                className="h-8 pl-7 text-xs"
+              />
+            </span>
+            <button type="button" onClick={() => setGaleriaAberta(false)}
+              className="shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-accent">
+              <X className="size-4" />
+            </button>
+          </div>
+
+          {doSistema === null ? (
+            <p className="px-1 py-3 text-[11.5px] text-muted-foreground">Carregando…</p>
+          ) : (() => {
+            const alvo = buscaGaleria.trim().toLowerCase();
+            /* TETO DE 60 MINIATURAS: a grade é imagem, e imagem pesa — 400 de
+               uma vez travaria a rolagem no celular. */
+            const achadas = doSistema
+              .filter(x => !alvo || (x.nome || '').toLowerCase().includes(alvo))
+              .slice(0, 60);
+            if (achadas.length === 0) {
+              return (
+                <p className="px-1 py-3 text-[11.5px] text-muted-foreground">
+                  {alvo ? 'Nenhuma imagem com esse nome.' : 'A loja ainda não tem imagem salva.'}
+                </p>
+              );
+            }
+            return (
+              <div className="mt-2 grid max-h-56 grid-cols-4 gap-1.5 overflow-y-auto sm:grid-cols-6">
+                {achadas.map(x => (
+                  <button
+                    key={x.imagem}
+                    type="button"
+                    title={x.nome}
+                    onClick={() => { onChange(x.imagem); setGaleriaAberta(false); }}
+                    className={cn('overflow-hidden rounded-lg border transition-colors hover:border-primary',
+                      x.imagem === value ? 'border-primary ring-2 ring-primary/30' : 'border-border')}
+                  >
+                    <img src={x.imagem} alt={x.nome} loading="lazy"
+                      className="aspect-square w-full bg-muted object-cover" />
+                    <span className="block truncate px-1 pb-1 pt-0.5 text-[9.5px] leading-tight text-muted-foreground">
+                      {x.nome}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            );
+          })()}
         </div>
       )}
 

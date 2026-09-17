@@ -1327,6 +1327,7 @@ export function ProdutosLoja() {
                       value={form.foto_url}
                       onChange={url => setForm(f => ({ ...f, foto_url: url, foto_credito: '' }))}
                       aspectRatio="square-lg"
+                      galeria
                     />
                   </div>
                   <div className="lg:hidden">
@@ -5398,6 +5399,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                           value={o.imagem || ''}
                                           onChange={v => salvarOpcao(o, { imagem: v })}
                                           label={`Foto de ${o.nome} (opcional)`}
+                                          galeria
                                         />
                                       </div>
                                     )}

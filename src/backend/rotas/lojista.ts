@@ -1710,6 +1710,42 @@ router.get('/produtos/:id/combo/candidatos', async (req, res, next) => {
  * `variacao_erp` vai junto para a tela poder dizer quais NÃO vão baixar — sem
  * isso o lojista liga tudo e descobre pelo estoque errado no fim do mês.
  */
+/**
+ * AS IMAGENS QUE A LOJA JÁ TEM.
+ *
+ * Pedido do lojista, cadastrando foto num complemento: "o ideal era ter opção
+ * de carregar as imagens que já estão salvas no sistema".
+ *
+ * O caso dele é o mais claro possível: o complemento "MONSTER ULTRA FIESTA"
+ * aponta para o produto MONSTER ULTRA FIESTA, que JÁ tem foto — e ele estava
+ * prestes a procurar o arquivo no computador para subir a mesma imagem de novo.
+ * Dezesseis energéticos, dezesseis uploads do que já estava lá.
+ *
+ * Vêm as fotos dos PRODUTOS e as dos itens de complemento, sem repetir: é a
+ * mesma pasta de uploads, e para quem escolhe é uma biblioteca só.
+ */
+router.get('/imagens', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const imagens = await db.prepare(
+      `SELECT imagem, MAX(nome) AS nome, MAX(recente) AS recente FROM (
+         SELECT p.foto_url AS imagem, p.nome AS nome, p.id AS recente
+           FROM produtos p
+          WHERE p.loja_id = ? AND p.excluido = 0 AND p.foto_url <> ''
+         UNION ALL
+         SELECT o.imagem AS imagem, o.nome AS nome, o.id AS recente
+           FROM opcoes_itens o
+           JOIN grupos_opcoes g ON g.id = o.grupo_id
+          WHERE g.loja_id = ? AND o.imagem <> ''
+       ) x
+        GROUP BY imagem
+        ORDER BY recente DESC
+        LIMIT 400`
+    ).all(loja.id, loja.id) as unknown[];
+    res.json({ imagens });
+  } catch (e) { next(e); }
+});
+
 router.get('/produtos-vinculaveis', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req);
