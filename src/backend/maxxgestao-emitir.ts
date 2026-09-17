@@ -44,6 +44,7 @@ import { chamarMaxxGestao, ErroMaxxGestao, type OpcoesMaxxGestao } from './maxxg
 import { todasAsPaginas } from './maxxgestao-catalogo';
 import { proximoNumero, serieValida, type PaginaDocumentos } from './maxxgestao-numeracao';
 import { enderecoDoPedido, observacaoDoDocumento } from './endereco-do-pedido';
+import { enderecoDeRetirada, type EnderecoDaPessoa, type EnderecoDaEmpresa } from './maxxgestao-endereco-retirada';
 import {
   montarDocumento, diferencaDoTotal, modeloValido, statusValido,
   type DadosDoPedido, type ItemPedido,
@@ -615,6 +616,7 @@ export async function enviarPedidoAoErp(
    */
   let idNatureza = 0;
   let idPessoa = 0;
+  let empresaDoErp: EnderecoDaEmpresa | null = null;
   let idPagamento = 0;
   let idUsuario = 0;
   try {
@@ -629,6 +631,11 @@ export async function enviarPedidoAoErp(
      * mas o pedido registrado no ERP ainda vale mais que pedido nenhum.
      */
     const empresa = await chamarMaxxGestao(token, '/api/empresa/v1', opcoes) as Record<string, unknown> | null;
+    /* A MESMA LEITURA serve para o endereço de retirada: `/api/empresa/v1`
+       devolve logradouro, número, bairro, município e CEP já separados. Ler de
+       novo lá embaixo seria uma requisição a mais por pedido, num teto de 20
+       por minuto, para o mesmo dado. */
+    empresaDoErp = empresa as EnderecoDaEmpresa | null;
     const doCliente = await pessoaDoCliente(token, Number(pedido.cliente_id) || 0, {
       municipio: String(empresa?.municipio ?? ''),
       uf: String(empresa?.uf ?? ''),
@@ -724,6 +731,48 @@ export async function enviarPedidoAoErp(
     console.log(`[erp] pedido ${pedidoId}: documento vai como série ${serieDoDocumento}, número ${numeroDoDocumento}`);
   }
 
+  /*
+   * ─────── O ENDEREÇO DA LOJA NO CAMPO DE ENDEREÇO DO DOCUMENTO ───────
+   *
+   * Só na RETIRADA, e só quando dá — ver `maxxgestao-endereco-retirada.ts`. O
+   * documento não aceita endereço como texto: `idEndereco` é o código de um
+   * endereço cadastrado na ficha da pessoa, e a pessoa aqui é o cliente.
+   *
+   * O id fica guardado na ficha do cliente do nosso lado: sem isso seriam duas
+   * chamadas (listar e criar) em toda retirada, contra um teto de 20 por
+   * minuto, para um id que nunca muda.
+   *
+   * A observação continua indo junto, com ou sem isto. Ela não é redundância:
+   * é o que aparece quando esta parte não deu — e ela não dá em toda ficha.
+   */
+  let idEnderecoRetirada = 0;
+  if (dados.tipoEntrega === 'retirada' && idPessoa > 0 && Number(pedido.cliente_id) > 0) {
+    const guardado = await db.prepare(
+      'SELECT COALESCE(maxxgestao_endereco_retirada, 0) AS e FROM usuarios WHERE id = ?'
+    ).get(pedido.cliente_id) as { e: number } | undefined;
+    idEnderecoRetirada = Number(guardado?.e ?? 0);
+    if (idEnderecoRetirada <= 0) {
+      try {
+        idEnderecoRetirada = await enderecoDeRetirada(
+          () => chamarMaxxGestao(token, `/api/pessoa/${idPessoa}/enderecos/v1`, opcoes) as Promise<{ items?: EnderecoDaPessoa[] } | null>,
+          corpoNovo => chamarMaxxGestao(token, `/api/pessoa/${idPessoa}/enderecos/v1`, opcoes, {
+            method: 'POST', body: JSON.stringify(corpoNovo),
+          }) as Promise<{ endereco?: { idEndereco?: unknown } } | null>,
+          empresaDoErp,
+        );
+        if (idEnderecoRetirada > 0) {
+          await db.prepare('UPDATE usuarios SET maxxgestao_endereco_retirada = ? WHERE id = ?')
+            .run(idEnderecoRetirada, pedido.cliente_id);
+          console.log(`[erp] pedido ${pedidoId}: endereco de retirada ${idEnderecoRetirada} na ficha do cliente ${pedido.cliente_id}`);
+        }
+      } catch (e) {
+        /* Não segura o pedido: sem o campo, o endereço continua saindo na
+           observação — que é como estava antes desta função existir. */
+        console.log(`[erp] pedido ${pedidoId}: não consegui preparar o endereço de retirada (${(e as Error).message}) — vai só na observação`);
+      }
+    }
+  }
+
   const { corpo, impedimentos } = montarDocumento(dados, {
     idNaturezaOperacao: idNatureza,
     idPessoa,
@@ -751,6 +800,7 @@ export async function enviarPedidoAoErp(
      * (Pedido de Venda) quanto em PV (Pré-Venda) — é o mesmo documento com
      * outro modelo.
      */
+    idEndereco: idEnderecoRetirada,
     observacao: observacaoDoDocumento(
       enderecoDoPedido(pedido.endereco_entrega, dados.tipoEntrega, {
         nome: loja?.nome ?? '', endereco: loja?.endereco ?? '',

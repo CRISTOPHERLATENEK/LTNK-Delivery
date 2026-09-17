@@ -157,6 +157,15 @@ export interface ConfigDocumento {
    */
   observacao?: string;
   /**
+   * O ENDEREÇO DA PESSOA que o documento usa. Zero = não manda.
+   *
+   * "Quando não informado, utiliza o endereço principal do cadastro" — e é
+   * disso que a retirada precisa fugir: o principal do cliente é a casa dele, e
+   * na retirada ele vem à loja. Aqui vai o endereço "Retirada na loja" criado
+   * na ficha dele (ver `maxxgestao-endereco-retirada.ts`).
+   */
+  idEndereco?: number;
+  /**
    * O CAIXA do ERP, ou 0 para não mandar.
    *
    * É o que faz o documento pertencer à operação do PDV: medido, todo documento
@@ -297,7 +306,12 @@ export function montarDocumento(
          o documento sem endereço nenhum não dizia nada a quem confere. */
       ...(config.observacao?.trim() ? { observacao: config.observacao.trim() } : {}),
     },
-    pessoa: { idPessoa: config.idPessoa },
+    pessoa: {
+      idPessoa: config.idPessoa,
+      /* Zero não vai: o ERP leria "endereço zero" em vez de "não informado", e
+         a regra do campo é cair no principal quando ausente. */
+      ...(Number(config.idEndereco) > 0 ? { idEndereco: Number(config.idEndereco) } : {}),
+    },
     pedido: {
       idExterno: String(pedido.id),
       /*

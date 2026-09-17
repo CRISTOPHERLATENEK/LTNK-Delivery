@@ -1388,6 +1388,18 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
        cadastro do lojista, e ele descobriria pelo cadastro inchado em vez de um
        erro. Zero = ainda não foi espelhado. */
     ['usuarios', 'maxxgestao_pessoa_id', 'maxxgestao_pessoa_id INT NOT NULL DEFAULT 0'],
+    /*
+     * O ENDEREÇO "Retirada na loja" que criamos na ficha DESTE cliente no ERP.
+     *
+     * Guardado para não gastar duas chamadas (listar + criar) em toda retirada,
+     * contra um teto de 20 por minuto. O id não muda depois de criado.
+     *
+     * Zero tem DOIS significados, e os dois levam ao mesmo lugar: ainda não
+     * criamos, ou não dá para criar nesta ficha (ver `enderecoDeRetirada` — a
+     * ficha sem nenhum endereço fica de fora de propósito). Nos dois casos o
+     * documento sai com o endereço na observação, que é o que já funcionava.
+     */
+    ['usuarios', 'maxxgestao_endereco_retirada', 'maxxgestao_endereco_retirada INT NOT NULL DEFAULT 0'],
     /* Conta de convidado (pedido sem cadastro). O CREATE é IF NOT EXISTS e não
        alcança banco que já existe — sem esta linha, o cadastro de convidado
        quebraria em produção e funcionaria no meu banco novo. */
