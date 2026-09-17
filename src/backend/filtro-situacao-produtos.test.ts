@@ -156,8 +156,14 @@ describe('sincronizar o estoque de um produto só', () => {
    * tiraria do ar produto que ninguém inventariou.
    */
   it('produto sem registro no ERP não é zerado', () => {
+    /* A ROTA INTEIRA, e não os primeiros 3000 caracteres: quando o botão
+       passou a contar caixa pela lata, o bloco da composição empurrou metade
+       do corpo para fora da janela e três garantias desta tela sumiram sem
+       nenhuma delas ter deixado de valer. Janela por tamanho mede o arquivo;
+       janela por delimitador mede a rota. */
     const i = ROTAS.indexOf("router.post('/produtos/:id/sincronizar-estoque'");
-    const corpo = ROTAS.slice(i, i + 3000);
+    const fim = ROTAS.indexOf(String.fromCharCode(10) + 'router.', i + 10);
+    const corpo = ROTAS.slice(i, fim > 0 ? fim : undefined);
     const iNulo = corpo.indexOf('if (bruto === null)');
     expect(iNulo).toBeGreaterThan(0);
     const bloco = corpo.slice(iNulo, iNulo + 500);
@@ -168,8 +174,14 @@ describe('sincronizar o estoque de um produto só', () => {
 
   /* Negativo cai na mesma regra do ciclo: vira zero. */
   it('o saldo passa pela mesma regra do ciclo', () => {
+    /* A ROTA INTEIRA, e não os primeiros 3000 caracteres: quando o botão
+       passou a contar caixa pela lata, o bloco da composição empurrou metade
+       do corpo para fora da janela e três garantias desta tela sumiram sem
+       nenhuma delas ter deixado de valer. Janela por tamanho mede o arquivo;
+       janela por delimitador mede a rota. */
     const i = ROTAS.indexOf("router.post('/produtos/:id/sincronizar-estoque'");
-    const corpo = ROTAS.slice(i, i + 3000);
+    const fim = ROTAS.indexOf(String.fromCharCode(10) + 'router.', i + 10);
+    const corpo = ROTAS.slice(i, fim > 0 ? fim : undefined);
     expect(corpo).toContain('saldoParaEstoque(bruto)');
   });
 
@@ -179,14 +191,26 @@ describe('sincronizar o estoque de um produto só', () => {
    * do ar seria uma armadilha.
    */
   it('só liga o bloqueio se a loja escolheu esgotar sozinho', () => {
+    /* A ROTA INTEIRA, e não os primeiros 3000 caracteres: quando o botão
+       passou a contar caixa pela lata, o bloco da composição empurrou metade
+       do corpo para fora da janela e três garantias desta tela sumiram sem
+       nenhuma delas ter deixado de valer. Janela por tamanho mede o arquivo;
+       janela por delimitador mede a rota. */
     const i = ROTAS.indexOf("router.post('/produtos/:id/sincronizar-estoque'");
-    const corpo = ROTAS.slice(i, i + 3000);
+    const fim = ROTAS.indexOf(String.fromCharCode(10) + 'router.', i + 10);
+    const corpo = ROTAS.slice(i, fim > 0 ? fim : undefined);
     expect(corpo).toMatch(/if \(esgota && !p\.controla_estoque\)/);
   });
 
   it('produto que não veio do ERP é recusado com motivo', () => {
+    /* A ROTA INTEIRA, e não os primeiros 3000 caracteres: quando o botão
+       passou a contar caixa pela lata, o bloco da composição empurrou metade
+       do corpo para fora da janela e três garantias desta tela sumiram sem
+       nenhuma delas ter deixado de valer. Janela por tamanho mede o arquivo;
+       janela por delimitador mede a rota. */
     const i = ROTAS.indexOf("router.post('/produtos/:id/sincronizar-estoque'");
-    const corpo = ROTAS.slice(i, i + 3000);
+    const fim = ROTAS.indexOf(String.fromCharCode(10) + 'router.', i + 10);
+    const corpo = ROTAS.slice(i, fim > 0 ? fim : undefined);
     expect(corpo).toContain('não veio do Maxx Gestão');
   });
 

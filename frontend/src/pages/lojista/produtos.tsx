@@ -750,13 +750,32 @@ export function ProdutosLoja() {
     try {
       const r = await api<{
         tem_registro: boolean; estoque: number; saldo_no_erp?: number; mensagem?: string;
+        composto_de?: number;
+        conta?: Array<{ variacao: number; por_unidade: number; saldo_no_erp: number | null }>;
       }>('POST', `/api/lojista/produtos/${p.id}/sincronizar-estoque`);
 
       if (!r.tem_registro) {
         mostrar({
           tipo: 'erro',
-          titulo: 'Sem estoque cadastrado no Maxx Gestão',
+          titulo: r.composto_de
+            ? 'O item que compõe este produto é que precisa de estoque'
+            : 'Sem estoque cadastrado no Maxx Gestão',
           descricao: r.mensagem,
+        });
+      } else if (r.conta?.length) {
+        /*
+         * A CAIXA MOSTRA A CONTA. "3 em estoque" sozinho, num produto que tem
+         * 40 latas no ERP, parece o mesmo defeito que se acabou de consertar —
+         * e o lojista volta a desconfiar do número. "40 no item ÷ 12 por
+         * caixa" responde antes de ele abrir o Maxx Gestão para conferir.
+         */
+        const c = r.conta[0];
+        mostrar({
+          tipo: 'sucesso',
+          titulo: `${p.nome}: ${r.estoque} em estoque`,
+          descricao: r.conta.length === 1 && c.saldo_no_erp !== null
+            ? `Contado pelo item que compõe: ${c.saldo_no_erp} no Maxx Gestão ÷ ${c.por_unidade} por unidade.`
+            : `Contado pelos ${r.conta.length} itens que compõem este produto — vale o que der para menos.`,
         });
       } else {
         /* O SALDO BRUTO VAI NA DESCRIÇÃO quando é negativo: senão o zero fica

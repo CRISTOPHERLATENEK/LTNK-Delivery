@@ -40,10 +40,10 @@ import { itensSemProduto, descrever, comoResolver } from '../ifood-sem-produto';
 import { sugerirCardapio, SemChaveIA } from '../cardapio-ia';
 import { normalizarBaseUrl, tefConfigurado, pendenciasTef } from '../smarttef-config';
 import { consultarEmpresa, formatarCnpj, chamarMaxxGestao, LimiteMaxxGestao } from '../maxxgestao-cliente';
-import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarCatalogos, precosDaTabela, LETRAS_VARREDURA, locaisDeEstoque, saldosDoLocal, saldoDeUmProduto } from '../maxxgestao-catalogo';
+import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarCatalogos, precosDaTabela, LETRAS_VARREDURA, locaisDeEstoque, saldosDoLocal, saldoDeUmProduto, composicaoDoProduto } from '../maxxgestao-catalogo';
 import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, peneirarPorCatalogo, type ItemDoCatalogo } from '../maxxgestao-importar';
-import { produtosDaLoja, aplicarPlano, produtosComEstoque } from '../maxxgestao-importar-deps';
-import { quantosSairiamDoAr, saldoParaEstoque } from '../maxxgestao-estoque';
+import { produtosDaLoja, aplicarPlano, produtosComEstoque, gravarComposicao } from '../maxxgestao-importar-deps';
+import { quantosSairiamDoAr, saldoParaEstoque, estoqueDerivado, lerComposicaoGravada } from '../maxxgestao-estoque';
 import { sincronizarEstoqueDaLoja } from '../maxxgestao-sincronizar-ciclo';
 import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '../maxxgestao-preambulo';
 import { enviarPedidoAoErp, fecharDocumentoNoErp } from '../maxxgestao-emitir';
@@ -4799,16 +4799,32 @@ router.post('/produtos/:id/sincronizar-estoque', async (req, res, next) => {
     if (!id) return res.status(400).json({ erro: 'Produto inválido.' });
 
     const p = await db.prepare(
-      `SELECT id, nome, maxxgestao_variacao_id, estoque, controla_estoque, estoque_do_erp
+      `SELECT id, nome, maxxgestao_variacao_id, estoque, controla_estoque, estoque_do_erp,
+              estoque_erp_ignorar, composicao_erp
          FROM produtos WHERE id = ? AND loja_id = ? AND excluido = 0`
     ).get(id, loja.id) as {
       id: number; nome: string; maxxgestao_variacao_id: number;
       estoque: number | null; controla_estoque: number; estoque_do_erp: number;
+      estoque_erp_ignorar: number; composicao_erp: string | null;
     } | undefined;
     if (!p) return res.status(404).json({ erro: 'Produto não encontrado.' });
 
     if (!p.maxxgestao_variacao_id) {
       return res.status(400).json({ erro: 'Este produto não veio do Maxx Gestão.' });
+    }
+
+    /*
+     * O INTERRUPTOR DE "NÃO SINCRONIZAR" VALE AQUI TAMBÉM.
+     *
+     * O ciclo automático respeita `estoque_erp_ignorar`; este botão não
+     * respeitava. Quem desligou a sincronização de um produto e clicou em
+     * sincronizar por engano via o estoque que ele controla à mão ser
+     * sobrescrito pelo ERP — e sem aviso nenhum.
+     */
+    if (p.estoque_erp_ignorar) {
+      return res.status(400).json({
+        erro: 'A sincronização de estoque está desligada neste produto. Ligue em Estoque > "Sincronizar com o Maxx Gestão" para usar o botão.',
+      });
     }
     const local = Number((loja as { maxxgestao_local_estoque?: number }).maxxgestao_local_estoque ?? 0);
     if (local <= 0) {
@@ -4816,6 +4832,90 @@ router.post('/produtos/:id/sincronizar-estoque', async (req, res, next) => {
     }
     const token = await tokenMaxxGestaoDaLoja(loja.id);
     if (!token) return res.status(400).json({ erro: 'Cole o token do Maxx Gestão primeiro.' });
+
+    /*
+     * ─────────────────── A CAIXA É CONTADA PELA LATA ───────────────────
+     *
+     * "as caixas de cerveja não estão calculando de acordo com as latas —
+     *  cliquei em sincronizar e ele zerou".
+     *
+     * A caixa é uma COMPOSIÇÃO no Maxx Gestão (12× a lata). No modo
+     * "Multiplicar Quantidade pelo Estoque" quem se movimenta é a lata; o
+     * registro do kit fica parado onde estava, quase sempre em zero. Este
+     * botão perguntava o saldo PRÓPRIO da caixa, recebia esse zero residual e
+     * gravava esgotado — com as latas todas na prateleira.
+     *
+     * O ciclo automático já fazia certo (`saldoEfetivo` põe a composição na
+     * frente do saldo próprio). O botão é que não passava por lá. Agora passa:
+     * pergunta o saldo de cada COMPONENTE e divide.
+     *
+     * E DESCOBRE A COMPOSIÇÃO NA HORA se ainda não souber. O ciclo descobre em
+     * segundo plano, algumas por passada — quem clica no botão não vai esperar
+     * a vez na fila para ver a caixa certa.
+     */
+    let composicao = lerComposicaoGravada(p.composicao_erp);
+    if (composicao === undefined && p.composicao_erp === null) {
+      try {
+        const itens = await composicaoDoProduto(token, p.maxxgestao_variacao_id, { esperaMaximaMs: 8_000 });
+        await gravarComposicao(loja.id, p.id, itens);
+        if (itens.length) composicao = itens;
+      } catch {
+        /* Não descobriu: segue pelo saldo próprio, que é o que já fazia. Uma
+           consulta que falhou não é motivo para o botão inteiro falhar. */
+      }
+    }
+
+    if (composicao) {
+      const saldos = new Map<number, number>();
+      let semRegistro = 0;
+      for (const item of composicao) {
+        const s = await saldoDeUmProduto(token, item.variacao, local, { esperaMaximaMs: 8_000 });
+        if (s === null) { semRegistro++; continue; }
+        saldos.set(item.variacao, s);
+      }
+      const derivado = estoqueDerivado(composicao, saldos);
+
+      /*
+       * COMPONENTE SEM LINHA DE ESTOQUE NÃO ZERA A CAIXA — é a mesma regra do
+       * resto: "o ERP não tem registro" e "o ERP diz que acabou" são coisas
+       * diferentes. Zerar aqui tiraria do ar a caixa cuja lata ninguém
+       * inventariou, que é justamente o caso que se veio consertar.
+       */
+      if (derivado === null) {
+        return res.json({
+          tem_registro: false,
+          estoque: Number(p.estoque ?? 0),
+          composto_de: composicao.length,
+          mensagem: semRegistro
+            ? `Este produto é composto de outro no Maxx Gestão, e ${semRegistro === 1 ? 'o item que o compõe não tem' : `${semRegistro} dos itens que o compõem não têm`} estoque cadastrado lá. Faça a entrada de estoque no item, não na caixa.`
+            : 'Este produto é composto de outro no Maxx Gestão, mas a composição está com quantidade inválida lá.',
+        });
+      }
+
+      const esgotaC = Number((loja as { maxxgestao_estoque_esgota?: number }).maxxgestao_estoque_esgota ?? 0) === 1;
+      if (esgotaC && !p.controla_estoque) {
+        await db.prepare(
+          'UPDATE produtos SET estoque = ?, controla_estoque = 1, estoque_do_erp = 1 WHERE id = ? AND loja_id = ?'
+        ).run(derivado, p.id, loja.id);
+      } else {
+        await db.prepare('UPDATE produtos SET estoque = ? WHERE id = ? AND loja_id = ?')
+          .run(derivado, p.id, loja.id);
+      }
+      console.log(`[erp-estoque] loja ${loja.id}: produto ${p.id} (composto de ${composicao.length}) sincronizado na mao: ${p.estoque} -> ${derivado}`);
+      return res.json({
+        tem_registro: true,
+        estoque: derivado,
+        /* A CONTA VAI JUNTO: "12 un por caixa, 40 no item = 3" é o que responde
+           o "por que só 3?" antes de o lojista abrir o ERP para conferir. */
+        composto_de: composicao.length,
+        conta: composicao.map(i => ({
+          variacao: i.variacao,
+          por_unidade: i.quantidade,
+          saldo_no_erp: saldos.get(i.variacao) ?? null,
+        })),
+        controla_estoque: esgotaC || !!p.controla_estoque,
+      });
+    }
 
     const bruto = await saldoDeUmProduto(token, p.maxxgestao_variacao_id, local, { esperaMaximaMs: 8_000 });
 

@@ -9,6 +9,7 @@ import db from './db-mysql';
 import { agoraUTC } from './util';
 import type { PlanoImportacao, ProdutoNosso, EspelhoErp } from './maxxgestao-importar';
 import type { AjusteDeEstoque, ProdutoComEstoque } from './maxxgestao-estoque';
+import { lerComposicaoGravada as lerComposicao } from './maxxgestao-estoque';
 
 /**
  * O cardápio do delivery, do jeito que a decisão precisa ver.
@@ -296,19 +297,7 @@ export async function gravarLinhasDeEstoque(lojaId: number, linhas: number): Pro
  * "não sei do que é feito" (o produto fica em paz), e vazio diria "não é
  * composto" — que zeraria a caixa por causa de um JSON estragado.
  */
-function lerComposicao(bruto: string | null): Array<{ variacao: number; quantidade: number }> | undefined {
-  if (!bruto) return undefined;
-  try {
-    const d = JSON.parse(bruto) as Array<{ v?: number; q?: number }>;
-    if (!Array.isArray(d) || !d.length) return undefined;
-    const itens = d
-      .map(i => ({ variacao: Number(i?.v ?? 0), quantidade: Number(i?.q ?? 0) }))
-      .filter(i => i.variacao > 0 && i.quantidade > 0);
-    return itens.length ? itens : undefined;
-  } catch {
-    return undefined;
-  }
-}
+
 
 /** Quais produtos ainda não sabemos se são compostos. */
 export async function produtosSemComposicaoConhecida(

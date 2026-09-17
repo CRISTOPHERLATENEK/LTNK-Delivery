@@ -324,6 +324,37 @@ export function leituraDeEstoqueConfiavel(agora: number, anterior: number): bool
  * ERP. E `null` é diferente de zero: zero esgota o produto, `null` deixa ele em
  * paz. Chutar zero aqui tiraria do ar a caixa cuja unidade ninguém inventariou.
  */
+/**
+ * A COMPOSIÇÃO COMO ESTÁ GRAVADA NA COLUNA `composicao_erp`.
+ *
+ * MORA AQUI, e não no módulo de importação onde nasceu, porque passou a ter
+ * DOIS leitores: o ciclo automático e o botão "Sincronizar estoque" de um
+ * produto só. Enquanto era privada de um deles, o botão simplesmente não
+ * enxergava composição — perguntava o saldo PRÓPRIO da caixa ao ERP, recebia o
+ * zero residual do kit e gravava esgotado, com as latas todas na prateleira.
+ * Era exatamente o bug que `saldoEfetivo` existe para não deixar acontecer, só
+ * que por um caminho que não passava por ela.
+ *
+ * JSON ilegível vale COMO AUSENTE, e não como lista vazia: ausente quer dizer
+ * "não sei do que é feito" (o produto fica em paz), e vazio diria "não é
+ * composto" — que zeraria a caixa por causa de um JSON estragado.
+ */
+export function lerComposicaoGravada(
+  bruto: string | null,
+): Array<{ variacao: number; quantidade: number }> | undefined {
+  if (!bruto) return undefined;
+  try {
+    const d = JSON.parse(bruto) as Array<{ v?: number; q?: number }>;
+    if (!Array.isArray(d) || !d.length) return undefined;
+    const itens = d
+      .map(i => ({ variacao: Number(i?.v ?? 0), quantidade: Number(i?.q ?? 0) }))
+      .filter(i => i.variacao > 0 && i.quantidade > 0);
+    return itens.length ? itens : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function estoqueDerivado(
   composicao: Array<{ variacao: number; quantidade: number }> | undefined,
   saldos: Map<number, number>,
