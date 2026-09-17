@@ -1541,6 +1541,10 @@ export function ProdutosLoja() {
                           <Input
                             id="p-preco"
                             required type="number" step="0.01" min="0.01"
+                            /* TECLADO COM VÍRGULA NO CELULAR. `type="number"` sozinho abre
+                               o teclado de telefone em parte dos Android — com letras e
+                               sem separador decimal. Quem cadastra preço digita "12,90". */
+                            inputMode="decimal"
                             value={form.preco} onChange={set('preco')} placeholder="0,00"
                             className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
                           />
@@ -1556,6 +1560,7 @@ export function ProdutosLoja() {
                           <Input
                             id="p-preco-promo"
                             type="number" step="0.01" min="0.01"
+                            inputMode="decimal"
                             value={form.preco_promocional} onChange={set('preco_promocional')} placeholder="—"
                             className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
                             aria-describedby={erroPromo ? 'p-promo-erro' : 'p-promo-ajuda'}
@@ -1656,6 +1661,7 @@ export function ProdutosLoja() {
                         <Input
                           id="p-serve"
                           type="number" min="1" max="20"
+                          inputMode="numeric"
                           value={form.serve_pessoas} onChange={set('serve_pessoas')} placeholder="Ex.: 2"
                           className={CAMPO_MODAL}
                         />
@@ -1818,11 +1824,21 @@ export function ProdutosLoja() {
                           <Input
                             id="p-estoque"
                             type="number" min="0" step="1"
+                            inputMode="numeric"
                             value={form.estoque} onChange={set('estoque')} placeholder="Ex.: 20"
                             className={CAMPO_MODAL}
                           />
+                          {/*
+                            A REGRA DO CLIENTE, ESCRITA AQUI.
+                            O cardápio mostra "últimas unidades" com estoque igual
+                            ou menor que 5 (ver `cliente/loja.tsx`). Isso estava
+                            escrito só na tela do Maxx Gestão — quem cadastra o
+                            produto decidia o número sem saber a partir de quanto
+                            o cliente começa a ver pressa.
+                          */}
                           <p className="mt-1 text-[12.5px] text-muted-foreground">
-                            Baixa a cada pedido. Em 0, aparece como “Esgotado”.
+                            Baixa a cada pedido. Com <b>5 ou menos</b>, o cliente vê “últimas
+                            unidades”. Em 0, aparece como “Esgotado”.
                           </p>
                         </div>
                       )}

@@ -121,3 +121,39 @@ describe('o editor de complementos some com o que não é da loja', () => {
     expect(j).toBeGreaterThan(0);
   });
 });
+
+describe('o teclado certo e a regra visível no cadastro', () => {
+  /*
+   * `type="number"` SOZINHO NÃO BASTA no Android: parte dos teclados abre o
+   * discador, com letras e sem separador decimal — e quem cadastra preço digita
+   * "12,90". `inputMode` é o que escolhe o teclado.
+   */
+  it('preço e promoção pedem teclado decimal', () => {
+    for (const id of ['p-preco', 'p-preco-promo']) {
+      const i = TELA.indexOf(`id="${id}"`);
+      expect(i, id).toBeGreaterThan(0);
+      expect(TELA.slice(i, i + 260), id).toContain('inputMode="decimal"');
+    }
+  });
+
+  it('estoque e serve pessoas pedem teclado numérico', () => {
+    for (const id of ['p-estoque', 'p-serve']) {
+      const i = TELA.indexOf(`id="${id}"`);
+      expect(i, id).toBeGreaterThan(0);
+      expect(TELA.slice(i, i + 200), id).toContain('inputMode="numeric"');
+    }
+  });
+
+  /*
+   * A REGRA DO CLIENTE ESCRITA ONDE A DECISÃO É TOMADA. O cardápio mostra
+   * "últimas unidades" com estoque <= 5; isso vivia só na tela do Maxx Gestão, e
+   * quem cadastrava o produto escolhia o número sem saber a partir de quanto o
+   * cliente começa a ver pressa.
+   */
+  it('o campo de estoque diz a partir de quanto o cliente vê "últimas unidades"', () => {
+    const i = TELA.indexOf('id="p-estoque"');
+    const bloco = TELA.slice(i, i + 900);
+    expect(bloco).toContain('últimas');
+    expect(bloco).toMatch(/5 ou menos/);
+  });
+});
