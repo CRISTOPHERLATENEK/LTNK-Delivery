@@ -9,7 +9,21 @@ import { cn } from '@/lib/utils';
 import { assinarToast } from '@/lib/toast-bus';
 
 type Tipo = 'sucesso' | 'erro' | 'info';
-interface ToastItem { id: number; titulo: string; descricao?: string; tipo: Tipo }
+interface ToastItem {
+  id: number; titulo: string; descricao?: string; tipo: Tipo;
+  /**
+   * UMA AÇÃO DENTRO DO TOAST — hoje, o "Desfazer" da exclusão.
+   *
+   * Existe para substituir o diálogo de confirmação onde ele custa mais do que
+   * protege: numa lista de dezesseis itens, confirmar cada exclusão é um clique
+   * a mais em toda vez para evitar um engano que quase nunca acontece. Desfazer
+   * inverte a conta — o caminho comum fica rápido, e o engano tem conserto.
+   *
+   * O toast se fecha ao clicar: a ação aconteceu, e deixar o botão na tela
+   * convida a clicar de novo no que já foi desfeito.
+   */
+  acao?: { rotulo: string; aoClicar: () => void };
+}
 interface Ctx { mostrar: (t: Omit<ToastItem, 'id'>) => void }
 
 const ToastContext = React.createContext<Ctx | null>(null);
@@ -38,9 +52,11 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const mostrar = React.useCallback((t: Omit<ToastItem, 'id'>) => {
     const id = Date.now() + Math.random();
     setToasts(antigos => [...antigos, { ...t, id }]);
+    /* Com ação, o toast dura mais: 4 segundos é tempo de LER "excluído", não de
+       perceber o engano, decidir e ainda acertar o botão. */
     setTimeout(() => {
       setToasts(antigos => antigos.filter(x => x.id !== id));
-    }, 4000);
+    }, t.acao ? 9000 : 4000);
   }, []);
 
   // Abre o toast para quem está FORA da árvore React — hoje, o cache do React
@@ -72,6 +88,14 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
                   <div className="font-semibold leading-tight text-foreground">{t.titulo}</div>
                   {t.descricao && <div className="mt-0.5 text-sm text-muted-foreground">{t.descricao}</div>}
                 </div>
+                {t.acao && (
+                  <button
+                    onClick={() => { t.acao?.aoClicar(); setToasts(a => a.filter(x => x.id !== t.id)); }}
+                    className="min-h-11 shrink-0 whitespace-nowrap rounded-lg px-2 text-sm font-bold text-primary transition-colors hover:bg-primary/10"
+                  >
+                    {t.acao.rotulo}
+                  </button>
+                )}
                 <button
                   onClick={() => setToasts(a => a.filter(x => x.id !== t.id))}
                   className="rounded-full p-0.5 text-muted-foreground transition-opacity hover:opacity-100 opacity-60"

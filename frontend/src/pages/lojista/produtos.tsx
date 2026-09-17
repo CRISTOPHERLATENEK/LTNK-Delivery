@@ -4002,6 +4002,16 @@ function GruposEditor({ produto }: { produto: Produto }) {
    * mostra a regra em UMA frase e os controles só aparecem quando se pede.
    */
   const [regraAberta, setRegraAberta] = useState<number | null>(null);
+  /**
+   * Quando esta aba gravou algo pela última vez.
+   *
+   * Só o que ELA grava: os complementos vão ao servidor a cada mexida, o resto
+   * do cadastro não. Nasce vazio — selo de "salvo" antes de qualquer gravação
+   * seria promessa sobre coisa nenhuma.
+   */
+  const [salvoEm, setSalvoEm] = useState<string | null>(null);
+  const marcarSalvo = () =>
+    setSalvoEm(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
   /** Busca dentro de um grupo. Só aparece em lista longa — ver o cabeçalho. */
   const [buscaItens, setBuscaItens] = useState<Record<number, string>>({});
   /**
@@ -4215,13 +4225,13 @@ function GruposEditor({ produto }: { produto: Produto }) {
        * mudar o máximo numa mudaria nas trinta.
        */
       await api('PUT', `/api/lojista/grupos/${grupo.id}`, { produto_id: produto.id, ...patch });
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao salvar o grupo.';
       mostrar({ tipo: 'erro', titulo: msg });
       // Volta ao valor do servidor: campo inline que falhou não pode ficar
       // mostrando o texto novo como se tivesse gravado.
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     }
   }
 
@@ -4256,7 +4266,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
       for (const o of pausados) {
         await api('PUT', `/api/lojista/opcoes/${o.id}`, { disponivel: true });
       }
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
       mostrar({
         tipo: 'sucesso',
         titulo: `${pausados.length} ${pausados.length === 1 ? 'item voltou' : 'itens voltaram'} pra venda.`,
@@ -4264,7 +4274,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao reativar os itens.';
       mostrar({ tipo: 'erro', titulo: msg });
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     }
   }
 
@@ -4272,7 +4282,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
   async function usarGrupoExistente(grupoId: number) {
     try {
       await api('POST', `/api/lojista/produtos/${produto.id}/grupos/${grupoId}`);
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
       qc.invalidateQueries({ queryKey: ['lojista-biblioteca-grupos', produto.id] });
       setAbertoId(grupoId);
     } catch (e) {
@@ -4310,7 +4320,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
     if (!ok) return;
     try {
       await api('DELETE', `/api/lojista/produtos/${produto.id}/grupos/${grupo.id}`);
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
       qc.invalidateQueries({ queryKey: ['lojista-biblioteca-grupos', produto.id] });
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao tirar o grupo.';
@@ -4334,7 +4344,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
     try {
       const r = await api<{ grupo_id: number }>(
         'POST', `/api/lojista/produtos/${produto.id}/grupos/${grupo.id}/soltar`);
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
       qc.invalidateQueries({ queryKey: ['lojista-biblioteca-grupos', produto.id] });
       setAbertoId(r.grupo_id);
     } catch (e) {
@@ -4346,11 +4356,11 @@ function GruposEditor({ produto }: { produto: Produto }) {
   async function salvarOpcao(opcao: OpcaoItem, patch: Record<string, unknown>) {
     try {
       await api('PUT', `/api/lojista/opcoes/${opcao.id}`, patch);
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao salvar o item.';
       mostrar({ tipo: 'erro', titulo: msg });
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     }
   }
 
@@ -4372,11 +4382,11 @@ function GruposEditor({ produto }: { produto: Produto }) {
     }
     try {
       await Promise.all(itens.map(o => api('PUT', `/api/lojista/opcoes/${o.id}`, { secao: alvo })));
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
       qc.invalidateQueries({ queryKey: ['lojista-sugestoes-opcoes'] });
     } catch {
       mostrar({ tipo: 'erro', titulo: 'Não consegui renomear a seção.' });
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     }
   }
 
@@ -4398,10 +4408,10 @@ function GruposEditor({ produto }: { produto: Produto }) {
     if (itens.length === 0) return;
     try {
       await Promise.all(itens.map(o => api('PUT', `/api/lojista/opcoes/${o.id}`, { secao: '' })));
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     } catch {
       mostrar({ tipo: 'erro', titulo: 'Não consegui desfazer a seção.' });
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     }
   }
 
@@ -4421,7 +4431,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
           nome: it.nome, preco_adicional: it.preco || '0', secao: it.secao, descricao: '',
         });
       }
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
       qc.invalidateQueries({ queryKey: ['lojista-sugestoes-opcoes'] });
       setColandoEm(null);
       setTextoColado('');
@@ -4429,7 +4439,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao adicionar os itens.';
       mostrar({ tipo: 'erro', titulo: msg });
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     } finally {
       setColando(false);
     }
@@ -4454,11 +4464,11 @@ function GruposEditor({ produto }: { produto: Produto }) {
     try {
       await Promise.all(novos.map((g, i) =>
         api('PUT', `/api/lojista/grupos/${g.id}`, { produto_id: produto.id, nome: g.nome, ordem: i })));
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     } catch {
       // Falhou a gravação: refaz do servidor pra tela não mentir sobre a ordem
       // que o cliente vai ver no cardápio.
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
       mostrar({ tipo: 'erro', titulo: 'Não consegui salvar a nova ordem.' });
     }
   }
@@ -4473,7 +4483,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
         ...dados,
         ordem: grupos.length,
       });
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
       // Abre o painel do grupo recém-criado: grupo vazio não serve pra nada, e o
       // passo seguinte é sempre adicionar o primeiro item.
       setAbertoId(res.grupo_id);
@@ -4511,7 +4521,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
         descricao: salva?.descricao || '',
         imagem: salva?.imagem || '',
       });
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
       // O histórico ganhou um nome novo — sem invalidar, o chip só apareceria
       // pro próximo produto depois do staleTime.
       qc.invalidateQueries({ queryKey: ['lojista-sugestoes-opcoes'] });
@@ -4545,7 +4555,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
         descricao: f.descricao || '',
         ...(doProduto ? { produto_id: doProduto.id } : {}),
       });
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
       qc.invalidateQueries({ queryKey: ['lojista-sugestoes-opcoes'] });
       /*
        * A SEÇÃO PERMANECE ao limpar o formulário, o nome e o preço não.
@@ -4580,30 +4590,82 @@ function GruposEditor({ produto }: { produto: Produto }) {
     const nova = reordenar(ids, String(opcaoId), destino + 1).map(Number);
     try {
       await api('PUT', `/api/lojista/grupos/${grupo.id}/opcoes/ordem`, { ordem: nova });
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     } catch (e) {
       mostrar({ tipo: 'erro', titulo: e instanceof ApiError ? e.message : 'Erro ao reordenar.' });
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     }
   }
 
   async function definirSabores(opcao: OpcaoItem, sabores: number) {
     try {
       await api('PUT', `/api/lojista/opcoes/${opcao.id}`, { sabores });
-      await qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao salvar.';
       mostrar({ tipo: 'erro', titulo: msg });
     }
   }
 
+  /**
+   * EXCLUIR COM DESFAZER, no lugar de confirmar antes.
+   *
+   * Numa lista de dezesseis itens, confirmar cada exclusão é um clique a mais
+   * em TODA vez para evitar um engano que quase nunca acontece. Desfazer
+   * inverte a conta: o caminho comum fica rápido e o engano tem conserto.
+   *
+   * O desfazer RECRIA o item com tudo o que ele tinha — preço, seção,
+   * ingredientes, foto, vínculo de estoque e a posição. O id é outro, e isso é
+   * invisível: ninguém decora id de complemento. O que não pode mudar é o que
+   * aparece na tela do cliente.
+   */
   async function excluirOpcao(opcaoId: number) {
+    const grupo = grupos.find(g => g.opcoes.some(o => o.id === opcaoId));
+    const antes = grupo?.opcoes.find(o => o.id === opcaoId);
     try {
       await api('DELETE', `/api/lojista/opcoes/${opcaoId}`);
-      qc.refetchQueries({ queryKey });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
+      if (!grupo || !antes) return;
+      mostrar({
+        tipo: 'sucesso',
+        titulo: `“${antes.nome}” excluído`,
+        acao: {
+          rotulo: 'Desfazer',
+          aoClicar: () => { void restaurarOpcao(grupo, antes); },
+        },
+      });
     } catch (e) {
       const msg = e instanceof ApiError ? e.message : 'Erro ao excluir opção.';
       mostrar({ tipo: 'erro', titulo: msg });
+    }
+  }
+
+  /** Recria o item excluído com tudo e devolve à posição que ele ocupava. */
+  async function restaurarOpcao(grupo: GrupoOpcoes, o: OpcaoItem) {
+    try {
+      const r = await api<{ opcao_id: number }>('POST', `/api/lojista/grupos/${grupo.id}/opcoes`, {
+        nome: o.nome,
+        preco_adicional: String((o.preco_adicional_centavos || 0) / 100),
+        secao: o.secao || '',
+        descricao: o.descricao || '',
+        imagem: o.imagem || '',
+        sabores: o.sabores || 0,
+        ...(o.produto_id ? { produto_id: o.produto_id } : {}),
+      });
+      /* O que a criação não aceita vai num segundo passo — são campos que não
+         existiam quando a rota de criar nasceu. */
+      if (o.sem_estoque || !o.disponivel) {
+        await api('PUT', `/api/lojista/opcoes/${r.opcao_id}`, {
+          sem_estoque: !!o.sem_estoque, disponivel: !!o.disponivel,
+        });
+      }
+      /* E a POSIÇÃO: recriado vai para o fim, e voltar no fim não é desfazer. */
+      const ordemAntiga = grupo.opcoes.map(x => (x.id === o.id ? r.opcao_id : x.id));
+      await api('PUT', `/api/lojista/grupos/${grupo.id}/opcoes/ordem`, { ordem: ordemAntiga });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
+    } catch (e) {
+      mostrar({ tipo: 'erro', titulo: e instanceof ApiError ? e.message : 'Não consegui desfazer.' });
+      await qc.refetchQueries({ queryKey }); marcarSalvo();
     }
   }
 
@@ -4663,9 +4725,25 @@ function GruposEditor({ produto }: { produto: Produto }) {
         if (e.key === 'Enter' && !(e.target instanceof HTMLTextAreaElement)) e.preventDefault();
       }}
     >
-      <p className="text-[12.5px] text-muted-foreground">
-        Valem só para este produto e são salvos na hora, sem depender do botão do cadastro.
-      </p>
+      {/*
+        O SELO DE SALVO FICA NESTA ABA, e não no topo do modal.
+        O rodapé diz "Salvar alterações" e os complementos gravam sozinhos — a
+        contradição que o lojista sentiu. Mas o selo no cabeçalho do modal seria
+        outra mentira, e pior: nome, preço e foto NÃO são salvos sozinhos, e
+        quem lesse "salvo automaticamente" lá em cima fecharia a janela com o
+        nome novo perdido. O selo vale para o que ele descreve.
+      */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[12.5px] text-muted-foreground">
+          Valem só para este produto e são salvos na hora, sem depender do botão do cadastro.
+        </p>
+        {salvoEm && (
+          <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[12px] font-semibold text-emerald-700 dark:text-emerald-400">
+            <Check className="size-3.5" />
+            Salvo automaticamente · {salvoEm}
+          </span>
+        )}
+      </div>
           {isLoading && <Skeleton className="h-24" />}
 
           {/* 1. Grupos já criados */}
