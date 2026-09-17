@@ -1279,6 +1279,20 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      */
     ['lojas', 'maxxgestao_modelo', "maxxgestao_modelo VARCHAR(2) NOT NULL DEFAULT 'PA'"],
     /*
+     * A SÉRIE DO DOCUMENTO NO ERP.
+     *
+     * O delivery mandava o documento SEM série e SEM número, e a API não
+     * reclama: a documentação do campo diz, com todas as letras, "numero —
+     * quando não informado, grava 0" e "serie — retorna string vazia quando não
+     * informada". Resultado medido na tela do Gestão: todo pedido vindo daqui
+     * ficou com Número 0 e Série vazia, enquanto os do PDV entram com Número 13
+     * e Série 1.
+     *
+     * `1` de padrão porque é a série que o PDV da Unimaxx usa, e a escolha foi
+     * do lojista: sequência única, delivery e balcão na mesma série.
+     */
+    ['lojas', 'maxxgestao_serie', "maxxgestao_serie VARCHAR(3) NOT NULL DEFAULT '1'"],
+    /*
      * O STATUS COM QUE O PEDIDO DE VENDA FICA NO ERP.
      *
      * `E` (Emitido) e o padrao porque e o que esta em producao — mudar o padrao

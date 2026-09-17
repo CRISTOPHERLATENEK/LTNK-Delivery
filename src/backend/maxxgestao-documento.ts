@@ -87,6 +87,8 @@ export function statusValido(bruto: unknown): StatusDocumento {
   return (STATUS_DOCUMENTO as readonly string[]).includes(v) ? v as StatusDocumento : 'E';
 }
 
+import { serieValida } from './maxxgestao-numeracao';
+
 /** O modelo gravado, ou o padrão. Valor estranho no banco NÃO vira documento
     estranho: cai em `PA`, que é o comportamento conhecido. */
 export function modeloValido(bruto: unknown): ModeloDocumento {
@@ -127,6 +129,20 @@ export interface ConfigDocumento {
    * Fixo no código, descobrir isso exigia um deploy por tentativa.
    */
   modelo: ModeloDocumento;
+  /**
+   * A SÉRIE E O NÚMERO DO DOCUMENTO.
+   *
+   * Iam os dois ausentes, e a API aceita calado: "numero — quando não
+   * informado, grava 0", "serie — retorna string vazia quando não informada".
+   * O resultado apareceu na tela do Gestão: pedido do delivery com Número 0 e
+   * Série vazia ao lado de pedido do PDV com Número 13 e Série 1.
+   *
+   * `numero` ZERO CONTINUA SIGNIFICANDO "não sei" — e nesse caso o campo não
+   * vai, exatamente como antes. Mandar 0 explicitamente seria gravar o defeito
+   * de propósito.
+   */
+  serie: string;
+  numero: number;
   /**
    * O CAIXA do ERP, ou 0 para não mandar.
    *
@@ -239,6 +255,15 @@ export function montarDocumento(
        * pedido cair na fila do PDV, se for lá que ele precisa aparecer.
        */
       modelo: config.modelo,
+      /*
+       * SÉRIE E NÚMERO, que é o que faz o documento existir como documento na
+       * operação do ERP. Só vão quando há número: sem ele, a série sozinha
+       * deixaria uma série inteira com número zero, que é pior que o estado
+       * anterior — pelo menos ali o zero estava sem série nenhuma.
+       */
+      ...(config.numero > 0
+        ? { serie: serieValida(config.serie), numero: config.numero }
+        : {}),
       /*
        * OS DOIS CAMPOS JUNTOS, e só quando há caixa.
        *

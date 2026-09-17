@@ -54,6 +54,16 @@ export interface EstadoErp {
    */
   caixa: number;
   /**
+   * A SÉRIE em que o documento entra no ERP.
+   *
+   * O delivery mandava o documento SEM série e SEM número, e a API grava isso
+   * calada — a documentação do campo diz "numero: quando não informado, grava
+   * 0" e "serie: retorna string vazia quando não informada". Na tela do Gestão
+   * o pedido do delivery aparecia com Número 0 ao lado de um do PDV com Número
+   * 13, Série 1.
+   */
+  serie: string;
+  /**
    * O cardápio se sincroniza com o ERP sozinho, de hora em hora.
    *
    * NÃO inclui saldo de estoque, e não é escolha nossa: a API do Maxx Gestão
@@ -575,6 +585,27 @@ Ligar?`,
    * gravar a cada tecla mandaria o pedido para os caixas 7, 79 e 790 no
    * caminho até o 79.
    */
+  /*
+   * A SÉRIE segue o mesmo desenho do caixa: rascunho enquanto digita, grava no
+   * "Salvar". Gravar a cada tecla mandaria documento para as séries 1, 12 e 123
+   * no caminho até a 123.
+   */
+  const [serieTexto, setSerieTexto] = useState('');
+  const [salvandoSerie, setSalvandoSerie] = useState(false);
+  useEffect(() => { if (estado) setSerieTexto(estado.serie || ''); }, [estado?.serie]);
+
+  async function salvarSerie() {
+    if (!estado || serieTexto.trim() === estado.serie) return;
+    setSalvandoSerie(true);
+    try {
+      const r = await api<{ serie: string }>('PUT', '/api/lojista/erp/serie', { serie: serieTexto.trim() });
+      aoMudar({ ...estado, serie: r.serie });
+      mostrar({ tipo: 'sucesso', titulo: `Pedidos vão subir na série ${r.serie}` });
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setSalvandoSerie(false); }
+  }
+
   const [caixaTexto, setCaixaTexto] = useState('');
   const [salvandoCaixa, setSalvandoCaixa] = useState(false);
   useEffect(() => {
@@ -844,6 +875,44 @@ Ligar?`,
         </p>
       </Linha>
       )}
+
+      {/*
+        SÉRIE DO DOCUMENTO.
+        Fica logo abaixo do caixa porque as duas respondem a mesma pergunta —
+        onde, dentro da operação do ERP, este pedido entra.
+      */}
+      <Linha
+        titulo="Série do documento"
+        descricao={`Os pedidos entram na série ${estado?.serie || '1'}, numerados em sequência com os do balcão.`}
+        acao={
+          <div className="flex shrink-0 items-center gap-2">
+            <input
+              value={serieTexto}
+              onChange={e => setSerieTexto(e.target.value.replace(/[^0-9A-Za-z]/g, '').slice(0, 3))}
+              onKeyDown={e => { if (e.key === 'Enter') void salvarSerie(); }}
+              placeholder="1"
+              disabled={!configurado || salvandoSerie}
+              aria-label="Série do documento no Maxx Gestão"
+              className="h-9 w-20 rounded-lg border border-input bg-background px-2 text-center text-sm font-mono tabular-nums disabled:opacity-50"
+            />
+            <button
+              type="button"
+              disabled={!configurado || salvandoSerie || serieTexto.trim() === (estado?.serie ?? '')}
+              onClick={() => void salvarSerie()}
+              className="h-9 rounded-lg bg-primary px-3 text-[12.5px] font-bold text-primary-foreground disabled:opacity-50"
+            >
+              Salvar
+            </button>
+          </div>
+        }
+      >
+        <p className="mt-2 max-w-[54ch] text-[12.5px] leading-relaxed text-muted-foreground">
+          É a mesma série que aparece no Pedido de Venda do Maxx Gestão — quase
+          sempre <b>1</b>. O número vem daqui: antes de subir cada pedido,
+          perguntamos ao ERP qual foi o último dessa série e continuamos dali,
+          na mesma contagem do balcão.
+        </p>
+      </Linha>
 
       {/* erp-sincronizar-auto — em liberação por canal */}
       {liberada('erp-sincronizar-auto') && (

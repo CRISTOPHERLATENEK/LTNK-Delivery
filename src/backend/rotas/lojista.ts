@@ -44,6 +44,7 @@ import { buscarMercadorias, mapaDeCategorias, idsDaSecao, idsDoCatalogo, listarC
 import { planejarImportacao as planejarImportacaoErp, resumoDoPlano as resumoDoPlanoErp, peneirarPorCatalogo, type ItemDoCatalogo } from '../maxxgestao-importar';
 import { produtosDaLoja, aplicarPlano, produtosComEstoque, gravarComposicao } from '../maxxgestao-importar-deps';
 import { quantosSairiamDoAr, saldoParaEstoque, estoqueDerivado, lerComposicaoGravada } from '../maxxgestao-estoque';
+import { serieValida } from '../maxxgestao-numeracao';
 import { sincronizarEstoqueDaLoja } from '../maxxgestao-sincronizar-ciclo';
 import { lerPreambulo, gravarPreambulo, apagarPreambulo, abrirPreambulo } from '../maxxgestao-preambulo';
 import { enviarPedidoAoErp, fecharDocumentoNoErp } from '../maxxgestao-emitir';
@@ -4497,13 +4498,14 @@ router.get('/erp', async (req, res, next) => {
     const token = await tokenMaxxGestaoDaLoja(loja.id);
     const linha = await db.prepare(
       `SELECT nfce_emissor, maxxgestao_auto_emitir, maxxgestao_modelo, maxxgestao_status,
-              maxxgestao_id_caixa, maxxgestao_sinc_auto, maxxgestao_sinc_em,
+              maxxgestao_id_caixa, maxxgestao_serie, maxxgestao_sinc_auto, maxxgestao_sinc_em,
               maxxgestao_catalogo, maxxgestao_local_estoque, maxxgestao_estoque_esgota
          FROM lojas WHERE id = ?`
     ).get(loja.id) as {
       nfce_emissor: string | null; maxxgestao_auto_emitir: number | null;
       maxxgestao_modelo: string | null; maxxgestao_status: string | null;
-      maxxgestao_id_caixa: number | null; maxxgestao_sinc_auto: number | null;
+      maxxgestao_id_caixa: number | null; maxxgestao_serie: string | null;
+      maxxgestao_sinc_auto: number | null;
       maxxgestao_sinc_em: string | null; maxxgestao_catalogo: number | null;
       maxxgestao_local_estoque: number | null; maxxgestao_estoque_esgota: number | null;
     } | undefined;
@@ -4517,6 +4519,9 @@ router.get('/erp', async (req, res, next) => {
       modelo: modeloValido(linha?.maxxgestao_modelo),
       status: statusValido(linha?.maxxgestao_status),
       caixa: Math.max(0, Number(linha?.maxxgestao_id_caixa ?? 0)),
+      /* A série em que o documento entra no ERP. Ver `serieValida`: vazio no
+         banco vale '1', porque série vazia é justamente o defeito. */
+      serie: serieValida(linha?.maxxgestao_serie),
       sinc_auto: Number(linha?.maxxgestao_sinc_auto ?? 0) === 1,
       /* QUANDO A ÚLTIMA PASSADA TERMINOU. Sem isto, "está ligado" e "está
          funcionando" são a mesma frase para quem olha a tela — e a diferença
@@ -5013,6 +5018,35 @@ router.put('/erp/sincronizacao-automatica', async (req, res, next) => {
     await db.prepare('UPDATE lojas SET maxxgestao_sinc_auto = ? WHERE id = ?').run(ligado ? 1 : 0, loja.id);
     console.log(`[erp-sinc] loja ${loja.id}: sincronizacao automatica ${ligado ? 'LIGADA' : 'desligada'}`);
     res.json({ ligado });
+  } catch (e) { next(e); }
+});
+
+/**
+ * A SÉRIE DO DOCUMENTO NO ERP.
+ *
+ * Existe porque o delivery mandava o documento sem série e sem número, e a API
+ * grava isso calada: "numero — quando não informado, grava 0", "serie — retorna
+ * string vazia quando não informada". Na tela do Gestão o pedido do delivery
+ * aparecia com Número 0 ao lado de um do PDV com Número 13, Série 1.
+ *
+ * É configuração e não constante porque a série do PDV varia por instalação —
+ * `1` é o padrão da Unimaxx, não uma regra do produto.
+ */
+router.put('/erp/serie', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req);
+    const bruto = String(req.body?.serie ?? '').trim();
+    /*
+     * RECUSA EM VEZ DE CAIR NO PADRÃO. Gravar '1' silenciosamente quando
+     * pediram outra coisa faria o lojista concluir que o campo não funciona —
+     * e ele só descobriria o contrário olhando documento no ERP.
+     */
+    if (!/^[0-9A-Za-z]{1,3}$/.test(bruto)) {
+      return res.status(400).json({ erro: 'Série inválida. Use até 3 caracteres, só letras e números — no Maxx Gestão costuma ser 1.' });
+    }
+    await db.prepare('UPDATE lojas SET maxxgestao_serie = ? WHERE id = ?').run(bruto, loja.id);
+    console.log(`[erp] loja ${loja.id}: documento passa a subir na serie ${bruto}`);
+    res.json({ serie: bruto });
   } catch (e) { next(e); }
 });
 

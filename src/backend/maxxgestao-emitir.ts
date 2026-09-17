@@ -42,6 +42,7 @@ export function agoraBrasiliaIso(agoraMs: number = Date.now()): string {
 import { descriptografar } from './cripto';
 import { chamarMaxxGestao, ErroMaxxGestao, type OpcoesMaxxGestao } from './maxxgestao-cliente';
 import { todasAsPaginas } from './maxxgestao-catalogo';
+import { proximoNumero, serieValida, type PaginaDocumentos } from './maxxgestao-numeracao';
 import {
   montarDocumento, diferencaDoTotal, modeloValido, statusValido,
   type DadosDoPedido, type ItemPedido,
@@ -510,11 +511,11 @@ export async function enviarPedidoAoErp(
 
   const loja = await db.prepare(
     `SELECT nfce_emissor, maxxgestao_token, maxxgestao_id_usuario, maxxgestao_auto_emitir,
-            maxxgestao_modelo, maxxgestao_id_caixa
+            maxxgestao_modelo, maxxgestao_id_caixa, maxxgestao_serie
        FROM lojas WHERE id = ?`
   ).get(pedido.loja_id) as {
     nfce_emissor: string | null; maxxgestao_token: string | null; maxxgestao_modelo: string | null;
-    maxxgestao_id_caixa: number | null;
+    maxxgestao_id_caixa: number | null; maxxgestao_serie: string | null;
     maxxgestao_id_usuario: number | null; maxxgestao_auto_emitir: number | null;
   } | undefined;
 
@@ -680,6 +681,46 @@ export async function enviarPedidoAoErp(
     console.log(`[erp] pedido ${pedidoId}: não achei forma de pagamento para "${dados.formaPagamento}" no ERP — documento vai sem`);
   }
 
+  /*
+   * ─────────── SÉRIE E NÚMERO, PERGUNTADOS AO ERP ───────────
+   *
+   * O documento subia sem os dois e a API gravava Número 0 / Série vazia sem
+   * reclamar — a documentação do campo diz isso com todas as letras. Na tela do
+   * Gestão o pedido do delivery aparecia com Número 0 ao lado de um do PDV com
+   * Número 13, Série 1.
+   *
+   * A sequência é ÚNICA com a do PDV, por escolha do lojista: a série é a mesma
+   * (1, por padrão) e o número continua de onde o balcão parou. Por isso é
+   * perguntado ao ERP a cada pedido, e não guardado aqui — um contador nosso
+   * ficaria para trás a cada venda feita no caixa.
+   *
+   * O QUE ISTO NÃO RESOLVE, e não tem como resolver por fora do ERP: se o
+   * balcão fechar uma venda entre a nossa leitura e a nossa gravação, os dois
+   * pegam o mesmo número. A API não recusa duplicado — ela aceitou zero
+   * repetido dezenas de vezes. Séries separadas eliminariam isso; sequência
+   * única é o que foi pedido, e a janela é de menos de um segundo.
+   */
+  let numeroDoDocumento = 0;
+  const serieDoDocumento = serieValida(loja?.maxxgestao_serie);
+  try {
+    numeroDoDocumento = await proximoNumero(
+      caminho => chamarMaxxGestao(token, caminho, opcoes) as Promise<PaginaDocumentos | null>,
+      serieDoDocumento,
+      modeloValido(loja?.maxxgestao_modelo),
+    );
+  } catch (e) {
+    /*
+     * FALHA NA LEITURA NÃO SEGURA O PEDIDO. Zero faz o documento subir sem
+     * número — como subia antes — e o registro fica no log. Bloquear o envio
+     * por causa da numeração deixaria a venda sem chegar ao ERP, que é pior:
+     * documento sem número se corrige lá, venda que não chegou não.
+     */
+    console.log(`[erp] pedido ${pedidoId}: não consegui ler o último número da série ${serieDoDocumento} (${(e as Error).message}) — vai sem número`);
+  }
+  if (numeroDoDocumento > 0) {
+    console.log(`[erp] pedido ${pedidoId}: documento vai como série ${serieDoDocumento}, número ${numeroDoDocumento}`);
+  }
+
   const { corpo, impedimentos } = montarDocumento(dados, {
     idNaturezaOperacao: idNatureza,
     idPessoa,
@@ -692,6 +733,8 @@ export async function enviarPedidoAoErp(
     /* O caixa do ERP, quando o lojista informou. Sem ele o documento nasce
        fora de qualquer caixa e fica de fora do fechamento. */
     idCaixa: Math.max(0, Number(loja?.maxxgestao_id_caixa ?? 0)),
+    serie: serieDoDocumento,
+    numero: numeroDoDocumento,
     /* HORA DE BRASÍLIA. Os documentos do ERP vêm sem fuso, em hora local:
        mandar UTC joga o pedido três horas para frente e, à noite, para o dia
        seguinte. */
