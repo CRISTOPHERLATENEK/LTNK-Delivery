@@ -29,6 +29,7 @@ import { agruparPorSecao } from '@/lib/opcoes-preco';
 import { familiasDuplicadas, saoIdenticos, melhorSobrevivente, diferencasEntre, type GrupoComparavel } from '@/lib/grupos-biblioteca';
 import { ingredientesDeTexto, textoDeIngredientes, comIngredientes, fraseDaRegra, rotuloTeto, limiteDeSabores, linhasColadas } from '@/lib/complementos-editor';
 import { buscarProdutos } from '@/lib/busca-produto';
+import { preparaComida } from '@/lib/segmentos';
 import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes, indiceDeSugestoes, type SugestaoSalva, campoQueFalta } from '@/lib/avisos-produto';
 import type { Produto } from '@/types';
 
@@ -233,7 +234,20 @@ const TEMPLATES: Modelo[] = [
  * a categoria não diz nada (vazia ou nome que não reconhecemos), mostra TUDO —
  * esconder por palpite seria pior que mostrar demais.
  */
-function modelosDaCategoria(categoria: string | null | undefined): Modelo[] {
+function modelosDaCategoria(
+  categoria: string | null | undefined,
+  /*
+   * O SEGMENTO DA LOJA MANDA MAIS QUE A CATEGORIA DO PRODUTO.
+   *
+   * "Borda", "Ponto da carne" e "Sabores" são de quem cozinha. Numa
+   * conveniência não são só inúteis: cada um é um clique acidental que vira um
+   * grupo esquisito no cardápio do cliente — e a categoria do produto não
+   * ajuda, porque "COPÕES E BALDES" não casa com família nenhuma e caía no
+   * "mostra tudo".
+   */
+  segmentoDaLoja?: string | null,
+): Modelo[] {
+  if (!preparaComida(segmentoDaLoja)) return [];
   const fam = familiaDaCategoria(categoria);
   if (!fam) return TEMPLATES;
   return TEMPLATES.filter(t => t.familias.length === 0 || t.familias.includes(fam));
@@ -3895,6 +3909,20 @@ function GruposEditor({ produto }: { produto: Produto }) {
    * sessões de cadastro nunca abre este painel — carregar junto com a tela
    * seria pagar por todo mundo o que um usa.
    */
+  /*
+   * O SEGMENTO DA LOJA — é ele que decide se os modelos de comida aparecem.
+   *
+   * `staleTime` longo porque isto muda uma vez na vida da loja, e a consulta já
+   * é feita pelo painel: as duas compartilham o cache.
+   */
+  const { data: loja } = useQuery({
+    queryKey: ['lojista-loja-segmento'],
+    queryFn: () => api<{ loja: { categoria?: string | null } }>('GET', '/api/lojista/loja')
+      .then(r => r.loja)
+      .catch(() => ({ categoria: null })),
+    staleTime: 10 * 60_000,
+  });
+
   const { data: vinculaveis } = useQuery({
     queryKey: ['lojista-produtos-vinculaveis'],
     queryFn: () => api<{ produtos: ProdutoVinculavel[] }>('GET', '/api/lojista/produtos-vinculaveis')
@@ -4397,7 +4425,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
     ...grupos.map(g => g.nome.toLowerCase()),
     ...(biblioteca ?? []).map(g => g.nome.toLowerCase()),
   ]);
-  const modelos = modelosDaCategoria(produto.categoria)
+  const modelos = modelosDaCategoria(produto.categoria, loja?.categoria)
     .filter(t => !nomesQueExistem.has(t.nome.toLowerCase()));
 
   return (
