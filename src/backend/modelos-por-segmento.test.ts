@@ -132,7 +132,12 @@ describe('o teclado certo e a regra visível no cadastro', () => {
     for (const id of ['p-preco', 'p-preco-promo']) {
       const i = TELA.indexOf(`id="${id}"`);
       expect(i, id).toBeGreaterThan(0);
-      expect(TELA.slice(i, i + 260), id).toContain('inputMode="decimal"');
+      /* A JANELA VAI ATÉ O FIM DA TAG, e não N caracteres: a validação inline
+         acrescentou `aria-invalid` e `aria-describedby` entre o id e o
+         inputMode, e a janela fixa de 260 passou a terminar antes dele — o
+         teste caiu sem nada ter piorado. Fatia até o `/>` da própria tag. */
+      const tag = TELA.slice(i, TELA.indexOf('/>', i));
+      expect(tag, id).toContain('inputMode="decimal"');
     }
   });
 
