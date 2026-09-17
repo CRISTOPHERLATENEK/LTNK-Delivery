@@ -4002,6 +4002,16 @@ function GruposEditor({ produto }: { produto: Produto }) {
    * mostra a regra em UMA frase e os controles só aparecem quando se pede.
    */
   const [regraAberta, setRegraAberta] = useState<number | null>(null);
+  /** Busca dentro de um grupo. Só aparece em lista longa — ver o cabeçalho. */
+  const [buscaItens, setBuscaItens] = useState<Record<number, string>>({});
+  /**
+   * Em quais grupos o lojista pediu para ver a coluna de preço.
+   *
+   * Quando TODOS os itens custam R$ 0,00, oito campos vazios idênticos ocupam
+   * um terço da linha para dizer "nada aqui custa a mais" — uma frase diz isso
+   * melhor. Quem quer definir preço clica e a coluna volta.
+   */
+  const [precoAberto, setPrecoAberto] = useState<Record<number, boolean>>({});
   const [buscaVinculo, setBuscaVinculo] = useState('');
 
 
@@ -4702,9 +4712,21 @@ function GruposEditor({ produto }: { produto: Produto }) {
                       return pa - pb;
                     });
 
+                /* A busca corta antes de tudo: ordenar e agrupar o que não vai
+                   aparecer é trabalho jogado fora, e a seção vazia sumiria sozinha. */
+                const alvoBusca = (buscaItens[grupo.id] || '').trim().toLowerCase();
+                const visiveis = alvoBusca
+                  ? grupo.opcoes.filter(o => o.nome.toLowerCase().includes(alvoBusca))
+                  : grupo.opcoes;
+
                 const blocos = usaSecoes
-                  ? [...agruparPorSecao(grupo.opcoes), ...secoesNovas.map(secao => ({ secao, opcoes: [] as OpcaoItem[] }))]
-                  : [{ secao: '', opcoes: pendentePrimeiro(grupo.opcoes) }];
+                  ? [...agruparPorSecao(visiveis), ...secoesNovas.map(secao => ({ secao, opcoes: [] as OpcaoItem[] }))]
+                  : [{ secao: '', opcoes: pendentePrimeiro(visiveis) }];
+
+                /* Nada custa a mais neste grupo? Então a coluna de preço é oito
+                   campos iguais dizendo a mesma coisa. */
+                const semCusto = grupo.opcoes.length > 0
+                  && grupo.opcoes.every(o => !o.preco_adicional_centavos);
 
                 /* No grupo de sabores, o teto do grupo só vale quando NENHUM
                    tamanho define — ver `maxEscolhasEfetivo`. */
@@ -5069,12 +5091,58 @@ function GruposEditor({ produto }: { produto: Produto }) {
                           </div>
                         )}
 
-                        {/* ─── Barra de ferramentas dos itens ─── */}
-                        <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/10 px-3.5 py-2">
+                        {/*
+                          ─── Barra de ferramentas dos itens ───
+
+                          FIXA AO ROLAR: numa lista de dezesseis energéticos, a
+                          contagem, a busca e o "definir preços" saíam de vista no
+                          terceiro item — e são justamente o que se usa enquanto
+                          se percorre a lista.
+                        */}
+                        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/10 px-3.5 py-2 backdrop-blur">
                           <span className="text-[11.5px] font-bold uppercase tracking-[.09em] text-muted-foreground">
                             Itens · {grupo.opcoes.length}
                             {usaSecoes && nomesSecao.length > 0 && ` em ${nomesSecao.length} ${nomesSecao.length === 1 ? 'seção' : 'seções'}`}
                           </span>
+
+                          {/*
+                            TODOS SEM CUSTO — uma frase no lugar de N campos vazios.
+                            No grupo de gelo são oito "R$ 0,00" idênticos ocupando
+                            um terço de cada linha para dizer que nada ali custa a
+                            mais. `0,00` é grátis DE PROPÓSITO; o que a frase
+                            esconde é a repetição, não a informação.
+                          */}
+                          {semCusto && !precoAberto[grupo.id] && (
+                            <span className="text-[11.5px] text-muted-foreground">
+                              · todos sem custo adicional{' '}
+                              <button
+                                type="button"
+                                onClick={() => setPrecoAberto(m => ({ ...m, [grupo.id]: true }))}
+                                className="font-semibold text-primary hover:underline"
+                              >
+                                definir preços
+                              </button>
+                            </span>
+                          )}
+
+                          {/*
+                            BUSCA SÓ EM LISTA LONGA. Com seis itens ela é um campo
+                            a mais para ler; com dezesseis, é o único jeito de
+                            achar o Red Bull tropical sem rolar.
+                          */}
+                          {grupo.opcoes.length > 15 && (
+                            <span className="relative ml-1 min-w-[9rem] flex-1 sm:max-w-[14rem]">
+                              <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+                              <Input
+                                value={buscaItens[grupo.id] || ''}
+                                onChange={e => setBuscaItens(m => ({ ...m, [grupo.id]: e.target.value }))}
+                                placeholder="Buscar item"
+                                aria-label={`Buscar item em ${grupo.nome}`}
+                                className="h-8 pl-7 text-[12px]"
+                              />
+                            </span>
+                          )}
+
                           <div className="ml-auto flex items-center gap-1">
                             {/*
                               SÓ APARECE QUANDO HÁ ITEM PAUSADO, e diz QUANTOS.
@@ -5373,6 +5441,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                         era grátis ou se ninguém preencheu.
                                         Esmaecido = zero, que se lê "grátis".
                                       */}
+                                      {(!semCusto || precoAberto[grupo.id]) && (
                                       <span className={cn('relative flex shrink-0 items-center rounded-lg border transition-colors',
                                         o.preco_adicional_centavos > 0 ? 'border-border bg-background' : 'border-dashed border-border/70 bg-muted/30')}>
                                         <span className="pl-2 text-[10.5px] text-muted-foreground">R$</span>
@@ -5390,6 +5459,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                           className="h-8 w-[4.5rem] border-0 bg-transparent px-1 text-right text-xs tabular-nums focus-visible:ring-0"
                                         />
                                       </span>
+                                      )}
 
                                       {/*
                                         INTERRUPTOR COM RÓTULO. Era um ícone de

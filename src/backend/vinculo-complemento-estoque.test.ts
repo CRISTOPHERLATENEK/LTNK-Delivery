@@ -412,7 +412,9 @@ describe('o cabeçalho do grupo, depois do desenho', () => {
   it('o pendente sobe para o topo da lista', () => {
     expect(TELA).toContain('const pendentePrimeiro = (lista: OpcaoItem[]) =>');
     expect(TELA).toContain('!grupo.baixa_estoque ? lista');
-    expect(TELA).toContain('opcoes: pendentePrimeiro(grupo.opcoes)');
+    /* Passou a receber a lista já filtrada pela busca — a ordenação continua
+       sendo a mesma, e é isso que o teste guarda. */
+    expect(TELA).toContain('opcoes: pendentePrimeiro(visiveis)');
   });
 
   /* Com seções ligadas a ordem é a da seção: reordenar por cima disso quebraria
@@ -420,7 +422,7 @@ describe('o cabeçalho do grupo, depois do desenho', () => {
   it('com seções, a ordem da seção manda', () => {
     const i = TELA.indexOf('const blocos = usaSecoes');
     const bloco = TELA.slice(i, i + 300);
-    expect(bloco).toContain('agruparPorSecao(grupo.opcoes)');
+    expect(bloco).toContain('agruparPorSecao(visiveis)');
     expect(bloco).not.toContain('pendentePrimeiro(agruparPorSecao');
   });
 
@@ -438,5 +440,50 @@ describe('o cabeçalho do grupo, depois do desenho', () => {
     expect(TELA).toContain('{o.imagem && (');
     expect(TELA).toContain('{!o.imagem && (');
     expect(TELA).toContain('aria-label={`Adicionar foto de ${o.nome}`}');
+  });
+});
+
+describe('a lista de itens em grupo grande', () => {
+  /*
+   * OITO "R$ 0,00" IDÊNTICOS ocupavam um terço de cada linha para dizer que
+   * nada ali custa a mais. Uma frase diz isso melhor — e quem quiser definir
+   * preço clica e a coluna volta.
+   *
+   * `0,00` continua sendo grátis DE PROPÓSITO: o que a frase esconde é a
+   * repetição, não a informação.
+   */
+  it('a coluna de preço colapsa quando ninguém cobra a mais', () => {
+    expect(TELA).toContain('const semCusto = grupo.opcoes.length > 0');
+    expect(TELA).toContain('grupo.opcoes.every(o => !o.preco_adicional_centavos)');
+    expect(TELA).toContain('{(!semCusto || precoAberto[grupo.id]) && (');
+    expect(TELA).toContain('todos sem custo adicional');
+    expect(TELA).toContain('definir preços');
+  });
+
+  /*
+   * BUSCA SÓ EM LISTA LONGA. Com seis itens é um campo a mais para ler; com
+   * dezesseis energéticos, é o único jeito de achar o Red Bull tropical sem
+   * rolar a lista inteira.
+   */
+  it('a busca aparece a partir de 16 itens', () => {
+    expect(TELA).toContain('{grupo.opcoes.length > 15 && (');
+    expect(TELA).toContain('aria-label={`Buscar item em ${grupo.nome}`}');
+  });
+
+  it('a busca filtra antes de agrupar e ordenar', () => {
+    expect(TELA).toContain('const visiveis = alvoBusca');
+    expect(TELA).toContain('agruparPorSecao(visiveis)');
+    expect(TELA).toContain('pendentePrimeiro(visiveis)');
+  });
+
+  /*
+   * A BARRA FICA FIXA AO ROLAR. Numa lista de dezesseis, a contagem, a busca e o
+   * "definir preços" saíam de vista no terceiro item — e são justamente o que se
+   * usa enquanto se percorre a lista.
+   */
+  it('o cabeçalho da lista acompanha a rolagem', () => {
+    const i = TELA.indexOf('Itens · {grupo.opcoes.length}');
+    expect(i).toBeGreaterThan(0);
+    expect(TELA.slice(Math.max(0, i - 400), i)).toContain('sticky top-0');
   });
 });
