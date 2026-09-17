@@ -237,6 +237,51 @@ describe('o corpo deixa de estar vazio', () => {
   it('sem loja não escreve nada', () => {
     expect(blocoDeConteudo(null, ITENS)).toBe('');
   });
+
+  /*
+   * ─────────── O QUE PISCA NA TELA ───────────
+   *
+   * A primeira versão despejava a lista inteira aberta, e foi o que o lojista
+   * viu ao dar F5: vinte mil caracteres de cardápio em texto cru antes de o app
+   * montar. Não parecia carregamento, parecia defeito — e essa é a primeira
+   * impressão da loja dele.
+   *
+   * O que fica VISÍVEL agora é o cabeçalho; o cardápio vai atrás de um
+   * `<details>`, que é o padrão do acordeão de FAQ: texto no HTML, elemento
+   * padrão, um clique para abrir. O Google indexa acordeão — o que ele penaliza
+   * é texto invisível por CSS, que não é isto.
+   */
+  it('o cardápio fica atrás de um details, e o cabeçalho não', () => {
+    const b = blocoDeConteudo(LOJA, ITENS);
+    const iDet = b.indexOf('<details>');
+    expect(iDet).toBeGreaterThan(0);
+    expect(b).toContain('<summary>Ver o cardápio</summary>');
+    /* Nome, descrição e endereço aparecem ANTES do details — são eles que
+       formam a tela de carregamento com a cara da loja. */
+    expect(b.indexOf('GALDERIO BEBIDAS')).toBeLessThan(iDet);
+    expect(b.indexOf('Rua Dilson Funaro')).toBeLessThan(iDet);
+    /* E os produtos, DEPOIS. */
+    expect(b.indexOf('Baly Melancia')).toBeGreaterThan(iDet);
+  });
+
+  /*
+   * FUNDO E COR PRÓPRIOS. Sem isso o bloco herdava o tema do app e, no escuro,
+   * saía texto quase preto sobre fundo quase preto — foi o primeiro F5 do
+   * lojista, ilegível.
+   */
+  it('traz o próprio fundo, e acompanha o modo escuro', () => {
+    const b = blocoDeConteudo(LOJA, ITENS);
+    expect(b).toContain('#seo-inicial{background:#fff;color:#1c1917');
+    expect(b).toContain('@media (prefers-color-scheme:dark)');
+    expect(b).toContain('#seo-inicial{background:#0c0a09;color:#e7e5e4}');
+  });
+
+  /* Loja sem nenhum produto não mostra um "Ver o cardápio" que abre vazio. */
+  it('sem produtos, não oferece abrir o cardápio', () => {
+    const b = blocoDeConteudo(LOJA, []);
+    expect(b).not.toContain('<details>');
+    expect(b).toContain('GALDERIO BEBIDAS');
+  });
 });
 
 describe('o bloco vive dentro do #root', () => {
