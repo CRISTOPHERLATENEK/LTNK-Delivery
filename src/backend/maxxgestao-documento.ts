@@ -144,6 +144,19 @@ export interface ConfigDocumento {
   serie: string;
   numero: number;
   /**
+   * A OBSERVAÇÃO DO DOCUMENTO — hoje, o endereço do pedido.
+   *
+   * O `POST /api/documento/v1` não tem campo de endereço livre: o bloco
+   * `pessoa` aceita `idPessoa`, `idEndereco` e `observacao`, e `idEndereco` é o
+   * código de um endereço CADASTRADO na pessoa — que é o CONSUMIDOR FINAL,
+   * compartilhado por todos os pedidos. Gravar ali colaria o mesmo endereço em
+   * todo mundo.
+   *
+   * Vazio não vai: campo em branco no documento é ruído na tela de quem
+   * confere, e a API grava string vazia sem reclamar.
+   */
+  observacao?: string;
+  /**
    * O CAIXA do ERP, ou 0 para não mandar.
    *
    * É o que faz o documento pertencer à operação do PDV: medido, todo documento
@@ -280,6 +293,9 @@ export function montarDocumento(
          mandei este?" antes de mandar de novo — sem isso, uma retentativa gera
          dois documentos fiscais para a mesma venda. */
       idExterno: String(pedido.id),
+      /* Na retirada isto é o endereço da loja — é para lá que o cliente vai, e
+         o documento sem endereço nenhum não dizia nada a quem confere. */
+      ...(config.observacao?.trim() ? { observacao: config.observacao.trim() } : {}),
     },
     pessoa: { idPessoa: config.idPessoa },
     pedido: {

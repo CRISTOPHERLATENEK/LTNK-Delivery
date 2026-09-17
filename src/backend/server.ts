@@ -1298,6 +1298,12 @@ async function processarEventoIfood(loja: LojaIfood, evento: { code?: string; fu
        * lá. Casamos com `codigo_barras`, que é o campo equivalente aqui — não
        * com o `id`, que é interno e nunca coincidiria.
        */
+      /* Nome e endereço da loja: é o endereço que vale quando o pedido do
+         iFood é retirada e não traz endereço nenhum. */
+      dadosDaLoja: async lojaId => await db.prepare(
+        'SELECT nome, endereco FROM lojas WHERE id = ?'
+      ).get(lojaId) as { nome: string; endereco: string | null } | null,
+
       produtoPorCodigo: async (lojaId, codigo) => {
         const linha = await db.prepare(
           'SELECT id FROM produtos WHERE loja_id = ? AND codigo_barras = ? AND excluido = 0 LIMIT 1'

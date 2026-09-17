@@ -24,6 +24,7 @@ import { criarCobrancaPix, pagamentoOnlineAtivo, cartaoOnlineAtivo, conferirPaga
 import { Endereco, GrupoOpcao, ItemRequisicaoPedido, Loja, OpcaoItem, Pedido, Produto } from '../../tipos/modelos';
 import { dadosAnonimos, ehAnonimizado, ENDERECO_ANONIMO, TEXTO_ANONIMO } from '../anonimizacao';
 import { convidadoPodeAlcancar } from '../convidado-alcance';
+import { enderecoDoPedido } from '../endereco-do-pedido';
 
 const router = Router();
 router.use(autenticar, exigirPerfil('cliente'));
@@ -550,8 +551,16 @@ router.post('/pedidos', async (req, res, next) => {
              * Cupom, comanda e histórico já leem essa coluna; deixá-la em
              * branco imprimiria pedido sem endereço nenhum, e ninguém saberia
              * onde o cliente vai buscar.
+             *
+             * A regra saiu daqui para `endereco-do-pedido.ts`: ela vale em
+             * três caminhos que não se conhecem (este, o iFood e o documento do
+             * ERP), e escrita três vezes um deles ficaria para trás.
              */
-            tipoEntrega === 'retirada' ? `Retirada no local — ${loja.endereco || loja.nome}` : formatarEndereco(endereco!),
+            enderecoDoPedido(
+              tipoEntrega === 'retirada' ? '' : formatarEndereco(endereco!),
+              tipoEntrega,
+              loja,
+            ),
             (endereco as any)?.lat ?? null, (endereco as any)?.lon ?? null, formaPagamento,
             trocoPara, observacoes, subtotal, taxaEntrega, descontoCupom, cupom?.codigo || '',
             total, comissaoPct, comissao, pagoAntes ? 'aguardando' : 'na_entrega', chaveIdem, tempoEstimado,

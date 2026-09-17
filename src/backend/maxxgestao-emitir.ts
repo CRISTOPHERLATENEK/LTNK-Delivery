@@ -43,6 +43,7 @@ import { descriptografar } from './cripto';
 import { chamarMaxxGestao, ErroMaxxGestao, type OpcoesMaxxGestao } from './maxxgestao-cliente';
 import { todasAsPaginas } from './maxxgestao-catalogo';
 import { proximoNumero, serieValida, type PaginaDocumentos } from './maxxgestao-numeracao';
+import { enderecoDoPedido, observacaoDoDocumento } from './endereco-do-pedido';
 import {
   montarDocumento, diferencaDoTotal, modeloValido, statusValido,
   type DadosDoPedido, type ItemPedido,
@@ -494,11 +495,12 @@ export async function enviarPedidoAoErp(
 ): Promise<ResultadoEmissao> {
   const pedido = await db.prepare(
     `SELECT id, loja_id, cliente_id, total_centavos, forma_pagamento, tipo_entrega,
-            maxxgestao_documento_id
+            endereco_entrega, maxxgestao_documento_id
        FROM pedidos WHERE id = ?`
   ).get(pedidoId) as {
     id: number; loja_id: number; cliente_id: number; total_centavos: number;
-    forma_pagamento: string; tipo_entrega: string; maxxgestao_documento_id: number;
+    forma_pagamento: string; tipo_entrega: string; endereco_entrega: string | null;
+    maxxgestao_documento_id: number;
   } | undefined;
   if (!pedido) return { emitiu: false, motivo: 'pedido não encontrado' };
 
@@ -511,11 +513,12 @@ export async function enviarPedidoAoErp(
 
   const loja = await db.prepare(
     `SELECT nfce_emissor, maxxgestao_token, maxxgestao_id_usuario, maxxgestao_auto_emitir,
-            maxxgestao_modelo, maxxgestao_id_caixa, maxxgestao_serie
+            maxxgestao_modelo, maxxgestao_id_caixa, maxxgestao_serie, nome, endereco
        FROM lojas WHERE id = ?`
   ).get(pedido.loja_id) as {
     nfce_emissor: string | null; maxxgestao_token: string | null; maxxgestao_modelo: string | null;
     maxxgestao_id_caixa: number | null; maxxgestao_serie: string | null;
+    nome: string; endereco: string | null;
     maxxgestao_id_usuario: number | null; maxxgestao_auto_emitir: number | null;
   } | undefined;
 
@@ -735,6 +738,24 @@ export async function enviarPedidoAoErp(
     idCaixa: Math.max(0, Number(loja?.maxxgestao_id_caixa ?? 0)),
     serie: serieDoDocumento,
     numero: numeroDoDocumento,
+    /*
+     * ─────── O ENDEREÇO VAI NA OBSERVAÇÃO, e não tem outro lugar ───────
+     *
+     * O `POST /api/documento/v1` NÃO TEM campo de endereço livre: o bloco
+     * `pessoa` aceita `idPessoa`, `idEndereco` e `observacao`, e `idEndereco` é
+     * "o código do endereço da pessoa" — cadastro do CONSUMIDOR FINAL, que é a
+     * mesma pessoa de todos os pedidos. Gravar o endereço da loja lá colaria
+     * esse endereço em TODO cliente que usa esse cadastro.
+     *
+     * A observação aparece na aba "Observações" do documento, tanto em PA
+     * (Pedido de Venda) quanto em PV (Pré-Venda) — é o mesmo documento com
+     * outro modelo.
+     */
+    observacao: observacaoDoDocumento(
+      enderecoDoPedido(pedido.endereco_entrega, dados.tipoEntrega, {
+        nome: loja?.nome ?? '', endereco: loja?.endereco ?? '',
+      }),
+    ),
     /* HORA DE BRASÍLIA. Os documentos do ERP vêm sem fuso, em hora local:
        mandar UTC joga o pedido três horas para frente e, à noite, para o dia
        seguinte. */

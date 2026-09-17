@@ -10,6 +10,7 @@
  * acontece quando algo dá errado no meio.
  */
 import { traduzirPedido, conferirTotal, type PedidoTraduzido } from './ifood-pedido';
+import { enderecoDoPedido, type LojaParaEndereco } from './endereco-do-pedido';
 
 export interface DepsGravar {
   /** Pedido já existente com este id do iFood, se houver. */
@@ -18,6 +19,14 @@ export interface DepsGravar {
   consumidorIfood: (lojaId: number) => Promise<number>;
   /** Nosso produto com este código externo, se existir no cardápio. */
   produtoPorCodigo: (lojaId: number, codigo: string) => Promise<number | null>;
+  /**
+   * Nome e endereço da loja — o endereço que vale quando o pedido é retirada.
+   *
+   * OPCIONAL para não quebrar quem já chama: sem ele, a retirada volta a cair
+   * na frase genérica de antes, que é o comportamento anterior e não um erro
+   * novo.
+   */
+  dadosDaLoja?: (lojaId: number) => Promise<LojaParaEndereco | null>;
   /** Grava tudo numa transação e devolve o id criado. */
   inserir: (dados: DadosPedido) => Promise<number>;
   registrar?: (nivel: 'info' | 'erro', mensagem: string) => void;
@@ -101,6 +110,10 @@ export async function gravarPedidoIfood(
   }
 
   const clienteId = await deps.consumidorIfood(lojaId);
+  /* Best-effort: loja que não respondeu deixa a retirada com a frase genérica,
+     que é como era antes. Falhar o pedido por causa do endereço seria perder a
+     venda por um campo de texto. */
+  const loja = (await deps.dadosDaLoja?.(lojaId)) ?? null;
 
   /*
    * PRODUTO QUE NÃO EXISTE NO NOSSO CARDÁPIO NÃO IMPEDE O PEDIDO.
@@ -164,7 +177,17 @@ export async function gravarPedidoIfood(
      * do lojista sem ele ter visto.
      */
     status: 'pendente',
-    enderecoEntrega: p.endereco || 'Retirada no balcão',
+    /*
+     * RETIRADA NO IFOOD VINHA SEM ENDEREÇO NENHUM — só a frase "Retirada no
+     * balcão", que diz o que é e não diz ONDE. O cupom saía assim, e quem
+     * atendia o telefone não tinha o que responder.
+     *
+     * Agora cai na mesma regra dos outros dois caminhos: sem endereço do
+     * cliente, vale o da loja.
+     */
+    enderecoEntrega: loja
+      ? enderecoDoPedido(p.endereco, p.endereco ? 'entrega' : 'retirada', loja)
+      : (p.endereco || 'Retirada no balcão'),
     tipoEntrega: p.tipoEntrega,
     formaPagamento: p.pagamento.forma,
     /*
