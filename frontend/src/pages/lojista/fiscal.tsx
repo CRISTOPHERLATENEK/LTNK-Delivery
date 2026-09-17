@@ -30,6 +30,7 @@ import { api, ApiError, tokenSessao } from '@/lib/api';
 import { imprimirDanfe, type DadosDanfe } from '@/lib/impressao';
 import { buscarCnpj, formatarCnpj, cnpjDigitos } from '@/lib/cnpj';
 import { cn } from '@/lib/utils';
+import { CSOSNS, CSTS, ehSimples } from '@/lib/fiscal-codigos';
 
 interface FiscalConfig {
   ativo: 0 | 1; cnpj: string; ie: string; razao_social: string; nome_fantasia: string;
@@ -83,28 +84,13 @@ const ORIGENS = [
   { v: '8', l: '8 – Nacional (produção por encomenda)' },
 ];
 
-const CSOSNS = [
-  { v: '102', l: '102 – Tributada sem permissão de crédito' },
-  { v: '103', l: '103 – Isenção do ICMS no SN' },
-  { v: '300', l: '300 – Imune' },
-  { v: '400', l: '400 – Não tributada pelo SN' },
-  { v: '500', l: '500 – ICMS cobrado anteriormente (ST/Monofásico)' },
-  { v: '900', l: '900 – Outros' },
-];
-
-/**
- * CST do ICMS — o equivalente do CSOSN para quem NÃO é Simples Nacional.
- * O campo é o mesmo no banco; o que muda é o rótulo e a lista, porque mandar
- * um CSOSN numa nota de regime normal é rejeição na certa.
+/*
+ * AS LISTAS SAÍRAM DAQUI para `lib/fiscal-codigos.ts`.
+ *
+ * A tela do produto passou a oferecer as mesmas situações tributárias, e duas
+ * cópias da mesma lista divergem — divergência aqui é a loja configurar um
+ * código que o cadastro do produto não oferece.
  */
-const CSTS = [
-  { v: '00', l: '00 – Tributada integralmente' },
-  { v: '20', l: '20 – Com redução de base de cálculo' },
-  { v: '40', l: '40 – Isenta' },
-  { v: '41', l: '41 – Não tributada' },
-  { v: '60', l: '60 – ICMS cobrado anteriormente por ST' },
-  { v: '90', l: '90 – Outras' },
-];
 
 type Etapa = 1 | 2 | 3 | 4 | 5;
 
@@ -405,7 +391,7 @@ export function FiscalLoja() {
   /* ───────────────────────── estado derivado ───────────────────────── */
 
   const escolhida = competencias.find(c => c.competencia === mesEscolhido);
-  const simples = cfg?.crt !== 3;
+  const simples = ehSimples(cfg?.crt);
 
   const diasCert = cert?.validade
     ? Math.floor((new Date(cert.validade).getTime() - Date.now()) / 864e5)

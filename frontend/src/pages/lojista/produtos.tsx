@@ -30,6 +30,7 @@ import { familiasDuplicadas, saoIdenticos, melhorSobrevivente, diferencasEntre, 
 import { ingredientesDeTexto, textoDeIngredientes, comIngredientes, fraseDaRegra, rotuloTeto, limiteDeSabores, linhasColadas } from '@/lib/complementos-editor';
 import { buscarProdutos } from '@/lib/busca-produto';
 import { preparaComida } from '@/lib/segmentos';
+import { ehSimples, rotuloSituacao, situacoesDoRegime, explicacaoFiscal } from '@/lib/fiscal-codigos';
 import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes, indiceDeSugestoes, type SugestaoSalva, campoQueFalta } from '@/lib/avisos-produto';
 import type { Produto } from '@/types';
 
@@ -286,6 +287,32 @@ export function ProdutosLoja() {
    * lista inteira procurando um selo cinza.
    */
   const [filtroSituacao, setFiltroSituacao] = useState<'' | 'esgotado' | 'pausado'>('');
+  /*
+   * A TRIBUTAÇÃO PADRÃO DA LOJA — o que o produto herda quando não preenche.
+   *
+   * Sem isto, o lojista olhava "21069090" no campo e não tinha como saber se
+   * era um valor DELE ou o default da loja; e a tela rotulava "CSOSN" mesmo em
+   * regime normal, onde o campo é CST — e CSOSN em nota de regime normal é
+   * rejeição na certa.
+   *
+   * Falha em silêncio: sem a configuração fiscal, os campos continuam editáveis
+   * como antes, só sem os selos de herança.
+   */
+  type PadraoFiscalLoja = { crt?: number; ncm_padrao?: string; cfop_padrao?: string; csosn_padrao?: string };
+  const { data: fiscalLoja } = useQuery<PadraoFiscalLoja>({
+    queryKey: ['lojista-nfce-padrao'],
+    queryFn: () => api<{ config: PadraoFiscalLoja }>('GET', '/api/lojista/nfce')
+      .then(r => r.config)
+      .catch((): PadraoFiscalLoja => ({})),
+    staleTime: 10 * 60_000,
+  });
+  const simplesNacional = ehSimples(fiscalLoja?.crt);
+  const padraoFiscal: Record<string, string> = {
+    NCM: fiscalLoja?.ncm_padrao || '',
+    CFOP: fiscalLoja?.cfop_padrao || '',
+    CSOSN: fiscalLoja?.csosn_padrao || '',
+  };
+
   const [mostrarFiscal, setMostrarFiscal] = useState(false);
   type Aba = 'item' | 'complementos' | 'composicao' | 'config' | 'fiscal';
   const [aba, setAba] = useState<Aba>('item');
@@ -1884,6 +1911,33 @@ export function ProdutosLoja() {
 
               {aba === 'fiscal' && (
                 <div className="min-h-0 flex-1 overflow-y-auto px-6 py-7 sm:px-8">
+                  {/*
+                    A TRIBUTAÇÃO PADRÃO DA LOJA, ANTES DOS CAMPOS.
+                    O que se preenche aqui vale só para ESTE produto — e quem
+                    abre a aba precisa saber o que já está valendo sem ele fazer
+                    nada. O regime decide o nome do campo de situação.
+                  */}
+                  {(padraoFiscal.NCM || padraoFiscal.CFOP || padraoFiscal.CSOSN) && (
+                    <div className="mb-3 flex flex-wrap items-start gap-3 rounded-xl border border-border bg-muted/30 p-4">
+                      <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[13.5px] font-semibold">
+                          Regime da loja: {simplesNacional ? 'Simples Nacional' : 'Regime normal'}
+                        </p>
+                        <p className="mt-0.5 text-[12.5px] text-muted-foreground">
+                          Tributação padrão:{' '}
+                          <span className="font-mono tabular-nums">
+                            {[padraoFiscal.NCM && `NCM ${padraoFiscal.NCM}`,
+                              padraoFiscal.CFOP && `CFOP ${padraoFiscal.CFOP}`,
+                              padraoFiscal.CSOSN && `${rotuloSituacao(simplesNacional)} ${padraoFiscal.CSOSN}`,
+                            ].filter(Boolean).join(' · ')}
+                          </span>
+                          . O que você preencher aqui vale só para este produto.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Fiscal colapsado: já vem com padrão seguro, e quem não emite nota
                       não deve tropeçar em NCM/CFOP pra cadastrar um lanche. */}
                   <div className="rounded-xl border border-border">
@@ -1899,6 +1953,25 @@ export function ProdutosLoja() {
                       </span>
                       <ChevronDown className={cn('size-4 shrink-0 text-muted-foreground transition-transform', mostrarFiscal && 'rotate-180')} />
                     </button>
+                    {mostrarFiscal && (padraoFiscal.NCM || padraoFiscal.CFOP || padraoFiscal.CSOSN) && (
+                      <div className="flex justify-end border-t border-border px-4 pt-3">
+                        {/* Voltar ao padrão é o desfazer desta aba: sem ele, quem
+                            mexeu por engano não tem como saber qual era o valor
+                            de antes — ele não está escrito em lugar nenhum. */}
+                        <button
+                          type="button"
+                          onClick={() => setForm(f => ({
+                            ...f,
+                            ncm: padraoFiscal.NCM || f.ncm,
+                            cfop: padraoFiscal.CFOP || f.cfop,
+                            csosn: padraoFiscal.CSOSN || f.csosn,
+                          }))}
+                          className="min-h-11 whitespace-nowrap px-1 text-[12.5px] font-semibold text-primary hover:underline"
+                        >
+                          Voltar tudo ao padrão da loja
+                        </button>
+                      </div>
+                    )}
                     {mostrarFiscal && (
                       <div className="grid grid-cols-2 gap-3 border-t border-border p-4 sm:grid-cols-3">
                         {([
@@ -1908,20 +1981,67 @@ export function ProdutosLoja() {
                           ['CSOSN', form.csosn, (v: string) => setForm(f => ({ ...f, csosn: v.replace(/\D/g, '').slice(0, 3) })), 3, '102'],
                           ['Origem', form.origem, (v: string) => setForm(f => ({ ...f, origem: v.replace(/\D/g, '').slice(0, 1) })), 1, '0'],
                           ['Unidade', form.unidade_comercial, (v: string) => setForm(f => ({ ...f, unidade_comercial: v.toUpperCase().slice(0, 6) })), 6, 'UN'],
-                        ] as Array<[string, string, (v: string) => void, number, string]>).map(([rotulo, valor, aoMudar, max, dica]) => (
+                        ] as Array<[string, string, (v: string) => void, number, string]>).map(([rotulo, valor, aoMudar, max, dica]) => {
+                          /*
+                            HERDADO OU MEU? Era impossível saber: o campo mostrava
+                            "21069090" e nada dizia se aquilo veio da loja ou se
+                            alguém digitou. O selo responde, e só aparece quando o
+                            valor é IGUAL ao padrão — diferente é decisão do
+                            lojista, e chamar isso de herança seria mentira.
+                          */
+                          const padrao = padraoFiscal[rotulo];
+                          const herdado = !!padrao && valor.trim() === padrao;
+                          const id = 'p-fiscal-' + rotulo.toLowerCase();
+                          /* O rótulo da situação tributária muda com o regime. */
+                          const nome = rotulo === 'CSOSN' ? rotuloSituacao(simplesNacional) : rotulo;
+                          return (
                           <div key={rotulo}>
-                            <Label htmlFor={'p-fiscal-' + rotulo.toLowerCase()}>{rotulo}</Label>
-                            <Input
-                              id={'p-fiscal-' + rotulo.toLowerCase()}
-                              aria-describedby="p-fiscal-dica"
-                              value={valor}
-                              onChange={e => aoMudar(e.target.value)}
-                              maxLength={max}
-                              placeholder={dica}
-                              className={cn(CAMPO_MODAL, 'h-11 font-mono')}
-                            />
+                            <div className="flex items-center gap-1.5">
+                              <Label htmlFor={id}>{nome}</Label>
+                              {herdado && (
+                                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                                  padrão da loja
+                                </span>
+                              )}
+                            </div>
+                            {/* A situação tributária é lista, não texto livre: o
+                                valor válido depende do regime, e digitar um CSOSN
+                                em regime normal é rejeição na SEFAZ. */}
+                            {rotulo === 'CSOSN' ? (
+                              <select
+                                id={id}
+                                aria-describedby={id + '-dica'}
+                                value={valor}
+                                onChange={e => aoMudar(e.target.value)}
+                                className={cn(CAMPO_MODAL, 'h-11 w-full rounded-lg border border-input bg-background px-3 font-mono text-sm')}
+                              >
+                                {!situacoesDoRegime(simplesNacional).some(c => c.v === valor) && (
+                                  <option value={valor}>{valor || '—'}</option>
+                                )}
+                                {situacoesDoRegime(simplesNacional).map(c => (
+                                  <option key={c.v} value={c.v}>{c.l}</option>
+                                ))}
+                              </select>
+                            ) : (
+                              <Input
+                                id={id}
+                                aria-describedby={id + '-dica'}
+                                inputMode={rotulo === 'Unidade' ? undefined : 'numeric'}
+                                value={valor}
+                                onChange={e => aoMudar(e.target.value)}
+                                maxLength={max}
+                                placeholder={padrao || dica}
+                                className={cn(CAMPO_MODAL, 'h-11 font-mono tabular-nums')}
+                              />
+                            )}
+                            {/* "5102" não diz nada a quem cadastra um balde de
+                                whisky; "venda de mercadoria dentro do estado" diz. */}
+                            <p id={id + '-dica'} className="mt-1 text-[12px] leading-tight text-muted-foreground">
+                              {explicacaoFiscal(rotulo, valor, simplesNacional)}
+                            </p>
                           </div>
-                        ))}
+                          );
+                        })}
                         <p id="p-fiscal-dica" className="col-span-2 text-[12.5px] text-muted-foreground sm:col-span-3">
                           Já vem com valores padrão genéricos. Se seu contador pedir códigos específicos, ajuste aqui.
                         </p>
