@@ -1678,7 +1678,7 @@ export function ProdutosLoja() {
                     Depois de cadastrado, a explicação chega tarde.
                   */}
                   <div className="-mt-2 mb-3 flex items-center gap-1.5 text-[12.5px] text-muted-foreground">
-                    <span>Um grupo pode servir vários produtos</span>
+                    <span>Os complementos são deste produto</span>
                     <Ajuda chave="complementos-grupo" />
                   </div>
                   {/*

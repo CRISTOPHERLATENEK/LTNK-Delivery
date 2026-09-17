@@ -337,3 +337,44 @@ describe('a biblioteca não repete o mesmo complemento', () => {
     expect(TELA).toContain('usado em {Math.max(g.copias, g.usos)} produtos');
   });
 });
+
+describe('a ajuda não promete o que o sistema não faz mais', () => {
+  /*
+   * ATÉ 17/09/2026 A AJUDA ESTAVA CERTA: um grupo servia vários produtos, e
+   * mudar nele mudava em todos. Quando a regra virou "cada produto tem o seu",
+   * três textos ficaram descrevendo o sistema antigo — inclusive o cabeçalho da
+   * própria aba, que dizia "Um grupo pode servir vários produtos" logo acima de
+   * complementos que não servem mais.
+   *
+   * Ajuda que descreve o sistema antigo é pior que ajuda nenhuma: quem lê
+   * confia e age errado com confiança.
+   */
+  const AJUDA = fs.readFileSync(
+    path.join(raiz, 'frontend', 'src', 'components', 'ui', 'ajuda.tsx'), 'utf8');
+
+  it('o cabeçalho da aba diz a regra de hoje', () => {
+    expect(TELA).toContain('Os complementos são deste produto');
+    expect(TELA).not.toContain('Um grupo pode servir vários produtos');
+  });
+
+  it('nenhum texto promete grupo compartilhado', () => {
+    const semComentario = AJUDA.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(semComentario).not.toContain('pode servir vários produtos');
+    expect(semComentario).not.toContain('AO MESMO TEMPO');
+    expect(semComentario).not.toContain('duplicar liga ao mesmo grupo');
+  });
+
+  /* E diz o caminho que substituiu o compartilhamento. */
+  it('aponta para a cópia pronta da biblioteca', () => {
+    expect(AJUDA).toContain('"Da sua loja" traz uma CÓPIA pronta');
+  });
+
+  /*
+   * O OUTRO LADO DA MOEDA TAMBÉM ESTÁ ESCRITO. Trinta pizzas iguais passaram a
+   * ser trinta edições — quem lê a ajuda tem que saber disso antes de montar o
+   * cardápio, não depois.
+   */
+  it('avisa do custo da separação', () => {
+    expect(AJUDA).toContain('trinta pizzas é trinta edições');
+  });
+});

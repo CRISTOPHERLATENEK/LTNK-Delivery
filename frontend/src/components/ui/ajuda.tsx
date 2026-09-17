@@ -70,7 +70,7 @@ export const AJUDA: Record<string, ConteudoAjuda> = {
       'Produtos → clique em "+ Novo produto".',
       'Na aba ITEM: nome, preço e categoria. Todos os campos obrigatórios estão aqui — se o salvar reclamar, é nesta aba que falta algo.',
       'Ainda em ITEM: solte a foto na área de imagem. O sistema reduz sozinho se ela for pesada.',
-      'Aba COMPLEMENTOS: se o produto tem escolhas (tamanho, sabores, borda), monte aqui. Antes de criar um grupo novo, veja se já existe um igual — o mesmo grupo pode servir vários produtos.',
+      'Aba COMPLEMENTOS: se o produto tem escolhas (tamanho, sabores, borda), monte aqui. Se já existe um igual em outro produto, a lista "Da sua loja" traz uma cópia pronta — com os itens e os preços dentro.',
       'Aba CONFIGURAÇÕES: confira se está "À venda" e se aparece no cardápio e no PDV. É aqui também que se liga o controle de estoque.',
       'Salve e abra a sua loja em outra aba para conferir como o cliente vê.',
     ],
@@ -291,15 +291,16 @@ export const AJUDA: Record<string, ConteudoAjuda> = {
     resumo: 'Em Produtos, clique em "+ Novo produto". A aba ITEM tem tudo que o cliente vê — '
       + 'nome, foto, descrição, preço e categoria — e é onde vivem todos os campos obrigatórios: '
       + 'se o salvar reclamar, é lá que falta algo. Em COMPLEMENTOS você define o que o cliente '
-      + 'escolhe (tamanho, sabores, borda); antes de criar um grupo novo, veja se já existe um '
-      + 'igual, porque um grupo pode servir vários produtos ao mesmo tempo. COMPOSIÇÃO só '
+      + 'escolhe (tamanho, sabores, borda); se já existe um igual em outro produto, a lista '
+      + '"Da sua loja" traz uma cópia pronta. COMPOSIÇÃO só '
       + 'interessa a combo, e FISCAL só a quem emite nota. Em CONFIGURAÇÕES ficam os '
       + 'interruptores: onde vende, estoque e destaque. Com Item e Complementos prontos, o '
       + 'produto já está no ar.',
     cuidado: 'A ordem importa mais do que parece: salve o produto ANTES de montar composição de '
       + 'combo, porque a aba precisa de um produto que já exista para referenciar. E se for '
       + 'cadastrar vários parecidos — trinta pizzas —, cadastre UM completo e depois DUPLIQUE: '
-      + 'duplicar liga ao mesmo grupo de complementos, e você edita preço de borda uma vez só.',
+      + 'a cópia já vem com os complementos montados, e o que você mudar nela não mexe no '
+      + 'original.',
     imagem: '/ajuda/cadastro-produto.svg',
   },
 
@@ -315,26 +316,40 @@ export const AJUDA: Record<string, ConteudoAjuda> = {
   },
 
   'complementos-grupo': {
-    titulo: 'Complementos: um grupo para vários produtos',
+    titulo: 'Complementos: cada produto tem os seus',
     paraQue: 'Define o que o cliente escolhe: tamanho, sabores, borda, adicionais.',
-    resumo: 'Um grupo pode servir vários produtos AO MESMO TEMPO, e é isso que separa uma '
-      + 'pizzaria organizada de uma bagunça: com 30 pizzas ligadas ao mesmo grupo de Borda, '
-      + 'subir o Catupiry é UMA edição em vez de trinta. Duplicar um produto LIGA ao mesmo grupo '
-      + '— não copia. É de propósito: as 30 pizzas nascem de duplicação, e copiar recriaria a dor '
-      + 'inteira.',
-    cuidado: 'Antes de mudar um preço, olhe quantos produtos usam o grupo — o painel mostra. '
-      + 'A mudança vale para todos eles.',
-    imagem: '/ajuda/grupo-compartilhado.svg',
+    /*
+     * ISTO DIZIA O CONTRÁRIO ATÉ 17/09/2026, e estava certo até aquele dia: um
+     * grupo servia vários produtos, e mudar nele mudava em todos. O lojista
+     * ajustou o complemento de um balde, mexeu em dez outros sem querer, e a
+     * regra passou a ser "cada produto tem o seu".
+     *
+     * Ajuda que descreve o sistema antigo é pior que ajuda nenhuma: quem lê
+     * confia e age errado com confiança.
+     */
+    resumo: 'Os complementos são DESTE produto. Mexer neles não muda nada em nenhum outro — '
+      + 'nem nos que foram criados a partir dele. Para não cadastrar tudo de novo, a lista '
+      + '"Da sua loja" traz uma CÓPIA pronta de um complemento que já existe em outro produto, '
+      + 'com os itens e os preços dentro; e duplicar um produto copia os complementos junto.',
+    cuidado: 'O outro lado da moeda: subir o preço da borda em trinta pizzas é trinta edições. '
+      + 'Se as trinta são mesmo iguais, mude numa e use a lista "Da sua loja" para levar a '
+      + 'versão nova às outras.',
   },
 
   'complementos-soltar': {
-    titulo: 'Quando um produto precisa ser diferente',
-    paraQue: 'Tira UM produto do grupo compartilhado, sem afetar os outros.',
-    resumo: '"Soltar deste produto" clona o grupo só para ele. Se apenas uma pizza tem borda '
-      + 'recheada especial, solte essa: as outras continuam juntas e continuam se editando de '
-      + 'uma vez só.',
-    cuidado: 'Depois de soltar, aquele produto deixa de receber as mudanças do grupo original. '
-      + 'É o preço de ser diferente — solte só quando for mesmo necessário.',
+    titulo: 'Complementos separados por produto',
+    paraQue: 'Explica por que mexer aqui não afeta outro produto.',
+    /*
+     * A AJUDA DE UM BOTÃO QUE QUASE NÃO APARECE MAIS. "Soltar deste produto" só
+     * existe para grupos que ficaram compartilhados antes de 17/09/2026 — os do
+     * Galdério e do Mostruário já foram separados. Fica porque a base de um
+     * cliente novo pode ter vindo de importação.
+     */
+    resumo: 'Cada produto tem os complementos dele. Se você ainda vir o aviso "compartilhado '
+      + 'com outros produtos", é um grupo antigo: o botão "Fazer cópia só daqui" separa esse '
+      + 'produto dos demais, e a partir daí ele é só seu.',
+    cuidado: 'Enquanto o aviso aparecer, mudar item ou preço ali muda em todos os produtos '
+      + 'listados. Depois de copiar, não muda mais.',
   },
 
   'complementos-preco': {
