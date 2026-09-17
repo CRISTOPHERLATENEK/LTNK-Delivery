@@ -171,10 +171,41 @@ export function mesclarSugestoes(
 export function campoQueFalta(
   form: { nome: string; preco: string; preco_promocional: string },
 ): string | null {
-  if (!form.nome.trim()) return 'campo-nome';
-  if (!form.preco) return 'p-preco';
+  return faltaNoProduto(form)?.campo ?? null;
+}
+
+/**
+ * O QUE FALTA, E POR QUÊ — não só onde.
+ *
+ * `campoQueFalta` devolvia um id de campo, e a tela levava o foco até lá sem
+ * dizer nada. Quem clicava em "Salvar" via a aba trocar e o cursor pular para um
+ * campo, sem uma palavra explicando o motivo — e num formulário de cinco abas
+ * isso se lê como bug, não como validação.
+ *
+ * A mensagem mora aqui junto da regra: se um dia a regra mudar, o texto muda no
+ * mesmo lugar, e não numa tela que ninguém lembra de atualizar.
+ */
+export interface FaltaNoProduto {
+  /** id do elemento, para focar e para o `aria-describedby`. */
+  campo: string;
+  /** Qual aba abrir antes de focar. */
+  aba: 'item';
+  mensagem: string;
+}
+
+export function faltaNoProduto(
+  form: { nome: string; preco: string; preco_promocional: string },
+): FaltaNoProduto | null {
+  if (!form.nome.trim()) {
+    return { campo: 'campo-nome', aba: 'item', mensagem: 'Dê um nome ao produto — é o que o cliente lê no cardápio.' };
+  }
+  if (!form.preco) {
+    return { campo: 'p-preco', aba: 'item', mensagem: 'Informe o preço de venda.' };
+  }
   /* Promoção maior que o preço não é campo vazio, é valor inconsistente — mas
      bloqueia igual, e o lugar de olhar é o campo da promoção. */
-  if (erroPrecoPromocional(form.preco, form.preco_promocional)) return 'p-promo';
+  if (erroPrecoPromocional(form.preco, form.preco_promocional)) {
+    return { campo: 'p-promo', aba: 'item', mensagem: 'A promoção precisa ser menor que o preço normal.' };
+  }
   return null;
 }

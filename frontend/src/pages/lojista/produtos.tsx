@@ -30,8 +30,9 @@ import { familiasDuplicadas, saoIdenticos, melhorSobrevivente, diferencasEntre, 
 import { ingredientesDeTexto, textoDeIngredientes, comIngredientes, fraseDaRegra, rotuloTeto, limiteDeSabores, linhasColadas } from '@/lib/complementos-editor';
 import { buscarProdutos } from '@/lib/busca-produto';
 import { preparaComida } from '@/lib/segmentos';
+import type { FaltaNoProduto } from '@/lib/avisos-produto';
 import { ehSimples, rotuloSituacao, situacoesDoRegime, explicacaoFiscal } from '@/lib/fiscal-codigos';
-import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes, indiceDeSugestoes, type SugestaoSalva, campoQueFalta } from '@/lib/avisos-produto';
+import { erroPrecoPromocional, nomeJaUsado, eanJaUsado, outrosProdutos, sugestoesFaltantes, mesclarSugestoes, indiceDeSugestoes, type SugestaoSalva, faltaNoProduto } from '@/lib/avisos-produto';
 import type { Produto } from '@/types';
 
 /* ─────────────────────── tipos ──────────────────────── */
@@ -313,6 +314,9 @@ export function ProdutosLoja() {
     CSOSN: fiscalLoja?.csosn_padrao || '',
   };
 
+  /** O que faltou no último submit — some assim que o campo muda. */
+  const [erroCampo, setErroCampo] = useState<FaltaNoProduto | null>(null);
+
   const [mostrarFiscal, setMostrarFiscal] = useState(false);
   type Aba = 'item' | 'complementos' | 'composicao' | 'config' | 'fiscal';
   const [aba, setAba] = useState<Aba>('item');
@@ -519,8 +523,12 @@ export function ProdutosLoja() {
   }
 
   function set<K extends keyof FormProduto>(k: K) {
-    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      /* O ERRO SOME AO DIGITAR. Mensagem de "falta o nome" em cima de um nome
+         já digitado é a tela discutindo com quem está resolvendo. */
+      setErroCampo(null);
       setForm(f => ({ ...f, [k]: e.target.value }));
+    };
   }
 
   /**
@@ -567,10 +575,25 @@ export function ProdutosLoja() {
    * algo" sem dizer onde é o pior erro de formulário com abas.
    */
   function irAteOQueFalta(): boolean {
-    const campo = campoQueFalta(form);
-    if (!campo) return true;
-    setAba('item');
-    setTimeout(() => document.getElementById(campo)?.focus(), 60);
+    const falta = faltaNoProduto(form);
+    if (!falta) { setErroCampo(null); return true; }
+    /*
+     * O ERRO APARECE NO CAMPO, e não só no foco.
+     *
+     * Antes o submit trocava de aba e movia o cursor, sem uma palavra dizendo o
+     * motivo — em formulário de cinco abas isso se lê como bug. Agora a
+     * mensagem fica embaixo do campo, ligada por `aria-describedby` para quem
+     * usa leitor de tela ouvir junto.
+     */
+    setErroCampo(falta);
+    setAba(falta.aba);
+    setTimeout(() => {
+      const el = document.getElementById(falta.campo);
+      /* `scrollIntoView` além do foco: o foco rola o suficiente para o campo
+         aparecer, e não o suficiente para a MENSAGEM embaixo dele aparecer. */
+      el?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      el?.focus({ preventScroll: true });
+    }, 60);
     return false;
   }
 
@@ -1456,8 +1479,15 @@ export function ProdutosLoja() {
                         value={form.nome}
                         onChange={set('nome')}
                         placeholder="Ex.: X-Burguer Especial"
-                        className={CAMPO_MODAL}
+                        className={cn(CAMPO_MODAL, erroCampo?.campo === 'campo-nome' && 'border-destructive focus-visible:ring-destructive')}
+                        aria-invalid={erroCampo?.campo === 'campo-nome'}
+                        aria-describedby={erroCampo?.campo === 'campo-nome' ? 'campo-nome-erro' : undefined}
                       />
+                      {erroCampo?.campo === 'campo-nome' && (
+                        <p id="campo-nome-erro" role="alert" className="mt-1 text-[12.5px] font-semibold text-destructive">
+                          {erroCampo.mensagem}
+                        </p>
+                      )}
                       {nomeRepetido && (
                         <p role="status" className="mt-1 text-[12.5px] text-amber-700 dark:text-amber-400">
                           Já existe um produto chamado “{nomeRepetido}”. Pode salvar, mas no app os dois vão
@@ -1567,6 +1597,8 @@ export function ProdutosLoja() {
                           <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">R$</span>
                           <Input
                             id="p-preco"
+                            aria-invalid={erroCampo?.campo === 'p-preco'}
+                            aria-describedby={erroCampo?.campo === 'p-preco' ? 'p-preco-erro' : undefined}
                             required type="number" step="0.01" min="0.01"
                             /* TECLADO COM VÍRGULA NO CELULAR. `type="number"` sozinho abre
                                o teclado de telefone em parte dos Android — com letras e
@@ -1575,6 +1607,11 @@ export function ProdutosLoja() {
                             value={form.preco} onChange={set('preco')} placeholder="0,00"
                             className={cn(CAMPO_MODAL, 'mt-0 pl-10')}
                           />
+                          {erroCampo?.campo === 'p-preco' && (
+                            <p id="p-preco-erro" role="alert" className="mt-1 text-[12.5px] font-semibold text-destructive">
+                              {erroCampo.mensagem}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div>
