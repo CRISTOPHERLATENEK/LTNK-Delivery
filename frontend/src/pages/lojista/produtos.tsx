@@ -4726,6 +4726,18 @@ function GruposEditor({ produto }: { produto: Produto }) {
                           na base: o grupo "Sabores" com papel=tamanho fazia a
                           pizza de 4 sabores aceitar 3.
                         */}
+                        {/*
+                          NUMA CONVENIÊNCIA NÃO EXISTE PIZZA DE DOIS SABORES.
+                          Esta barra era a primeira coisa dentro de todo grupo
+                          aberto — uma pergunta sobre pizza no cadastro de um
+                          balde de whisky. Some pelo segmento da loja.
+
+                          `grupo.papel` no OU é a trava: se o grupo JÁ usa o
+                          papel, o controle continua visível mesmo em loja de
+                          revenda. Esconder o que está em uso deixaria um ajuste
+                          ligado e sem como desligar.
+                        */}
+                        {(preparaComida(loja?.categoria) || !!grupo.papel) && (
                         <div className="flex flex-wrap items-center gap-2 border-b border-border/60 bg-muted/20 px-3.5 py-2">
                           <span className="text-[10.5px] font-bold uppercase tracking-[.11em] text-muted-foreground">Pizza</span>
                           <select
@@ -4765,6 +4777,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
                             </span>
                           )}
                         </div>
+                        )}
 
                         {/*
                           O AVISO FICA DENTRO DO GRUPO ABERTO, junto dos itens que
@@ -5090,6 +5103,18 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                       outros, e aceita colar "molho, mussarela,
                                       presunto" de uma vez.
                                     */}
+                                    {/*
+                                      INGREDIENTE É DE COMIDA PREPARADA. "Gelo de
+                                      coco" não tem ingrediente para listar, e a
+                                      linha aparecia em TODO item — três linhas por
+                                      sabor numa lista de oito, das quais duas não
+                                      serviam para nada nesta loja.
+
+                                      Onde JÁ existe ingrediente, continua
+                                      aparecendo: esconder apagaria da vista um
+                                      texto que o cliente lê.
+                                    */}
+                                    {(preparaComida(loja?.categoria) || chips.length > 0) && (
                                     <div className="mt-1 flex flex-wrap items-center gap-1 pl-11">
                                       {chips.map(chip => (
                                         <span key={chip} className="flex h-6 items-center gap-1 rounded-full bg-muted px-2 text-[11px] font-medium text-muted-foreground">
@@ -5143,6 +5168,7 @@ function GruposEditor({ produto }: { produto: Produto }) {
                                         className="h-6 min-w-[11rem] flex-1 rounded-md bg-transparent px-1 text-[11.5px] outline-none transition-colors placeholder:text-muted-foreground/60 hover:bg-accent/60 focus:bg-background focus:ring-2 focus:ring-primary"
                                       />
                                     </div>
+                                    )}
 
                                     {/*
                                       ─── DE QUAL PRODUTO ESTA ESCOLHA SAI ───

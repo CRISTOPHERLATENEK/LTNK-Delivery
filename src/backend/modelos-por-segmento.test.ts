@@ -90,3 +90,34 @@ describe('a tela usa o segmento', () => {
     expect(TELA.slice(Math.max(0, i - 400), i)).not.toContain('preparaComida');
   });
 });
+
+describe('o editor de complementos some com o que não é da loja', () => {
+  /*
+   * "PRA MEXER NOS COMPLEMENTOS, NÃO ESTÁ MUITO DIFÍCIL NÃO?"
+   *
+   * Estava. Numa conveniência, cada item do grupo ocupava TRÊS linhas, e duas
+   * delas não serviam para nada ali: a barra "PIZZA — Nenhum (grupo comum)" no
+   * topo de todo grupo aberto, e o "+ ingredientes (separe por vírgula)" embaixo
+   * de cada sabor de gelo. Com oito sabores, são dezesseis linhas de nada entre
+   * o lojista e o que ele veio fazer.
+   */
+  it('a barra de pizza depende do segmento', () => {
+    expect(TELA).toContain('{(preparaComida(loja?.categoria) || !!grupo.papel) && (');
+  });
+
+  it('os ingredientes dependem do segmento', () => {
+    expect(TELA).toContain('{(preparaComida(loja?.categoria) || chips.length > 0) && (');
+  });
+
+  /*
+   * O QUE JÁ ESTÁ EM USO NÃO SOME. Esconder um controle ligado deixaria um
+   * ajuste ativo e sem como desligar — e, no caso dos ingredientes, apagaria da
+   * vista um texto que o CLIENTE lê no cardápio.
+   */
+  it('o que já está em uso continua visível', () => {
+    const i = TELA.indexOf('{(preparaComida(loja?.categoria) || !!grupo.papel) && (');
+    expect(i).toBeGreaterThan(0);
+    const j = TELA.indexOf('{(preparaComida(loja?.categoria) || chips.length > 0) && (');
+    expect(j).toBeGreaterThan(0);
+  });
+});
