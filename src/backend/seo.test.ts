@@ -84,12 +84,26 @@ describe('sitemap.xml', () => {
     expect(x).not.toContain('/categoria');
   });
 
-  /* Nome de loja com "&" quebraria o XML inteiro — e um sitemap inválido é
-     ignorado por completo, sem aviso. */
+  /*
+   * ESCAPE DO XML — e o que sobrou para escapar mudou de lugar.
+   *
+   * Era o SLUG da loja que ia no arquivo, e ele saiu: `/slug` devolve a mesma
+   * página que a raiz, e declará-lo como segundo endereço era o conteúdo
+   * duplicado que o próprio cabeçalho desta função avisa (ver `seo-etapa2`).
+   *
+   * Sobrou o que vem do HOST, que não é digitado por ninguém mas chega da
+   * requisição — e um sitemap inválido não dá erro: é ignorado por completo,
+   * sem aviso, e a loja simplesmente não é descoberta.
+   */
   it('escapa o que vai dentro do XML', () => {
-    const x = sitemap('https://x.com.br', loja({ slug: 'bar&grill' }));
-    expect(x).toContain('bar&amp;grill');
+    const x = sitemap('https://x.com.br/?a=1&b=2', loja());
+    expect(x).toContain('&amp;b=2');
     expect(x).not.toMatch(/<loc>[^<]*&(?!amp;|lt;|gt;|quot;|apos;)/);
+  });
+
+  /* E o slug não volta por acidente: é o defeito que se veio consertar. */
+  it('o slug não entra mais', () => {
+    expect(sitemap('https://x.com.br', loja({ slug: 'bar-grill' }))).not.toContain('bar-grill');
   });
 });
 

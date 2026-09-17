@@ -187,7 +187,9 @@ describe('o servidor injeta, e nunca quebra por isso', () => {
   it('o fallback da SPA injeta depois das meta tags', () => {
     const codigo = exec(server);
     const iMeta = codigo.indexOf('injetarMeta(lerHtmlBase()');
-    const iDados = codigo.indexOf('injetarDados(html, dados)');
+    /* `injetarDados(comConteudo, dados)` desde que o bloco de texto da loja
+       passou a entrar no meio — a ordem medida continua sendo a mesma. */
+    const iDados = codigo.indexOf('injetarDados(comConteudo, dados)');
     expect(iMeta).toBeGreaterThan(-1);
     expect(iDados).toBeGreaterThan(iMeta);
   });

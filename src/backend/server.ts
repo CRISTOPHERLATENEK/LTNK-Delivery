@@ -14,6 +14,7 @@ import fs from 'fs';
 import { metaDaRota, injetarMeta, paginaSuspensa, contatoSuporte } from './og';
 import { lojaDoHost, robots, sitemap, canonical, dadosEstruturados } from './seo';
 import { montarDadosIniciais, injetarDados } from './dados-iniciais';
+import { blocoDeConteudo, injetarConteudo, type ItemParaSeo } from './seo-conteudo';
 import express, { ErrorRequestHandler } from 'express';
 
 import autenticacaoRoutes from './rotas/autenticacao';
@@ -582,6 +583,48 @@ app.get('/sitemap.xml', (req, res) => {
  * disco no caminho mais quente do app; o arquivo só muda em deploy, e o processo
  * reinicia no deploy.
  */
+/**
+ * CACHE DO BLOCO DE TEXTO DA LOJA, por tenant.
+ *
+ * Ele nasce de uma consulta ao catálogo inteiro, e vai no HTML de TODA
+ * navegação — sem cache seria essa consulta no caminho mais quente do app,
+ * para produzir um texto que só muda quando o lojista mexe no cardápio.
+ *
+ * Cinco minutos: produto novo aparece para o buscador na próxima visita depois
+ * disso, e o cliente nunca vê este bloco por mais que um instante de qualquer
+ * jeito — quem desenha a loja para ele é o app, com dado fresco.
+ */
+const VALIDADE_CONTEUDO_MS = 5 * 60 * 1000;
+const conteudoSeo = new Map<string, { html: string; em: number }>();
+
+async function blocoSeoDoTenant(loja: Awaited<ReturnType<typeof lojaDoHost>>): Promise<string> {
+  if (!loja) return '';
+  const chave = `${bancoTenantAtual() || 'padrao'}:${loja.id}`;
+  const agora = Date.now();
+  const guardado = conteudoSeo.get(chave);
+  if (guardado && agora - guardado.em < VALIDADE_CONTEUDO_MS) return guardado.html;
+  try {
+    /*
+     * SÓ O QUE O CLIENTE VERIA. Produto indisponível, excluído ou que só existe
+     * dentro de um combo (`vendido_sozinho = 0`) não está no cardápio — pôr no
+     * texto seria oferecer ao buscador o que a loja não vende.
+     */
+    const itens = await db.prepare(
+      `SELECT nome, categoria, descricao, preco_centavos
+         FROM produtos
+        WHERE loja_id = ? AND excluido = 0 AND disponivel = 1 AND vendido_sozinho = 1
+        ORDER BY categoria, ordem, id`
+    ).all(loja.id) as ItemParaSeo[];
+    const html = blocoDeConteudo(loja, itens);
+    conteudoSeo.set(chave, { html, em: agora });
+    return html;
+  } catch {
+    /* Indexação é acessório: uma consulta que falhou não pode tirar do ar a
+       página que o cliente está tentando abrir para comprar. */
+    return '';
+  }
+}
+
 let htmlBase: string | null = null;
 function lerHtmlBase(): string {
   if (htmlBase === null) {
@@ -656,7 +699,20 @@ app.use((req, res, next) => {
       ...(ldJson ? [ldJson] : []),
     ];
     const html = injetarMeta(lerHtmlBase(), meta, base, urlCompleta, extras);
-    res.type('html').send(injetarDados(html, dados));
+
+    /*
+     * O TEXTO DA LOJA DENTRO DO `#root` (ver seo-conteudo.ts).
+     *
+     * Só nas rotas que MOSTRAM a loja: a raiz e o `/slug`. Pôr o cardápio no
+     * `/termos` seria oferecer ao buscador a mesma lista em endereços
+     * diferentes, que é o conteúdo duplicado que este mesmo trabalho acabou de
+     * tirar do sitemap.
+     */
+    const caminho = req.path.split('?')[0];
+    const mostraLoja = caminho === '/'
+      || (!!loja?.slug && decodeURIComponent(caminho).replace(/^\//, '').toLowerCase() === loja.slug.toLowerCase());
+    const comConteudo = mostraLoja ? injetarConteudo(html, await blocoSeoDoTenant(loja)) : html;
+    res.type('html').send(injetarDados(comConteudo, dados));
   })().catch(() => {
     // Falhou montando o preview? Serve o HTML como estava — a página funciona,
     // só o cartão do link sai genérico.

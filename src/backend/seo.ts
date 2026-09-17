@@ -46,10 +46,13 @@ export interface LojaParaSeo {
   logo_url: string | null;
   capa_url: string | null;
   dominio_personalizado: string | null;
+  /** Coordenada geocodificada do endereço. Vira `geo` no dado estruturado. */
+  lat?: number | null;
+  lon?: number | null;
 }
 
 const CAMPOS = `id, nome, slug, descricao, endereco, horario_funcionamento,
-                logo_url, capa_url, dominio_personalizado`;
+                logo_url, capa_url, dominio_personalizado, lat, lon`;
 
 /**
  * A loja deste host, se houver.
@@ -128,9 +131,18 @@ export function sitemap(base: string, loja: LojaParaSeo | null): string {
   const urls: Array<{ loc: string; prioridade: string }> = [
     { loc: `${base}/`, prioridade: '1.0' },
   ];
-  /* A vitrine também responde em /slug. É a mesma página, então ela entra com
-     prioridade menor e com canonical apontando para a raiz. */
-  if (loja?.slug) urls.push({ loc: `${base}/${loja.slug}`, prioridade: '0.8' });
+  /*
+   * `/slug` NÃO ENTRA MAIS.
+   *
+   * A vitrine também responde nele, mas é a MESMA página — e o próprio
+   * cabeçalho desta função diz que declarar endereço que devolve a mesma
+   * página é o jeito mais rápido de o site ser classificado como conteúdo
+   * duplicado. A regra estava escrita e quebrada na linha seguinte.
+   *
+   * O endereço continua funcionando para quem já tem o link; o que muda é
+   * parar de OFERECÊ-LO ao buscador como se fosse outra página. O canonical
+   * dele aponta para a raiz — ver `canonical`.
+   */
   urls.push({ loc: `${base}/termos`, prioridade: '0.2' });
   urls.push({ loc: `${base}/privacidade`, prioridade: '0.2' });
 
@@ -149,14 +161,44 @@ export function sitemap(base: string, loja: LojaParaSeo | null): string {
  */
 export function canonical(urlCompleta: string, loja: LojaParaSeo | null): string {
   const semQuery = urlCompleta.split('?')[0].split('#')[0];
+
+  /*
+   * ─────────── `/slug` APONTA PARA A RAIZ, e isto estava só no comentário.
+   *
+   * O `sitemap` já dizia, por escrito, "canonical apontando para a raiz" — e
+   * nada aqui fazia isso. Medido em produção:
+   *
+   *   /                 → canonical /
+   *   /galderiobebidas  → canonical /galderiobebidas
+   *
+   * São a MESMA página (a raiz do tenant mostra o cardápio direto, ver
+   * `vitrine.tsx`), com dois endereços, os dois no sitemap, cada um se
+   * declarando oficial. Isso é conteúdo duplicado do manual: o Google escolhe
+   * um por conta própria e divide entre os dois o pouco de sinal que uma loja
+   * nova tem — links, cliques, tempo na página.
+   *
+   * A raiz vence porque é o endereço que o lojista divulga, o que está no QR
+   * code e o que o cliente digita.
+   */
+  const daLoja = (loja?.slug || '').trim().toLowerCase();
+  let alvo = semQuery;
+  if (daLoja) {
+    try {
+      const u = new URL(semQuery);
+      if (decodeURIComponent(u.pathname).replace(/^\//, '').toLowerCase() === daLoja) {
+        alvo = `${u.protocol}//${u.host}/`;
+      }
+    } catch { /* URL estranha segue como veio */ }
+  }
+
   const proprio = (loja?.dominio_personalizado || '').trim().toLowerCase();
-  if (!proprio) return semQuery;
+  if (!proprio) return alvo;
   try {
-    const u = new URL(semQuery);
-    if (u.hostname.toLowerCase() === proprio) return semQuery;
+    const u = new URL(alvo);
+    if (u.hostname.toLowerCase() === proprio) return alvo;
     return `https://${proprio}${u.pathname}`;
   } catch {
-    return semQuery;
+    return alvo;
   }
 }
 
@@ -171,6 +213,61 @@ export function canonical(urlCompleta: string, loja: LojaParaSeo | null): string
  * que `Store` com endereço inventado, e campo vazio em dado estruturado é
  * motivo de o Google descartar o bloco inteiro.
  */
+/** Dia da semana em português → o código de duas letras do schema.org. */
+const DIAS: Array<[RegExp, string]> = [
+  [/^(domingo|dom)$/, 'Su'],
+  [/^(segunda|segunda-feira|seg)$/, 'Mo'],
+  [/^(terca|terça|terca-feira|terça-feira|ter)$/, 'Tu'],
+  [/^(quarta|quarta-feira|qua)$/, 'We'],
+  [/^(quinta|quinta-feira|qui)$/, 'Th'],
+  [/^(sexta|sexta-feira|sex)$/, 'Fr'],
+  [/^(sabado|sábado|sab|sáb)$/, 'Sa'],
+];
+
+function codigoDoDia(bruto: string): string | null {
+  const limpo = bruto.trim().toLowerCase();
+  for (const [re, cod] of DIAS) if (re.test(limpo)) return cod;
+  return null;
+}
+
+/** "11h", "11", "11:00", "01:00", "9h30" → "11:00" / "09:30". */
+function hora(bruto: string): string | null {
+  const m = /^(\d{1,2})\s*(?:[h:]\s*(\d{2})?)?$/.exec(bruto.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = m[2] ? Number(m[2]) : 0;
+  if (!(h >= 0 && h <= 23) || !(min >= 0 && min <= 59)) return null;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+/**
+ * O HORÁRIO LIVRE DO LOJISTA NO FORMATO DO SCHEMA.ORG, OU NADA.
+ *
+ * O campo é texto solto ("Segunda a Domingo 11h às 01:00", "Ter a Dom, 18:00 às
+ * 23:30") porque é o que aparece no cardápio para o cliente ler. O schema.org
+ * quer "Mo-Su 11:00-01:00".
+ *
+ * TRADUZ SÓ O PADRÃO QUE RECONHECE POR INTEIRO, e devolve `null` em qualquer
+ * outro caso. Meio-termo aqui é o pior dos dois: o Google mostraria ao lado do
+ * link um horário que a loja não pratica, e o cliente chegaria na porta fechada
+ * — o tipo de erro que não volta como reclamação, volta como cliente que não
+ * volta. Não reconhecendo, o campo some e o resto do cartão continua de pé.
+ */
+export function horarioSchema(bruto: string | null | undefined): string | null {
+  const texto = (bruto || '').trim();
+  if (!texto) return null;
+  /* "Segunda a Domingo 11h às 01:00" / "Seg a Sáb, das 9h às 18h" */
+  const m = /^([a-zà-ú-]+)\s*(?:a|à|até|-)\s*([a-zà-ú-]+)[\s,]*(?:das\s*)?(\d{1,2}(?:\s*[h:]\s*\d{2})?h?)\s*(?:às|as|ate|até|-|a)\s*(\d{1,2}(?:\s*[h:]\s*\d{2})?h?)\s*$/i
+    .exec(texto.replace(/\s+/g, ' '));
+  if (!m) return null;
+  const de = codigoDoDia(m[1]);
+  const ate = codigoDoDia(m[2]);
+  const abre = hora(m[3].replace(/h$/i, ''));
+  const fecha = hora(m[4].replace(/h$/i, ''));
+  if (!de || !ate || !abre || !fecha) return null;
+  return `${de}-${ate} ${abre}-${fecha}`;
+}
+
 export function dadosEstruturados(loja: LojaParaSeo | null, base: string): string {
   if (!loja) return '';
   const abs = (v: string | null) =>
@@ -187,11 +284,29 @@ export function dadosEstruturados(loja: LojaParaSeo | null, base: string): strin
   if (imagem) dados.image = imagem;
   if (abs(loja.logo_url)) dados.logo = abs(loja.logo_url);
   if (loja.endereco) dados.address = { '@type': 'PostalAddress', streetAddress: loja.endereco };
-  /* `horario_funcionamento` é texto livre do lojista ("Segunda a Domingo 11h às
-     01:00"). Vai como `openingHours` cru, que aceita string — traduzir para o
-     formato "Mo-Su 11:00-01:00" exigiria interpretar português, e errar o
-     horário no resultado da busca é pior que não ter horário. */
-  if (loja.horario_funcionamento) dados.openingHours = loja.horario_funcionamento;
+  /*
+   * O HORÁRIO SÓ SAI SE DER PARA TRADUZIR — ver `horarioSchema`.
+   *
+   * Antes ia o texto cru do lojista ("Segunda a Domingo 11h às 01:00"). O
+   * `openingHours` do schema.org tem formato ("Mo-Su 11:00-01:00"), e valor
+   * fora do formato não é ignorado: derruba a validação do bloco INTEIRO, e
+   * junto vão embora o endereço e a imagem que o campo devia acompanhar.
+   *
+   * Não dando para traduzir, o campo simplesmente não sai — o resto do cartão
+   * continua valendo, que é o oposto do que acontecia.
+   */
+  const horario = horarioSchema(loja.horario_funcionamento);
+  if (horario) dados.openingHours = horario;
+
+  /*
+   * A COORDENADA JÁ EXISTIA NO BANCO, geocodificada quando o lojista salvou o
+   * endereço — e nunca tinha saído daqui. É ela que põe a loja no mapa do
+   * "bebida perto de mim", que no celular é quase toda a busca local.
+   */
+  if (typeof loja.lat === 'number' && typeof loja.lon === 'number'
+      && Number.isFinite(loja.lat) && Number.isFinite(loja.lon)) {
+    dados.geo = { '@type': 'GeoCoordinates', latitude: loja.lat, longitude: loja.lon };
+  }
 
   return `<script type="application/ld+json">${JSON.stringify(dados)
     /* `</script>` dentro de string JSON fecharia a tag aqui. */
