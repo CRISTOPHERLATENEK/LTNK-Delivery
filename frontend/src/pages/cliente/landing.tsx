@@ -109,7 +109,9 @@ const FISCAL_MINI_PADRAO: LandingIconeTituloDesc[] = [
   { icone: 'cloud', titulo: 'Impressão', desc: 'Compatível com térmicas 80/58mm.' },
 ];
 
-const PLANOS_PADRAO: LandingPlano[] = [
+/** Planos mostrados quando o admin ainda não cadastrou os dele. Exportado
+    porque a página /planos usa exatamente a mesma reserva. */
+export const PLANOS_PADRAO: LandingPlano[] = [
   { nome: 'Iniciante', preco: 'R$ 97/mês', cta: 'Começar agora', recursos: ['1 loja com domínio próprio', 'Cardápio digital ilimitado', 'Pedidos, cozinha e PDV', 'Pix, cartão e dinheiro', 'Suporte por WhatsApp'] },
   { nome: 'Profissional', preco: 'R$ 197/mês', destaque: true, cta: 'Assinar Profissional', recursos: ['Tudo do Iniciante', 'NFC-e integrada (nota na venda)', 'Rastreio de entregador ao vivo', 'Comandas e mesas do salão', 'Relatórios completos', 'Suporte prioritário'] },
   { nome: 'Mais de uma unidade', preco: 'Sob medida', cta: 'Falar com a gente', recursos: ['Cada unidade é um acesso próprio', 'Banco e domínio separados por unidade', 'A sua marca em cada uma', 'Sem taxa de setup'] },
@@ -423,6 +425,80 @@ const ANCORAS = [
   { href: '#duvidas', label: 'Dúvidas' },
 ];
 
+/**
+ * O LINK DO WHATSAPP, com a regra do número num lugar só.
+ *
+ * Sai daqui porque a página `/planos` precisa do mesmo botão, e a regra tem
+ * detalhe fácil de errar na cópia: cai no telefone do suporte quando não há
+ * número da landing, e o `55` só entra quando o número não veio com ele.
+ */
+export function usarLinkZap(marca: TemaMarca) {
+  const digitos = (marca.landing_whatsapp || marca.suporte_telefone || '').replace(/\D/g, '');
+  const numero = digitos ? (digitos.length <= 11 ? '55' + digitos : digitos) : '';
+  return (msg?: string) => numero
+    ? `https://wa.me/${numero}${msg ? `?text=${encodeURIComponent(msg)}` : ''}`
+    : undefined;
+}
+
+/**
+ * A SEÇÃO DE PLANOS, COMPARTILHADA COM A PÁGINA `/planos`.
+ *
+ * Saiu de dentro da landing quando `/planos` nasceu. O motivo de ser um
+ * componente e não uma cópia é direto: preço e o que cada plano inclui não
+ * podem divergir entre dois lugares do site — divergência aqui é reclamação
+ * de cliente, não detalhe de código.
+ *
+ * `id="planos"` fica, porque o menu da landing ainda rola até aqui por âncora.
+ */
+export function SecaoPlanos({ titulo, subtitulo, planos, linkZap }: {
+  titulo: string;
+  subtitulo: string;
+  planos: LandingPlano[];
+  linkZap: (msg?: string) => string | undefined;
+}) {
+  return (
+    <section id="planos" data-reveal className="mx-auto max-w-6xl px-5 py-16 sm:px-6 sm:py-20">
+      <TituloSecao texto={titulo} className="text-center text-3xl sm:text-4xl" />
+      <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">{subtitulo}</p>
+      <div className="mt-12 grid items-start gap-6 lg:grid-cols-3">
+        {planos.map((p) => {
+          const destaque = !!p.destaque;
+          return (
+            <div key={p.nome} className={cn(
+              'relative flex flex-col rounded-3xl border p-7',
+              destaque ? 'border-transparent bg-foreground text-background shadow-2xl lg:-translate-y-3' : 'border-border bg-card',
+            )}>
+              {destaque && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-primary-foreground">Mais escolhido</span>
+              )}
+              <div className={cn('text-sm font-bold uppercase tracking-wider', destaque ? 'text-primary' : 'text-muted-foreground')}>{p.nome}</div>
+              <div className="mt-2 text-3xl font-black">{p.preco}</div>
+              <ul className="mt-6 flex-1 space-y-3">
+                {p.recursos.map((r, ri) => (
+                  <li key={ri} className="flex items-start gap-2.5 text-sm">
+                    <Check className={cn('mt-0.5 size-4 shrink-0', destaque ? 'text-primary' : 'text-primary')} />
+                    <span className={destaque ? 'text-background/90' : ''}>{r}</span>
+                  </li>
+                ))}
+              </ul>
+              <a
+                href={linkZap(`Olá! Tenho interesse no plano ${p.nome}.`) || '/lojista'}
+                {...(linkZap() ? { target: '_blank', rel: 'noreferrer' } : {})}
+                className={cn(
+                  'mt-7 inline-flex h-12 items-center justify-center gap-2 rounded-2xl px-6 text-sm font-semibold transition-all active:scale-[0.98]',
+                  destaque ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'bg-foreground text-background hover:bg-foreground/90',
+                )}
+              >
+                <IconeWhatsapp className="size-4" /> {p.cta}
+              </a>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export function PaginaLanding() {
   const { marca: marcaBase } = useTema();
 
@@ -515,9 +591,7 @@ export function PaginaLanding() {
   ].filter((r): r is { url: string; Icone: (p: { className?: string }) => ReactElement; label: string } => !!r.url?.trim());
 
   // Link do WhatsApp (número editável no admin; cai no suporte_telefone).
-  const zapDigitos = (marca.landing_whatsapp || marca.suporte_telefone || '').replace(/\D/g, '');
-  const zapNum = zapDigitos ? (zapDigitos.length <= 11 ? '55' + zapDigitos : zapDigitos) : '';
-  const linkZap = (msg?: string) => zapNum ? `https://wa.me/${zapNum}${msg ? `?text=${encodeURIComponent(msg)}` : ''}` : undefined;
+  const linkZap = usarLinkZap(marca);
 
   // Link da loja de demonstração (URL fixa do admin OU a 1ª loja aprovada do tenant).
   const demoUrlConfigurada = marca.landing_demo_url?.trim();
@@ -1168,45 +1242,7 @@ export function PaginaLanding() {
       </section>
 
       {/* ───── Planos ───── */}
-      <section id="planos" data-reveal className="mx-auto max-w-6xl px-5 py-16 sm:px-6 sm:py-20">
-        <TituloSecao texto={planosTitulo} className="text-center text-3xl sm:text-4xl" />
-        <p className="mx-auto mt-3 max-w-xl text-center text-muted-foreground">{planosSubtitulo}</p>
-        <div className="mt-12 grid items-start gap-6 lg:grid-cols-3">
-          {planos.map((p) => {
-            const destaque = !!p.destaque;
-            return (
-              <div key={p.nome} className={cn(
-                'relative flex flex-col rounded-3xl border p-7',
-                destaque ? 'border-transparent bg-foreground text-background shadow-2xl lg:-translate-y-3' : 'border-border bg-card',
-              )}>
-                {destaque && (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-primary px-3 py-1 text-[11px] font-bold uppercase tracking-wide text-primary-foreground">Mais escolhido</span>
-                )}
-                <div className={cn('text-sm font-bold uppercase tracking-wider', destaque ? 'text-primary' : 'text-muted-foreground')}>{p.nome}</div>
-                <div className="mt-2 text-3xl font-black">{p.preco}</div>
-                <ul className="mt-6 flex-1 space-y-3">
-                  {p.recursos.map((r, ri) => (
-                    <li key={ri} className="flex items-start gap-2.5 text-sm">
-                      <Check className={cn('mt-0.5 size-4 shrink-0', destaque ? 'text-primary' : 'text-primary')} />
-                      <span className={destaque ? 'text-background/90' : ''}>{r}</span>
-                    </li>
-                  ))}
-                </ul>
-                <a
-                  href={linkZap(`Olá! Tenho interesse no plano ${p.nome}.`) || '/lojista'}
-                  {...(linkZap() ? { target: '_blank', rel: 'noreferrer' } : {})}
-                  className={cn(
-                    'mt-7 inline-flex h-12 items-center justify-center gap-2 rounded-2xl px-6 text-sm font-semibold transition-all active:scale-[0.98]',
-                    destaque ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'bg-foreground text-background hover:bg-foreground/90',
-                  )}
-                >
-                  <IconeWhatsapp className="size-4" /> {p.cta}
-                </a>
-              </div>
-            );
-          })}
-        </div>
-      </section>
+      <SecaoPlanos titulo={planosTitulo} subtitulo={planosSubtitulo} planos={planos} linkZap={linkZap} />
 
       {/* ───── FAQ ───── */}
       <section id="duvidas" data-reveal className="mx-auto max-w-3xl px-5 py-16 sm:px-6">

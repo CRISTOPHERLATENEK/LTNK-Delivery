@@ -66,7 +66,26 @@ const ROTAS_RESERVADAS = new Set([
   'conta', 'carrinho', 'pedidos', 'pedido', 'lojista', 'entregador', 'cozinha',
   'painel-admin', 'admin', 'demo', 'esqueci-senha', 'redefinir-senha',
   'uploads', 'api',
+  // Páginas de conteúdo — ver PAGINAS_DE_CONTEUDO logo abaixo.
+  'planos',
 ]);
+
+/**
+ * AS PÁGINAS DE CONTEÚDO DA PLATAFORMA, e o que cada uma diz de si.
+ *
+ * O TÍTULO É FIXO NO CÓDIGO e a DESCRIÇÃO tenta o campo do admin primeiro. A
+ * razão da diferença: o título precisa dizer do que a página trata mesmo quando
+ * ninguém configurou nada, e os textos do editor são chamadas de venda ("Planos
+ * sem *pegadinha*") — boas na tela, ruins como título de resultado de busca,
+ * onde a pessoa está decidindo se aquele link responde a pergunta dela.
+ */
+const PAGINAS_DE_CONTEUDO: Record<string, { titulo: string; chaveDescricao: string; descricao: string }> = {
+  planos: {
+    titulo: 'Planos e preços',
+    chaveDescricao: 'landing_planos_subtitulo',
+    descricao: 'Planos e preços do sistema: sem taxa por pedido e sem fidelidade.',
+  },
+};
 
 type LinhaLoja = {
   nome: string; descricao: string | null; logo_url: string | null; capa_url: string | null;
@@ -185,6 +204,27 @@ export async function metaDaRota(caminho: string, host?: string): Promise<MetaOg
         const l = await lojaPorId(idDoHost);
         if (l) return metaDaLoja(l);
       }
+    }
+
+    /*
+     * PÁGINAS DE CONTEÚDO DA PLATAFORMA — título e descrição PRÓPRIOS.
+     *
+     * Elas existem para o buscador ter o que classificar: a home sozinha não
+     * responde "quanto custa" nem "tem fidelidade", e página sem título próprio
+     * entra no índice competindo com a home pelo mesmo termo.
+     *
+     * Só valem quando NÃO há loja no host: no domínio de um cliente, `/planos`
+     * seria a loja dele com esse slug — e o slug está reservado justamente pra
+     * isso não acontecer (ver slug-reservado.ts).
+     */
+    const pagina = PAGINAS_DE_CONTEUDO[partes[0]];
+    if (partes.length === 1 && pagina && (await lojaIdDoHost(host)) === 0) {
+      const base = await metaDaMarca();
+      return {
+        ...base,
+        tituloBusca: `${pagina.titulo} | ${base.titulo}`,
+        descricao: (await config(pagina.chaveDescricao)) || pagina.descricao,
+      };
     }
 
     // /pedido/:id — o link que o cliente recebe pra acompanhar. Mostra a marca da

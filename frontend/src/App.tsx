@@ -38,6 +38,9 @@ const TelaLanding = lazySeguro(() => import('@/pages/admin/marca/landing').then(
 /* Documentos legais: texto longo que quase ninguem abre, entao entram por lazy
    em vez de pesar o pacote inicial de toda visita a vitrine. */
 const PaginaTermos = lazySeguro(() => import('@/pages/legal').then(m => ({ default: m.Termos })));
+/* Paginas de conteudo com endereco proprio — ver pages/cliente/planos.tsx.
+   Preguicosas: quem abre o cardapio nao baixa o que so interessa a lojista. */
+const PaginaPlanos = lazySeguro(() => import('@/pages/cliente/planos').then(m => ({ default: m.PaginaPlanos })));
 const PaginaPrivacidade = lazySeguro(() => import('@/pages/legal').then(m => ({ default: m.Privacidade })));
 const TelaConfiguracoes = lazySeguro(() => import('@/pages/admin/configuracoes').then(m => ({ default: m.TelaConfiguracoes })));
 const TelaAdmins = lazySeguro(() => import('@/pages/admin/admins').then(m => ({ default: m.TelaAdmins })));
@@ -182,6 +185,9 @@ export default function App() {
         Os dois nomes tambem entraram em SLUGS_RESERVADOS no servidor, senao um
         lojista poderia registrar o slug e sequestrar o documento legal.
       */}
+      {/* ANTES do /:id, que trata um segmento como slug de loja. O slug
+          tambem esta reservado no servidor (slug-reservado.ts). */}
+      <Route path="/planos" element={<PaginaPlanos />} />
       <Route path="/termos" element={<PaginaTermos />} />
       <Route path="/privacidade" element={<PaginaPrivacidade />} />
       <Route path="/:id" element={<ClienteLayout><PaginaLoja /></ClienteLayout>} />

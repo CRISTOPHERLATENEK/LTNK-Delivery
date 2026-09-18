@@ -14,7 +14,7 @@ import fs from 'fs';
 import { metaDaRota, injetarMeta, paginaSuspensa, contatoSuporte } from './og';
 import { lojaDoHost, robots, sitemap, canonical, dadosEstruturados } from './seo';
 import { montarDadosIniciais, injetarDados } from './dados-iniciais';
-import { blocoDeConteudo, blocoDaLanding, injetarConteudo, type ItemParaSeo } from './seo-conteudo';
+import { blocoDeConteudo, blocoDaLanding, blocoDosPlanos, injetarConteudo, type ItemParaSeo } from './seo-conteudo';
 import express, { ErrorRequestHandler } from 'express';
 
 import autenticacaoRoutes from './rotas/autenticacao';
@@ -717,6 +717,41 @@ async function blocoSeoDaLanding(): Promise<string> {
   }
 }
 
+/**
+ * O BLOCO DA PÁGINA `/planos`.
+ *
+ * Mesma fonte da tela: `landing_planos_json`, o que o admin preencheu. Sem
+ * planos cadastrados não sai bloco nenhum — página com título e nada embaixo é
+ * pior, para quem lê e para quem indexa, do que a espera pelo app.
+ */
+async function blocoSeoDePlanos(): Promise<string> {
+  const chave = `planos:${bancoTenantAtual() || 'padrao'}`;
+  const agora = Date.now();
+  const guardado = conteudoLanding.get(chave);
+  if (guardado && agora - guardado.em < VALIDADE_CONTEUDO_MS) return guardado.html;
+  try {
+    const ler = async (k: string): Promise<string> => {
+      const r = await db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(k) as { valor: string } | undefined;
+      return r?.valor || '';
+    };
+    let planos: Array<{ nome: string; preco?: string; recursos?: string[] }> = [];
+    try {
+      const v = JSON.parse((await ler('landing_planos_json')) || '[]');
+      if (Array.isArray(v)) planos = v;
+    } catch { /* json torto: sai sem bloco, a pagina continua de pe */ }
+
+    const html = blocoDosPlanos({
+      logo: await ler('marca_logo_url'),
+      titulo: 'Planos e preços',
+      subtitulo: (await ler('landing_planos_subtitulo'))
+        || 'Sem taxa por pedido, sem fidelidade.',
+      planos,
+    });
+    conteudoLanding.set(chave, { html, em: agora });
+    return html;
+  } catch { return ''; }
+}
+
 let htmlBase: string | null = null;
 function lerHtmlBase(): string {
   if (htmlBase === null) {
@@ -810,9 +845,14 @@ app.use((req, res, next) => {
      * resolve e o bloco é o do cardápio. Nulo na raiz só sobra para a home do
      * produto — que era a página sem texto nenhum para o buscador.
      */
+    /* As páginas de conteúdo da plataforma têm bloco próprio — e só existem
+       onde não há loja, pelo mesmo motivo do sitemap: no domínio de um cliente
+       `/planos` seria a loja dele. */
     const comConteudo = mostraLoja
       ? injetarConteudo(html, loja ? await blocoSeoDoTenant(loja) : await blocoSeoDaLanding())
-      : html;
+      : (caminho === '/planos' && !loja)
+        ? injetarConteudo(html, await blocoSeoDePlanos())
+        : html;
     res.type('html').send(injetarDados(comConteudo, dados));
   })().catch(() => {
     // Falhou montando o preview? Serve o HTML como estava — a página funciona,

@@ -26,6 +26,15 @@ export const SLUGS_RESERVADOS: readonly string[] = [
    * quando a rota `/admin` nasceu.
    */
   'admin', 'app', 'assets', 'login', 'painel', 'static', 'www',
+  /*
+   * PÁGINAS DE CONTEÚDO DA PLATAFORMA.
+   *
+   * Nasceram para o buscador ter o que indexar: a landing tinha tudo numa
+   * página só, e o Google só classifica endereço que existe. Elas são rotas de
+   * verdade, então entram aqui pelo mesmo motivo de `termos` e `privacidade` —
+   * uma loja com slug `planos` responderia no lugar da página de planos.
+   */
+  'planos', 'recursos', 'nota-fiscal', 'duvidas',
 ];
 
 /** O slug colide com uma rota do app? */

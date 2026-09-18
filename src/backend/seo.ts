@@ -143,6 +143,19 @@ export function sitemap(base: string, loja: LojaParaSeo | null): string {
    * parar de OFERECÊ-LO ao buscador como se fosse outra página. O canonical
    * dele aponta para a raiz — ver `canonical`.
    */
+  /*
+   * AS PÁGINAS DE CONTEÚDO SÓ EXISTEM ONDE NÃO HÁ LOJA.
+   *
+   * No domínio de um cliente, `/planos` não é a nossa página de planos — é o
+   * endereço da loja dele, e oferecê-lo ao buscador mandaria o Google a uma
+   * página que não é a que estamos declarando. Elas são da PLATAFORMA.
+   *
+   * Prioridade maior que a dos documentos legais porque é conteúdo que se
+   * quer que apareça, não obrigação que se cumpre.
+   */
+  if (!loja) {
+    urls.push({ loc: `${base}/planos`, prioridade: '0.8' });
+  }
   urls.push({ loc: `${base}/termos`, prioridade: '0.2' });
   urls.push({ loc: `${base}/privacidade`, prioridade: '0.2' });
 

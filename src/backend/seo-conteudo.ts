@@ -141,6 +141,8 @@ const ESTILO = `<style>
 /* Conteúdo aberto volta a ser texto de leitura: centralizar lista é ruim de ler. */
 #seo-inicial.carregando details[open] summary{margin-bottom:.5rem}
 #seo-inicial.carregando details ul,#seo-inicial.carregando details h2{text-align:left}
+/* Lista ABERTA (pagina de planos): texto corrido centralizado nao se le. */
+#seo-inicial.carregando .lista{text-align:left}
 #seo-inicial .giro{width:22px;height:22px;margin:1.6rem auto 0;border-radius:50%;
  border:2px solid currentColor;border-top-color:transparent;opacity:.25;
  animation:seogiro .8s linear infinite}
@@ -313,6 +315,44 @@ export function blocoDaLanding(d: LandingParaConteudo | null): string {
      monta — não é o spinner do app, é o do instante que antecede o app. */
   p.push('<div class="giro" aria-hidden="true"></div>');
 
+  p.push('</div></div>');
+  return p.join('');
+}
+
+/**
+ * O BLOCO DA PÁGINA DE PLANOS.
+ *
+ * Mesma ideia do bloco da landing, com uma diferença que importa: aqui o
+ * conteúdo fica ABERTO, sem `<details>`.
+ *
+ * Na home o detalhamento é secundário — quem chega está decidindo se fica. Numa
+ * página chamada "planos", a lista de planos É a página: escondê-la atrás de um
+ * clique daria ao buscador (e a quem chega pelo buscador) uma página que não
+ * responde a pergunta que trouxe a pessoa até ela.
+ */
+export function blocoDosPlanos(d: {
+  logo: string;
+  titulo: string;
+  subtitulo: string;
+  planos: Array<{ nome: string; preco?: string; recursos?: string[] }>;
+} | null): string {
+  if (!d?.planos?.length) return '';
+
+  const p: string[] = [ESTILO, '<div id="seo-inicial" class="carregando"><div class="i">'];
+  if (d.logo) p.push(`<img class="logo" src="${esc(d.logo)}" alt="" />`);
+  p.push(`<h1>${esc(d.titulo)}</h1>`);
+  if (d.subtitulo) p.push(`<p>${esc(d.subtitulo)}</p>`);
+
+  p.push('<div class="lista">');
+  for (const pl of d.planos) {
+    p.push(`<h2>${esc(pl.nome)}${pl.preco ? ` &middot; ${esc(pl.preco)}` : ''}</h2>`);
+    const itens = (pl.recursos || []).map(r => `<li>${esc(r)}</li>`).join('');
+    if (itens) p.push(`<ul>${itens}</ul>`);
+  }
+
+  p.push('</div>');
+
+  p.push('<div class="giro" aria-hidden="true"></div>');
   p.push('</div></div>');
   return p.join('');
 }
