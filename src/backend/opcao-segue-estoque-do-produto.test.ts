@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
-import { OPCAO_COM_PRODUTO_A_VENDA, SQL_OPCOES_DA_LOJA } from './grupos-sql';
+import { SELECT_OPCAO_ESGOTADA, SQL_OPCOES_DA_LOJA } from './grupos-sql';
 
 /*
  * A OPÇÃO SEGUE O ESTOQUE DO PRODUTO A QUE ESTÁ LIGADA.
@@ -25,11 +25,13 @@ const semComentarios = (t: string) =>
   t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 
 const PUBLICO = semComentarios(ler('src', 'backend', 'rotas', 'publico.ts'));
+const MODAL = semComentarios(ler('frontend', 'src', 'pages', 'cliente', 'modal-produto.tsx'));
+const TIPOS = semComentarios(ler('frontend', 'src', 'types.ts'));
 const OPCOES = semComentarios(ler('src', 'backend', 'opcoes-item.ts'));
 const LOJISTA = semComentarios(ler('src', 'backend', 'rotas', 'lojista.ts'));
 
 /** O SQL sem quebras de linha, para as asserções não dependerem da indentação. */
-const regra = OPCAO_COM_PRODUTO_A_VENDA.replace(/\s+/g, ' ').trim();
+const regra = SELECT_OPCAO_ESGOTADA.replace(/\s+/g, ' ').trim();
 
 describe('os três motivos que derrubam a opção', () => {
   /* Os três são o mesmo motivo por caminhos diferentes: "o produto não está à
@@ -57,14 +59,26 @@ describe('os três motivos que derrubam a opção', () => {
   });
 
   /*
-   * `NOT EXISTS` E NÃO `JOIN`: opção sem produto vinculado (`produto_id = 0`)
-   * tem que continuar aparecendo. Um JOIN a derrubaria junto, e aí sumiriam do
-   * cardápio todos os complementos que não têm vínculo nenhum — que são a
-   * maioria.
+   * `EXISTS` E NÃO `JOIN`: opção sem produto vinculado (`produto_id = 0`) tem
+   * que sair como NÃO esgotada. Um JOIN a derrubaria da lista inteira, e aí
+   * sumiriam do cardápio todos os complementos sem vínculo — que são a maioria.
    */
-  it('opção sem produto vinculado continua aparecendo', () => {
-    expect(regra.startsWith('AND NOT EXISTS (')).toBe(true);
+  it('opção sem produto vinculado não fica esgotada', () => {
+    expect(regra.startsWith('EXISTS (')).toBe(true);
     expect(regra).toContain('WHERE pv.id = o.produto_id');
+  });
+
+  /*
+   * ─────── SELO, E NÃO FILTRO ───────
+   *
+   * A primeira versão TIRAVA a opção da lista. O lojista recusou: "parece que
+   * está sumindo, em vez de ficar como esgotado". O paralelo certo é o do
+   * PRODUTO na vitrine — cinza, escrito, e não some. Sumir sem explicação faz o
+   * cliente ligar perguntando onde foi parar o sabor.
+   */
+  it('é coluna do SELECT, não cláusula de WHERE', () => {
+    expect(regra.endsWith('AS esgotado')).toBe(true);
+    expect(regra).not.toContain('AND NOT EXISTS');
   });
 });
 
@@ -74,14 +88,27 @@ describe('a mesma regra nos dois lados', () => {
    * segunda diverge — e divergir aqui significa o cardápio esconder e o
    * checkout aceitar, ou o cliente escolher na tela e levar erro ao fechar.
    */
-  it('o menu público usa o fragmento', () => {
-    expect(PUBLICO).toContain("OPCAO_COM_PRODUTO_A_VENDA } from '../grupos-sql'");
-    expect(PUBLICO).toContain('${OPCAO_COM_PRODUTO_A_VENDA}');
+  it('o menu público manda o selo para a tela', () => {
+    expect(PUBLICO).toContain("SELECT_OPCAO_ESGOTADA } from '../grupos-sql'");
+    expect(PUBLICO).toContain('${SELECT_OPCAO_ESGOTADA}');
   });
 
-  it('a validação do pedido usa o mesmo fragmento', () => {
-    expect(OPCOES).toContain("import { OPCAO_COM_PRODUTO_A_VENDA } from './grupos-sql'");
-    expect(OPCOES).toContain('AND o.disponivel = 1 ${OPCAO_COM_PRODUTO_A_VENDA}');
+  /*
+   * A LISTA DA VALIDAÇÃO INCLUI O ESGOTADO. Filtrar aqui o faria sumir do
+   * pedido em SILÊNCIO — o cliente escolheria na tela e pagaria sem ele.
+   */
+  it('a validação carrega o esgotado junto, e recusa pelo nome', () => {
+    expect(OPCOES).toContain("import { SELECT_OPCAO_ESGOTADA } from './grupos-sql'");
+    expect(OPCOES).toContain('`SELECT o.*, ${SELECT_OPCAO_ESGOTADA} FROM opcoes_itens o');
+    expect(OPCOES).toContain('está esgotado. Escolha outra opção em');
+    expect(OPCOES).toContain('erroHttp(409');
+  });
+
+  /* A recusa vem ANTES de a escolha ser registrada: registrar e falhar depois
+     deixaria a opção esgotada no texto do pedido de quem tentasse. */
+  it('recusa antes de registrar a escolha', () => {
+    expect(OPCOES.indexOf('const acabou = escolhidas.find'))
+      .toBeLessThan(OPCOES.indexOf('for (const o of escolhidas) reconhecidas.push'));
   });
 
   /*
@@ -115,7 +142,7 @@ describe('o editor do lojista continua mostrando tudo', () => {
   });
 
   it('o painel não importa o fragmento', () => {
-    expect(LOJISTA).not.toContain('OPCAO_COM_PRODUTO_A_VENDA');
+    expect(LOJISTA).not.toContain('SELECT_OPCAO_ESGOTADA');
   });
 });
 
@@ -129,5 +156,68 @@ describe('o vínculo e a marca de "não baixa" continuam exclusivos', () => {
   it('o servidor zera o vínculo quando marcam "não baixa"', () => {
     expect(LOJISTA).toContain('if (semEstoque === 1) produtoVinculado = 0;');
     expect(LOJISTA).toContain('if (req.body.produto_id !== undefined && produtoVinculado > 0) semEstoque = 0;');
+  });
+});
+
+describe('a tela mostra o esgotado em vez de esconder', () => {
+  it('o tipo carrega o selo', () => {
+    expect(TIPOS).toContain('esgotado?: number;');
+  });
+
+  /*
+   * VISÍVEL E INERTE, como o produto esgotado na vitrine. O clique tinha que
+   * parar junto: linha com cara de clicável que não faz nada é o defeito que o
+   * bloco `bloqueada` já tinha resolvido para o limite do grupo.
+   */
+  it('não dá para escolher o esgotado', () => {
+    expect(MODAL).toContain('const esgotada = Number(o.esgotado) === 1;');
+    expect(MODAL).toContain('const inerte = bloqueada || esgotada;');
+    expect(MODAL).toContain('onClick={() => !inerte && onAlternar(o)}');
+    expect(MODAL).toContain('disabled={inerte}');
+    expect(MODAL).toContain('aria-disabled={inerte}');
+  });
+
+  it('escreve Esgotado na linha', () => {
+    expect(MODAL).toContain('{esgotada && (');
+    expect(MODAL).toContain('Esgotado');
+  });
+
+  /* E continua na lista: some seria voltar ao que o lojista recusou. */
+  it('não filtra a lista na tela', () => {
+    expect(MODAL).not.toContain('filter(o => !o.esgotado');
+    expect(MODAL).not.toContain('esgotado !== 1');
+  });
+});
+
+describe('clicar de novo desmarca, em escolha única', () => {
+  /*
+   * "quando eu seleciono algum item, exemplo coca cola, não consigo desmarcar
+   *  se eu clicar em cima de novo."
+   *
+   * O ramo de escolha única sempre SUBSTITUÍA (`[opcao.id]`): dava para trocar
+   * de refrigerante, nunca para ficar sem. Em grupo opcional isso é um beco sem
+   * saída — quem tocou sem querer carrega o adicional até o fim. E era
+   * incoerente com o grupo de múltipla escolha ao lado, onde clicar de novo
+   * sempre desmarcou: a mesma tela, dois comportamentos.
+   */
+  it('o mesmo id clicado de novo esvazia a escolha', () => {
+    expect(MODAL).toContain("if (grupo.papel !== 'tamanho' && atual.includes(opcao.id)) {");
+    const i = MODAL.indexOf("if (grupo.papel !== 'tamanho' && atual.includes(opcao.id)) {");
+    expect(MODAL.slice(i, i + 200)).toContain('[k]: []');
+  });
+
+  /*
+   * TAMANHO É A ÚNICA EXCEÇÃO. Ele define quantos sabores o grupo seguinte
+   * libera, e trocá-lo APAGA os sabores já escolhidos. Desmarcar jogaria o
+   * cliente num estado sem limite definido e ainda levaria junto o trabalho de
+   * montar a pizza.
+   */
+  it('desmarcar vem ANTES da substituição, e poupa o tamanho', () => {
+    const iDesmarca = MODAL.indexOf("atual.includes(opcao.id)) {\n          return { ...antigo, [k]: [] };");
+    const iSubstitui = MODAL.indexOf("return { ...antigo, [k]: [opcao.id] };");
+    expect(iDesmarca).toBeGreaterThan(0);
+    expect(iDesmarca).toBeLessThan(iSubstitui);
+    /* A limpeza dos sabores ao trocar de tamanho continua existindo. */
+    expect(MODAL).toContain("if (g.papel === 'sabores') limpo[chaveEscolha(slot, g.id)] = [];");
   });
 });

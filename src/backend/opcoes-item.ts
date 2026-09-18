@@ -17,7 +17,7 @@
 import db from './db-mysql';
 import { erroHttp } from './util';
 import { precoVigente } from './preco-produto';
-import { OPCAO_COM_PRODUTO_A_VENDA } from './grupos-sql';
+import { SELECT_OPCAO_ESGOTADA } from './grupos-sql';
 import { dataBrasilia } from './util';
 import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo, contarFracoes,
          lerEscolhas, idsPorSlot, serializarEscolhas, type EscolhaSlot } from './opcoes-preco';
@@ -117,15 +117,15 @@ export async function validarOpcoesDoItem(
     const carregados: Array<{ grupo: GrupoOpcao; escolhidas: OpcaoItem[] }> = [];
     for (const grupo of grupos) {
       /*
-       * O MESMO RECORTE DO MENU, e não um parecido: aqui é o que o cliente
-       * PAGA. Opção que o cardápio escondeu por falta de estoque não pode ser
-       * aceita no checkout — e o contrário também não, senão o cliente escolhe
-       * na tela e leva erro na hora de fechar.
+       * O MESMO CÁLCULO DO MENU, e não um parecido: aqui é o que o cliente
+       * PAGA. A lista vem COM o esgotado dentro — tirá-lo aqui o faria sumir do
+       * pedido em silêncio, e o cliente pagaria sem o complemento que pediu.
+       * Quem recusa, com o nome, é o bloco logo abaixo.
        */
       const opcoesDoGrupo = await db.prepare(
-        `SELECT o.* FROM opcoes_itens o
-          WHERE o.grupo_id = ? AND o.disponivel = 1 ${OPCAO_COM_PRODUTO_A_VENDA}`
-      ).all(grupo.id) as OpcaoItem[];
+        `SELECT o.*, ${SELECT_OPCAO_ESGOTADA} FROM opcoes_itens o
+          WHERE o.grupo_id = ? AND o.disponivel = 1`
+      ).all(grupo.id) as Array<OpcaoItem & { esgotado?: number }>;
       if (opcoesDoGrupo.length === 0) continue;
       /*
        * PRESERVA A REPETIÇÃO: mapeia a partir de `ids` (a ordem e a repetição
@@ -135,6 +135,16 @@ export async function validarOpcoesDoItem(
       const escolhidas = ids
         .map(id => opcoesDoGrupo.find(o => o.id === id))
         .filter((o): o is OpcaoItem => !!o);
+      /*
+       * ESGOTADO RECUSA, COM O NOME. Deixar passar venderia o que não existe;
+       * descartar em silêncio cobraria o item sem entregá-lo. A terceira opção
+       * — dizer qual acabou — é a única que o cliente consegue resolver, e é o
+       * caso do Monster zerado que continuava à venda como complemento.
+       */
+      const acabou = escolhidas.find(o => Number((o as { esgotado?: number }).esgotado) === 1);
+      if (acabou) {
+        throw erroHttp(409, `"${acabou.nome}" está esgotado. Escolha outra opção em "${grupo.nome}".`);
+      }
       for (const o of escolhidas) reconhecidas.push({ slot: alvo.slot, opcao_id: o.id });
       carregados.push({ grupo, escolhidas });
     }

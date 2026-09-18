@@ -417,6 +417,17 @@ export interface OpcaoItem {
   descricao?: string | null;
   /** Foto do sabor (URL). Vazio = sem foto. */
   imagem?: string | null;
+  /**
+   * O produto ligado a esta opção não está à venda — sem saldo, pausado ou
+   * excluído.
+   *
+   * VEM COMO SELO E NÃO COMO AUSÊNCIA: a primeira versão tirava a opção da
+   * lista e o lojista recusou ("parece que está sumindo, em vez de ficar como
+   * esgotado"). O paralelo certo é o do produto na vitrine, que aparece cinza e
+   * escrito. Sumir sem explicação faz o cliente ligar perguntando onde foi
+   * parar o sabor.
+   */
+  esgotado?: number;
 }
 
 export interface GrupoOpcoes {

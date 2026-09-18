@@ -227,6 +227,29 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
       const atual = antigo[k] || [];
       if (grupo.tipo === 'unico') {
         /*
+         * ─────── CLICAR NO QUE JÁ ESTÁ MARCADO DESMARCA ───────
+         *
+         * "quando eu seleciono algum item, exemplo coca cola, não consigo
+         *  desmarcar se eu clicar em cima de novo."
+         *
+         * O ramo de escolha única sempre SUBSTITUÍA (`[opcao.id]`), então a
+         * primeira escolha era definitiva: dava para trocar de refrigerante,
+         * nunca para ficar sem. Em grupo opcional isso é um beco sem saída —
+         * quem tocou sem querer carrega o adicional até o fim.
+         *
+         * E era incoerente com o grupo de múltipla escolha ao lado, onde clicar
+         * de novo sempre desmarcou. A mesma tela, dois comportamentos.
+         *
+         * TAMANHO FICA DE FORA, e é a única exceção: ele define quantos sabores
+         * o grupo seguinte libera, e a troca de tamanho APAGA os sabores
+         * escolhidos (logo abaixo). Desmarcar o tamanho jogaria o cliente num
+         * estado sem limite definido e ainda levaria junto o trabalho que ele
+         * já teve montando a pizza.
+         */
+        if (grupo.papel !== 'tamanho' && atual.includes(opcao.id)) {
+          return { ...antigo, [k]: [] };
+        }
+        /*
          * Trocar de TAMANHO pode reduzir o limite de sabores (da G pra P, de 3
          * pra 1). Sem limpar, o cliente ficaria com 3 sabores numa pizza que só
          * aceita 1 — e o servidor recusaria o pedido no final, depois de ele já
@@ -913,18 +936,25 @@ function GrupoOpcao({
            * saber por quê. Esmaecida e sem cursor, a regra fica visível.
            */
           const bloqueada = !ativa && maxEfetivo > 0 && escolhidas.length >= maxEfetivo;
+          /*
+           * ESGOTADA: o produto ligado a esta opção não está à venda. Fica
+           * visível e inerte, como o produto esgotado na vitrine — e não some,
+           * porque sumir faz o cliente procurar o sabor que ele viu ontem.
+           */
+          const esgotada = Number(o.esgotado) === 1;
+          const inerte = bloqueada || esgotada;
           return (
             <button
               key={o.id}
               type="button"
-              onClick={() => !bloqueada && onAlternar(o)}
-              disabled={bloqueada}
-              aria-disabled={bloqueada}
+              onClick={() => !inerte && onAlternar(o)}
+              disabled={inerte}
+              aria-disabled={inerte}
               className={cn(
                 'flex w-full items-center gap-3 px-4 py-3.5 rounded-2xl border-2 text-left transition-all select-none touch-manipulation',
                 ativa
                   ? 'border-primary bg-primary/5 shadow-sm shadow-primary/10'
-                  : bloqueada
+                  : inerte
                     ? 'cursor-not-allowed border-border/50 bg-muted/20 opacity-50'
                     : 'cursor-pointer border-border bg-background active:bg-muted/50',
               )}
@@ -972,6 +1002,17 @@ function GrupoOpcao({
                   ativa ? 'text-primary' : 'text-foreground',
                 )}>
                   {o.nome}
+                {/*
+                  O SELO VAI NA MESMA LINHA DO NOME, e não embaixo: é a única
+                  informação que muda o que o cliente faz em seguida, e embaixo
+                  ela competiria com os ingredientes. Opacidade 50 no botão
+                  inteiro já esmaece, então o selo precisa do próprio contraste.
+                */}
+                {esgotada && (
+                  <span className="ml-2 rounded-full bg-muted px-2 py-0.5 align-middle text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+                    Esgotado
+                  </span>
+                )}
                 </span>
                 {/*
                   Ingredientes numa linha, com clamp de 2: é o que transforma

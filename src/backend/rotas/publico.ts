@@ -6,7 +6,7 @@ import QRCode from 'qrcode';
 import db, { bancoTenantAtual } from '../db-mysql';
 import { erroHttp, dataBrasilia} from '../util';
 import { sqlPromocaoVigente } from '../preco-produto';
-import { sqlGruposDeProdutos, OPCAO_COM_PRODUTO_A_VENDA } from '../grupos-sql';
+import { sqlGruposDeProdutos, SELECT_OPCAO_ESGOTADA } from '../grupos-sql';
 import { chavePublicaVapid } from '../push';
 import { ehMaster, lerRodapeCredito } from '../tenants-mysql';
 import { montarLandingPublica } from '../landing-campos';
@@ -452,10 +452,10 @@ export async function montarCardapio(idOuSlug: string) {
           // `sabores`: quantos sabores este TAMANHO libera (ver acima).
           // `secao`: faixa dentro do grupo ('Tradicionais', 'Especiais'…).
           // `o.` em tudo por causa do fragmento de estoque, que fala de `o`.
-          `SELECT o.id, o.nome, o.preco_adicional_centavos, o.sabores, o.secao, o.descricao, o.imagem, o.grupo_id
+          `SELECT o.id, o.nome, o.preco_adicional_centavos, o.sabores, o.secao, o.descricao, o.imagem, o.grupo_id,
+                  ${SELECT_OPCAO_ESGOTADA}
              FROM opcoes_itens o
             WHERE o.grupo_id IN (${idsGrupo.map(() => '?').join(',')}) AND o.disponivel = 1
-              ${OPCAO_COM_PRODUTO_A_VENDA}
             ORDER BY o.ordem, o.id`
         ).all(...idsGrupo) as Array<OpcaoItem & { grupo_id: number }>;
         /*

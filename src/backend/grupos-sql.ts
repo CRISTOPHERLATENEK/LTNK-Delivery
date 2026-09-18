@@ -104,15 +104,29 @@ export const SQL_GRUPOS_DA_LOJA =
  * VÊ) e a da validação do pedido (o que ele PAGA). Com a regra escrita duas
  * vezes, a segunda diverge — e divergir aqui significa o cardápio esconder e o
  * checkout aceitar, ou o contrário.
+ *
+ * ─────────────── SELO, E NÃO FILTRO ───────────────
+ *
+ * A primeira versão TIRAVA a opção da lista, para ficar igual a uma opção
+ * pausada. O lojista viu e recusou: "parece que está sumindo, em vez de ficar
+ * como esgotado". Ele tem razão, e o paralelo certo é o do PRODUTO na vitrine —
+ * lá o esgotado aparece cinza, escrito, e não some.
+ *
+ * Sumir sem explicação é o que faz o cliente ligar perguntando onde foi parar o
+ * sabor, e faz o lojista achar que perdeu o cadastro. "Esgotado" responde as
+ * duas perguntas antes de elas existirem.
+ *
+ * Por isso isto é uma COLUNA do SELECT, não um `WHERE`. Quem esconde é decisão
+ * da tela; o servidor informa.
  */
-export const OPCAO_COM_PRODUTO_A_VENDA = `
-      AND NOT EXISTS (
+export const SELECT_OPCAO_ESGOTADA = `
+      EXISTS (
         SELECT 1 FROM produtos pv
          WHERE pv.id = o.produto_id
            AND (pv.excluido = 1
              OR pv.disponivel = 0
              OR (pv.controla_estoque = 1 AND pv.estoque <= 0))
-      )`;
+      ) AS esgotado`;
 
 /**
  * AS OPÇÕES de todos esses grupos, também de uma vez.
