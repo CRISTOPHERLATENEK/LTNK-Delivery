@@ -944,6 +944,31 @@ function GerenciarCozinha() {
 
 const STATUS_ATIVOS = ['pendente', 'aceito', 'preparando', 'pronto', 'em_entrega'];
 
+/**
+ * A CONFIGURAÇÃO DA IMPRESSORA, lida da mesma fonte que a impressão automática.
+ *
+ * Existe porque o botão manual chamava `imprimirPedidoPainel(pedido)` SEM
+ * configuração: a impressão automática saía em 58mm com o nome da loja, e a
+ * segunda via do mesmo pedido saía em 80mm e sem nome. Numa bobina de 58mm o
+ * cupom de 80 sai cortado nas laterais — e quem imprime a segunda via está
+ * justamente resolvendo um problema, não criando outro.
+ *
+ * `staleTime` de 60s na consulta da loja significa que isto não custa rede: o
+ * dado já está em memória quando o botão é apertado.
+ */
+function useConfigImpressao(): { largura: '80' | '58'; loja_nome: string } {
+  const { data } = useQuery({
+    queryKey: ['minha-loja-cfg'],
+    queryFn: () => api<{ loja: Record<string, unknown> }>('GET', '/api/lojista/loja'),
+    staleTime: 60000,
+  });
+  const loja = data?.loja;
+  return {
+    largura: String(loja?.impressora_largura ?? '80') === '58' ? '58' : '80',
+    loja_nome: String(loja?.nome ?? ''),
+  };
+}
+
 function imprimirPedidoPainel(p: PedidoComItens, config?: { largura?: '80' | '58'; loja_nome?: string }) {
   const largura = config?.largura === '58' ? '58' : '80';
   const larguraMm = largura === '58' ? 58 : 80;
@@ -1199,6 +1224,7 @@ function PedidosLoja() {
 
 function CardHistoricoPedido({ pedido }: { pedido: PedidoComItens }) {
   const { mostrar } = useToast();
+  const impressao = useConfigImpressao();
   const [expandido, setExpandido] = useState(false);
   const [emitindo, setEmitindo] = useState(false);
   const [notaFeita, setNotaFeita] = useState(false);
@@ -1245,13 +1271,39 @@ function CardHistoricoPedido({ pedido }: { pedido: PedidoComItens }) {
   return (
     <Card>
       <CardContent className="p-4">
-        <button className="w-full flex items-center gap-3 text-left" onClick={() => setExpandido(e => !e)}>
-          <span className="font-mono text-xs text-muted-foreground">#{pedido.id}</span>
-          <Badge variant={(STATUS_COR[pedido.status] as any) ?? 'secondary'}>{pedido.status}</Badge>
-          <span className="flex-1 text-sm font-semibold truncate">{pedido.cliente_nome}</span>
-          <span className="tabular-nums font-bold text-sm shrink-0">{brl(pedido.total_centavos)}</span>
-          <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline">{dataLocal(pedido.criado_em)}</span>
-        </button>
+        {/*
+          A SEGUNDA VIA MORA AQUI, e antes não existia em lugar nenhum.
+          "depois que finalizar o pedido, no histórico tem que ter o botão de
+           imprimir outra via."
+
+          O ícone de impressora só existia no cartão dos pedidos ATIVOS — e
+          segunda via é exatamente o que se pede DEPOIS: o cliente ligou, o
+          cupom rasgou, o entregador perdeu. Quando o pedido saía da fila, a
+          reimpressão virava caminho sem saída.
+
+          FORA do botão que expande, e não dentro: botão dentro de botão é HTML
+          inválido, o navegador desmonta a marcação e o clique passa a acertar
+          os dois. Por isso a linha virou um `div` com dois filhos.
+        */}
+        <div className="flex items-center gap-1">
+          <button className="flex min-w-0 flex-1 items-center gap-3 text-left" onClick={() => setExpandido(e => !e)}>
+            <span className="font-mono text-xs text-muted-foreground">#{pedido.id}</span>
+            <Badge variant={(STATUS_COR[pedido.status] as any) ?? 'secondary'}>{pedido.status}</Badge>
+            <span className="flex-1 text-sm font-semibold truncate">{pedido.cliente_nome}</span>
+            <span className="tabular-nums font-bold text-sm shrink-0">{brl(pedido.total_centavos)}</span>
+            <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline">{dataLocal(pedido.criado_em)}</span>
+          </button>
+          {/* 44×44: é alvo de dedo no celular do balcão, não ícone de mesa. */}
+          <button
+            type="button"
+            onClick={() => imprimirPedidoPainel(pedido, impressao)}
+            aria-label={`Imprimir outra via do pedido #${pedido.id}`}
+            title="Imprimir outra via"
+            className="flex size-11 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent"
+          >
+            <Printer className="size-5" />
+          </button>
+        </div>
         {expandido && (
           <div className="mt-3 pt-3 border-t space-y-1 text-sm">
             {pedido.itens?.map((i, idx) => (
@@ -1286,6 +1338,9 @@ function CardPedidoLojista({ pedido, aoAtualizar, agora }: {
    */
   const urg = urgenciaPedido(pedido.criado_em, agora);
   const { mostrar } = useToast();
+  /* Mesma configuração da impressão automática — ver `useConfigImpressao`. O
+     botão daqui imprimia em 80mm mesmo em loja de 58mm. */
+  const impressao = useConfigImpressao();
   const [recusando, setRecusando] = useState(false);
   const [motivoRecusa, setMotivoRecusa] = useState('');
   const [carregando, setCarregando] = useState(false);
@@ -1477,7 +1532,7 @@ function CardPedidoLojista({ pedido, aoAtualizar, agora }: {
                 mínimo tocável, e `title` não é lido como nome do botão. */}
             <button
               type="button"
-              onClick={() => imprimirPedidoPainel(pedido)}
+              onClick={() => imprimirPedidoPainel(pedido, impressao)}
               aria-label={`Imprimir pedido #${pedido.id}`}
               className="flex size-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent"
             >
