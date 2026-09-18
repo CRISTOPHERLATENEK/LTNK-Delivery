@@ -145,7 +145,14 @@ export function despacharImpressao(html: string, larguraMm: number, blocos?: Blo
  * `96px = 1in = 25.4mm` é a régua do CSS, não uma aproximação: unidade física
  * em CSS é definida a partir do pixel de referência, independente da tela.
  */
-export function regraDePagina(html: string, alturaPx: number): string | null {
+export interface RegraDeImpressao {
+  /** Vai no documento de CIMA — é de lá que o Chrome lê o papel. */
+  pagina: string;
+  /** Vai dentro do iframe, junto do cupom. */
+  corpo: string;
+}
+
+export function regraDePagina(html: string, alturaPx: number): RegraDeImpressao | null {
   /* A largura vem do `@page` que o próprio cupom declarou — assim isto vale
      para os quatro geradores (painel, PDV, comanda, DANFE) sem que nenhum
      precise passar parâmetro novo. Sem `@page`, não é cupom de bobina: deixa o
@@ -202,9 +209,29 @@ export function regraDePagina(html: string, alturaPx: number): string | null {
    * ocupar exatamente os mesmos 76mm de antes, e o papel acaba onde o cupom
    * acaba.
    */
-  return `@page { size: ${largura[1]}mm ${alturaMm}mm; margin: 0; }
-`
-    + `body { width: ${largura[1]}mm; padding: ${margem}mm; }`;
+  /*
+   * ─────── AS DUAS REGRAS VÃO PARA DOCUMENTOS DIFERENTES ───────
+   *
+   * E é isto que faltava para qualquer das tentativas anteriores funcionar.
+   *
+   * `abrirEImprimir` ERA UM POPUP e virou um IFRAME oculto — está escrito no
+   * comentário dele: o popup travava o painel, porque `print()` é modal e o
+   * popup dividia o event loop com a aba que o abriu. A troca resolveu o
+   * travamento e trouxe um efeito que ninguém viu: o Chrome tira o TAMANHO DO
+   * PAPEL do documento de TOPO, não do iframe que está sendo impresso.
+   *
+   * Ou seja: o `@page` dos cupons parou de valer no dia dessa troca, e a
+   * impressão passou a cair no papel padrão do sistema. Foi por isso que nem o
+   * `size` nem o `margin: 0` mudaram nada nos testes do lojista — a regra nunca
+   * chegou a ser lida.
+   *
+   * Então a regra da FOLHA vai para o documento de cima (o painel), e a do
+   * CORPO fica no iframe, junto do cupom que ela formata.
+   */
+  return {
+    pagina: `@page { size: ${largura[1]}mm ${alturaMm}mm; margin: 0; }`,
+    corpo: `body { width: ${largura[1]}mm; padding: ${margem}mm; }`,
+  };
 }
 
 /**
@@ -228,7 +255,7 @@ export function regraDePagina(html: string, alturaPx: number): string | null {
  * o endereço ocupa. Por isso a medição é aqui, com o documento pronto, e não uma
  * conta no gerador do HTML.
  */
-function ajustarAlturaDaPagina(doc: Document, html: string): void {
+function ajustarAlturaDaPagina(doc: Document, html: string): () => void {
   try {
     /*
      * `body.scrollHeight`, E SÓ ELE.
@@ -249,13 +276,31 @@ function ajustarAlturaDaPagina(doc: Document, html: string): void {
      * melhor sair na folha do sistema do que numa folha de zero milímetro.
      */
     const regra = regraDePagina(html, doc.body?.scrollHeight ?? 0);
-    if (!regra) return;
-    const estilo = doc.createElement('style');
-    estilo.textContent = regra;
-    doc.head?.appendChild(estilo);
+    if (!regra) return () => {};
+
+    const noCupom = doc.createElement('style');
+    noCupom.textContent = regra.corpo;
+    doc.head?.appendChild(noCupom);
+
+    /*
+     * NO DOCUMENTO DE CIMA, e é o ponto todo — ver `regraDePagina`. É de lá que
+     * o Chrome lê o papel, mesmo quando quem imprime é o iframe.
+     */
+    const noPainel = document.createElement('style');
+    noPainel.media = 'print';
+    noPainel.textContent = regra.pagina;
+    document.head.appendChild(noPainel);
+
+    /*
+     * E SAI DEPOIS. Um `@page` de 58mm esquecido no painel faria a PRÓXIMA
+     * impressão de qualquer outra coisa — um relatório, a lista de produtos —
+     * sair no tamanho de um cupom, e ninguém ligaria uma coisa à outra.
+     */
+    return () => { noPainel.remove(); };
   } catch {
     /* Medição é melhoria, não requisito: falhar aqui não pode impedir o cupom
        de sair. Sem ela, volta a sair na folha do sistema, como saía antes. */
+    return () => {};
   }
 }
 
@@ -268,9 +313,14 @@ export function abrirEImprimir(html: string): void {
   quadro.style.cssText = 'position:fixed;left:-10000px;top:0;width:380px;height:800px;border:0;';
 
   let jaLimpou = false;
+  /* Tira o `@page` do painel quando a impressão acaba — preenchido na hora de
+     imprimir, porque só ali a regra existe. */
+  let limparRegraDaPagina: () => void = () => {};
+
   const limpar = () => {
     if (jaLimpou) return;
     jaLimpou = true;
+    limparRegraDaPagina();
     quadro.remove();
   };
 
@@ -296,7 +346,7 @@ export function abrirEImprimir(html: string): void {
     jaImprimiu = true;
     /* ANTES do `print()`: o diálogo lê o `@page` no momento em que abre, e
        injetar depois não muda mais nada. */
-    ajustarAlturaDaPagina(doc, html);
+    limparRegraDaPagina = ajustarAlturaDaPagina(doc, html);
     try {
       // `afterprint` cobre imprimir e cancelar. Onde não dispara, o timeout
       // abaixo garante que o iframe não fique pra sempre no DOM.

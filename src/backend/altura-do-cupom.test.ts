@@ -34,7 +34,7 @@ const IMPRESSAO = semComentarios(ler('frontend', 'src', 'lib', 'impressao.ts'));
 const CUPOM = '<style>@page { size: 80mm auto; margin: 2mm; }</style>';
 
 /** Só a linha do `@page`, que é onde mora o tamanho. */
-const pagina = (regra: string | null) => (regra ?? '').split(String.fromCharCode(10))[0];
+const pagina = (regra: { pagina: string } | null) => regra?.pagina ?? '';
 
 describe('a altura vem do conteúdo', () => {
   /* 96px = 1in = 25.4mm é a régua do CSS, não uma aproximação. 300px = 79,375mm
@@ -76,7 +76,9 @@ describe('a altura vem do conteúdo', () => {
      o que faz valer para 58mm sem passar parâmetro novo. */
   it('respeita a largura declarada pelo cupom', () => {
     const bobina58 = '<style>@page { size: 58mm auto; margin: 2mm; }</style>';
-    expect(regraDePagina(bobina58, 300)).toContain('size: 58mm');
+    const r = regraDePagina(bobina58, 300)!;
+    expect(r.pagina).toContain('size: 58mm');
+    expect(r.corpo).toContain('width: 58mm');
   });
 });
 
@@ -144,14 +146,13 @@ describe('como a regra é aplicada', () => {
    * (76mm) — exatamente a largura de antes.
    */
   it('devolve a margem como recuo, sem estreitar o texto', () => {
-    const regra = regraDePagina(CUPOM, 300)!;
-    expect(regra).toContain('body { width: 80mm; padding: 2mm; }');
+    expect(regraDePagina(CUPOM, 300)!.corpo).toBe('body { width: 80mm; padding: 2mm; }');
   });
 
   /* Cupom sem margem nenhuma não ganha recuo inventado. */
   it('margem zero continua zero', () => {
     const semMargem = '<style>@page { size: 58mm auto; margin: 0 }</style>';
-    expect(regraDePagina(semMargem, 300)).toContain('body { width: 58mm; padding: 0mm; }');
+    expect(regraDePagina(semMargem, 300)!.corpo).toBe('body { width: 58mm; padding: 0mm; }');
   });
 
   /*
@@ -209,5 +210,69 @@ describe('os quatro geradores de cupom passam por aqui', () => {
     expect((IMPRESSAO.match(/ajustarAlturaDaPagina\(/g) || []).length).toBe(2);
     const PAINEL = ler('frontend', 'src', 'pages', 'lojista', 'painel.tsx');
     expect(PAINEL).toContain('despacharImpressao(html, larguraMm, blocos)');
+  });
+});
+
+describe('a folha e o corpo vão para documentos diferentes', () => {
+  /*
+   * ─────── A DESCOBERTA QUE FEZ TUDO FUNCIONAR ───────
+   *
+   * "a pré-visualização tem que sair como se fosse cupom 80mm ou 58mm" — e não
+   * saía, com nenhuma das tentativas anteriores.
+   *
+   * `abrirEImprimir` ERA UM POPUP e virou um IFRAME oculto — está no comentário
+   * dele: o popup travava o painel, porque `print()` é modal e o popup dividia o
+   * event loop com a aba. A troca resolveu o travamento e trouxe um efeito que
+   * ninguém viu: o Chrome tira o TAMANHO DO PAPEL do documento de TOPO, não do
+   * iframe que está sendo impresso.
+   *
+   * O `@page` dos cupons parou de valer no dia dessa troca, e a impressão passou
+   * a cair no papel do sistema. Foi por isso que nem o `size` nem o `margin: 0`
+   * mudaram nada nos testes do lojista: a regra nunca chegou a ser lida.
+   *
+   * Medido no navegador com a regra no lugar certo: a folha virou 219px — 58mm
+   * exatos — e o `@page` apareceu como CSSPageRule de verdade no topo.
+   */
+  it('a regra da folha é separada da do corpo', () => {
+    const r = regraDePagina(CUPOM, 300)!;
+    expect(r.pagina.startsWith('@page')).toBe(true);
+    expect(r.corpo.startsWith('body')).toBe(true);
+    /* Nenhuma das duas carrega a outra: elas vão para documentos diferentes. */
+    expect(r.pagina).not.toContain('body');
+    expect(r.corpo).not.toContain('@page');
+  });
+
+  it('a folha vai para o documento de cima, o corpo para o iframe', () => {
+    expect(IMPRESSAO).toContain('noCupom.textContent = regra.corpo;');
+    expect(IMPRESSAO).toContain('doc.head?.appendChild(noCupom);');
+    /* `document`, sem o `doc.` — é o painel, não o cupom. */
+    expect(IMPRESSAO).toContain('noPainel.textContent = regra.pagina;');
+    expect(IMPRESSAO).toContain('document.head.appendChild(noPainel);');
+  });
+
+  /* `media="print"` para a regra não interferir na tela do painel enquanto
+     está lá. */
+  it('a regra do painel só vale na impressão', () => {
+    expect(IMPRESSAO).toContain("noPainel.media = 'print';");
+  });
+
+  /*
+   * E SAI DEPOIS. Um `@page` de 58mm esquecido no painel faria a PRÓXIMA
+   * impressão de qualquer outra coisa — um relatório, a lista de produtos —
+   * sair no tamanho de um cupom, e ninguém ligaria uma coisa à outra.
+   */
+  it('a regra é removida quando a impressão acaba', () => {
+    expect(IMPRESSAO).toContain('return () => { noPainel.remove(); };');
+    expect(IMPRESSAO).toContain('limparRegraDaPagina = ajustarAlturaDaPagina(doc, html);');
+    const i = IMPRESSAO.indexOf('const limpar = () => {');
+    expect(IMPRESSAO.slice(i, i + 200)).toContain('limparRegraDaPagina();');
+  });
+
+  /* Falha na medição não pode deixar o painel sem função de limpeza — um
+     `undefined()` ali derrubaria a limpeza do iframe junto. */
+  it('sempre devolve uma função, mesmo falhando', () => {
+    const i = IMPRESSAO.indexOf('function ajustarAlturaDaPagina(');
+    const corpo = IMPRESSAO.slice(i, IMPRESSAO.indexOf('export function abrirEImprimir', i));
+    expect((corpo.match(/return \(\) => \{\};/g) || []).length).toBe(2);
   });
 });
