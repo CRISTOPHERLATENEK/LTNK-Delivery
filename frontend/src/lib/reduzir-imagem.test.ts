@@ -10,7 +10,7 @@
  *  - reprocessar o que já estava bom corta qualidade de graça.
  */
 import { describe, it, expect } from 'vitest';
-import { dimensoesReduzidas, precisaReduzir } from './reduzir-imagem';
+import { dimensoesReduzidas, precisaReduzir, tipoDeSaida } from './reduzir-imagem';
 
 describe('dimensoesReduzidas', () => {
   it('não mexe no que já cabe', () => {
@@ -86,5 +86,40 @@ describe('precisaReduzir', () => {
   it('aceita limites próprios', () => {
     expect(precisaReduzir('image/jpeg', 10 * 1024, 600, 600, 500, 900 * 1024)).toBe(true);
     expect(precisaReduzir('image/jpeg', 10 * 1024, 400, 400, 500, 900 * 1024)).toBe(false);
+  });
+});
+
+/**
+ * O FORMATO DE SAÍDA, que é onde o logo estragava.
+ *
+ * Isto é regressão de um defeito que chegou à produção: o logo do rodapé subiu
+ * com TARJA PRETA no lugar da transparência. A saída era JPEG para toda entrada,
+ * e JPEG não tem canal alfa — o transparente do PNG virava preto no encoder do
+ * navegador, antes de o arquivo sair da máquina do lojista. Conferido no
+ * servidor: chegou `image/jpeg`, gravado `hasAlpha=false`.
+ */
+describe('tipoDeSaida', () => {
+  /* Fotografia continua em JPEG: é o caso que motivou a redução, e JPEG não tem
+     o que preservar — a origem já não tinha alfa. */
+  it('foto JPEG continua saindo JPEG', () => {
+    expect(tipoDeSaida('image/jpeg')).toBe('image/jpeg');
+  });
+
+  /* O CASO DO LOGO. PNG pode ter transparência, então a saída precisa de um
+     formato que também tenha. */
+  it('PNG sai em WebP, que tem canal alfa', () => {
+    expect(tipoDeSaida('image/png')).toBe('image/webp');
+  });
+
+  it('WebP e AVIF, que também têm alfa, não caem em JPEG', () => {
+    expect(tipoDeSaida('image/webp')).toBe('image/webp');
+    expect(tipoDeSaida('image/avif')).toBe('image/webp');
+  });
+
+  /* A regra é "só JPEG sai JPEG". Um tipo desconhecido que chegue aqui não pode
+     ser achatado por descuido: na dúvida, o formato com alfa. */
+  it('tipo desconhecido não vira JPEG', () => {
+    expect(tipoDeSaida('image/bmp')).toBe('image/webp');
+    expect(tipoDeSaida('')).toBe('image/webp');
   });
 });

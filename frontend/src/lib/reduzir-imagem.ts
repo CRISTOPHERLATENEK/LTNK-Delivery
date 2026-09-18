@@ -25,7 +25,19 @@
 const LADO_MAX = 1280;
 /** Acima disto vale reprocessar mesmo se as dimensões couberem (PNG de tela). */
 const BYTES_MAX = 600 * 1024;
+/** Fotografia: 0,82 é o meio usado para catálogo, e foi conferido nas fotos da loja. */
 const QUALIDADE = 0.82;
+/**
+ * ARTE COM TRANSPARÊNCIA SAI EM QUALIDADE MAIOR: 0,92.
+ *
+ * O que entra por aqui é logo, ícone, selo — cor chapada e texto com borda viva,
+ * onde a compressão com perda deixa franja visível em volta das letras. E é a
+ * segunda compressão do caminho: o servidor converte de novo para WebP 82. A
+ * primeira passagem precisa chegar limpa na segunda, senão o defeito de uma
+ * entra na outra. Em foto isso não valeria o peso; em logo, vale — são poucos
+ * arquivos, e são justamente os que aparecem em toda página.
+ */
+const QUALIDADE_ARTE = 0.92;
 
 /**
  * GIF NÃO PASSA POR AQUI. Desenhar num canvas achata a animação no primeiro
@@ -64,6 +76,41 @@ export function dimensoesReduzidas(
   };
 }
 
+/**
+ * O FORMATO DE SAÍDA — e por que ele não pode ser sempre JPEG.
+ *
+ * ERA SEMPRE JPEG, INCLUSIVE PARA PNG, e JPEG NÃO TEM CANAL ALFA. O canvas
+ * desenha o PNG transparente, o encoder descarta a transparência, e o que era
+ * "nada" vira PRETO. O logo do rodapé subiu exatamente assim — medido no
+ * servidor em 18/09/2026, no arquivo que o painel acabara de gravar:
+ *
+ *   chegou ....... image/jpeg, 42 KB
+ *   gravado ...... webp 800x267, hasAlpha=false, isOpaque=true
+ *
+ * O servidor converte para WebP depois e o WebP guarda alfa, mas aí não há mais
+ * alfa nenhum para guardar: o preto já é pixel desde o navegador. Por isso o
+ * conserto é AQUI, e não lá.
+ *
+ * A REGRA: só quem não pode ter transparência na origem sai em JPEG. O resto sai
+ * em WebP, que tem alfa e comprime melhor que o PNG de entrada — o ganho que
+ * motivou este arquivo continua de pé, sem a tarja preta junto.
+ *
+ * Navegador sem WebP no `toBlob` devolve PNG (é o que a especificação manda
+ * quando o tipo não é suportado), e PNG também tem alfa: o pior caso é um
+ * arquivo maior, nunca um logo estragado. E se ficar maior que o original, o
+ * original é que sobe — a comparação de tamanho logo abaixo cuida disso.
+ */
+export function tipoDeSaida(tipoEntrada: string): string {
+  return tipoEntrada === 'image/jpeg' ? 'image/jpeg' : 'image/webp';
+}
+
+/** A extensão que combina com o que o navegador REALMENTE produziu. */
+const EXT_POR_TIPO: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+  'image/png': '.png',
+};
+
 /** Vale reprocessar? Só se estourar dimensão OU peso. */
 export function precisaReduzir(
   tipo: string, bytes: number, largura: number, altura: number,
@@ -97,21 +144,18 @@ export async function reduzirImagem(file: File): Promise<ResultadoReducao> {
     ctx.drawImage(bitmap, 0, 0, largura, altura);
     bitmap.close();
 
-    /*
-     * SAI SEMPRE COMO JPEG, inclusive PNG de entrada.
-     *
-     * PNG de foto é o pior caso do cardápio: um print de 1 MB que o JPEG resolve
-     * em 80 KB. E transparência não serve pra foto de produto — o card tem fundo
-     * branco. Logo e favicon usam este mesmo componente, mas raramente estouram
-     * o limite, então continuam passando intactos.
-     */
+    const alvo = tipoDeSaida(file.type);
     const blob = await new Promise<Blob | null>(resolve =>
-      canvas.toBlob(resolve, 'image/jpeg', QUALIDADE));
+      canvas.toBlob(resolve, alvo, alvo === 'image/jpeg' ? QUALIDADE : QUALIDADE_ARTE));
     if (!blob || blob.size >= file.size) return { arquivo: file, intacto: true };
 
-    const nome = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+    /* O tipo REAL do que saiu, não o que se pediu: onde o `toBlob` não conhece
+       WebP ele devolve PNG calado, e o nome e o mimetype precisam acompanhar —
+       é pelo mimetype que o servidor escolhe a extensão que vai para o disco. */
+    const tipo = blob.type || alvo;
+    const nome = file.name.replace(/\.[^.]+$/, '') + (EXT_POR_TIPO[tipo] ?? '.jpg');
     return {
-      arquivo: new File([blob], nome, { type: 'image/jpeg', lastModified: Date.now() }),
+      arquivo: new File([blob], nome, { type: tipo, lastModified: Date.now() }),
       intacto: false,
     };
   } catch {
