@@ -6666,8 +6666,23 @@ router.get('/categorias', async (req, res, next) => {
     ).all(loja.id) as Array<{ categoria: string; foto: string }>;
     const autoMapa = new Map(autos.map(a => [a.categoria, a.foto]));
 
+    /*
+     * QUANTOS PRODUTOS EM CADA UMA.
+     *
+     * A tela de Categorias precisa do número por dois motivos: é ele que separa
+     * "SALGADOS 12" de "SALGADINHOS 7" — dois nomes que sem a contagem só se
+     * distinguem abrindo cada um — e é ele que permite perguntar "e os 60
+     * produtos?" ANTES de apagar, em vez de descobrir no 409 do servidor.
+     */
+    const contagens = await db.prepare(
+      `SELECT categoria, COUNT(*) AS quantos FROM produtos
+        WHERE loja_id = ? AND excluido = 0 AND categoria <> ''
+        GROUP BY categoria`
+    ).all(loja.id) as Array<{ categoria: string; quantos: number }>;
+    const contaMapa = new Map(contagens.map(c => [c.categoria, Number(c.quantos)]));
+
     const categorias = [...mapa.values()]
-      .map(c => ({ ...c, imagem_auto: autoMapa.get(c.nome) || '' }))
+      .map(c => ({ ...c, imagem_auto: autoMapa.get(c.nome) || '', produtos: contaMapa.get(c.nome) ?? 0 }))
       .sort((a, b) => a.ordem - b.ordem || a.nome.localeCompare(b.nome));
     res.json({
       categorias,
