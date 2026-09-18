@@ -475,6 +475,8 @@ export function PaginaLoja({ idFixo }: { idFixo?: number | string } = {}) {
             loop={visual.banners.loop}
             mostrarIndicadores={visual.banners.mostrar_indicadores}
             mostrarSetas={visual.banners.mostrar_setas}
+            estilo={visual.banners.estilo}
+            mostrarTexto={visual.banners.mostrar_texto}
           />
         )}
 

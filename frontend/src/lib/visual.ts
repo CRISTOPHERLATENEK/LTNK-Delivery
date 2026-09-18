@@ -65,6 +65,7 @@ export const DEFAULT_VISUAL: VisualJson = {
     fonte: 'inter', peso: 600, espacamento: 0, tamanho_base: 15, altura_linha: 1.5,
   },
   banners: {
+    estilo: 'destaque', mostrar_texto: true,
     botao_texto: '', tempo_rotacao_ms: 5000, loop: true,
     mostrar_indicadores: true, mostrar_setas: true,
   },

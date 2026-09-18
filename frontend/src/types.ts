@@ -167,6 +167,18 @@ export interface VisualJson {
     altura_linha: number;
   };
   banners: {
+    /**
+     * COMO A FAIXA DE BANNERS SE APRESENTA.
+     *
+     *   destaque .. um banner por vez, ocupando a largura toda (o de sempre)
+     *   faixa ..... varios lado a lado, arrastaveis — tres no desktop
+     *
+     * 'destaque' e o padrao porque e o que ja estava no ar: loja nenhuma muda
+     * de cara sozinha por causa deste campo existir.
+     */
+    estilo: 'destaque' | 'faixa';
+    /** Titulo/subtitulo/CTA por cima da imagem. Arte que ja traz o texto escrito nao precisa. */
+    mostrar_texto: boolean;
     botao_texto: string;
     tempo_rotacao_ms: number;
     loop: boolean;

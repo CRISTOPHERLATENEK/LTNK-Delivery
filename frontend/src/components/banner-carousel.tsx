@@ -18,28 +18,60 @@ interface Props {
   loop?: boolean;
   mostrarIndicadores?: boolean;
   mostrarSetas?: boolean;
+  /** 'destaque' = um por vez (o de sempre) · 'faixa' = vários lado a lado. */
+  estilo?: 'destaque' | 'faixa';
+  /** Título/subtítulo/CTA por cima da imagem. */
+  mostrarTexto?: boolean;
 }
 
 export function BannerCarousel({
   banners, onProdutoClick,
   tempoRotacaoMs = 5000, loop = true, mostrarIndicadores = true, mostrarSetas = true,
+  estilo = 'destaque', mostrarTexto = true,
 }: Props) {
   const [atual, setAtual] = useState(0);
   const [pausado, setPausado] = useState(false);
   const navigate = useNavigate();
   const total = banners.length;
   const cronoRef = useRef<number | null>(null);
+  const faixaRef = useRef<HTMLDivElement>(null);
 
   const ir = (i: number) => setAtual(((i % total) + total) % total);
   const proximo = () => ir(loop ? atual + 1 : Math.min(atual + 1, total - 1));
   const anterior = () => ir(loop ? atual - 1 : Math.max(atual - 1, 0));
 
   useEffect(() => {
+    if (estilo === 'faixa') return; // a faixa anda por rolagem, não por índice
     if (pausado || total < 2) return;
     if (!loop && atual === total - 1) return;
     cronoRef.current = window.setTimeout(() => setAtual(v => (loop ? (v + 1) % total : Math.min(v + 1, total - 1))), tempoRotacaoMs);
     return () => { if (cronoRef.current) clearTimeout(cronoRef.current); };
-  }, [atual, pausado, total, loop, tempoRotacaoMs]);
+  }, [atual, pausado, total, loop, tempoRotacaoMs, estilo]);
+
+  /*
+   * A FAIXA ANDA COM A ROLAGEM NATIVA, não com um índice.
+   *
+   * É o que dá arraste no dedo, no trackpad e na barra sem uma linha de
+   * JavaScript — e é como o cliente espera que uma fileira de cards funcione.
+   * O autoplay aqui empurra a rolagem um cartão por vez; ao chegar no fim,
+   * volta ao começo se o loop estiver ligado.
+   */
+  useEffect(() => {
+    if (estilo !== 'faixa' || pausado || total < 2 || !tempoRotacaoMs) return;
+    const el = faixaRef.current;
+    if (!el) return;
+    const t = window.setInterval(() => {
+      const passo = el.firstElementChild?.getBoundingClientRect().width ?? el.clientWidth;
+      const fim = el.scrollWidth - el.clientWidth - 8;
+      if (el.scrollLeft >= fim) {
+        if (!loop) return;
+        el.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        el.scrollBy({ left: passo + 10, behavior: 'smooth' });
+      }
+    }, tempoRotacaoMs);
+    return () => clearInterval(t);
+  }, [estilo, pausado, total, loop, tempoRotacaoMs]);
 
   if (total === 0) return null;
   const banner = banners[atual];
@@ -55,6 +87,67 @@ export function BannerCarousel({
       window.open(b.link_url, '_blank', 'noopener');
     }
   };
+
+  /*
+   * ───────────────── FAIXA: VÁRIOS BANNERS LADO A LADO ─────────────────
+   *
+   * Pedido olhando um concorrente: "quero que os banner de promoção seja
+   * assim". Medido lá: três por vez no desktop, proporção 8:3, 10px entre eles,
+   * cantos de 8px, sem autoplay, arrastando com o dedo.
+   *
+   * A PROPORÇÃO É 8:3 E NÃO 12:5 (a do destaque) porque é a da arte que o
+   * lojista já produz para esse formato — 1200x450. Com a proporção do
+   * destaque, a mesma imagem sairia cortada em cima e embaixo.
+   *
+   * Larguras por faixa de tela, e não um número fixo de colunas: no celular o
+   * banner ocupa quase tudo e deixa a "espiada" do próximo aparecendo — é o que
+   * conta pro cliente que dá pra arrastar, sem precisar de seta nem de texto.
+   */
+  if (estilo === 'faixa') {
+    return (
+      <section
+        className="mb-5"
+        onMouseEnter={() => setPausado(true)}
+        onMouseLeave={() => setPausado(false)}
+        aria-roledescription="carousel"
+      >
+        <div className="relative">
+          <div
+            ref={faixaRef}
+            className="flex gap-2.5 overflow-x-auto scroll-smooth snap-x snap-mandatory pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          >
+            {banners.map((b, i) => (
+              <button
+                key={b.id}
+                type="button"
+                onClick={() => abrir(b)}
+                aria-label={`Banner ${i + 1} de ${total}: ${b.titulo}`}
+                className="relative shrink-0 snap-start basis-[86%] sm:basis-[47%] lg:basis-[calc(33.333%-7px)] overflow-hidden rounded-lg bg-black text-left"
+              >
+                <div className="aspect-[8/3]">
+                  <ImagemBanner src={b.imagem} alt={b.titulo} />
+                </div>
+                {mostrarTexto && (b.titulo || b.subtitulo) && (
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/35 to-transparent p-3 pt-10 text-white">
+                    <div className="text-sm font-bold leading-tight line-clamp-2">{b.titulo}</div>
+                    {b.subtitulo && <div className="text-xs text-white/75 line-clamp-1">{b.subtitulo}</div>}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* As setas rolam a faixa um cartão por vez — o índice não vale aqui. */}
+          {mostrarSetas && total > 1 && (
+            <>
+              <SetaCarrossel lado="esquerda" onClick={() => rolarFaixa(faixaRef.current, -1)} />
+              <SetaCarrossel lado="direita" onClick={() => rolarFaixa(faixaRef.current, 1)} />
+            </>
+          )}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -76,6 +169,7 @@ export function BannerCarousel({
             aria-label={`Slide ${atual + 1} de ${total}: ${banner.titulo}`}
           >
             <ImagemBanner src={banner.imagem} alt={banner.titulo} />
+            {mostrarTexto && (
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent p-5 pt-16 text-white">
               {(banner.loja_nome || banner.produto_nome) && (
                 <div className="text-[11px] font-bold uppercase tracking-widest text-white/80 mb-1">
@@ -92,6 +186,7 @@ export function BannerCarousel({
                 </span>
               )}
             </div>
+            )}
           </motion.button>
         </AnimatePresence>
       </div>
@@ -124,6 +219,13 @@ export function BannerCarousel({
       )}
     </section>
   );
+}
+
+/** Rola a faixa um cartao (mais o vao) pro lado pedido. */
+function rolarFaixa(el: HTMLDivElement | null, direcao: 1 | -1): void {
+  if (!el) return;
+  const passo = el.firstElementChild?.getBoundingClientRect().width ?? el.clientWidth;
+  el.scrollBy({ left: direcao * (passo + 10), behavior: 'smooth' });
 }
 
 function SetaCarrossel({ onClick, lado }: { onClick: () => void; lado: 'esquerda' | 'direita' }) {

@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { BannersLoja } from '../../banners';
 import type { EstadoVisual } from '../types';
+import { cn } from '@/lib/utils';
 
 interface Props {
   estado: EstadoVisual;
@@ -19,12 +20,70 @@ function Toggle({ label, ativo, onClick }: { label: string; ativo: boolean; onCl
   );
 }
 
+/**
+ * OS DOIS JEITOS DE MOSTRAR OS BANNERS.
+ *
+ * O desenho de cada um está no próprio botão, em miniatura: descrever "um por
+ * vez" e "vários lado a lado" com palavras obriga a imaginar o resultado, e a
+ * escolha é justamente sobre aparência.
+ */
+const ESTILOS = [
+  {
+    v: 'destaque' as const,
+    nome: 'Um por vez',
+    desc: 'Banner grande ocupando a largura toda, trocando sozinho.',
+    Desenho: () => <div className="h-8 w-full rounded bg-current opacity-80" />,
+  },
+  {
+    v: 'faixa' as const,
+    nome: 'Lado a lado',
+    desc: 'Três por vez no computador, arrastando com o dedo no celular.',
+    Desenho: () => (
+      <div className="flex h-8 w-full gap-1">
+        <div className="flex-1 rounded bg-current opacity-80" />
+        <div className="flex-1 rounded bg-current opacity-80" />
+        <div className="flex-1 rounded bg-current opacity-45" />
+      </div>
+    ),
+  },
+];
+
 export function BannersTab({ estado, atualizar }: Props) {
   return (
     <div className="space-y-4">
       <Card>
         <CardContent className="p-5 space-y-4">
           <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+            Como os banners aparecem
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {ESTILOS.map(({ v, nome, desc, Desenho }) => {
+              const ativo = estado.banners.estilo === v;
+              return (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => atualizar('banners.estilo', v)}
+                  aria-pressed={ativo}
+                  className={cn(
+                    'rounded-xl border p-3 text-left transition-colors',
+                    ativo ? 'border-primary bg-primary/5 text-primary' : 'border-border text-muted-foreground hover:border-primary/40',
+                  )}
+                >
+                  <Desenho />
+                  <div className={cn('mt-2 text-sm font-bold', ativo ? 'text-primary' : 'text-foreground')}>{nome}</div>
+                  <div className="text-xs text-muted-foreground">{desc}</div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* A arte do banner quase sempre já traz a chamada escrita — repetir
+              por cima tapa a imagem que o lojista mandou fazer. */}
+          <Toggle label="Mostrar título e subtítulo sobre a imagem" ativo={estado.banners.mostrar_texto}
+            onClick={() => atualizar('banners.mostrar_texto', !estado.banners.mostrar_texto)} />
+
+          <p className="pt-2 text-xs font-bold uppercase tracking-wider text-muted-foreground">
             Rotação do carrossel (vale pra todos os banners)
           </p>
           <div>
@@ -34,8 +93,12 @@ export function BannersTab({ estado, atualizar }: Props) {
           </div>
           <div className="flex flex-wrap gap-2">
             <Toggle label="Loop" ativo={estado.banners.loop} onClick={() => atualizar('banners.loop', !estado.banners.loop)} />
-            <Toggle label="Mostrar indicadores" ativo={estado.banners.mostrar_indicadores}
-              onClick={() => atualizar('banners.mostrar_indicadores', !estado.banners.mostrar_indicadores)} />
+            {/* Bolinha marca 'qual dos N' — com varios visiveis ao mesmo tempo
+                ela nao tem o que apontar, entao some no estilo faixa. */}
+            {estado.banners.estilo !== 'faixa' && (
+              <Toggle label="Mostrar indicadores" ativo={estado.banners.mostrar_indicadores}
+                onClick={() => atualizar('banners.mostrar_indicadores', !estado.banners.mostrar_indicadores)} />
+            )}
             <Toggle label="Mostrar setas" ativo={estado.banners.mostrar_setas}
               onClick={() => atualizar('banners.mostrar_setas', !estado.banners.mostrar_setas)} />
           </div>
