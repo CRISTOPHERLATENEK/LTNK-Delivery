@@ -985,7 +985,9 @@ function imprimirPedidoPainel(p: PedidoComItens, config?: { largura?: '80' | '58
   const pagto =
     p.forma_pagamento === 'pix' ? 'Pix (pago online)'
     : p.forma_pagamento === 'cartao_online' ? 'Cartão (pago online)'
-    : p.forma_pagamento === 'dinheiro' ? `Dinheiro${p.troco_para_centavos ? ` / troco ${fmt(p.troco_para_centavos)}` : ''}`
+    /* No papel, "SEM TROCO" em caixa alta: é instrução para quem está montando
+       a sacola, e precisa ser lida de relance junto com o resto do cupom. */
+    : p.forma_pagamento === 'dinheiro' ? `Dinheiro${p.troco_para_centavos ? ` / troco ${fmt(p.troco_para_centavos)}` : p.precisa_troco === 0 ? ' / SEM TROCO' : ''}`
     : p.forma_pagamento === 'cartao_entrega' ? 'Cartão na entrega — COBRAR'
     : p.forma_pagamento === 'pix_entrega' ? 'Pix na entrega — COBRAR'
     : 'A combinar';
@@ -1524,6 +1526,35 @@ function CardPedidoLojista({ pedido, aoAtualizar, agora }: {
                 {pedido.forma_pagamento === 'pix_entrega' && 'Pix na entrega'}
                 {pedido.forma_pagamento === 'cartao_online' && 'Cartão (pago)'}
               </span>
+              {/*
+                O TROCO NA TELA, e não só no papel.
+
+                O cliente informa no checkout, o cupom impresso já saía com
+                "Dinheiro / troco R$ 50,00" e o app do entregador também mostra —
+                só esta tela, que é onde o pedido é PREPARADO, não mostrava. Quem
+                separa a nota de troco na gaveta é quem está aqui, e descobrir
+                isso na hora da entrega é tarde.
+
+                `> 0` e não `!!`: o campo é opcional no checkout, e não informado
+                chega como 0 ou nulo. Um "troco para R$ 0,00" seria pior que não
+                dizer nada — parece instrução e não é.
+              */}
+              {pedido.forma_pagamento === 'dinheiro' && (pedido.troco_para_centavos ?? 0) > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-lg bg-amber-500/15 px-2 py-0.5 text-sm font-bold text-amber-700 dark:text-amber-400">
+                  troco p/ {brl(pedido.troco_para_centavos!)}
+                </span>
+              )}
+              {/*
+                "SEM TROCO" TAMBÉM É RESPOSTA, e por isso aparece.
+
+                Discreto de propósito: separar troco é ação, não separar não é —
+                o destaque âmbar fica para o caso que exige alguma coisa de
+                quem lê. Pedido antigo, sem resposta, não mostra nada: dizer
+                "sem troco" ali seria inventar o que o cliente não falou.
+              */}
+              {pedido.forma_pagamento === 'dinheiro' && pedido.precisa_troco === 0 && (
+                <span className="text-sm text-muted-foreground">· sem troco</span>
+              )}
             </div>
             <div className="mt-0.5 text-xs text-muted-foreground">{dataLocal(pedido.criado_em)}</div>
           </div>

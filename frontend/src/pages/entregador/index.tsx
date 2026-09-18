@@ -46,6 +46,8 @@ interface Corrida {
   total_centavos: number;
   forma_pagamento: 'pix' | 'dinheiro' | 'cartao_entrega' | 'cartao_online' | 'pix_entrega';
   troco_para_centavos?: number | null;
+  /** null = nao respondeu · 0 = nao precisa · 1 = precisa. */
+  precisa_troco?: 0 | 1 | null;
   loja_nome: string;
   loja_endereco: string;
 }
@@ -799,6 +801,12 @@ function EntregaAtiva() {
               {/* `!!` porque troco ZERO e o caso comum: sem isto a tela do
                   entregador mostrava um "0" solto no lugar da linha de troco. */
               }
+              {p.forma_pagamento === 'dinheiro' && p.precisa_troco === 0 && (
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Troco</span>
+                  <span className="font-semibold text-foreground">não precisa</span>
+                </div>
+              )}
               {!!p.troco_para_centavos && (
                 <div className="flex justify-between text-muted-foreground">
                   <span>Troco para</span>

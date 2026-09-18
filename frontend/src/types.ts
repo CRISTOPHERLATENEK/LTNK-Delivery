@@ -612,6 +612,18 @@ export interface Pedido {
   /** Preenchido quando o pagamento Pix foi estornado (ver POST /lojista/pedidos/:id/estornar). */
   estornado_em?: string | null;
   troco_para_centavos?: number | null;
+  /**
+   * O cliente vai precisar de troco?
+   *
+   *   null .. não respondeu (pedido anterior a esta pergunta existir)
+   *   0 ..... disse que NÃO precisa
+   *   1 ..... disse que precisa — o valor vai em `troco_para_centavos`
+   *
+   * Os três são estados diferentes de propósito: antes só havia o valor, e em
+   * branco "não preciso" e "não respondi" ficavam iguais para quem prepara o
+   * pedido e separa a nota na gaveta.
+   */
+  precisa_troco?: 0 | 1 | null;
   observacoes?: string;
   subtotal_centavos: number;
   taxa_entrega_centavos: number;

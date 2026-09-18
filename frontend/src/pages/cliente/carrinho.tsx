@@ -707,6 +707,9 @@ function Checkout({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pagamentoOnline, pagamento]);
   const [troco, setTroco] = useState('');
+  /* null = ainda nao respondeu. E o estado que o pedido antigo tinha por
+     omissao, e o que a tela agora obriga a sair antes de finalizar. */
+  const [precisaTroco, setPrecisaTroco] = useState<boolean | null>(null);
   const [obs, setObs] = useState('');
   const [enviando, setEnviando] = useState(false);
 
@@ -749,6 +752,22 @@ function Checkout({
   const chaveIdemRef = useRef<string>('');
 
   async function finalizar() {
+    /*
+     * A PERGUNTA DO TROCO É OBRIGATÓRIA NO DINHEIRO — mas o botão NÃO morre.
+     *
+     * Deixar em branco era o defeito: para quem prepara o pedido, "não preciso"
+     * e "não respondi" chegavam iguais, e a nota de troco não era separada.
+     *
+     * E o bloqueio é por AVISO, não desabilitando o botão. Esta tela já teve o
+     * defeito do botão que não fazia nada e não explicava por quê (ver o
+     * comentário do `disabled` lá embaixo) — repetir isso trocaria um problema
+     * por outro pior.
+     */
+    if (pagamento === 'dinheiro' && precisaTroco === null) {
+      mostrar({ tipo: 'erro', titulo: 'Falta dizer se vai precisar de troco.' });
+      document.getElementById('troco-pergunta')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     if (!chaveIdemRef.current) chaveIdemRef.current = crypto.randomUUID();
     setEnviando(true);
     try {
@@ -771,7 +790,8 @@ function Checkout({
         endereco_id: idFinal,
         tipo_entrega: tipoEntrega,
         forma_pagamento: pagamento,
-        troco_para: pagamento === 'dinheiro' && troco ? troco : undefined,
+        troco_para: pagamento === 'dinheiro' && precisaTroco === true && troco ? troco : undefined,
+        precisa_troco: pagamento === 'dinheiro' && precisaTroco !== null ? precisaTroco : undefined,
         observacoes: obs,
         cupom_codigo: cupomCodigo,
         chave_idem: chaveIdemRef.current,
@@ -976,15 +996,51 @@ function Checkout({
           </div>
 
           {pagamento === 'dinheiro' && (
-            <div>
-              <Label htmlFor="troco">Troco para quanto? (opcional)</Label>
-              <Input
-                id="troco"
-                value={troco}
-                onChange={e => setTroco(e.target.value)}
-                inputMode="decimal"
-                placeholder="Ex.: 50,00"
-              />
+            <div id="troco-pergunta" className="space-y-3">
+              {/*
+                A PERGUNTA VEM ANTES DO VALOR, e é a mudança.
+
+                Antes havia só "Troco para quanto? (opcional)". Em branco, quem
+                prepara o pedido não sabia se o cliente não precisava ou só não
+                tinha respondido — e a nota de troco não era separada.
+              */}
+              <div>
+                <Label>Vai precisar de troco?</Label>
+                <div className="mt-1.5 grid grid-cols-2 gap-2">
+                  {([[true, 'Sim, vou precisar'], [false, 'Não preciso']] as const).map(([v, rotulo]) => (
+                    <button
+                      key={String(v)}
+                      type="button"
+                      onClick={() => { setPrecisaTroco(v); if (!v) setTroco(''); }}
+                      aria-pressed={precisaTroco === v}
+                      className={cn(
+                        'rounded-xl border-2 p-3 text-sm font-bold transition-all active:scale-[0.98]',
+                        precisaTroco === v
+                          ? 'border-primary bg-primary/5 text-primary'
+                          : 'border-border text-muted-foreground hover:border-primary/40',
+                      )}
+                    >
+                      {rotulo}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* O valor só existe depois do "sim": perguntar "para quanto" a
+                  quem acabou de dizer que não precisa é pergunta sem sentido. */}
+              {precisaTroco === true && (
+                <div>
+                  <Label htmlFor="troco">Troco para quanto?</Label>
+                  <Input
+                    id="troco"
+                    value={troco}
+                    onChange={e => setTroco(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="Ex.: 50,00"
+                    autoFocus
+                  />
+                </div>
+              )}
             </div>
           )}
         </CardContent>

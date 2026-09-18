@@ -335,6 +335,7 @@ const TABELAS: string[] = [
   tipo_entrega          VARCHAR(10) NOT NULL DEFAULT 'entrega',
   forma_pagamento       VARCHAR(20) NOT NULL CHECK (forma_pagamento IN ('pix','dinheiro','cartao_entrega','cartao_online','pix_entrega')),
   troco_para_centavos   INT,
+  precisa_troco         TINYINT,
   observacoes           TEXT NOT NULL,
   subtotal_centavos     INT NOT NULL,
   taxa_entrega_centavos INT NOT NULL,
@@ -1098,6 +1099,22 @@ export async function inicializarSchema(pool: Pool): Promise<void> {
      * nada.
      */
     ['pedidos', 'tipo_entrega', "tipo_entrega VARCHAR(10) NOT NULL DEFAULT 'entrega'"],
+    /*
+     * PRECISA DE TROCO? — TRES ESTADOS, e e por isso que aceita nulo.
+     *
+     *   nulo .. o cliente nao respondeu (pedido antigo, ou nao perguntamos)
+     *   0 ..... ele disse que NAO precisa
+     *   1 ..... ele disse que precisa (o valor vai em troco_para_centavos)
+     *
+     * Antes so existia o VALOR, e em branco era ambiguo: "nao preciso" e "nao
+     * respondi" ficavam iguais na tela de quem prepara o pedido. Quem separa a
+     * nota de troco na gaveta precisa da diferenca -- e era exatamente a queixa:
+     * "na hora do pagamento nao aparece SE vai precisar de troco".
+     *
+     * Sem DEFAULT: pedido gravado antes disto existir fica nulo, que e a
+     * verdade sobre ele. Um default 0 mentiria dizendo que o cliente recusou.
+     */
+    ['pedidos', 'precisa_troco', 'precisa_troco TINYINT'],
     /*
      * DESLIGADO por padrão, de propósito: ligar retirada em toda loja da
      * plataforma de uma vez faria clientes aparecerem no balcão de cozinhas

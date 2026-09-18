@@ -37,7 +37,7 @@ router.get('/corridas', async (req, res, next) => {
     const lojaId = await lojaDoEntregador(req.usuario!.id);
     const corridas = await db.prepare(
       `SELECT p.id, p.endereco_entrega, p.entrega_lat, p.entrega_lon, p.taxa_entrega_centavos, p.total_centavos,
-              p.forma_pagamento, p.troco_para_centavos, p.criado_em,
+              p.forma_pagamento, p.troco_para_centavos, p.precisa_troco, p.criado_em,
               l.nome AS loja_nome, l.endereco AS loja_endereco
          FROM pedidos p JOIN lojas l ON l.id = p.loja_id
         WHERE p.status = 'pronto' AND p.entregador_id IS NULL
@@ -184,7 +184,7 @@ router.get('/atual', async (req, res, next) => {
   try {
     const pedido = await db.prepare(
       `SELECT p.id, p.endereco_entrega, p.entrega_lat, p.entrega_lon, p.taxa_entrega_centavos, p.total_centavos,
-              p.forma_pagamento, p.troco_para_centavos, p.observacoes, p.entregador_etapa, p.criado_em,
+              p.forma_pagamento, p.troco_para_centavos, p.precisa_troco, p.observacoes, p.entregador_etapa, p.criado_em,
               l.nome AS loja_nome, l.endereco AS loja_endereco, l.lat AS loja_lat, l.lon AS loja_lon,
               u.nome AS cliente_nome, u.telefone AS cliente_telefone
          FROM pedidos p

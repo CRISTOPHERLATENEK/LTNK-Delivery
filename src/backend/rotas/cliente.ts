@@ -513,6 +513,25 @@ router.post('/pedidos', async (req, res, next) => {
       }
     }
 
+    /*
+     * SE VAI PRECISAR DE TROCO — a pergunta, separada do valor.
+     *
+     * Antes só existia o valor, e em branco era ambíguo: "não preciso" e "não
+     * respondi" chegavam iguais na tela de quem prepara o pedido. Quem separa a
+     * nota na gaveta precisa da diferença.
+     *
+     * NULO QUANDO NÃO É DINHEIRO, e não 0: em Pix ou cartão a pergunta não
+     * existe, e responder "não precisa" onde ninguém perguntou é informação
+     * inventada — apareceria na tela do lojista como se o cliente tivesse dito.
+     */
+    let precisaTroco: 0 | 1 | null = null;
+    if (formaPagamento === 'dinheiro' && req.body.precisa_troco !== undefined) {
+      precisaTroco = req.body.precisa_troco ? 1 : 0;
+      /* Disse que não precisa: o valor vai junto, senão sobraria um troco de
+         pedido anterior contradizendo a resposta. */
+      if (precisaTroco === 0) trocoPara = null;
+    }
+
     const comissaoPct = await comissaoPercentualDaLoja(lojaId);
     // Comissão incide sobre o valor líquido (subtotal já com o desconto do cupom).
     const comissao = Math.round(subtotalComDesconto * comissaoPct / 100);
@@ -540,11 +559,11 @@ router.post('/pedidos', async (req, res, next) => {
     const pedidoId = await comTransacao(async (tx) => {
       const info = await tx.prepare(
         `INSERT INTO pedidos (cliente_id, loja_id, status, endereco_entrega, entrega_lat, entrega_lon, forma_pagamento,
-                              troco_para_centavos, observacoes, subtotal_centavos,
+                              troco_para_centavos, precisa_troco, observacoes, subtotal_centavos,
                               taxa_entrega_centavos, desconto_centavos, cupom_codigo, total_centavos,
                               comissao_percentual, comissao_centavos, pagamento_status, chave_idem, tempo_estimado_min,
                               tipo_entrega, criado_em, atualizado_em)
-         VALUES (?, ?, 'pendente', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, 'pendente', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(req.usuario!.id, lojaId,
             /*
              * Na retirada, o campo guarda o endereço DA LOJA, não um vazio.
@@ -562,7 +581,7 @@ router.post('/pedidos', async (req, res, next) => {
               loja,
             ),
             (endereco as any)?.lat ?? null, (endereco as any)?.lon ?? null, formaPagamento,
-            trocoPara, observacoes, subtotal, taxaEntrega, descontoCupom, cupom?.codigo || '',
+            trocoPara, precisaTroco, observacoes, subtotal, taxaEntrega, descontoCupom, cupom?.codigo || '',
             total, comissaoPct, comissao, pagoAntes ? 'aguardando' : 'na_entrega', chaveIdem, tempoEstimado,
             tipoEntrega, agora, agora);
 
