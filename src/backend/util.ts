@@ -77,6 +77,30 @@ export function inteiroPositivo(valor: unknown): number | null {
   return n;
 }
 
+/**
+ * A BARRA DE TAMANHO DA LOGO (0 a 100), presa na faixa no SERVIDOR.
+ *
+ * Existe porque a tela não é a única porta pra rota: um valor fora da faixa
+ * viraria logo de altura absurda cobrindo o cabeçalho — e, no caso do crédito
+ * do rodapé, em TODOS os clientes de uma vez, porque o crédito é um só.
+ *
+ * Lixo cai no padrão (50 = tamanho original, ver `logo-escala.ts` no frontend)
+ * em vez de virar 0, e ZERO É POSIÇÃO VÁLIDA DA BARRA — é o que torna a
+ * distinção necessária. Sem ela, um dado torto encolheria a logo pela metade em
+ * silêncio, que é pior que recusar.
+ *
+ * AUSENTE PRECISA DE DESVIO PRÓPRIO, e não basta o `isFinite`: `Number(null)` e
+ * `Number('')` são 0 — finitos, e indistinguíveis de quem arrastou a barra até
+ * o começo. É a mesma armadilha que o `fatorDaEscala` do frontend documenta, e
+ * o teste desta função a pegou aqui.
+ */
+export function escalaDaLogo(valor: unknown, padrao = 50): number {
+  if (valor === null || valor === undefined || valor === '') return padrao;
+  const n = Math.trunc(Number(valor));
+  if (!Number.isFinite(n)) return padrao;
+  return Math.min(100, Math.max(0, n));
+}
+
 /** Converte um valor em reais (ex.: "12,50" ou 12.5) para centavos (inteiro). */
 export function reaisParaCentavos(valor: unknown): number | null {
   if (valor === null || valor === undefined || valor === '') return null;

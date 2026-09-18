@@ -19,7 +19,7 @@ import {
   CAMPOS_LOJA_LISTA as CAMPOS_LOJA_LISTA_NOMES, CAMPOS_SO_PARA_DERIVAR,
 } from '../quem-emite';
 import { dataValida, inicioUtcDaData, fimUtcDaData } from '../periodo';
-import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, inicioDoDiaBR, dataBrasilia, emailValido, cpfValido, cpfDigitos, telefoneDigitos, telefoneValido, reaisParaCentavos, filtroOrigemDelivery } from '../util';
+import { textoLimpo, inteiroPositivo, erroHttp, ErroHttp, agoraUTC, inicioDoDiaBR, dataBrasilia, emailValido, cpfValido, cpfDigitos, telefoneDigitos, telefoneValido, reaisParaCentavos, filtroOrigemDelivery, escalaDaLogo } from '../util';
 import { criptografar, descriptografar } from '../cripto';
 import { lerPartes, montarEnderecoTexto, temAlgumaParte, semearFiscal } from '../endereco-loja';
 import { montarLandingAdmin, salvarLanding } from '../landing-campos';
@@ -1876,6 +1876,7 @@ router.get('/tema', async (_req, res, next) => {
       rodape_credito_url:      credito.url,
       rodape_credito_botao:     credito.botao_texto,
       rodape_credito_copyright: credito.copyright,
+      rodape_credito_logo_escala: credito.logo_escala,
       favicon_url:       await valor('marca_favicon_url'),
       cor_primaria:      await valor('marca_cor_primaria', '#dc2640'),
       cor_secundaria:    await valor('marca_cor_secundaria'),
@@ -1909,15 +1910,10 @@ router.put('/tema', exigirSuperAdmin, async (req, res, next) => {
     // chaves booleanas de configuracoes (a tabela é chave/valor em texto).
     if (req.body.mostrar_nome !== undefined) await set(req.body.mostrar_nome ? '1' : '0', 'marca_mostrar_nome');
 
-    /*
-     * Tamanho da logo (barra de 0 a 100). Preso na faixa AQUI, e nao so no
-     * componente da tela: valor fora dela viraria logo de altura absurda
-     * cobrindo o cabecalho, e a tela nao e a unica porta pra esta rota.
-     */
+    // Tamanho da logo (barra de 0 a 100) — a faixa e o padrao moram em
+    // `escalaDaLogo`, junto do porque de lixo cair no padrao e nao no zero.
     if (req.body.logo_escala !== undefined) {
-      const bruto = Math.trunc(Number(req.body.logo_escala));
-      const escala = Number.isFinite(bruto) ? Math.min(100, Math.max(0, bruto)) : 50;
-      await set(String(escala), 'marca_logo_escala');
+      await set(String(escalaDaLogo(req.body.logo_escala)), 'marca_logo_escala');
     }
 
     /*
@@ -1929,7 +1925,8 @@ router.put('/tema', exigirSuperAdmin, async (req, res, next) => {
       || req.body.rodape_credito_logo_url !== undefined
       || req.body.rodape_credito_url !== undefined
       || req.body.rodape_credito_botao !== undefined
-      || req.body.rodape_credito_copyright !== undefined) {
+      || req.body.rodape_credito_copyright !== undefined
+      || req.body.rodape_credito_logo_escala !== undefined) {
       exigirMaster();
       const atual = await lerRodapeCredito();
       const logo = req.body.rodape_credito_logo_url !== undefined
@@ -1949,6 +1946,9 @@ router.put('/tema', exigirSuperAdmin, async (req, res, next) => {
           ? textoLimpo(req.body.rodape_credito_botao, 60) : atual.botao_texto,
         copyright: req.body.rodape_credito_copyright !== undefined
           ? textoLimpo(req.body.rodape_credito_copyright, 160) : atual.copyright,
+        logo_escala: req.body.rodape_credito_logo_escala !== undefined
+          ? escalaDaLogo(req.body.rodape_credito_logo_escala)
+          : atual.logo_escala,
       });
     }
 

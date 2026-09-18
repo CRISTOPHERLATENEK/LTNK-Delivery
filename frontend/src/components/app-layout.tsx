@@ -226,10 +226,22 @@ export function AppLayout({ children, itens, grupos, titulo, subtitulo }: Props)
               )}
 
               {marca.rodape_credito_logo_url && (
+                /*
+                 * ALTURA PELA BARRA, e não `h-8` fixo: a logo do crédito é uma
+                 * arte que muda (wordmark largo, selo quadrado), e no tamanho
+                 * travado umas ficavam ilegíveis e outras ocupavam o rodapé
+                 * inteiro. Escala PRÓPRIA, separada da `logo_escala` da marca:
+                 * são duas imagens diferentes, e amarrar as duas faria mexer no
+                 * crédito mudar a logo do cabeçalho de todo mundo.
+                 *
+                 * 32px é o `h-8` de antes, e 50 na barra vale 1× — quem não
+                 * mexer continua vendo exatamente o tamanho de hoje.
+                 */
                 <img
                   src={marca.rodape_credito_logo_url}
                   alt={marca.rodape_credito_texto || ''}
-                  className="mx-auto mt-2 h-8 w-auto max-w-[190px] object-contain"
+                  style={{ height: alturaLogo(32, marca.rodape_credito_logo_escala) }}
+                  className="mx-auto mt-2 w-auto max-w-[190px] object-contain"
                 />
               )}
 

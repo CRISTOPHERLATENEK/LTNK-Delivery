@@ -37,7 +37,7 @@ function EditorLanding() {
     recursos_titulo: '', planos_titulo: '', planos_subtitulo: '', duvidas_titulo: '',
     cta_titulo: '', cta_subtitulo: '', cta_botao_demo_texto: '',
     whatsapp_msg_hero: '', whatsapp_msg_cta: '', whatsapp_msg_flutuante: '',
-    footer_coluna_sistema: '', footer_coluna_contato: '',
+    footer_coluna_sistema: '', footer_coluna_contato: '', footer_logo: '',
     endereco: '', social_instagram: '', social_facebook: '', social_tiktok: '', social_youtube: '', social_x: '',
   });
   const [enviando, setEnviando] = useState(false);
@@ -234,6 +234,7 @@ function EditorLanding() {
         whatsapp_msg_flutuante: form.whatsapp_msg_flutuante,
         footer_coluna_sistema: form.footer_coluna_sistema,
         footer_coluna_contato: form.footer_coluna_contato,
+        footer_logo: form.footer_logo,
         endereco: form.endereco,
         social_instagram: form.social_instagram,
         social_facebook: form.social_facebook,
@@ -684,8 +685,22 @@ function EditorLanding() {
                     />
                   </Linha>
                 </Quadro>
-                <SecaoTituloEditor titulo="Rodapé — endereço e redes sociais" desc="E-mail e telefone vêm de Marca → Configurações gerais (suporte). Aqui você adiciona o endereço e os links das redes (vazio = o ícone não aparece)." />
+                <SecaoTituloEditor titulo="Rodapé — logo, endereço e redes sociais" desc="E-mail e telefone vêm de Marca → Configurações gerais (suporte). Aqui você escolhe a logo do rodapé e adiciona o endereço e os links das redes (vazio = o ícone não aparece)." />
                 <Quadro>
+                  {/*
+                    O RODAPÉ TEM FUNDO QUASE PRETO, e até aqui repetia a logo do
+                    cabeçalho — feita pro topo claro. Por isso o campo, e por
+                    isso o aviso: é a pergunta que a pessoa faz ao ver a caixa
+                    vazia ("se eu não puser nada, some?").
+                  */}
+                  <Linha
+                    rotulo="Logo do rodapé"
+                    apoio="Vazio = usa a mesma do cabeçalho. O fundo do rodapé é escuro, então uma versão clara costuma ler melhor."
+                    empilhado
+                  >
+                    <ImageUpload label="" value={form.footer_logo}
+                      onChange={v => setForm(f => ({ ...f, footer_logo: v }))} aspectRatio="wide" />
+                  </Linha>
                   <Linha rotulo="Coluna de links" apoio="Título">
                     <input maxLength={40} value={form.footer_coluna_sistema} placeholder="O sistema"
                       onChange={e => setForm(f => ({ ...f, footer_coluna_sistema: e.target.value }))}

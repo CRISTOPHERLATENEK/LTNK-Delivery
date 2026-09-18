@@ -55,6 +55,8 @@ export interface LandingConfig {
   whatsapp_msg_flutuante: string;
   footer_coluna_sistema: string;
   footer_coluna_contato: string;
+  /** Logo só do rodapé. Vazio = a do cabeçalho. */
+  footer_logo: string;
   endereco: string;
   social_instagram: string;
   social_facebook: string;
@@ -136,6 +138,7 @@ export function PreviewLanding({ form }: { form: LandingConfig }) {
         landing_whatsapp_msg_hero: form.whatsapp_msg_hero,
         landing_whatsapp_msg_cta: form.whatsapp_msg_cta,
         landing_whatsapp_msg_flutuante: form.whatsapp_msg_flutuante,
+        landing_footer_logo: form.footer_logo,
         landing_footer_coluna_sistema: form.footer_coluna_sistema,
         landing_footer_coluna_contato: form.footer_coluna_contato,
         landing_endereco: form.endereco,

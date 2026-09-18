@@ -149,6 +149,7 @@ export async function montarTema(host?: string) {
       rodape_credito_url:      credito.url,
       rodape_credito_botao:     credito.botao_texto,
       rodape_credito_copyright: credito.copyright,
+      rodape_credito_logo_escala: credito.logo_escala,
       favicon_url:       favicon,
       cor_primaria:      corPrimaria,
       cor_secundaria:    corSecundaria,

@@ -219,6 +219,8 @@ export interface TemaMarca {
   rodape_credito_url?: string;
   rodape_credito_botao?: string;
   rodape_credito_copyright?: string;
+  /** Barra 0–100 do tamanho da logo do crédito; 50 = original. */
+  rodape_credito_logo_escala?: number;
   favicon_url: string;
   cor_primaria: string;
   /** Cor de destaque secundária (botões alternativos, links). Vazio = derivada da primária. */
@@ -323,6 +325,8 @@ export interface TemaMarca {
   /** Rótulos das colunas do rodapé. */
   landing_footer_coluna_sistema?: string;
   landing_footer_coluna_contato?: string;
+  /** Logo só do rodapé da landing. Vazio = a mesma do cabeçalho. */
+  landing_footer_logo?: string;
   /** Endereço exibido no rodapé (vazio = não mostra). */
   landing_endereco?: string;
   /** Links das redes sociais no rodapé (vazio = o ícone não aparece). */

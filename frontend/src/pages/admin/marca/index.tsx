@@ -81,6 +81,9 @@ export function TelaMarca() {
    * o trataria como campo não controlado.
    */
   const escalaLogo = form.logo_escala ?? ESCALA_PADRAO;
+  /* Mesma razão da linha acima, e mais uma: a coluna `logo_escala` do crédito é
+     nova, então o valor vem ausente até a primeira gravação. */
+  const escalaCredito = form.rodape_credito_logo_escala ?? ESCALA_PADRAO;
 
   const corFg = foregroundContraste(form.cor_primaria);
   const contrasteClaro = corFg === '0 0% 100%';
@@ -336,6 +339,61 @@ export function TelaMarca() {
                 value={form.rodape_credito_logo_url || ''}
                 onChange={v => up('rodape_credito_logo_url', v)} aspectRatio="wide" />
             </Linha>
+            {/*
+              O TAMANHO SÓ APARECE QUANDO HÁ LOGO. Uma barra para redimensionar
+              o que não existe é um controle que não faz nada — e some do lugar
+              onde ele confundiria, em vez de ficar desabilitado.
+
+              A prévia fica JUNTO da barra, no fundo claro do painel, que é onde
+              esta logo vai parar: é a mesma razão da prévia da logo da marca
+              logo acima, e é o que dispensa salvar para ver o resultado.
+            */}
+            {form.rodape_credito_logo_url && (
+              <Linha
+                rotulo="Tamanho da logo"
+                apoio={`${escalaCredito} · ${alturaLogo(32, escalaCredito)}px de altura`}
+                empilhado
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-muted-foreground">0</span>
+                  <input
+                    id="rodape-logo-escala"
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={escalaCredito}
+                    onChange={e => up('rodape_credito_logo_escala', Number(e.target.value))}
+                    className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-muted accent-primary"
+                  />
+                  <span className="text-xs text-muted-foreground">100</span>
+                </div>
+
+                <div className="mt-3 rounded-lg border border-border bg-background p-3 text-center">
+                  {form.rodape_credito_texto && (
+                    <p className="text-xs text-muted-foreground">{form.rodape_credito_texto}</p>
+                  )}
+                  <img
+                    src={form.rodape_credito_logo_url}
+                    alt=""
+                    style={{ height: alturaLogo(32, escalaCredito) }}
+                    className="mx-auto mt-2 w-auto max-w-[190px] object-contain"
+                  />
+                </div>
+
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    50 é o tamanho original. Vale no rodapé de todos os clientes.
+                  </p>
+                  {escalaCredito !== ESCALA_PADRAO && (
+                    <button type="button" onClick={() => up('rodape_credito_logo_escala', ESCALA_PADRAO)}
+                      className="shrink-0 text-xs font-semibold text-primary hover:underline">
+                      Voltar ao padrão
+                    </button>
+                  )}
+                </div>
+              </Linha>
+            )}
             <Linha rotulo="Link" apoio="Opcional · abre em outra aba, para não tirar o lojista do painel">
               <input
                 id="rodape-url" maxLength={300}

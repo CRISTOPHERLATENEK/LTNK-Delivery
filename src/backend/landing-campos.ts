@@ -121,6 +121,18 @@ export const CAMPOS_TEXTO: CampoTexto[] = [
   // Rodapé
   { nome: 'footer_coluna_sistema', max: 40 },
   { nome: 'footer_coluna_contato', max: 40 },
+  /*
+   * A LOGO DO RODAPÉ, SEPARADA DA DO CABEÇALHO.
+   *
+   * O rodapé da landing desenha sobre `bg-neutral-950` — quase preto — e até
+   * aqui ele repetia `marca_logo_url`, a mesma do topo. Uma logo desenhada para
+   * o cabeçalho claro (traço escuro, ou com fundo branco embutido) chega lá
+   * como um bloco ilegível, e não havia onde trocar.
+   *
+   * VAZIO = A DO CABEÇALHO, que é o comportamento de hoje: quem já está no ar
+   * com uma logo que funciona nos dois fundos não precisa fazer nada.
+   */
+  { nome: 'footer_logo', max: 500 },
   { nome: 'endereco', max: 200 },
   { nome: 'social_instagram', max: 300 },
   { nome: 'social_facebook', max: 300 },

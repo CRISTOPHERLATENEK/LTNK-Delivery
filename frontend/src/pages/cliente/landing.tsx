@@ -496,6 +496,15 @@ export function PaginaLanding() {
   const zapMsgFlutuante = marca.landing_whatsapp_msg_flutuante || 'Olá! Quero saber mais sobre o sistema.';
   const footerColunaSistema = marca.landing_footer_coluna_sistema || 'O sistema';
   const footerColunaContato = marca.landing_footer_coluna_contato || 'Contato';
+  /*
+   * A LOGO DO RODAPÉ CAI NA DO CABEÇALHO QUANDO NÃO FOI ESCOLHIDA.
+   *
+   * O rodapé desenha sobre `bg-neutral-950`, quase preto, e até aqui repetia a
+   * logo do topo — que é feita para o cabeçalho claro. Logo de traço escuro (ou
+   * com fundo branco embutido) chegava lá como um bloco ilegível, e não havia
+   * onde trocar. Com o campo vazio nada muda para quem já está no ar.
+   */
+  const logoRodape = marca.landing_footer_logo || marca.logo_url;
   const endereco = marca.landing_endereco?.trim();
   const redesSociais = [
     { url: marca.landing_social_instagram, Icone: IconeInstagram, label: 'Instagram' },
@@ -1291,12 +1300,12 @@ export function PaginaLanding() {
         <div className="mx-auto grid max-w-6xl gap-8 px-5 py-12 sm:px-6 sm:grid-cols-3">
           <div>
             <div className="flex items-center gap-2 font-extrabold text-white">
-              {marca.logo_url
-                ? <img src={marca.logo_url} alt={marca.nome}
+              {logoRodape
+                ? <img src={logoRodape} alt={marca.nome}
                     style={{ height: alturaLogo(36, marca.logo_escala) }}
                     className="w-auto max-w-[170px] object-contain" />
                 : <Store className="h-5 w-5 text-primary" />}
-              {(marca.mostrar_nome !== false || !marca.logo_url) && marca.nome}
+              {(marca.mostrar_nome !== false || !logoRodape) && marca.nome}
             </div>
             <p className="mt-2 max-w-xs text-sm text-neutral-400">{marca.slogan || 'Seu delivery white label: com a sua marca e o seu domínio.'}</p>
             {redesSociais.length > 0 && (

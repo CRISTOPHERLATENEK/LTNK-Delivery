@@ -183,13 +183,17 @@ export async function inicializarCentral(): Promise<void> {
       logo_url  VARCHAR(500) NOT NULL DEFAULT '',
       url       VARCHAR(300) NOT NULL DEFAULT '',
       botao_texto VARCHAR(60) NOT NULL DEFAULT '',
-      copyright   VARCHAR(160) NOT NULL DEFAULT ''
+      copyright   VARCHAR(160) NOT NULL DEFAULT '',
+      logo_escala INT NOT NULL DEFAULT 50
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
   await pool.query("INSERT IGNORE INTO rodape_credito (id, texto, logo_url, url) VALUES (1, '', '', '')");
   // Colunas novas em base ja criada — `CREATE TABLE IF NOT EXISTS` nao alcanca.
   await garantirColuna(pool, BANCO_CENTRAL, 'rodape_credito', 'botao_texto', "botao_texto VARCHAR(60) NOT NULL DEFAULT ''");
   await garantirColuna(pool, BANCO_CENTRAL, 'rodape_credito', 'copyright', "copyright VARCHAR(160) NOT NULL DEFAULT ''");
+  /* 50 e o padrao da barra e vale 1x — ver logo-escala.ts. Quem ja tem credito
+     gravado herda este valor e continua vendo o tamanho de hoje. */
+  await garantirColuna(pool, BANCO_CENTRAL, 'rodape_credito', 'logo_escala', 'logo_escala INT NOT NULL DEFAULT 50');
 
   /*
    * SOLICITAÇÕES DE CLIENTE — o revendedor pede, o super admin aprova.
@@ -418,15 +422,24 @@ export async function removerTenant(id: number): Promise<{ nome: string; bancoAp
   return { nome: t.nome, bancoApagado };
 }
 
-export interface RodapeCredito { texto: string; logo_url: string; url: string; botao_texto: string; copyright: string }
+export interface RodapeCredito {
+  texto: string; logo_url: string; url: string; botao_texto: string; copyright: string;
+  /** Posição da barra 0–100; 50 = tamanho original. Ver `logo-escala.ts`. */
+  logo_escala: number;
+}
 
-const VAZIO: RodapeCredito = { texto: '', logo_url: '', url: '', botao_texto: '', copyright: '' };
+const VAZIO: RodapeCredito = { texto: '', logo_url: '', url: '', botao_texto: '', copyright: '', logo_escala: 50 };
 
 /** Crédito de rodapé da plataforma — um só, lido por todos os clientes. */
 export async function lerRodapeCredito(): Promise<RodapeCredito> {
   try {
-    const [linhas] = await poolCentral().query('SELECT texto, logo_url, url, botao_texto, copyright FROM rodape_credito WHERE id = 1');
-    return (linhas as RodapeCredito[])[0] ?? VAZIO;
+    const [linhas] = await poolCentral().query('SELECT texto, logo_url, url, botao_texto, copyright, logo_escala FROM rodape_credito WHERE id = 1');
+    const c = (linhas as RodapeCredito[])[0];
+    if (!c) return VAZIO;
+    /* A coluna e nova: em base que ainda nao rodou a migracao o valor vem
+       `undefined`, e uma escala ausente encolheria a logo pela metade no
+       cliente. O padrao mora aqui, perto de quem le. */
+    return { ...c, logo_escala: Number(c.logo_escala ?? 50) };
   } catch {
     // Banco central fora do ar não pode derrubar o tema da loja: sem crédito é
     // melhor que sem página.
@@ -436,8 +449,8 @@ export async function lerRodapeCredito(): Promise<RodapeCredito> {
 
 export async function salvarRodapeCredito(c: RodapeCredito): Promise<void> {
   await poolCentral().query(
-    'UPDATE rodape_credito SET texto = ?, logo_url = ?, url = ?, botao_texto = ?, copyright = ? WHERE id = 1',
-    [c.texto, c.logo_url, c.url, c.botao_texto, c.copyright],
+    'UPDATE rodape_credito SET texto = ?, logo_url = ?, url = ?, botao_texto = ?, copyright = ?, logo_escala = ? WHERE id = 1',
+    [c.texto, c.logo_url, c.url, c.botao_texto, c.copyright, c.logo_escala],
   );
 }
 
