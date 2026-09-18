@@ -134,6 +134,123 @@ export function despacharImpressao(html: string, larguraMm: number, blocos?: Blo
  * como evitar imprimindo por ele. A diferença é que agora ele pertence à aba
  * atual, aparece na frente e, ao fechar, a tela volta a responder.
  */
+/**
+ * ALTURA DA PÁGINA = ALTURA DO CUPOM, medida depois de renderizar.
+ *
+ * "porque sai esse tamanho gigante na impressão? o tamanho tem que ser de
+ *  acordo com as informações que existe no pedido."
+ *
+ * Os cupons declaram `@page { size: 80mm auto }` desde sempre, e `auto` NÃO
+ * FUNCIONA: o CSS só aceita `auto` sozinho ou duas medidas — misturar uma
+ * medida com a palavra `auto` é sintaxe inválida, o navegador descarta a
+ * declaração inteira e cai no papel do sistema. Resultado na tela do lojista:
+ * um cupom de 7 cm no meio de uma folha inteira, e "1 folha de papel" no
+ * diálogo.
+ *
+ * Numa bobina térmica isso é papel corrido: a impressora avança a folha inteira
+ * antes de cortar, e cada pedido gasta 20 cm de bobina para imprimir 7.
+ *
+ * Só dá para saber a altura DEPOIS de montar a página — ela depende de quantos
+ * itens o pedido tem, de quantos complementos cada item tem e de quantas linhas
+ * o endereço ocupa. Por isso a medição é aqui, com o documento pronto, e não uma
+ * conta no gerador do HTML.
+ *
+ * `96px = 1in = 25.4mm` é a régua do CSS, não uma aproximação: unidade física em
+ * CSS é definida a partir do pixel de referência, independente da tela.
+ */
+/**
+ * A REGRA `@page` COM A ALTURA REAL, ou `null` quando não dá para calcular.
+ *
+ * PURA DE PROPÓSITO. A conta é o que pode errar aqui — converter px em mm,
+ * esquecer que a margem entra duas vezes, arredondar para baixo e empurrar a
+ * última linha para uma segunda folha. Nada disso precisa de navegador para ser
+ * verificado, e com o DOM no meio não daria para verificar.
+ *
+ * `96px = 1in = 25.4mm` é a régua do CSS, não uma aproximação: unidade física
+ * em CSS é definida a partir do pixel de referência, independente da tela.
+ */
+export function regraDePagina(html: string, alturaPx: number): string | null {
+  /* A largura vem do `@page` que o próprio cupom declarou — assim isto vale
+     para os quatro geradores (painel, PDV, comanda, DANFE) sem que nenhum
+     precise passar parâmetro novo. Sem `@page`, não é cupom de bobina: deixa o
+     papel do sistema em paz. */
+  const regra = /@page\s*\{([^}]*)\}/.exec(html);
+  if (!regra) return null;
+  const largura = /size:\s*([\d.]+)mm/.exec(regra[1]);
+  if (!largura) return null;
+  if (!(alturaPx > 0) || !Number.isFinite(alturaPx)) return null;
+
+  const margem = Number((/margin:\s*([\d.]+)mm/.exec(regra[1]) || [])[1] ?? 0);
+
+  /*
+   * A MARGEM ENTRA DUAS VEZES porque o conteúdo cabe na área ENTRE as margens:
+   * página = conteúdo + margem de cima + margem de baixo. Sem somar, a última
+   * linha do cupom cairia para uma segunda folha — que é o defeito oposto e
+   * mais irritante, porque só aparece no pedido comprido.
+   *
+   * O `+1` é folga para o arredondamento do próprio navegador. Um milímetro de
+   * papel a mais é barato; uma segunda folha com uma linha é um corte a mais na
+   * bobina e um cupom que o cliente joga fora.
+   */
+  const alturaMm = Math.ceil((alturaPx * 25.4) / 96) + margem * 2 + 1;
+
+  /* Só `size`: `margin` e o resto continuam vindo da regra original, pela
+     cascata. Repetir a margem aqui seria a mesma decisão em dois lugares. */
+  return `@page { size: ${largura[1]}mm ${alturaMm}mm; }`;
+}
+
+/**
+ * ALTURA DA PÁGINA = ALTURA DO CUPOM, medida depois de renderizar.
+ *
+ * "porque sai esse tamanho gigante na impressão? o tamanho tem que ser de
+ *  acordo com as informações que existe no pedido."
+ *
+ * Os cupons declaram `@page { size: 80mm auto }` desde sempre, e `auto` NÃO
+ * FUNCIONA: o CSS só aceita `auto` sozinho ou duas medidas — misturar uma
+ * medida com a palavra `auto` é sintaxe inválida, o navegador descarta a
+ * declaração inteira e cai no papel do sistema. Resultado na tela do lojista:
+ * um cupom de 7 cm no meio de uma folha inteira, e "1 folha de papel" no
+ * diálogo.
+ *
+ * Numa bobina térmica isso é papel corrido: a impressora avança a folha inteira
+ * antes de cortar, e cada pedido gasta 20 cm para imprimir 7.
+ *
+ * Só dá para saber a altura DEPOIS de montar a página — ela depende de quantos
+ * itens o pedido tem, de quantos complementos cada item tem e de quantas linhas
+ * o endereço ocupa. Por isso a medição é aqui, com o documento pronto, e não uma
+ * conta no gerador do HTML.
+ */
+function ajustarAlturaDaPagina(doc: Document, html: string): void {
+  try {
+    /*
+     * `body.scrollHeight`, E SÓ ELE.
+     *
+     * A primeira versão pegava `Math.max(body, documentElement)`, que parecia a
+     * escolha cuidadosa. Medido no navegador, com o cupom real do pedido #4:
+     *
+     *   body.scrollHeight ............ 241px  (63,8mm — o cupom)
+     *   documentElement.scrollHeight .. 800px  (a altura do IFRAME)
+     *
+     * `documentElement.scrollHeight` nunca é menor que o viewport, e o viewport
+     * aqui é o iframe de 800px onde a impressão acontece. O `Math.max` escolhia
+     * sempre os 800 e produzia uma folha de 217mm — praticamente a A4 que se
+     * veio consertar. O teste unitário passava, porque a conta estava certa; o
+     * número que entrava nela é que não era o do cupom.
+     *
+     * Zero é medição que falhou, e `regraDePagina` devolve `null` para ela —
+     * melhor sair na folha do sistema do que numa folha de zero milímetro.
+     */
+    const regra = regraDePagina(html, doc.body?.scrollHeight ?? 0);
+    if (!regra) return;
+    const estilo = doc.createElement('style');
+    estilo.textContent = regra;
+    doc.head?.appendChild(estilo);
+  } catch {
+    /* Medição é melhoria, não requisito: falhar aqui não pode impedir o cupom
+       de sair. Sem ela, volta a sair na folha do sistema, como saía antes. */
+  }
+}
+
 export function abrirEImprimir(html: string): void {
   const quadro = document.createElement('iframe');
   quadro.setAttribute('aria-hidden', 'true');
@@ -169,6 +286,9 @@ export function abrirEImprimir(html: string): void {
     const doc = quadro.contentDocument;
     if (!w || !doc?.body || doc.body.childElementCount === 0) return;
     jaImprimiu = true;
+    /* ANTES do `print()`: o diálogo lê o `@page` no momento em que abre, e
+       injetar depois não muda mais nada. */
+    ajustarAlturaDaPagina(doc, html);
     try {
       // `afterprint` cobre imprimir e cancelar. Onde não dispara, o timeout
       // abaixo garante que o iframe não fique pra sempre no DOM.
