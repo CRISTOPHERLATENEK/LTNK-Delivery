@@ -6,7 +6,7 @@ import QRCode from 'qrcode';
 import db, { bancoTenantAtual } from '../db-mysql';
 import { erroHttp, dataBrasilia} from '../util';
 import { sqlPromocaoVigente } from '../preco-produto';
-import { sqlGruposDeProdutos } from '../grupos-sql';
+import { sqlGruposDeProdutos, OPCAO_COM_PRODUTO_A_VENDA } from '../grupos-sql';
 import { chavePublicaVapid } from '../push';
 import { ehMaster, lerRodapeCredito } from '../tenants-mysql';
 import { montarLandingPublica } from '../landing-campos';
@@ -451,9 +451,12 @@ export async function montarCardapio(idOuSlug: string) {
         const opcoes = await db.prepare(
           // `sabores`: quantos sabores este TAMANHO libera (ver acima).
           // `secao`: faixa dentro do grupo ('Tradicionais', 'Especiais'…).
-          `SELECT id, nome, preco_adicional_centavos, sabores, secao, descricao, imagem, grupo_id
-             FROM opcoes_itens WHERE grupo_id IN (${idsGrupo.map(() => '?').join(',')}) AND disponivel = 1
-            ORDER BY ordem, id`
+          // `o.` em tudo por causa do fragmento de estoque, que fala de `o`.
+          `SELECT o.id, o.nome, o.preco_adicional_centavos, o.sabores, o.secao, o.descricao, o.imagem, o.grupo_id
+             FROM opcoes_itens o
+            WHERE o.grupo_id IN (${idsGrupo.map(() => '?').join(',')}) AND o.disponivel = 1
+              ${OPCAO_COM_PRODUTO_A_VENDA}
+            ORDER BY o.ordem, o.id`
         ).all(...idsGrupo) as Array<OpcaoItem & { grupo_id: number }>;
         /*
          * `grupo_id` e `produto_id` saem do objeto: eles existem só pra agrupar

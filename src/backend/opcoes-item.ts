@@ -17,6 +17,7 @@
 import db from './db-mysql';
 import { erroHttp } from './util';
 import { precoVigente } from './preco-produto';
+import { OPCAO_COM_PRODUTO_A_VENDA } from './grupos-sql';
 import { dataBrasilia } from './util';
 import { saboresLiberados, maxEscolhasEfetivo, precoDoGrupo, contarFracoes,
          lerEscolhas, idsPorSlot, serializarEscolhas, type EscolhaSlot } from './opcoes-preco';
@@ -115,8 +116,15 @@ export async function validarOpcoesDoItem(
      */
     const carregados: Array<{ grupo: GrupoOpcao; escolhidas: OpcaoItem[] }> = [];
     for (const grupo of grupos) {
+      /*
+       * O MESMO RECORTE DO MENU, e não um parecido: aqui é o que o cliente
+       * PAGA. Opção que o cardápio escondeu por falta de estoque não pode ser
+       * aceita no checkout — e o contrário também não, senão o cliente escolhe
+       * na tela e leva erro na hora de fechar.
+       */
       const opcoesDoGrupo = await db.prepare(
-        'SELECT * FROM opcoes_itens WHERE grupo_id = ? AND disponivel = 1'
+        `SELECT o.* FROM opcoes_itens o
+          WHERE o.grupo_id = ? AND o.disponivel = 1 ${OPCAO_COM_PRODUTO_A_VENDA}`
       ).all(grupo.id) as OpcaoItem[];
       if (opcoesDoGrupo.length === 0) continue;
       /*

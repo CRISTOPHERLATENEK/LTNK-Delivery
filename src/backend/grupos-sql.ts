@@ -74,6 +74,47 @@ export const SQL_GRUPOS_DA_LOJA =
     ORDER BY pg.produto_id, pg.ordem, g.id`;
 
 /**
+ * ─────── A OPÇÃO SEGUE O ESTOQUE DO PRODUTO A QUE ESTÁ LIGADA ───────
+ *
+ * "troquei o Monster Pacific Punch para zero, no produto ficou zerado; mas no
+ *  complemento o produto ainda está disponível para venda para o cliente."
+ *
+ * Estava certo o diagnóstico: o vínculo `opcoes_itens.produto_id` servia só
+ * para a baixa de estoque no ERP. NADA olhava o saldo antes de OFERECER a
+ * opção. O produto some da vitrine quando zera — e continuava à venda como
+ * complemento, na mesma tela, do mesmo cliente.
+ *
+ * É o pior formato de erro possível: o lojista faz a coisa certa (zera o
+ * estoque), vê o produto sumir da vitrine, conclui que resolveu — e continua
+ * vendendo pelo outro caminho, sem nenhum aviso, até o cliente reclamar que o
+ * pedido veio sem o que ele pediu.
+ *
+ * TRÊS MOTIVOS DERRUBAM a opção, e os três são o mesmo motivo por caminhos
+ * diferentes — "o produto não está à venda":
+ *
+ *   - sem saldo, com controle de estoque ligado;
+ *   - pausado pelo lojista (`disponivel = 0`);
+ *   - excluído.
+ *
+ * `sem_estoque = 1` não passa por aqui, e nem precisa: o servidor garante que
+ * "vinculado" e "não baixa" são exclusivos (ver o PUT da opção), então opção
+ * marcada como "não baixa" tem `produto_id = 0` e o `EXISTS` nem roda.
+ *
+ * FRAGMENTO E NÃO CÓPIA porque são DUAS consultas: a do menu (o que o cliente
+ * VÊ) e a da validação do pedido (o que ele PAGA). Com a regra escrita duas
+ * vezes, a segunda diverge — e divergir aqui significa o cardápio esconder e o
+ * checkout aceitar, ou o contrário.
+ */
+export const OPCAO_COM_PRODUTO_A_VENDA = `
+      AND NOT EXISTS (
+        SELECT 1 FROM produtos pv
+         WHERE pv.id = o.produto_id
+           AND (pv.excluido = 1
+             OR pv.disponivel = 0
+             OR (pv.controla_estoque = 1 AND pv.estoque <= 0))
+      )`;
+
+/**
  * AS OPÇÕES de todos esses grupos, também de uma vez.
  *
  * `IN (subconsulta)` e não uma lista montada em JavaScript: lista de mil ids
