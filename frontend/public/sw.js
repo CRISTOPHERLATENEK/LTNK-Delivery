@@ -155,6 +155,33 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
 
+  /*
+   * PEDIDO "SÓ SE ESTIVER NO CACHE" NÃO É NOSSO — E NÃO PODE IR PRA REDE.
+   *
+   * Quem faz esse pedido é o próprio Chrome, ao voltar página (botão Voltar e
+   * restauração de aba): ele reemite com `cache: 'only-if-cached'`, querendo
+   * dizer "responda do SEU cache HTTP ou não responda". Mandar isso pro `fetch`
+   * é contradição, e o navegador recusa na hora — `net::ERR_CACHE_MISS`, sem
+   * tocar na rede.
+   *
+   * Medido em produção, em galderio-bebidas.maxxpedidos.com.br:
+   *
+   *   status ..... (falha) net::ERR_CACHE_MISS
+   *   tamanho .... 0,0 kB
+   *   tempo ...... 3 ms          <- rápido demais pra ser rede
+   *   iniciador .. sw.js:41      <- a busca com segunda chance
+   *   no servidor  NADA: a requisição nunca chegou ao nginx
+   *
+   * Era o pedido da RAIZ — o `start_url` do manifesto, que o Chrome busca de
+   * tempos em tempos pra conferir se o app continua instalável. A "segunda
+   * chance" ainda repetia o erro 400ms depois, pelo mesmo motivo.
+   *
+   * Sair daqui devolve o pedido ao navegador, que é quem sabe responder: é a
+   * correção conhecida dessa armadilha, e não é contornar sintoma — o pedido
+   * nunca foi pra nós.
+   */
+  if (req.cache === 'only-if-cached') return;
+
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return; // ignora terceiros (fontes, CDNs)
   if (url.pathname.startsWith('/api')) return;       // API sempre na rede
