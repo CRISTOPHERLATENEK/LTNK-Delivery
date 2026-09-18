@@ -14,7 +14,7 @@ import fs from 'fs';
 import { metaDaRota, injetarMeta, paginaSuspensa, contatoSuporte } from './og';
 import { lojaDoHost, robots, sitemap, canonical, dadosEstruturados } from './seo';
 import { montarDadosIniciais, injetarDados } from './dados-iniciais';
-import { blocoDeConteudo, injetarConteudo, type ItemParaSeo } from './seo-conteudo';
+import { blocoDeConteudo, blocoDaLanding, injetarConteudo, type ItemParaSeo } from './seo-conteudo';
 import express, { ErrorRequestHandler } from 'express';
 
 import autenticacaoRoutes from './rotas/autenticacao';
@@ -653,6 +653,69 @@ async function blocoSeoDoTenant(loja: Awaited<ReturnType<typeof lojaDoHost>>): P
   }
 }
 
+/**
+ * O MESMO, PARA A LANDING DA PLATAFORMA (ver seo-conteudo.ts).
+ *
+ * `blocoSeoDoTenant` exige loja e devolve vazio sem ela — então a home que
+ * VENDE a plataforma era a única página do sistema que continuava uma folha em
+ * branco para o buscador, mesmo depois de todo o trabalho de indexação.
+ *
+ * Os textos vêm dos campos `landing_*` que o admin já preencheu no editor. Lista
+ * que nunca foi salva simplesmente não entra: o bloco sai menor, nunca com texto
+ * que a página não mostra.
+ */
+const conteudoLanding = new Map<string, { html: string; em: number }>();
+
+const CHAVES_LANDING = [
+  'marca_nome', 'marca_descricao', 'marca_slogan',
+  'landing_hero_titulo', 'landing_hero_subtitulo',
+  'landing_recursos_json', 'landing_como_funciona_json', 'landing_planos_json',
+  'landing_faq_json', 'landing_segmentos_json',
+];
+
+async function blocoSeoDaLanding(): Promise<string> {
+  const chave = bancoTenantAtual() || 'padrao';
+  const agora = Date.now();
+  const guardado = conteudoLanding.get(chave);
+  if (guardado && agora - guardado.em < VALIDADE_CONTEUDO_MS) return guardado.html;
+  try {
+    /* Uma consulta só: são dez chaves, e dez idas ao banco no caminho mais
+       quente do app para montar um texto que muda quando alguém edita a landing
+       seria o oposto do que o cache acima existe para evitar. */
+    const marcas = '?'.repeat(CHAVES_LANDING.length).split('').join(',');
+    const linhas = await db.prepare(
+      `SELECT chave, valor FROM configuracoes WHERE chave IN (${marcas})`
+    ).all(...CHAVES_LANDING) as Array<{ chave: string; valor: string }>;
+    const cfg = new Map(linhas.map(l => [l.chave, l.valor || '']));
+    const texto = (k: string) => cfg.get(k) || '';
+    /** Lista salva como JSON. Dado torto vira lista vazia — a seção some, a
+        página continua de pé. */
+    const lista = <T>(k: string): T[] => {
+      try {
+        const v = JSON.parse(texto(k) || '[]');
+        return Array.isArray(v) ? v as T[] : [];
+      } catch { return []; }
+    };
+
+    const html = blocoDaLanding({
+      titulo: texto('landing_hero_titulo') || texto('marca_nome'),
+      subtitulo: texto('landing_hero_subtitulo')
+        || texto('marca_descricao') || texto('marca_slogan'),
+      recursos: lista('landing_recursos_json'),
+      comoFunciona: lista('landing_como_funciona_json'),
+      planos: lista('landing_planos_json'),
+      faq: lista('landing_faq_json'),
+      segmentos: lista<string>('landing_segmentos_json'),
+    });
+    conteudoLanding.set(chave, { html, em: agora });
+    return html;
+  } catch {
+    /* Mesma regra do bloco da loja: indexação é acessório e não pode tirar do ar
+       a página que alguém está tentando abrir. */
+    return '';
+  }
+}
+
 let htmlBase: string | null = null;
 function lerHtmlBase(): string {
   if (htmlBase === null) {
@@ -739,7 +802,16 @@ app.use((req, res, next) => {
     const caminho = req.path.split('?')[0];
     const mostraLoja = caminho === '/'
       || (!!loja?.slug && decodeURIComponent(caminho).replace(/^\//, '').toLowerCase() === loja.slug.toLowerCase());
-    const comConteudo = mostraLoja ? injetarConteudo(html, await blocoSeoDoTenant(loja)) : html;
+    /*
+     * SEM LOJA NA RAIZ = A LANDING QUE VENDE A PLATAFORMA.
+     *
+     * Quem amarra um domínio a uma loja usa `loja_padrao_id`, e aí `lojaDoHost`
+     * resolve e o bloco é o do cardápio. Nulo na raiz só sobra para a home do
+     * produto — que era a página sem texto nenhum para o buscador.
+     */
+    const comConteudo = mostraLoja
+      ? injetarConteudo(html, loja ? await blocoSeoDoTenant(loja) : await blocoSeoDaLanding())
+      : html;
     res.type('html').send(injetarDados(comConteudo, dados));
   })().catch(() => {
     // Falhou montando o preview? Serve o HTML como estava — a página funciona,

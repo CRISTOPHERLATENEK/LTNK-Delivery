@@ -11,6 +11,7 @@ const HTML = `<!doctype html>
   <head>
     <meta charset="UTF-8" />
     <meta name="description" content="texto da plataforma" />
+    <meta name="theme-color" content="#dc2640" />
     <title>Delivery Já</title>
   </head>
   <body><div id="root"></div></body>
@@ -21,6 +22,7 @@ const meta = (over: Partial<MetaOg> = {}): MetaOg => ({
   descricao: 'A melhor pizza da cidade',
   imagem: '/uploads/capa.jpg',
   tipo: 'website',
+  cor: '#ffa200',
   ...over,
 });
 
@@ -191,5 +193,56 @@ describe('paginaSuspensa — contato do suporte', () => {
   it('escapa o contato também (vem de campo editável)', () => {
     const h = paginaSuspensa('Loja X', { email: 'a"><script>x</script>@b.com', telefone: '' });
     expect(h).not.toContain('<script>x</script>');
+  });
+});
+
+/**
+ * A COR DA BARRA DO NAVEGADOR.
+ *
+ * Regressão de um defeito medido em produção (maxxpedidos.com.br, 18/09/2026):
+ * `theme-color` saía `#dc2640`, o vermelho do padrão antigo, cravado no
+ * `index.html` — enquanto a cor escolhida no painel era `#ffa200`. O laranja
+ * pintava o site inteiro e parava na borda da página: a barra do Chrome no
+ * celular e o splash do app instalado continuavam vermelhos.
+ *
+ * E não era de um cliente só: a cor é configurável por tenant, e a tag ignorava
+ * a escolha de todos.
+ */
+describe('injetarMeta · theme-color', () => {
+  it('troca a cor fixa do arquivo pela cor da marca', () => {
+    const html = injetarMeta(HTML, meta(), 'https://loja.com', 'https://loja.com/');
+    expect(html).toContain('<meta name="theme-color" content="#ffa200" />');
+    expect(html).not.toContain('#dc2640');
+  });
+
+  it('não deixa duas theme-color', () => {
+    const html = injetarMeta(HTML, meta(), 'https://loja.com', 'https://loja.com/');
+    expect(html.match(/name="theme-color"/g)).toHaveLength(1);
+  });
+
+  /* Sem cor para dizer (banco fora, loja sem cor própria), a do arquivo fica:
+     manter a cor velha é melhor que servir uma tag sem valor. */
+  it('cor vazia mantém a do arquivo', () => {
+    const html = injetarMeta(HTML, meta({ cor: '' }), 'https://loja.com', 'https://loja.com/');
+    expect(html).toContain('<meta name="theme-color" content="#dc2640" />');
+  });
+
+  /*
+   * SÓ HEXADECIMAL ENTRA. O valor vem de campo editável, e uma tag inválida é
+   * pior que a cor velha — além de ser por onde entraria HTML na `<head>`.
+   */
+  it('valor torto não vira tag', () => {
+    for (const ruim of ['vermelho', '"><script>x</script>', '#zz', 'rgb(1,2,3)']) {
+      const html = injetarMeta(HTML, meta({ cor: ruim }), 'https://loja.com', 'https://loja.com/');
+      expect(html).toContain('content="#dc2640"');
+      expect(html).not.toContain('<script>x</script>');
+    }
+  });
+
+  it('aceita as formas válidas de hex', () => {
+    for (const bom of ['#fff', '#FFA200', '#ffa200cc']) {
+      const html = injetarMeta(HTML, meta({ cor: bom }), 'https://loja.com', 'https://loja.com/');
+      expect(html).toContain(`content="${bom}"`);
+    }
   });
 });

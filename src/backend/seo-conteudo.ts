@@ -179,6 +179,96 @@ export function blocoDeConteudo(
   return p.join('');
 }
 
+/* ───────────────────── A LANDING DA PLATAFORMA ───────────────────── */
+
+/**
+ * O QUE O BUSCADOR LÊ NA LANDING — e por que ela ficou de fora até agora.
+ *
+ * `blocoSeoDoTenant` devolve vazio quando não há loja (server.ts), então todo
+ * este trabalho valia para `galderio-bebidas.maxxpedidos.com.br` e não valia
+ * para `maxxpedidos.com.br`. Medido no HTML público em 18/09/2026:
+ *
+ *   nenhum <h1>, nenhum <h2>, nenhum parágrafo
+ *   texto fora de script/style: 310 caracteres — e eram COMENTÁRIOS do código
+ *
+ * Ou seja: a página que vende a plataforma era, para o Google, uma folha em
+ * branco. O diagnóstico que chegou de fora ("o site não aparece em buscas") é
+ * consequência disto, não uma causa separada.
+ *
+ * O TEXTO JÁ EXISTIA, e é este o ponto: 24 campos `landing_*` preenchidos no
+ * banco — recursos, planos, dúvidas, como funciona. Nada aqui é redação nova;
+ * é o que o admin escreveu no editor e o que o visitante já lê na tela. Pelo
+ * mesmo motivo do bloco da loja, NÃO É CLOAKING: mesmo conteúdo, dentro do
+ * `#root`, substituído quando o React monta.
+ */
+export interface LandingParaConteudo {
+  titulo: string;
+  subtitulo: string;
+  recursos: Array<{ titulo: string; desc?: string }>;
+  comoFunciona: Array<{ titulo: string; desc?: string }>;
+  planos: Array<{ nome: string; preco?: string; recursos?: string[] }>;
+  faq: Array<{ pergunta: string; resposta: string }>;
+  segmentos: string[];
+}
+
+/** `<h2>` + lista, ou nada quando a lista está vazia. */
+function secao(titulo: string, linhas: string[]): string {
+  return linhas.length ? `<h2>${esc(titulo)}</h2><ul>${linhas.join('')}</ul>` : '';
+}
+
+export function blocoDaLanding(d: LandingParaConteudo | null): string {
+  if (!d?.titulo) return '';
+
+  const p: string[] = [ESTILO, '<div id="seo-inicial"><div class="i">'];
+  p.push(`<h1>${esc(d.titulo)}</h1>`);
+  if (d.subtitulo) p.push(`<p>${esc(d.subtitulo)}</p>`);
+
+  /*
+   * O MESMO `<details>` DO BLOCO DA LOJA, e pela mesma lição: a primeira versão
+   * de lá despejava tudo aberto, e o que o lojista viu no F5 foi um muro de
+   * texto cru piscando antes do app montar — parecia defeito, não carregamento.
+   * Visível fica a chamada; o resto abre em um clique e o buscador lê igual.
+   */
+  const corpo: string[] = [];
+  let bytes = 0;
+  const juntar = (bloco: string) => {
+    if (!bloco) return;
+    const custo = Buffer.byteLength(bloco, 'utf8');
+    if (bytes + custo > LIMITE_CONTEUDO_BYTES) return;
+    corpo.push(bloco);
+    bytes += custo;
+  };
+
+  const linhaTituloDesc = (i: { titulo: string; desc?: string }) =>
+    `<li>${esc(i.titulo)}${i.desc ? ` &mdash; ${esc(i.desc)}` : ''}</li>`;
+
+  juntar(secao('O que o sistema faz', d.recursos.map(linhaTituloDesc)));
+  juntar(secao('Como funciona', d.comoFunciona.map(linhaTituloDesc)));
+  juntar(secao('Planos', d.planos.map(pl => {
+    /* Os recursos do plano entram na mesma linha: é o texto que responde "o que
+       vem no plano", e é por ele que alguém chega pesquisando. */
+    const itens = (pl.recursos || []).length ? ` &mdash; ${esc((pl.recursos || []).join(', '))}` : '';
+    return `<li>${esc(pl.nome)}${pl.preco ? ` &middot; ${esc(pl.preco)}` : ''}${itens}</li>`;
+  })));
+  juntar(secao('Para que tipo de negócio', d.segmentos.map(s => `<li>${esc(s)}</li>`)));
+  /*
+   * A FAQ POR ÚLTIMO E INTEIRA — pergunta E resposta.
+   *
+   * É o texto mais valioso da página para busca: são as frases que as pessoas
+   * realmente digitam ("precisa de CNPJ", "tem taxa por pedido", "funciona com
+   * a minha impressora"), com a resposta ao lado.
+   */
+  juntar(secao('Dúvidas frequentes', d.faq.map(f =>
+    `<li><strong>${esc(f.pergunta)}</strong> ${esc(f.resposta)}</li>`)));
+
+  if (corpo.length) {
+    p.push(`<details><summary>Ver o que o sistema faz</summary>${corpo.join('')}</details>`);
+  }
+
+  p.push('</div></div>');
+  return p.join('');
+}
+
 /**
  * Põe o bloco dentro do `#root`.
  *

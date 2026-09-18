@@ -311,7 +311,17 @@ describe('o servidor só escreve o cardápio onde a loja aparece', () => {
   it('a raiz e o /slug, e mais nada', () => {
     expect(SERVER).toContain("const mostraLoja = caminho === '/'");
     expect(SERVER).toContain('=== loja.slug.toLowerCase())');
-    expect(SERVER).toContain('mostraLoja ? injetarConteudo(html, await blocoSeoDoTenant(loja)) : html');
+    /*
+     * A CONDIÇÃO CONTINUA SENDO `mostraLoja`, e é ela que este teste guarda: o
+     * cardápio não pode vazar para /termos, /carrinho ou /conta.
+     *
+     * O que mudou desde a etapa 2 é o que entra QUANDO não há loja: a raiz sem
+     * loja é a landing que vende a plataforma, e ela era a última página do
+     * sistema sem texto nenhum para o buscador. O cardápio segue preso à loja
+     * — `blocoSeoDoTenant` só é chamado com `loja` na mão.
+     */
+    expect(SERVER).toContain('mostraLoja');
+    expect(SERVER).toContain('loja ? await blocoSeoDoTenant(loja) : await blocoSeoDaLanding()');
   });
 
   /*

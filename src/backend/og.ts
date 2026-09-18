@@ -25,6 +25,15 @@ export interface MetaOg {
   descricao: string;
   imagem: string;
   tipo: 'website' | 'article';
+  /**
+   * A COR DA BARRA DO NAVEGADOR (`theme-color`), que também é a do splash do
+   * app instalado. Vazio = mantém a que está no `index.html`.
+   *
+   * Vem junto das meta tags porque é a mesma pergunta que elas respondem — "de
+   * quem é esta página?" — e tem a mesma resposta: da loja quando o domínio é
+   * dela, da plataforma quando não é.
+   */
+  cor: string;
 }
 
 /**
@@ -44,7 +53,10 @@ const ROTAS_RESERVADAS = new Set([
   'uploads', 'api',
 ]);
 
-type LinhaLoja = { nome: string; descricao: string | null; logo_url: string | null; capa_url: string | null };
+type LinhaLoja = {
+  nome: string; descricao: string | null; logo_url: string | null; capa_url: string | null;
+  cor_marca: string | null;
+};
 
 /**
  * `status_aprovacao = 'aprovada'` e NÃO `aprovada = 1`: essa coluna não existe.
@@ -52,7 +64,7 @@ type LinhaLoja = { nome: string; descricao: string | null; logo_url: string | nu
  * vitrine estourava erro de SQL, caía no catch e devolvia o cartão genérico — a
  * feature parecia entregue e não funcionava fora de /pedido/:id.
  */
-const CAMPOS_LOJA = 'nome, descricao, logo_url, capa_url';
+const CAMPOS_LOJA = 'nome, descricao, logo_url, capa_url, cor_marca';
 const SO_APROVADA = "status_aprovacao = 'aprovada'";
 
 async function lojaPorId(id: number | string): Promise<LinhaLoja | undefined> {
@@ -76,11 +88,26 @@ async function config(chave: string): Promise<string> {
 async function metaDaMarca(): Promise<MetaOg> {
   return {
     titulo: (await config('marca_nome')) || 'Delivery',
-    descricao: await config('marca_descricao'),
+    /*
+     * O SLOGAN É O PLANO B DA DESCRIÇÃO — mesma ideia que `metaDaLoja` já
+     * aplicava à loja, que faltava aqui em cima.
+     *
+     * Medido em maxxpedidos.com.br em 18/09/2026: `marca_descricao` vazia no
+     * banco, e o que ia pro ar era `<meta name="description" content="" />`,
+     * `og:description` e `twitter:description` idem. Link mandado no WhatsApp
+     * virava um cartão só com o título.
+     *
+     * E o texto existia o tempo todo, na linha de baixo do mesmo formulário:
+     * `marca_slogan` estava preenchido ("Conheça o melhor APP de Delivery da
+     * Região."). Não inventa nada — usa o que o admin já escreveu, e só quando
+     * não há descrição.
+     */
+    descricao: (await config('marca_descricao')) || (await config('marca_slogan')),
     // `marca_og_image` já existia e é editável no admin (Marca) justamente pra
     // isto — imagem feita no formato do cartão. Logo é só o plano B.
     imagem: (await config('marca_og_image')) || (await config('marca_logo_url')),
     tipo: 'website',
+    cor: await config('marca_cor_primaria'),
   };
 }
 
@@ -102,6 +129,9 @@ function metaDaLoja(loja: LinhaLoja, tipo: MetaOg['tipo'] = 'website'): MetaOg {
      */
     descricao: loja.descricao || `Peça online na ${loja.nome}. Cardápio, preços e entrega.`,
     tipo,
+    /* No domínio da loja, a barra do navegador é da COR DELA — é o mesmo
+       white-label do título e da imagem logo acima. */
+    cor: loja.cor_marca || '',
   };
 }
 
@@ -164,8 +194,10 @@ export async function metaDaRota(caminho: string, host?: string): Promise<MetaOg
 
     return await metaDaMarca();
   } catch {
-    // Banco fora, tenant sem a tabela, slug estranho: cai no genérico.
-    return { titulo: 'Delivery', descricao: '', imagem: '', tipo: 'website' };
+    /* Banco fora, tenant sem a tabela, slug estranho: cai no genérico. Cor
+       vazia de propósito — sem banco não há cor da marca para saber, e manter a
+       do arquivo é melhor que arriscar a errada. */
+    return { titulo: 'Delivery', descricao: '', imagem: '', tipo: 'website', cor: '' };
   }
 }
 
@@ -226,6 +258,28 @@ export function injetarMeta(
     .replace(
       /<meta\s+name="apple-mobile-web-app-title"[^>]*>/i,
       `<meta name="apple-mobile-web-app-title" content="${esc(meta.titulo)}" />`,
+    )
+    /*
+     * A COR DA BARRA DO NAVEGADOR SEGUE A MARCA, e estava fixa no `index.html`.
+     *
+     * Medido em maxxpedidos.com.br em 18/09/2026: `theme-color` saía `#dc2640`
+     * — o vermelho que era o padrão antigo — enquanto a cor escolhida no painel
+     * era `#ffa200`. O laranja pintava o site inteiro e parava exatamente na
+     * borda da página: a barra do Chrome no celular e o splash do app instalado
+     * continuavam vermelhos.
+     *
+     * E o defeito não era de um cliente: a cor é configurável por tenant, e a
+     * tag ignorava a escolha de TODOS. É o mesmo vazamento de white-label que o
+     * título e o `apple-mobile-web-app-title` acima já consertaram.
+     *
+     * Cor vazia mantém a do arquivo, e só hexadecimal entra — um valor torto no
+     * banco produziria uma tag inválida, e tag inválida é pior que a cor velha.
+     */
+    .replace(
+      /<meta\s+name="theme-color"[^>]*>/i,
+      /^#[0-9a-f]{3,8}$/i.test(meta.cor.trim())
+        ? `<meta name="theme-color" content="${esc(meta.cor.trim())}" />`
+        : '$&',
     );
 }
 
