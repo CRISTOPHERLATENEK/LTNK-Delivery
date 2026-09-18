@@ -19,6 +19,7 @@ const HTML = `<!doctype html>
 
 const meta = (over: Partial<MetaOg> = {}): MetaOg => ({
   titulo: 'Pizzaria do Zé',
+  tituloBusca: '',
   descricao: 'A melhor pizza da cidade',
   imagem: '/uploads/capa.jpg',
   tipo: 'website',
@@ -244,5 +245,60 @@ describe('injetarMeta · theme-color', () => {
       const html = injetarMeta(HTML, meta({ cor: bom }), 'https://loja.com', 'https://loja.com/');
       expect(html).toContain(`content="${bom}"`);
     }
+  });
+});
+
+/**
+ * O TÍTULO DE BUSCA É OUTRO CAMPO, E NÃO PODE VAZAR PARA ONDE VAI O NOME.
+ *
+ * Pedido de fora, e a sugestão era trocar o título por "MAXX pedidos | Sistema
+ * para delivery, PDV e NFC-e". A ideia está certa — quem ainda não conhece a
+ * marca não procura pelo nome dela —, mas trocar o `marca_nome` derramaria essa
+ * frase no cabeçalho do painel, no rodapé e no `alt` da logo.
+ *
+ * Então são dois campos, e cada tag recebe o que faz sentido nela:
+ *
+ *   título da PÁGINA .. <title>, og:title, twitter:title
+ *   NOME da marca ..... og:site_name, apple-mobile-web-app-title
+ *
+ * O segundo é o que o iPhone escreve embaixo do ícone na tela de início: frase
+ * de 60 caracteres ali não cabe.
+ */
+describe('injetarMeta · título de busca', () => {
+  const comBusca = meta({ tituloBusca: 'Maxx Pedidos | Sistema para delivery, PDV e NFC-e' });
+
+  it('o <title> e o cartão recebem o título de busca', () => {
+    const html = injetarMeta(HTML, comBusca, 'https://l.com', 'https://l.com/');
+    expect(html).toContain('<title>Maxx Pedidos | Sistema para delivery, PDV e NFC-e</title>');
+    expect(html).toContain('og:title" content="Maxx Pedidos | Sistema para delivery, PDV e NFC-e"');
+    expect(html).toContain('twitter:title" content="Maxx Pedidos | Sistema para delivery, PDV e NFC-e"');
+  });
+
+  /* A asserção que protege o painel: o nome curto continua onde é nome. */
+  it('o nome da marca fica no site_name e no ícone do iPhone', () => {
+    const html = `<head><meta name="description" content="x" /><meta name="apple-mobile-web-app-title" content="antigo" /><title>antigo</title></head>`;
+    const r = injetarMeta(html, comBusca, 'https://l.com', 'https://l.com/');
+    expect(r).toContain('og:site_name" content="Pizzaria do Zé"');
+    expect(r).toContain('apple-mobile-web-app-title" content="Pizzaria do Zé"');
+    expect(r).not.toContain('apple-mobile-web-app-title" content="Maxx Pedidos |');
+  });
+
+  /* Vazio é o estado de quem nunca preencheu: tudo segue como antes. */
+  it('sem título de busca, tudo volta a ser o nome', () => {
+    const html = injetarMeta(HTML, meta(), 'https://l.com', 'https://l.com/');
+    expect(html).toContain('<title>Pizzaria do Zé</title>');
+    expect(html).toContain('og:title" content="Pizzaria do Zé"');
+  });
+
+  /* Só espaço em branco também é "não preenchido" — senão o <title> sairia vazio. */
+  it('espaço em branco conta como vazio', () => {
+    const html = injetarMeta(HTML, meta({ tituloBusca: '   ' }), 'https://l.com', 'https://l.com/');
+    expect(html).toContain('<title>Pizzaria do Zé</title>');
+  });
+
+  it('escapa o título de busca, que é campo livre do admin', () => {
+    const html = injetarMeta(HTML, meta({ tituloBusca: '<script>x</script> & cia' }), 'https://l.com', 'https://l.com/');
+    expect(html).not.toContain('<script>x</script>');
+    expect(html).toContain('&lt;script&gt;');
   });
 });

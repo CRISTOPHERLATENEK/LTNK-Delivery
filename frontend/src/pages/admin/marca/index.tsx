@@ -292,6 +292,28 @@ export function TelaMarca() {
 
           {/* SEO / Compartilhamento */}
           <Secao icone={Megaphone} titulo="SEO e compartilhamento">
+            {/*
+              O TÍTULO DE BUSCA VEM ANTES DA DESCRIÇÃO porque é o que a pessoa
+              lê primeiro no resultado do Google — e porque é o campo novo: quem
+              já conhece esta tela precisa tropeçar nele.
+
+              Ele NÃO é o nome da marca. O nome ("Maxx Pedidos") identifica a
+              plataforma dentro do sistema; aqui vai o que alguém que ainda não
+              conhece a marca digitaria pra achar um sistema como o nosso.
+            */}
+            <Linha
+              rotulo="Título para busca"
+              apoio={`Vazio = usa o nome da marca · ${(form.titulo_busca || '').length}/70`}
+              empilhado
+            >
+              <input
+                id="titulo-busca" maxLength={70} value={form.titulo_busca || ''}
+                onChange={e => up('titulo_busca', e.target.value)}
+                placeholder={`Ex.: ${form.nome || 'Sua marca'} | Sistema para delivery, PDV e NFC-e`}
+                className="h-[34px] w-full px-2.5 text-[13px] outline-none"
+                style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, boxSizing: 'border-box' }}
+              />
+            </Linha>
             <Linha
               rotulo="Descrição"
               /* O CONTADOR NO APOIO: 200 é o limite do que o Google mostra, e

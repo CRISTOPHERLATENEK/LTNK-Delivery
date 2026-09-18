@@ -1883,6 +1883,7 @@ router.get('/tema', async (_req, res, next) => {
       raio:              await valor('marca_raio', 'suave'),
       fonte:             await valor('marca_fonte', 'inter'),
       descricao:         await valor('marca_descricao'),
+      titulo_busca:      await valor('marca_titulo_busca'),
       og_image:          await valor('marca_og_image'),
       login_banner_url:  await valor('marca_login_banner_url'),
       loja_id:           Number(await valor('loja_padrao_id', '0')),
@@ -1996,6 +1997,11 @@ router.put('/tema', exigirSuperAdmin, async (req, res, next) => {
     }
     if (req.body.descricao !== undefined) {
       await set(textoLimpo(req.body.descricao, 200), 'marca_descricao');
+    }
+    /* 70 caracteres porque é o que o Google mostra antes de cortar com "…" —
+       um teto maior só deixaria escrever o que não vai aparecer. */
+    if (req.body.titulo_busca !== undefined) {
+      await set(textoLimpo(req.body.titulo_busca, 70), 'marca_titulo_busca');
     }
     if (req.body.og_image !== undefined) {
       const v = textoLimpo(req.body.og_image, 500);

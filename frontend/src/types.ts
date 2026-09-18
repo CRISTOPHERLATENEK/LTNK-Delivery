@@ -243,6 +243,15 @@ export interface TemaMarca {
   fonte: FonteMarca;
   /** Descrição curta usada em SEO e no compartilhamento (Open Graph). */
   descricao: string;
+  /**
+   * Título da página para busca. Vazio = usa o nome da marca.
+   *
+   * Separado do `nome` porque os dois servem a coisas diferentes: o nome
+   * identifica a marca dentro do sistema (cabeçalho, rodapé, `alt` da logo), e
+   * este é o que alguém que ainda NÃO conhece a marca leria num resultado de
+   * busca. Usar um campo só derramaria a frase comprida painel adentro.
+   */
+  titulo_busca?: string;
   /** Imagem de compartilhamento (Open Graph) — aparece ao colar o link em redes sociais. */
   og_image: string;
   /** Banner personalizado da tela de login (vazio = usa a ilustração padrão). */

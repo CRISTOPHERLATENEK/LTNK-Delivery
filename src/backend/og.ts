@@ -21,7 +21,22 @@ import db, { comTenant, BANCO_PADRAO } from './db-mysql';
 import { lojaIdDoHost } from './dominios';
 
 export interface MetaOg {
+  /**
+   * O NOME. Curto, é a marca — vai no `og:site_name` e no rótulo do ícone do
+   * iPhone, onde frase comprida não cabe nem faz sentido.
+   */
   titulo: string;
+  /**
+   * O TÍTULO DA PÁGINA PARA BUSCA. Vazio = usa o nome.
+   *
+   * Existe porque os dois querem coisas diferentes: "Maxx Pedidos" é o que
+   * identifica a marca dentro do sistema, e "Maxx Pedidos | Sistema para
+   * delivery, PDV e NFC-e" é o que alguém que AINDA NÃO conhece a marca
+   * digitaria no Google. Antes era um campo só, e mudar o `<title>` para o
+   * segundo derramaria a frase comprida no cabeçalho do painel, no rodapé e no
+   * `alt` da logo — que é onde `marca_nome` também é usado.
+   */
+  tituloBusca: string;
   descricao: string;
   imagem: string;
   tipo: 'website' | 'article';
@@ -88,6 +103,7 @@ async function config(chave: string): Promise<string> {
 async function metaDaMarca(): Promise<MetaOg> {
   return {
     titulo: (await config('marca_nome')) || 'Delivery',
+    tituloBusca: await config('marca_titulo_busca'),
     /*
      * O SLOGAN É O PLANO B DA DESCRIÇÃO — mesma ideia que `metaDaLoja` já
      * aplicava à loja, que faltava aqui em cima.
@@ -127,6 +143,9 @@ function metaDaLoja(loja: LinhaLoja, tipo: MetaOg['tipo'] = 'website'): MetaOg {
      *
      * Não substitui o texto do lojista — só aparece quando não há texto.
      */
+    /* A loja não tem título de busca próprio: o nome dela já é o termo que
+       alguém procura ("pizzaria tal"), diferente da plataforma. */
+    tituloBusca: '',
     descricao: loja.descricao || `Peça online na ${loja.nome}. Cardápio, preços e entrega.`,
     tipo,
     /* No domínio da loja, a barra do navegador é da COR DELA — é o mesmo
@@ -197,7 +216,7 @@ export async function metaDaRota(caminho: string, host?: string): Promise<MetaOg
     /* Banco fora, tenant sem a tabela, slug estranho: cai no genérico. Cor
        vazia de propósito — sem banco não há cor da marca para saber, e manter a
        do arquivo é melhor que arriscar a errada. */
-    return { titulo: 'Delivery', descricao: '', imagem: '', tipo: 'website', cor: '' };
+    return { titulo: 'Delivery', tituloBusca: '', descricao: '', imagem: '', tipo: 'website', cor: '' };
   }
 }
 
@@ -228,10 +247,22 @@ export function injetarMeta(
   extras: string[] = [],
 ): string {
   const imagem = urlAbsoluta(meta.imagem, urlBase);
+  /*
+   * DUAS COISAS DIFERENTES, e por isso duas variáveis.
+   *
+   * `titulo` é o NOME da marca e fica onde nome é o que se espera: no
+   * `og:site_name` (o "de qual site é este link") e no rótulo do ícone na tela
+   * de início do iPhone, que tem espaço para poucas letras.
+   *
+   * `paraBusca` é o título da PÁGINA, e vai onde alguém lê para decidir se
+   * clica: a aba do navegador, o resultado do Google e o cartão do link. Quem
+   * ainda não conhece a marca não procura pelo nome dela.
+   */
+  const paraBusca = meta.tituloBusca.trim() || meta.titulo;
   const tags = [
     `<meta property="og:type" content="${meta.tipo}" />`,
     `<meta property="og:site_name" content="${esc(meta.titulo)}" />`,
-    `<meta property="og:title" content="${esc(meta.titulo)}" />`,
+    `<meta property="og:title" content="${esc(paraBusca)}" />`,
     `<meta property="og:description" content="${esc(meta.descricao)}" />`,
     `<meta property="og:url" content="${esc(urlCompleta)}" />`,
     ...(imagem ? [
@@ -239,14 +270,14 @@ export function injetarMeta(
       // summary_large_image sem imagem vira cartão vazio no Twitter/X.
       `<meta name="twitter:card" content="summary_large_image" />`,
     ] : [`<meta name="twitter:card" content="summary" />`]),
-    `<meta name="twitter:title" content="${esc(meta.titulo)}" />`,
+    `<meta name="twitter:title" content="${esc(paraBusca)}" />`,
     `<meta name="twitter:description" content="${esc(meta.descricao)}" />`,
     ...(imagem ? [`<meta name="twitter:image" content="${esc(imagem)}" />`] : []),
     ...extras,
   ].join('\n    ');
 
   return html
-    .replace(/<title>[\s\S]*?<\/title>/i, `<title>${esc(meta.titulo)}</title>`)
+    .replace(/<title>[\s\S]*?<\/title>/i, `<title>${esc(paraBusca)}</title>`)
     .replace(
       /<meta\s+name="description"[^>]*>/i,
       `<meta name="description" content="${esc(meta.descricao)}" />\n    ${tags}`,
