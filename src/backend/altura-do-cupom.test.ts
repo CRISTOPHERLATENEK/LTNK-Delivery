@@ -33,12 +33,15 @@ const IMPRESSAO = semComentarios(ler('frontend', 'src', 'lib', 'impressao.ts'));
 
 const CUPOM = '<style>@page { size: 80mm auto; margin: 2mm; }</style>';
 
+/** Só a linha do `@page`, que é onde mora o tamanho. */
+const pagina = (regra: string | null) => (regra ?? '').split(String.fromCharCode(10))[0];
+
 describe('a altura vem do conteúdo', () => {
   /* 96px = 1in = 25.4mm é a régua do CSS, não uma aproximação. 300px = 79,375mm
      → 80 arredondando para cima, + 2mm de margem em cima, + 2mm embaixo, + 1 de
      folga = 85. */
   it('converte px em mm pela régua do CSS', () => {
-    expect(regraDePagina(CUPOM, 300)).toBe('@page { size: 80mm 85mm; }');
+    expect(pagina(regraDePagina(CUPOM, 300))).toBe('@page { size: 80mm 85mm; margin: 0; }');
   });
 
   /*
@@ -50,23 +53,23 @@ describe('a altura vem do conteúdo', () => {
     const semMargem = '<style>@page { size: 80mm auto; margin: 0 }</style>';
     /* Mesmos 300px: 80 + 0 + 1 contra 80 + 4 + 1. A diferença é exatamente as
        duas margens. */
-    expect(regraDePagina(semMargem, 300)).toBe('@page { size: 80mm 81mm; }');
+    expect(pagina(regraDePagina(semMargem, 300))).toBe('@page { size: 80mm 81mm; margin: 0; }');
   });
 
   /* Arredonda para CIMA. Um milímetro de papel a mais é barato; uma segunda
      folha com uma linha é um corte a mais na bobina e um cupom no lixo. */
   it('nunca corta o último milímetro', () => {
     /* 301px = 79,64mm → 80, não 79. */
-    expect(regraDePagina(CUPOM, 301)).toBe('@page { size: 80mm 85mm; }');
-    expect(regraDePagina(CUPOM, 380)).toBe('@page { size: 80mm 106mm; }');
+    expect(pagina(regraDePagina(CUPOM, 301))).toBe('@page { size: 80mm 85mm; margin: 0; }');
+    expect(pagina(regraDePagina(CUPOM, 380))).toBe('@page { size: 80mm 106mm; margin: 0; }');
   });
 
   /* Pedido comprido cresce a folha, que é o ponto: "de acordo com as
      informações que existe no pedido". */
   it('pedido maior, papel maior', () => {
-    const curto = regraDePagina(CUPOM, 200)!;
-    const longo = regraDePagina(CUPOM, 900)!;
-    expect(Number(/(\d+)mm; \}/.exec(curto)![1])).toBeLessThan(Number(/(\d+)mm; \}/.exec(longo)![1]));
+    const curto = pagina(regraDePagina(CUPOM, 200));
+    const longo = pagina(regraDePagina(CUPOM, 900));
+    expect(Number(/(\d+)mm; margin/.exec(curto)![1])).toBeLessThan(Number(/(\d+)mm; margin/.exec(longo)![1]));
   });
 
   /* A largura NÃO é inventada: vem do `@page` que o próprio cupom declarou. É
@@ -113,10 +116,42 @@ describe('como a regra é aplicada', () => {
     expect(iAjuste).toBeLessThan(iPrint);
   });
 
-  /* Só `size`: `margin` e o resto continuam vindo da regra original, pela
-     cascata. Repetir a margem aqui seria a mesma decisão em dois lugares. */
-  it('sobrescreve só o tamanho', () => {
-    expect(regraDePagina(CUPOM, 300)).not.toContain('margin');
+  /*
+   * ─────── MARGEM ZERO NO PAPEL, RECUO NO CONTEÚDO ───────
+   *
+   * "tem que sair como cupom fiscal" — cupom de pedido, formato de bobina.
+   *
+   * O que estragava não era o tamanho: era o CABEÇALHO E O RODAPÉ DO NAVEGADOR.
+   * No cupom do pedido #151 saíram a data, o título "Pedido #151", o endereço
+   * `https://demo.maxxpedidos.com.br/lojista/produtos` e um "1/1" — quatro
+   * linhas que não são do cupom, numa via que o cliente leva.
+   *
+   * O Chrome imprime esse cabeçalho DENTRO da margem da página. Sem margem não
+   * há onde ele caber. Daí `margin: 0` — e a margem volta como PADDING, para o
+   * texto não colar na borda do papel.
+   */
+  it('zera a margem do papel para o navegador não escrever nela', () => {
+    expect(pagina(regraDePagina(CUPOM, 300))).toContain('margin: 0;');
+  });
+
+  /*
+   * A LARGURA DO CORPO VAI JUNTO. Os cupons declaram `body { width: 76mm }` (a
+   * folha menos as duas margens) com `box-sizing: border-box`. Só acrescentar
+   * `padding` comeria esses 76 por dentro: o texto encolheria para 72mm e
+   * sobrariam 4mm de papel em branco na direita.
+   *
+   * Medido no navegador depois da regra: folha 302px (80mm), texto 287px
+   * (76mm) — exatamente a largura de antes.
+   */
+  it('devolve a margem como recuo, sem estreitar o texto', () => {
+    const regra = regraDePagina(CUPOM, 300)!;
+    expect(regra).toContain('body { width: 80mm; padding: 2mm; }');
+  });
+
+  /* Cupom sem margem nenhuma não ganha recuo inventado. */
+  it('margem zero continua zero', () => {
+    const semMargem = '<style>@page { size: 58mm auto; margin: 0 }</style>';
+    expect(regraDePagina(semMargem, 300)).toContain('body { width: 58mm; padding: 0mm; }');
   });
 
   /*
@@ -160,7 +195,7 @@ describe('como a regra é aplicada', () => {
    * perceber.
    */
   it('o cupom do pedido #4 dá 69mm, não 217', () => {
-    expect(regraDePagina(CUPOM, 241)).toBe('@page { size: 80mm 69mm; }');
+    expect(pagina(regraDePagina(CUPOM, 241))).toBe('@page { size: 80mm 69mm; margin: 0; }');
   });
 });
 

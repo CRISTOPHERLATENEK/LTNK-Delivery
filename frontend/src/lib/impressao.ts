@@ -135,30 +135,6 @@ export function despacharImpressao(html: string, larguraMm: number, blocos?: Blo
  * atual, aparece na frente e, ao fechar, a tela volta a responder.
  */
 /**
- * ALTURA DA PÁGINA = ALTURA DO CUPOM, medida depois de renderizar.
- *
- * "porque sai esse tamanho gigante na impressão? o tamanho tem que ser de
- *  acordo com as informações que existe no pedido."
- *
- * Os cupons declaram `@page { size: 80mm auto }` desde sempre, e `auto` NÃO
- * FUNCIONA: o CSS só aceita `auto` sozinho ou duas medidas — misturar uma
- * medida com a palavra `auto` é sintaxe inválida, o navegador descarta a
- * declaração inteira e cai no papel do sistema. Resultado na tela do lojista:
- * um cupom de 7 cm no meio de uma folha inteira, e "1 folha de papel" no
- * diálogo.
- *
- * Numa bobina térmica isso é papel corrido: a impressora avança a folha inteira
- * antes de cortar, e cada pedido gasta 20 cm de bobina para imprimir 7.
- *
- * Só dá para saber a altura DEPOIS de montar a página — ela depende de quantos
- * itens o pedido tem, de quantos complementos cada item tem e de quantas linhas
- * o endereço ocupa. Por isso a medição é aqui, com o documento pronto, e não uma
- * conta no gerador do HTML.
- *
- * `96px = 1in = 25.4mm` é a régua do CSS, não uma aproximação: unidade física em
- * CSS é definida a partir do pixel de referência, independente da tela.
- */
-/**
  * A REGRA `@page` COM A ALTURA REAL, ou `null` quando não dá para calcular.
  *
  * PURA DE PROPÓSITO. A conta é o que pode errar aqui — converter px em mm,
@@ -194,9 +170,41 @@ export function regraDePagina(html: string, alturaPx: number): string | null {
    */
   const alturaMm = Math.ceil((alturaPx * 25.4) / 96) + margem * 2 + 1;
 
-  /* Só `size`: `margin` e o resto continuam vindo da regra original, pela
-     cascata. Repetir a margem aqui seria a mesma decisão em dois lugares. */
-  return `@page { size: ${largura[1]}mm ${alturaMm}mm; }`;
+  /*
+   * ─────── MARGEM ZERO NO PAPEL, RECUO NO CONTEÚDO ───────
+   *
+   * "tem que sair como cupom fiscal" — cupom de pedido, o formato de bobina.
+   *
+   * O que estragava não era mais o tamanho: era o CABEÇALHO E O RODAPÉ DO
+   * NAVEGADOR. No cupom do pedido #151 saíram a data, o título "Pedido #151", o
+   * endereço `https://demo.maxxpedidos.com.br/lojista/produtos` e um "1/1" —
+   * quatro linhas que não são do cupom, numa via que o cliente leva.
+   *
+   * O Chrome imprime esse cabeçalho DENTRO da margem da página. Sem margem não
+   * há onde ele caber, e ele simplesmente não sai. Daí `margin: 0` aqui.
+   *
+   * Mas margem zero colaria o texto na borda do papel, então ela volta como
+   * PADDING do conteúdo: o mesmo recuo, medido no lugar que a impressora
+   * respeita. A conta da altura já somou esse espaço (`margem * 2`), e por isso
+   * continua batendo.
+   *
+   * O CHECKBOX DO DIÁLOGO CONTINUA EXISTINDO ("Mais definições → Cabeçalhos e
+   * rodapés"), e é do usuário. Isto não o substitui: torna o padrão certo para
+   * quem nunca vai abrir aquele menu — que é todo mundo no balcão.
+   */
+  /*
+   * A LARGURA DO CORPO VAI JUNTO, e não é detalhe: os cupons declaram
+   * `body { width: 76mm }` (a folha menos as duas margens) e `box-sizing:
+   * border-box`. Só acrescentar `padding` comeria esses 76 por dentro — o texto
+   * encolheria para 72mm e sobrariam 4mm de papel em branco na direita.
+   *
+   * Com a largura da FOLHA no corpo e o recuo por dentro, o texto volta a
+   * ocupar exatamente os mesmos 76mm de antes, e o papel acaba onde o cupom
+   * acaba.
+   */
+  return `@page { size: ${largura[1]}mm ${alturaMm}mm; margin: 0; }
+`
+    + `body { width: ${largura[1]}mm; padding: ${margem}mm; }`;
 }
 
 /**
