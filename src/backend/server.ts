@@ -111,7 +111,9 @@ app.use(express.json({ limit: '200kb' }));
  *   - form-action 'self' → impede POST de formulário pra domínio de fora
  *   - allowlist de origem pra script/connect/font/style: um XSS não consegue
  *     exfiltrar dado pra um servidor arbitrário, só pros domínios abaixo
- *   - upgrade-insecure-requests → sub-recurso em http:// vira https://
+ *
+ * `upgrade-insecure-requests` NÃO ESTÁ AQUI, e a ausência é deliberada — ver o
+ * comentário no fim da lista, junto de onde ela ficava.
  *
  * img-src aceita `https:` de propósito: logo, capa e imagem do hero podem
  * apontar pra URL externa escolhida pelo lojista (não dá pra listar).
@@ -204,7 +206,33 @@ const CSP_BASE = [
     // linha, o script carrega e falha no envio — troca uma violação por outra.
     'https://cloudflareinsights.com',
   ].join(' '),
-  'upgrade-insecure-requests',
+  /*
+   * ─────── `upgrade-insecure-requests` SAIU, E FOI MEDIDO ───────
+   *
+   * Ela reescreve TODO sub-recurso `http://` para `https://`. Duas linhas acima
+   * desta, `connect-src` libera `http://localhost:9110` de propósito — é como o
+   * painel fala com o agente de impressão, que roda no PC do caixa em HTTP
+   * simples. A diretiva desfazia exatamente essa permissão: o `fetch` do painel
+   * virava `https://localhost:9110`, o agente não fala TLS, e a chamada morria.
+   *
+   * O efeito prático, no PC do lojista, com o agente RODANDO e respondendo:
+   *
+   *   curl http://localhost:9110/status ......... 200, e lista a Elgin i7 Plus
+   *   a barra de endereço do Chrome ............. 200 (navegação não é
+   *                                               sub-recurso, não é reescrita)
+   *   o `fetch` do painel ....................... falha
+   *
+   * O painel lê a falha como "agente não está rodando" e cai no diálogo de
+   * impressão do navegador. Daí o cupom em folha A4, sem corte: o caminho
+   * ESC/POS — que escolhe a bobina e corta — nunca chegava a ser tentado. O
+   * lojista via o `/status` funcionando na barra de endereço e concluía,
+   * corretamente, que o agente estava de pé.
+   *
+   * O QUE SE PERDE TIRANDO: quase nada. A promoção só vale para sub-recurso em
+   * `http://`, e a lista inteira desta política já é `https://` — as ÚNICAS
+   * entradas em texto claro são as duas do agente local, que são justamente as
+   * que não podem ser promovidas. A diretiva só tinha efeito onde ela atrapalha.
+   */
 ].join('; ');
 
 app.use((req, res, next) => {

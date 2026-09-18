@@ -30,10 +30,36 @@ const PORTA = Number(process.env.AGENTE_PORTA) || 9110;
  */
 const VERSAO = require('./package.json').version;
 
+/**
+ * CORS — E A AUTORIZAÇÃO DE REDE PRIVADA, que é o que faltava.
+ *
+ * O painel roda em `https://` e chama `http://localhost:9110`. Isso é uma
+ * requisição de uma origem PÚBLICA para a rede LOCAL, e o Chrome trata como
+ * caso especial desde o Private Network Access: ele manda um preflight com
+ * `Access-Control-Request-Private-Network: true` e só deixa a chamada sair se a
+ * resposta autorizar com `Access-Control-Allow-Private-Network: true`.
+ *
+ * O agente respondia CORS completo e NÃO respondia esse cabeçalho. Resultado
+ * medido no PC do lojista, com o agente rodando e respondendo:
+ *
+ *   curl http://localhost:9110/status ............ 200, JSON certo
+ *   fetch() de dentro de https://…maxxpedidos ... TypeError: Failed to fetch
+ *
+ * O painel lê esse erro como "agente não está rodando", cai no diálogo de
+ * impressão do navegador — e o cupom sai em folha, sem corte, porque o caminho
+ * ESC/POS (que corta) nunca foi tentado. O lojista via o `/status` funcionando
+ * na barra de endereço e concluía que estava tudo certo: navegação direta não
+ * passa por essa regra, só `fetch` passa.
+ *
+ * `Access-Control-Max-Age` vai junto para o navegador não repetir o preflight a
+ * cada impressão — uma venda dispara o cupom e uma comanda por setor.
+ */
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  res.setHeader('Access-Control-Max-Age', '86400');
 }
 function json(res, code, obj) { cors(res); res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(obj)); }
 function html(res, corpo) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(corpo); }

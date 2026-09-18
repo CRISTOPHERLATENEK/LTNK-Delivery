@@ -276,3 +276,61 @@ describe('a folha e o corpo vão para documentos diferentes', () => {
     expect((corpo.match(/return \(\) => \{\};/g) || []).length).toBe(2);
   });
 });
+
+describe('a CSP não pode desfazer a permissão do agente local', () => {
+  /*
+   * ─────── O MOTIVO DE O CUPOM SAIR EM FOLHA ───────
+   *
+   * `upgrade-insecure-requests` reescreve TODO sub-recurso `http://` para
+   * `https://`. E o `connect-src` libera `http://localhost:9110` de propósito —
+   * é como o painel fala com o agente de impressão, que roda no PC do caixa em
+   * HTTP simples. A diretiva desfazia essa permissão.
+   *
+   * Medido no PC do lojista, com o agente RODANDO:
+   *
+   *   curl http://localhost:9110/status ... 200, e lista a Elgin i7 Plus
+   *   barra de endereço do Chrome ......... 200 (navegação não é sub-recurso)
+   *   o `fetch` do painel ................. falha
+   *
+   * O painel lia a falha como "agente não está rodando" e caía no diálogo do
+   * navegador — daí o cupom em folha, sem corte: o caminho ESC/POS, que escolhe
+   * a bobina e corta, nunca era tentado.
+   */
+  /*
+   * O TEXTO CRU, e não o "sem comentários" que o resto deste arquivo usa.
+   *
+   * `semComentarios` casa `/*` DENTRO de `https://*.google-analytics.com` — o
+   * `//*` da URL abre um comentário aos olhos da expressão — e engole a lista
+   * inteira da política até o próximo `*​/`. A asserção passava sem medir nada:
+   * conferi devolvendo a diretiva ao código e o teste continuou verde.
+   *
+   * Aqui a diferença entre código e comentário são as ASPAS: na lista a
+   * diretiva aparece como `'upgrade-insecure-requests'`, e nos comentários que
+   * explicam a remoção ela aparece entre crases.
+   */
+  const SERVER = ler('src', 'backend', 'server.ts');
+
+  it('a diretiva que promove http para https não está na política', () => {
+    expect(SERVER).not.toContain("'upgrade-insecure-requests'");
+  });
+
+  /*
+   * E A PERMISSÃO CONTINUA LÁ. Tirar a promoção sem manter o `connect-src` seria
+   * trocar um bloqueio por outro — e o sintoma seria idêntico.
+   */
+  it('o agente local continua liberado nas duas formas', () => {
+    expect(SERVER).toContain("'http://localhost:9110'");
+    expect(SERVER).toContain("'http://127.0.0.1:9110'");
+  });
+
+  /*
+   * O RESTO DA POLÍTICA FICA. A remoção é cirúrgica: `object-src 'none'`,
+   * `base-uri` e `form-action` são o que essa política entrega de verdade
+   * contra XSS, e nada disso tem a ver com o agente.
+   */
+  it('as defesas que importam continuam', () => {
+    expect(SERVER).toContain("object-src 'none'");
+    expect(SERVER).toContain("base-uri 'self'");
+    expect(SERVER).toContain("form-action 'self'");
+  });
+});
