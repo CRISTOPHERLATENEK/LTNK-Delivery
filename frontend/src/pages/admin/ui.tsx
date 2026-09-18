@@ -71,12 +71,19 @@ export function Botao({
   children, onClick, variante = 'outline', tipo = 'button',
   desabilitado, altura = 34, className,
 }: PropsBotao) {
+  /*
+   * O BOTÃO PRIMÁRIO É O INVERSO DA PÁGINA, e por isso as duas cores dele são
+   * tokens. O texto era `#fff` fixo sobre `var(--adm-fg)`: no escuro o `fg` vira
+   * quase branco e o rótulo sumia dentro do próprio botão. `--adm-fundo` é
+   * exatamente o oposto de `--adm-fg` nos dois modos, então o contraste se
+   * mantém sem ninguém escolher cor de novo.
+   */
   const estilo =
     variante === 'primario'
-      ? { background: 'var(--adm-fg)', color: '#fff', border: '1px solid var(--adm-fg)' }
+      ? { background: 'var(--adm-fg)', color: 'var(--adm-fundo)', border: '1px solid var(--adm-fg)' }
       : variante === 'perigo'
-        ? { background: '#fff', color: 'var(--adm-erro)', border: '1px solid var(--adm-linha)' }
-        : { background: '#fff', color: 'var(--adm-fg)', border: '1px solid var(--adm-linha)' };
+        ? { background: 'var(--adm-fundo)', color: 'var(--adm-erro)', border: '1px solid var(--adm-linha)' }
+        : { background: 'var(--adm-fundo)', color: 'var(--adm-fg)', border: '1px solid var(--adm-linha)' };
   return (
     <button
       type={tipo}
@@ -130,7 +137,7 @@ export function Busca({
       onChange={e => aoMudar(e.target.value)}
       placeholder={placeholder}
       className="h-[34px] w-full px-2.5 text-[13px] outline-none"
-      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: '#fff' }}
+      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: 'var(--adm-campo)' }}
     />
   );
 }
@@ -163,7 +170,7 @@ export function Segmented<T extends string>({
               /* Sem transition no `background`: é a propriedade que recebe o
                  valor dinâmico, e a transition congelava o repaint no estado
                  anterior. */
-              background: ativo ? 'var(--adm-seg)' : '#fff',
+              background: ativo ? 'var(--adm-seg)' : 'var(--adm-fundo)',
               fontWeight: ativo ? 600 : 400,
               borderLeft: i === 0 ? 'none' : '1px solid var(--adm-linha)',
               borderRadius: i === 0 ? '3px 0 0 3px' : i === opcoes.length - 1 ? '0 3px 3px 0' : 0,
@@ -234,7 +241,7 @@ export function TabelaLinha({
       style={{
         gridTemplateColumns: 'var(--adm-cols)',
         borderTop: primeira ? 'none' : '1px solid var(--adm-linha3)',
-        background: sobre && aoClicar ? 'var(--adm-fundo2)' : '#fff',
+        background: sobre && aoClicar ? 'var(--adm-fundo2)' : 'var(--adm-fundo)',
       }}
     >
       {children}
@@ -318,7 +325,7 @@ export function PainelLateral({
       <div className="absolute inset-0 bg-black/20" onClick={aoFechar} />
       <aside
         className="adm relative flex h-full flex-col"
-        style={{ width: 'min(640px, 100vw)', background: '#fff', borderLeft: '1px solid var(--adm-linha)' }}
+        style={{ width: 'min(640px, 100vw)', background: 'var(--adm-fundo)', borderLeft: '1px solid var(--adm-linha)' }}
       >
         <header
           className="flex shrink-0 items-start justify-between gap-3 px-4 py-3"
@@ -399,7 +406,7 @@ export function Campo({
       onChange={e => aoMudar(e.target.value)}
       placeholder={placeholder}
       className="h-[34px] w-full px-2.5 text-[13px] outline-none"
-      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: '#fff' }}
+      style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: 'var(--adm-campo)' }}
     />
   );
 }
@@ -421,7 +428,7 @@ export function Switch({
       disabled={desabilitado}
       onClick={() => aoMudar(!ligado)}
       className="adm-switch disabled:opacity-45"
-      style={{ background: ligado ? 'var(--adm-fg)' : '#D9D5D0' }}
+      style={{ background: ligado ? 'var(--adm-fg)' : 'var(--adm-inativo)' }}
     >
       <span style={{ left: ligado ? 20 : 3 }} />
     </button>

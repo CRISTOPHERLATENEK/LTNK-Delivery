@@ -7,11 +7,12 @@
  * desenho óbvio, e o olho acaba lendo o texto de qualquer jeito. O ícone só
  * ocupava a largura que o rótulo precisava para não truncar.
  */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { useQuery } from '@tanstack/react-query';
-import { api, encerrarSessao, sessaoUsuario, ehSuperAdmin } from '@/lib/api';
+import { api, encerrarSessao, sessaoUsuario, ehSuperAdmin, chaveTema } from '@/lib/api';
+import { reaplicarPaletaTema } from '@/lib/tema';
 
 interface NavItem {
   rota: string;
@@ -140,7 +141,7 @@ export function AdminLayout({ children, titulo }: { children: ReactNode; titulo?
       )}
 
       {/* ── ÁREA DE CONTEÚDO ── */}
-      <div className="flex min-w-0 flex-1 flex-col" style={{ background: '#fff' }}>
+      <div className="flex min-w-0 flex-1 flex-col" style={{ background: 'var(--adm-fundo)' }}>
         {/* Header SÓ no mobile: no desktop a sidebar já diz onde a pessoa está,
             e a barra de breadcrumb repetia o título logo acima dele. */}
         <header
@@ -254,6 +255,7 @@ function SidebarContent({ itens, pendentesLojas, pendentesSolic, superAdmin, u, 
             </span>
           </span>
         </NavLink>
+        <BotaoTema />
         <button
           onClick={onSair}
           className="mt-0.5 w-full px-2.5 py-1.5 text-left text-[12.5px]"
@@ -263,5 +265,42 @@ function SidebarContent({ itens, pendentesLojas, pendentesSolic, superAdmin, u, 
         </button>
       </div>
     </>
+  );
+}
+
+/**
+ * A ESCOLHA DO TEMA PASSA A SER DE QUEM USA, e antes não era de ninguém.
+ *
+ * O script do `index.html` liga o escuro pelo `prefers-color-scheme` quando não
+ * há preferência salva — e o painel admin não tinha onde salvar uma. Quem usa o
+ * computador no escuro abria o painel no escuro sem ter pedido, e não tinha como
+ * voltar: o `ThemeToggle` do resto do app nunca foi montado aqui.
+ *
+ * TEXTO, NÃO ÍCONE: é a regra desta sidebar (ver o comentário do topo do
+ * arquivo) e vale mais aqui do que no menu — sol e lua trocados dizem o estado
+ * atual ou a ação? O rótulo diz o que o clique faz, sem essa dúvida.
+ *
+ * A gravação é a mesma do `ThemeToggle`, na chave da ÁREA (`tema:admin`), então
+ * escolher aqui não mexe no tema da loja nem do painel do lojista.
+ */
+function BotaoTema() {
+  const [escuro, setEscuro] = useState(() => document.documentElement.classList.contains('dark'));
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', escuro);
+    /* Sem isto, as variáveis de cor que dependem do modo ficam presas no valor
+       inline do tema anterior — o mesmo motivo que existe no ThemeToggle. */
+    reaplicarPaletaTema();
+    localStorage.setItem(chaveTema(), escuro ? 'escuro' : 'claro');
+  }, [escuro]);
+
+  return (
+    <button
+      onClick={() => setEscuro(v => !v)}
+      className="mt-0.5 w-full px-2.5 py-1.5 text-left text-[12.5px]"
+      style={{ color: 'var(--adm-rotulo)', borderRadius: 4 }}
+    >
+      {escuro ? 'Modo claro' : 'Modo escuro'}
+    </button>
   );
 }

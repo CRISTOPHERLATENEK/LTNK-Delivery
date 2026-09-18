@@ -741,9 +741,9 @@ ${aviso}`)) return;
               className="h-[30px] px-3 text-[12px] disabled:opacity-50"
               style={{
                 /* Sem transition no background: é a propriedade dinâmica. */
-                background: estado.canal === c ? '#F1EFEC' : '#fff',
+                background: estado.canal === c ? 'var(--adm-seg)' : 'var(--adm-fundo)',
                 fontWeight: estado.canal === c ? 600 : 400,
-                borderLeft: i === 0 ? 'none' : '1px solid #ECEAE6',
+                borderLeft: i === 0 ? 'none' : '1px solid var(--adm-linha)',
               }}
             >
               {ROTULO_CANAL[c]}

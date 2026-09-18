@@ -352,7 +352,7 @@ export function TelaLojaDetalhe() {
   ];
 
   return (
-    <div className="adm flex h-screen flex-col" style={{ background: '#fff' }}>
+    <div className="adm flex h-screen flex-col" style={{ background: 'var(--adm-fundo)' }}>
       {/* ── Barra de topo ── */}
       <header
         className="flex shrink-0 flex-wrap items-center gap-3 px-4 py-2.5"
@@ -886,7 +886,7 @@ export function TelaLojaDetalhe() {
           aria-label="Diagnóstico e suporte com IA"
           title="Diagnóstico e suporte"
           className="fixed bottom-16 right-5 z-40 flex size-11 items-center justify-center"
-          style={{ background: '#fff', border: '1px solid var(--adm-linha)', borderRadius: 999 }}
+          style={{ background: 'var(--adm-fundo)', border: '1px solid var(--adm-linha)', borderRadius: 999 }}
         >
           <MarcaX tamanho={22} />
         </button>
@@ -958,7 +958,7 @@ function Interruptor({ titulo, descricao, descricaoLigado, ligado, aoMudar, prim
           aria-label={titulo}
           onClick={() => aoMudar(!ligado)}
           className="adm-switch"
-          style={{ background: ligado ? 'var(--adm-fg)' : '#D9D5D0' }}
+          style={{ background: ligado ? 'var(--adm-fg)' : 'var(--adm-inativo)' }}
         >
           <span style={{ left: ligado ? 20 : 3 }} />
         </button>
@@ -1025,7 +1025,7 @@ function ChatSuporte({ lojaId, nome, comTenant, aoFechar }: {
         'adm fixed bottom-4 right-4 z-50 flex flex-col',
         'w-[min(440px,calc(100vw-2rem))] max-h-[min(640px,calc(100vh-2rem))]',
       )}
-      style={{ background: '#fff', border: '1px solid var(--adm-linha)', borderRadius: 6 }}
+      style={{ background: 'var(--adm-fundo)', border: '1px solid var(--adm-linha)', borderRadius: 6 }}
       role="dialog"
       aria-label="Diagnóstico e suporte"
     >
@@ -1077,7 +1077,7 @@ function ChatSuporte({ lojaId, nome, comTenant, aoFechar }: {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void perguntar(); }
           }}
           className="w-full px-2.5 py-2 text-[13px] outline-none"
-          style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: '#fff', boxSizing: 'border-box' }}
+          style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: 'var(--adm-campo)', boxSizing: 'border-box' }}
         />
         <div className="mt-1.5 flex items-center gap-2">
           <Botao altura={30} variante="primario" desabilitado={carregando || !pergunta.trim()}

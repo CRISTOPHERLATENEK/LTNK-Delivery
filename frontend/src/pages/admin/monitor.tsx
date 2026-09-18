@@ -188,7 +188,7 @@ export function TelaMonitor() {
                                 : ambar ? 'var(--adm-atencao)'
                                 : 'var(--adm-linha)'}`,
                               borderRadius: 4,
-                              background: '#fff',
+                              background: 'var(--adm-fundo)',
                             }}
                             className="px-2.5 py-2"
                           >

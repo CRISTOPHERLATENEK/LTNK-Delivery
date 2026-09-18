@@ -261,8 +261,8 @@ label[for] {
    isso globalmente mudaria a cara de todo mundo por causa de uma tela
    interna. O admin é ferramenta nossa; pode ter regras próprias.
 
-   Cores fixas, não variáveis de tema: aqui não há white-label. O cliente
-   nunca vê esta tela.
+   Não há white-label aqui: o cliente nunca vê esta tela. Mas HÁ modo escuro
+   — ver o bloco `.dark .adm` logo abaixo, e por que ele precisou existir.
    ───────────────────────────────────────────────────────────── */
 .adm {
   --adm-fg: #1C1917;          /* texto principal e ação */
@@ -271,6 +271,7 @@ label[for] {
   --adm-dado: #6B6560;        /* dados secundários, mono */
   --adm-fundo: #FFFFFF;
   --adm-fundo2: #FBFAF9;      /* sidebar, rodapés, hover de linha */
+  --adm-campo: #FFFFFF;       /* fundo de input/select/textarea */
   --adm-ativo: #EFEDEA;       /* item de menu ativo */
   --adm-seg: #F1EFEC;         /* opção ativa do segmented */
   --adm-linha: #ECEAE6;       /* hairline forte */
@@ -287,6 +288,67 @@ label[for] {
   font-family: Inter, system-ui, -apple-system, sans-serif;
   font-size: 13.5px;
   line-height: 1.45;
+  /* Diz ao navegador em que modo desenhar o que é DELE: barra de rolagem,
+     calendário do `date`, lista aberta do `select`, autofill. Sem isto, no
+     escuro eles saem brancos no meio da tela escura. */
+  color-scheme: light;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   O PAINEL ADMIN NO ESCURO.
+
+   "esse preto não tem nada a ver com a cor do site" — "não dá pra ler o que eu
+   escrevo" — "as letras tem que ser adaptativa a cor do site" — "falta o modo
+   dark no painel adm".
+
+   ESTE BLOCO NÃO EXISTIA, E O ESCURO CHEGAVA ASSIM MESMO. O script de tema do
+   `index.html` deriva a área pelo caminho, e em `/painel-admin` sem preferência
+   salva ele cai no `prefers-color-scheme` do sistema: quem usa o computador no
+   escuro recebia `.dark` no `<html>` sem ter escolhido nada. A paleta `.adm`
+   acima era fixa e só clara, mas os componentes de dentro (`Card`, com
+   `bg-card text-card-foreground`) seguem os tokens do tema — então metade da
+   tela virava preta e a outra metade continuava branca.
+
+   O PIOR ERA O CAMPO DE TEXTO, e é literalmente o que foi relatado. Os 115
+   `input`/`textarea` do painel só declaram borda: sem `background` e sem
+   `color`. Dentro de um `Card` escuro eles herdavam o texto quase branco do
+   `text-card-foreground` e mantinham o branco padrão do navegador no fundo.
+   BRANCO NO BRANCO: o placeholder (que o navegador pinta de cinza) aparecia, e
+   o que a pessoa digitava sumia.
+
+   POR QUE A CORREÇÃO É AQUI, NA PALETA, E NÃO NOS CAMPOS. São 115 campos em 14
+   telas. Consertar um a um deixaria o próximo campo escrito nascendo errado —
+   o defeito voltaria pela mesma porta. Com os tokens, escrever o campo como
+   sempre se escreveu já sai certo.
+
+   A ESCALA É QUENTE, não cinza neutro: a clara é toda em stone, e um escuro
+   azulado ao lado dela pareceria outro produto. Preto puro (#000) também não —
+   ele "não tem nada a ver com a cor do site" mesmo, e faz o texto vibrar.
+   ───────────────────────────────────────────────────────────── */
+.dark .adm {
+  --adm-fg: #EAE7E3;
+  --adm-fg2: #B3ADA6;
+  --adm-rotulo: #8F8A83;
+  --adm-dado: #A09A93;
+  --adm-fundo: #171615;
+  --adm-fundo2: #1E1D1B;
+  /* O campo é mais CLARO que a página — no escuro é a borda que some primeiro,
+     e sem o degrau o input vira um retângulo invisível no meio do formulário. */
+  --adm-campo: #232120;
+  --adm-ativo: #2A2825;
+  --adm-seg: #2A2825;
+  --adm-linha: #332F2B;
+  --adm-linha2: #2B2926;
+  --adm-linha3: #242220;
+  /* Os sinais sobem de luminosidade: o verde #3F8F62 do claro, que é legível
+     sobre branco, fica quase ilegível sobre #171615. */
+  --adm-ok: #5DAF7E;
+  --adm-atencao: #D4AE68;
+  --adm-erro: #DE7C70;
+  --adm-inativo: #6A645D;
+  --adm-pendencia: #CE9552;
+
+  color-scheme: dark;
 }
 
 /*
@@ -313,7 +375,10 @@ label[for] {
  * derrubou o protótipo duas vezes. Sem transition, o estado é sempre o real.
  */
 .adm-switch { width: 38px; height: 21px; border-radius: 4px; position: relative; flex: none; }
-.adm-switch > span { position: absolute; top: 3px; width: 15px; height: 15px; border-radius: 3px; background: #fff; }
+/* A bolinha é da cor da PÁGINA, não branca: ligada, a trilha fica `--adm-fg`, e
+   no escuro esse `fg` é quase branco — bolinha branca sobre ela desaparecia, e o
+   switch perdia justamente o estado que ele existe para mostrar. */
+.adm-switch > span { position: absolute; top: 3px; width: 15px; height: 15px; border-radius: 3px; background: var(--adm-fundo); }
 
 /*
  * A MOLDURA DAS LINHAS ROTULADAS decide a divisória, não a linha.
@@ -332,6 +397,28 @@ label[for] {
 /* Todo botão de altura fixa: o texto nunca quebra. */
 .adm button, .adm .adm-btn { white-space: nowrap; }
 .adm input, .adm select, .adm textarea { box-sizing: border-box; }
+
+/*
+ * O CAMPO CARREGA AS DUAS CORES, e é o que conserta o branco-no-branco.
+ *
+ * Fundo E texto juntos, sempre: declarar só um dos dois é como o defeito
+ * nasceu. Em modo claro os valores são os de hoje (#FFFFFF e #1C1917), então
+ * nada muda de aparência; no escuro os dois viram do par escuro ao mesmo tempo.
+ *
+ * `:not(...)` para caixa de marcar, rádio, faixa e seletor de cor: neles o
+ * "fundo" é o controle desenhado pelo navegador, e pintá-lo apagaria o próprio
+ * marcador. Quem cuida deles é o `color-scheme` lá em cima.
+ */
+.adm input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']),
+.adm select,
+.adm textarea {
+  background: var(--adm-campo);
+  color: var(--adm-fg);
+}
+
+/* O placeholder era o único texto visível no campo quebrado. Agora ele é o
+   texto de apoio que sempre devia ter sido: presente, e atrás do que se digita. */
+.adm input::placeholder, .adm textarea::placeholder { color: var(--adm-rotulo); }
 
 /*
  * MOBILE: a tabela rola na horizontal com a primeira coluna presa.

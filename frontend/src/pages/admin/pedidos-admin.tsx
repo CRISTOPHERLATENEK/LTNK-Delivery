@@ -203,7 +203,7 @@ export function TelaPedidosAdmin() {
             onChange={e => mudar('loja_id', e.target.value)}
             aria-label="Loja"
             className="h-[34px] px-2 text-[12.5px] outline-none"
-            style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: '#fff' }}
+            style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: 'var(--adm-campo)' }}
           >
             <option value="">Todas as lojas</option>
             {lojas.data?.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
@@ -213,7 +213,7 @@ export function TelaPedidosAdmin() {
             onChange={e => mudar('status', e.target.value)}
             aria-label="Status exato"
             className="h-[34px] px-2 text-[12.5px] outline-none"
-            style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: '#fff' }}
+            style={{ border: '1px solid var(--adm-linha)', borderRadius: 4, background: 'var(--adm-campo)' }}
           >
             <option value="">Qualquer status</option>
             {STATUS_LISTA.map(st => <option key={st} value={st}>{ROTULO[st]}</option>)}
