@@ -110,6 +110,43 @@ const ESTILO = `<style>
  #seo-inicial{background:#0c0a09;color:#e7e5e4}
  #seo-inicial .ap,#seo-inicial summary{color:#a8a29e}
 }
+/*
+ * ─────────── A VARIANTE "TELA DE CARREGAMENTO" (landing) ───────────
+ *
+ * "isso aqui me irrita, tem como isso não aparecer quando carrega?"
+ *
+ * NÃO, e é importante dizer por quê: o texto TEM que estar no HTML — é ele que
+ * o buscador lê, e é a coisa que a landing não tinha. Escondê-lo por CSS seria
+ * texto invisível para pessoa e visível para robô, que é o padrão que o Google
+ * pune. O que dá para mudar é a APARÊNCIA do instante em que ele existe.
+ *
+ * E o que incomodava não era ele existir: era parecer PÁGINA QUEBRADA. Texto
+ * cru alinhado à esquerda, sem marca nenhuma, no lugar onde deveria haver um
+ * site. Centralizado, com a logo em cima e o resto discreto, o mesmo conteúdo
+ * lê como "carregando" — que é o que de fato está acontecendo.
+ *
+ * Só a landing usa esta variante. O bloco da loja fica como está: ele já foi
+ * ajustado depois do retorno do lojista e ninguém reclamou dele.
+ */
+/* A TELA INTEIRA, e centralizado: com 60vh o bloco terminava no meio e sobrava
+   uma faixa do fundo do body embaixo — o que parece página cortada, exatamente
+   a impressão que esta variante existe para desfazer.
+   (Sem crase neste arquivo: o CSS mora dentro de um template literal.) */
+#seo-inicial.carregando{min-height:100vh;display:flex;align-items:center;justify-content:center}
+#seo-inicial.carregando .i{max-width:34rem;text-align:center;padding:2rem 1.25rem}
+#seo-inicial.carregando .logo{max-height:56px;max-width:220px;width:auto;margin:0 auto .9rem;display:block}
+#seo-inicial.carregando h1{font-size:1.15rem;font-weight:600;opacity:.75}
+#seo-inicial.carregando p{font-size:.95rem;opacity:.6}
+#seo-inicial.carregando summary{display:inline-block;margin-top:2rem;opacity:.55}
+/* Conteúdo aberto volta a ser texto de leitura: centralizar lista é ruim de ler. */
+#seo-inicial.carregando details[open] summary{margin-bottom:.5rem}
+#seo-inicial.carregando details ul,#seo-inicial.carregando details h2{text-align:left}
+#seo-inicial .giro{width:22px;height:22px;margin:1.6rem auto 0;border-radius:50%;
+ border:2px solid currentColor;border-top-color:transparent;opacity:.25;
+ animation:seogiro .8s linear infinite}
+@keyframes seogiro{to{transform:rotate(360deg)}}
+/* Quem pediu menos animação no sistema não recebe um anel girando na cara. */
+@media (prefers-reduced-motion:reduce){#seo-inicial .giro{animation:none}}
 </style>`;
 
 /**
@@ -202,6 +239,8 @@ export function blocoDeConteudo(
  * `#root`, substituído quando o React monta.
  */
 export interface LandingParaConteudo {
+  /** Logo da marca. Vazio = a tela de carregamento fica só com o texto. */
+  logo: string;
   titulo: string;
   subtitulo: string;
   recursos: Array<{ titulo: string; desc?: string }>;
@@ -219,7 +258,11 @@ function secao(titulo: string, linhas: string[]): string {
 export function blocoDaLanding(d: LandingParaConteudo | null): string {
   if (!d?.titulo) return '';
 
-  const p: string[] = [ESTILO, '<div id="seo-inicial"><div class="i">'];
+  const p: string[] = [ESTILO, '<div id="seo-inicial" class="carregando"><div class="i">'];
+  /* A logo vem primeiro e é o que dá cara de marca ao instante de carregamento.
+     `alt` vazio porque o nome já está no `<h1>` logo abaixo: repetir faria o
+     leitor de tela anunciar a marca duas vezes seguidas. */
+  if (d.logo) p.push(`<img class="logo" src="${esc(d.logo)}" alt="" />`);
   p.push(`<h1>${esc(d.titulo)}</h1>`);
   if (d.subtitulo) p.push(`<p>${esc(d.subtitulo)}</p>`);
 
@@ -264,6 +307,11 @@ export function blocoDaLanding(d: LandingParaConteudo | null): string {
   if (corpo.length) {
     p.push(`<details><summary>Ver o que o sistema faz</summary>${corpo.join('')}</details>`);
   }
+
+  /* O anel por último: é ele que transforma "página de texto" em "está
+     carregando" na leitura de quem chega. Some junto com o resto quando o React
+     monta — não é o spinner do app, é o do instante que antecede o app. */
+  p.push('<div class="giro" aria-hidden="true"></div>');
 
   p.push('</div></div>');
   return p.join('');

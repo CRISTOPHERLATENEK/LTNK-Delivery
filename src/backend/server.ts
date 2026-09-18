@@ -667,7 +667,7 @@ async function blocoSeoDoTenant(loja: Awaited<ReturnType<typeof lojaDoHost>>): P
 const conteudoLanding = new Map<string, { html: string; em: number }>();
 
 const CHAVES_LANDING = [
-  'marca_nome', 'marca_descricao', 'marca_slogan',
+  'marca_nome', 'marca_descricao', 'marca_slogan', 'marca_logo_url',
   'landing_hero_titulo', 'landing_hero_subtitulo',
   'landing_recursos_json', 'landing_como_funciona_json', 'landing_planos_json',
   'landing_faq_json', 'landing_segmentos_json',
@@ -698,6 +698,7 @@ async function blocoSeoDaLanding(): Promise<string> {
     };
 
     const html = blocoDaLanding({
+      logo: texto('marca_logo_url'),
       titulo: texto('landing_hero_titulo') || texto('marca_nome'),
       subtitulo: texto('landing_hero_subtitulo')
         || texto('marca_descricao') || texto('marca_slogan'),

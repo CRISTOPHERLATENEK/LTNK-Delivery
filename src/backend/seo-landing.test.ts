@@ -22,6 +22,7 @@ import { blocoDaLanding, injetarConteudo, LIMITE_CONTEUDO_BYTES, type LandingPar
  */
 
 const LANDING: LandingParaConteudo = {
+  logo: '/uploads/logo.webp',
   titulo: 'Maxx Pedidos',
   subtitulo: 'Conheça o melhor APP de Delivery da Região.',
   recursos: [
@@ -131,5 +132,61 @@ describe('bloco da landing', () => {
     const r = injetarConteudo(html, blocoDaLanding(LANDING));
     expect(r).toContain('<div id="root"><style>');
     expect(r).toContain('Maxx Pedidos');
+  });
+});
+
+/*
+ * O INSTANTE ANTES DO APP MONTAR TEM QUE PARECER CARREGAMENTO.
+ *
+ * "isso aqui me irrita, tem como isso não aparecer quando carrega?" — sobre o
+ * bloco piscando na tela antes do React montar.
+ *
+ * Não pode sumir: é o texto que o buscador lê, e escondê-lo por CSS seria
+ * exatamente o padrão que o Google pune (invisível para pessoa, visível para
+ * robô). O que muda é a aparência — centralizado, com a logo em cima e o resto
+ * discreto, o mesmo conteúdo lê como "carregando" em vez de página quebrada.
+ *
+ * O QUE ESTE TESTE GUARDA é que a mudança foi só de aparência: todo o texto
+ * continua no HTML. É a regressão fácil de cometer aqui — mexer no visual e
+ * levar junto o conteúdo que motivou o bloco.
+ */
+describe('bloco da landing · tela de carregamento', () => {
+  it('se apresenta como carregamento, não como página', () => {
+    const b = blocoDaLanding(LANDING);
+    expect(b).toContain('id="seo-inicial" class="carregando"');
+    expect(b).toContain('class="giro"');
+  });
+
+  it('a logo abre o bloco quando existe', () => {
+    const b = blocoDaLanding(LANDING);
+    expect(b).toContain('<img class="logo" src="/uploads/logo.webp"');
+    /* `alt` vazio: o nome vem no h1 logo abaixo, e repetir faria o leitor de
+       tela anunciar a marca duas vezes seguidas. */
+    expect(b).toContain('alt=""');
+  });
+
+  it('sem logo, o bloco continua de pé', () => {
+    const b = blocoDaLanding({ ...LANDING, logo: '' });
+    expect(b).not.toContain('<img');
+    expect(b).toContain('Maxx Pedidos');
+  });
+
+  /* A asserção que importa: o visual mudou, o conteúdo não. */
+  it('o texto todo continua no HTML depois do restyle', () => {
+    const b = blocoDaLanding(LANDING);
+    for (const trecho of [
+      'Maxx Pedidos', 'Conheça o melhor APP de Delivery da Região.',
+      'NFC-e integrada', 'Monte seu cardápio', 'Iniciante', 'R$ 97/mês',
+      'Pizzaria', 'Preciso de CNPJ pra usar?', 'Só a mensalidade do plano.',
+    ]) {
+      expect(b, `sumiu do bloco: ${trecho}`).toContain(trecho);
+    }
+  });
+
+  /* A logo vem de campo do admin e entra num atributo — aspas fecham o src. */
+  it('escapa a URL da logo', () => {
+    const b = blocoDaLanding({ ...LANDING, logo: '/x.webp" onerror="alert(1)' });
+    expect(b).not.toContain('onerror="alert(1)"');
+    expect(b).toContain('&quot;');
   });
 });
