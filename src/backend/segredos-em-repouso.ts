@@ -31,11 +31,36 @@ export interface ColunaCifrada {
  * Segredos guardados como LINHA de `configuracoes` (chave/valor), não como
  * coluna. O valor cifrado está sempre em `valor`.
  */
-export const CONFIGURACOES_CIFRADAS: ReadonlyArray<{ chave: string; oque: string }> = [
-  { chave: 'wbapi_api_key', oque: 'chave da API do WhatsApp não-oficial da plataforma' },
-  { chave: 'mercadopago_token_teste', oque: 'token de teste do Mercado Pago da plataforma' },
-  { chave: 'mercadopago_token_producao', oque: 'token de produção do Mercado Pago da plataforma' },
+export const CONFIGURACOES_CIFRADAS: ReadonlyArray<{
+  chave: string;
+  /** Em que banco a linha vive — mesma semântica do `onde` das colunas. */
+  onde: 'central' | 'tenant' | 'ambos';
+  oque: string;
+}> = [
+  /*
+   * 'ambos' E NÃO 'central': o WhatsApp não-oficial passou a ter duas camadas —
+   * a conexão da plataforma, no banco central, e a conexão PRÓPRIA de cada
+   * cliente, no banco dele, sob a mesma chave.
+   *
+   * Marcar isso aqui não é burocracia: é esta lista que a rotação de APP_SECRET
+   * percorre. Com a chave marcada só como central, o token de cada cliente
+   * ficaria de fora da recifragem e viraria ilegível na primeira troca de
+   * chave — em silêncio, e sem volta.
+   */
+  { chave: 'wbapi_api_key', onde: 'ambos', oque: 'chave da API do WhatsApp não-oficial (plataforma e por cliente)' },
+  { chave: 'mercadopago_token_teste', onde: 'central', oque: 'token de teste do Mercado Pago da plataforma' },
+  { chave: 'mercadopago_token_producao', onde: 'central', oque: 'token de produção do Mercado Pago da plataforma' },
 ];
+
+/** As linhas de `configuracoes` cifradas que vivem no banco central. */
+export function configuracoesCentral() {
+  return CONFIGURACOES_CIFRADAS.filter(c => c.onde === 'central' || c.onde === 'ambos');
+}
+
+/** As que vivem no banco de cada tenant. */
+export function configuracoesTenant() {
+  return CONFIGURACOES_CIFRADAS.filter(c => c.onde === 'tenant' || c.onde === 'ambos');
+}
 
 export const COLUNAS_CIFRADAS: ReadonlyArray<ColunaCifrada> = [
   // ── Fiscal ───────────────────────────────────────────────────────────────

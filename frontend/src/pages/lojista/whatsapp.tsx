@@ -26,7 +26,20 @@ interface ConfigWhatsApp {
   oficial: {
     numero: string; phone_id: string; business_id: string; template: string; tem_token: boolean;
   };
-  nao_oficial: { status: 'desconectado' | 'conectando' | 'conectado' | string; disponivel: boolean };
+  nao_oficial: {
+    status: 'desconectado' | 'conectando' | 'conectado' | string;
+    disponivel: boolean;
+    numero?: string;
+    /**
+     * ESTA LOJA TEM CONEXÃO PRÓPRIA — é o que decide se o QR aparece aqui.
+     *
+     * Com token próprio (cadastrado pelo admin para este cliente), quem pareia o
+     * número é o lojista, nesta tela. Sem ele, a loja usa a sessão compartilhada
+     * da plataforma e o cartão continua só de leitura: parear ali sequestraria o
+     * número de todos os outros clientes.
+     */
+    conexao_propria?: boolean;
+  };
 }
 
 /** Glifo oficial do WhatsApp (marca) — usa currentColor, herda a cor do pai. */
@@ -266,6 +279,9 @@ function StatusNaoOficial({ nao_oficial }: { nao_oficial: ConfigWhatsApp['nao_of
     );
   }
 
+  /* Com conexão própria o cartão vira operável: é o lojista que pareia. */
+  if (nao_oficial.conexao_propria) return <ConexaoPropria inicial={nao_oficial} />;
+
   const conectado = nao_oficial.status === 'conectado';
 
   return (
@@ -290,6 +306,156 @@ function StatusNaoOficial({ nao_oficial }: { nao_oficial: ConfigWhatsApp['nao_of
               : 'Esse é um número de WhatsApp único, compartilhado por toda a plataforma. A conexão é feita pelo suporte/admin.'}
           </p>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * O PAREAMENTO DO NÚMERO DA LOJA.
+ *
+ * Só aparece para quem tem conexão própria. O token nunca chega aqui: quem o
+ * cadastra é o super admin, no painel dele, e esta tela só fala com as rotas
+ * que já operam sobre a credencial do cliente.
+ */
+function ConexaoPropria({ inicial }: { inicial: ConfigWhatsApp['nao_oficial'] }) {
+  const { mostrar } = useToast();
+  const [status, setStatus] = useState(inicial.status);
+  const [numero, setNumero] = useState(inicial.numero || '');
+  const [aba, setAba] = useState<'qr' | 'codigo'>('qr');
+  const [qr, setQr] = useState('');
+  const [codigo, setCodigo] = useState('');
+  const [telefone, setTelefone] = useState('');
+  const [ocupado, setOcupado] = useState(false);
+
+  const conectado = status === 'conectado';
+
+  /*
+   * ENQUANTO NÃO CONECTA, PERGUNTA SOZINHO. O pareamento termina no celular do
+   * lojista, não aqui: sem o polling, ele escaneia e a tela continua dizendo
+   * "desconectado" até alguém recarregar — e a conclusão natural é que não
+   * funcionou. Para quando conecta, que é quando não há mais o que esperar.
+   */
+  useEffect(() => {
+    if (conectado) return;
+    let vivo = true;
+    const t = setInterval(async () => {
+      try {
+        const r = await api<ConfigWhatsApp>('GET', '/api/lojista/whatsapp');
+        if (!vivo) return;
+        setStatus(r.nao_oficial.status);
+        setNumero(r.nao_oficial.numero || '');
+        if (r.nao_oficial.status === 'conectado') setQr('');
+      } catch { /* silencioso: é polling de fundo, erro aqui não é da pessoa */ }
+    }, 4000);
+    return () => { vivo = false; clearInterval(t); };
+  }, [conectado]);
+
+  async function gerarQr() {
+    setOcupado(true);
+    setCodigo('');
+    try {
+      const r = await api<{ qr: string }>('POST', '/api/lojista/whatsapp/nao-oficial/conectar');
+      setQr(r.qr);
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setOcupado(false); }
+  }
+
+  async function gerarCodigo() {
+    setOcupado(true);
+    setQr('');
+    try {
+      const r = await api<{ codigo?: string }>('POST', '/api/lojista/whatsapp/nao-oficial/codigo', { telefone });
+      setCodigo(r.codigo || '');
+      if (!r.codigo) mostrar({ tipo: 'erro', titulo: 'A API não devolveu o código. Tente pelo QR code.' });
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setOcupado(false); }
+  }
+
+  async function desconectar() {
+    setOcupado(true);
+    try {
+      await api('POST', '/api/lojista/whatsapp/nao-oficial/desconectar');
+      setStatus('desconectado');
+      setNumero('');
+      mostrar({ tipo: 'sucesso', titulo: 'WhatsApp desconectado.' });
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setOcupado(false); }
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <QrCode className="size-4 text-muted-foreground" />
+          <h2 className="font-bold">Não oficial (QR code)</h2>
+          {conectado
+            ? <Badge variant="success" className="text-[10px]"><CheckCircle2 className="size-3" /> conectado</Badge>
+            : <Badge variant="secondary" className="text-[10px]">desconectado</Badge>}
+        </div>
+
+        {conectado ? (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              O WhatsApp da sua loja está conectado{numero ? ` (${numero})` : ''} e já envia as mensagens dos pedidos.
+            </p>
+            <Button variant="outline" onClick={desconectar} disabled={ocupado}>
+              {ocupado && <Loader2 className="size-4 animate-spin" />} Desconectar
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="inline-flex rounded-lg bg-muted p-1 text-sm">
+              {([['qr', 'QR code'], ['codigo', 'Código']] as const).map(([v, rotulo]) => (
+                <button
+                  key={v} type="button" onClick={() => setAba(v)}
+                  className={cn('rounded-md px-3 py-1.5 transition-colors',
+                    aba === v ? 'bg-background font-semibold shadow-sm' : 'text-muted-foreground')}
+                >{rotulo}</button>
+              ))}
+            </div>
+
+            {aba === 'qr' ? (
+              <div className="space-y-3 text-center">
+                {qr
+                  ? <img src={qr} alt="QR code para conectar o WhatsApp" className="mx-auto size-56 rounded-xl border bg-white p-2" />
+                  : (
+                    <div className="mx-auto flex size-56 items-center justify-center rounded-xl border border-dashed text-sm text-muted-foreground">
+                      Gere o QR code para começar
+                    </div>
+                  )}
+                <p className="text-xs text-muted-foreground">
+                  Abra o WhatsApp no celular → Aparelhos conectados → Conectar um aparelho, e escaneie este código.
+                </p>
+                <Button variant="outline" onClick={gerarQr} disabled={ocupado}>
+                  {ocupado && <Loader2 className="size-4 animate-spin" />} {qr ? 'Gerar novo QR code' : 'Gerar QR code'}
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="wa-tel">Número do WhatsApp da loja</Label>
+                  <Input id="wa-tel" value={telefone} onChange={e => setTelefone(e.target.value)}
+                    placeholder="(47) 99999-9999" inputMode="tel" />
+                </div>
+                <Button variant="outline" onClick={gerarCodigo} disabled={ocupado || !telefone.trim()}>
+                  {ocupado && <Loader2 className="size-4 animate-spin" />} Gerar código
+                </Button>
+                {codigo && (
+                  <div className="rounded-lg border bg-muted/40 p-3 text-center">
+                    <p className="text-xs text-muted-foreground">Digite no WhatsApp do celular</p>
+                    <p className="font-mono text-2xl font-bold tracking-widest">{codigo}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <p className="text-xs text-muted-foreground">Aguardando você conectar no celular… (atualiza sozinho)</p>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

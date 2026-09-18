@@ -69,6 +69,17 @@ function segredosNoCodigo(): { colunas: Set<string>; chaves: Set<string>; naoEnt
       if (centralNaLinha) { chaves.add(centralNaLinha[1]); continue; }
 
       /*
+       * A MESMA LINHA DE `configuracoes`, GRAVADA NO BANCO DE UM CLIENTE.
+       *
+       * O WhatsApp por cliente escreve com um helper local (`gravar`), dentro de
+       * `comTenant`, e não pelo `upsertCentral` — a forma é outra, o segredo é o
+       * mesmo. Sem reconhecer aqui, ele passaria batido pela conferência, que é
+       * justamente o que este arquivo existe pra impedir.
+       */
+      const noTenant = l.match(/\bgravar\('([a-z_]+)',\s*criptografar/);
+      if (noTenant) { chaves.add(noTenant[1]); continue; }
+
+      /*
        * 2. UPDATE DE VÁRIAS COLUNAS: a coluna certa é a da POSIÇÃO do
        * argumento, não a primeira do `SET`. Foi o que fez esta varredura
        * acusar `whatsapp_oficial_numero` — a primeira de um SET de cinco —
@@ -302,7 +313,23 @@ describe('o script protege quem roda', () => {
      ocorrências da mesma linha. "central" fixo não casaria com "delivery". */
   it('rotula com o nome real do banco, não com a palavra "central"', () => {
     expect(exec).not.toMatch(/varrerColunas\([^)]*'central'\)/);
-    expect(exec).toMatch(/varrerConfiguracoes\(velho, novo, BANCO_PADRAO\)/);
+    /* O que importa é o BANCO que vai no rótulo, e ele é o último argumento —
+       casar a lista inteira exigiria atravessar o `()` de `configuracoesCentral()`. */
+    expect(exec).toContain('velho, novo, BANCO_PADRAO)');
+  });
+
+  /*
+   * AS LINHAS DE `configuracoes` DE CADA CLIENTE TAMBÉM ENTRAM.
+   *
+   * A varredura por tenant só olhava COLUNAS: `configuracoes` era varrido
+   * apenas no banco central, porque até então todo segredo em linha era da
+   * plataforma. Com a conexão de WhatsApp própria de cada cliente, passou a
+   * existir segredo cifrado no `configuracoes` do tenant — e ficar de fora aqui
+   * significa virar ilegível na primeira troca de APP_SECRET, em silêncio.
+   */
+  it('varre o configuracoes de cada tenant, não só o do central', () => {
+    const laco = exec.slice(exec.indexOf('for (const t of tenants)'));
+    expect(laco).toMatch(/varrerConfiguracoes\(configuracoesTenant\(\)/);
   });
 
   it('exige 32 caracteres na chave nova, como a aplicação em produção', () => {

@@ -46,6 +46,7 @@ import { listarTenants } from './tenants-mysql';
 import { cifrarCom, decifrarCom } from './cripto';
 import {
   COLUNAS_CIFRADAS, CONFIGURACOES_CIFRADAS, colunasCentral, colunasTenant,
+  configuracoesCentral, configuracoesTenant,
 } from './segredos-em-repouso';
 
 type Estado = 'recifrado' | 'ja-na-nova' | 'ilegivel';
@@ -81,9 +82,11 @@ export function classificar(
   return { estado: 'ilegivel' };
 }
 
-async function varrerConfiguracoes(velho: string, novo: string, banco: string): Promise<Linha[]> {
+async function varrerConfiguracoes(
+  lista: ReadonlyArray<{ chave: string }>, velho: string, novo: string, banco: string,
+): Promise<Linha[]> {
   const achadas: Linha[] = [];
-  for (const { chave } of CONFIGURACOES_CIFRADAS) {
+  for (const { chave } of lista) {
     const row = await db.prepare(
       'SELECT valor FROM configuracoes WHERE chave = ?'
     ).get(chave) as { valor: string | null } | undefined;
@@ -197,15 +200,19 @@ async function principal(): Promise<void> {
    */
   console.log(`→ banco central (${BANCO_PADRAO})`);
   await comTenant(BANCO_PADRAO, async () => {
-    todas.push(...await varrerConfiguracoes(velho, novo, BANCO_PADRAO));
+    todas.push(...await varrerConfiguracoes(configuracoesCentral(), velho, novo, BANCO_PADRAO));
     todas.push(...await varrerColunas(colunasCentral(), velho, novo, BANCO_PADRAO));
   });
 
   const tenants = await listarTenants() as Array<{ db_nome: string; slug: string }>;
   for (const t of tenants) {
     console.log(`→ tenant ${t.slug}`);
-    const doTenant = await comTenant(t.db_nome, () =>
-      varrerColunas(colunasTenant(), velho, novo, t.db_nome));
+    const doTenant = await comTenant(t.db_nome, async () => [
+      ...await varrerColunas(colunasTenant(), velho, novo, t.db_nome),
+      /* A conexao propria de WhatsApp do cliente mora aqui, no configuracoes
+         DELE — sem esta linha ela ficaria fora da recifragem. */
+      ...await varrerConfiguracoes(configuracoesTenant(), velho, novo, t.db_nome),
+    ]);
     todas.push(...doTenant);
   }
 

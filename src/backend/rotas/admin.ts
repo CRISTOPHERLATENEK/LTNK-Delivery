@@ -3000,6 +3000,81 @@ router.post('/tenants', exigirSuperAdmin, async (req, res, next) => {
 });
 
 /** Atualiza nome/domínio/ativo de um tenant. */
+/*
+ * ───────── A CONEXÃO DE WHATSAPP DE UM CLIENTE ─────────
+ *
+ * Grava no `configuracoes` do banco DELE, com as mesmas chaves que a plataforma
+ * usa no banco central (`wbapi_server`, `wbapi_session_id`, `wbapi_api_key`) —
+ * é o que `credenciaisDoCliente` lê em `whatsapp-nao-oficial.ts`.
+ *
+ * QUEM CADASTRA É O SUPER ADMIN, e o token nunca volta pra tela: o lojista
+ * pareia o número dele pelo QR, sem nunca ver a credencial, que é paga. Por isso
+ * a resposta diz só se existe token, igual ao resto do painel.
+ *
+ * Cliente sem nada cadastrado aqui continua usando a conexão da plataforma —
+ * ninguém fica sem WhatsApp enquanto os tokens são provisionados.
+ */
+router.get('/tenants/:id/whatsapp', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const id = inteiroPositivo(req.params.id);
+    if (!id) throw erroHttp(400, 'ID inválido.');
+    const tenant = await tenantPorId(id);
+    if (!tenant) throw erroHttp(404, 'Cliente não encontrado.');
+
+    const ler = async (chave: string): Promise<string> => {
+      const r = await comTenant(tenant.db_nome, () =>
+        db.prepare('SELECT valor FROM configuracoes WHERE chave = ?').get(chave),
+      ) as { valor: string } | undefined;
+      return r?.valor ?? '';
+    };
+    res.json({
+      wbapi_server: await ler('wbapi_server'),
+      wbapi_session_id: await ler('wbapi_session_id'),
+      tem_token: !!(await ler('wbapi_api_key')),
+    });
+  } catch (e) { next(e); }
+});
+
+router.put('/tenants/:id/whatsapp', exigirSuperAdmin, async (req, res, next) => {
+  try {
+    exigirMaster();
+    const id = inteiroPositivo(req.params.id);
+    if (!id) throw erroHttp(400, 'ID inválido.');
+    const tenant = await tenantPorId(id);
+    if (!tenant) throw erroHttp(404, 'Cliente não encontrado.');
+
+    const gravar = (chave: string, valor: string) => comTenant(tenant.db_nome, () =>
+      db.prepare('INSERT INTO configuracoes (chave, valor) VALUES (?, ?) ON DUPLICATE KEY UPDATE valor = VALUES(valor)')
+        .run(chave, valor),
+    );
+
+    if (req.body.wbapi_server !== undefined) {
+      const v = textoLimpo(req.body.wbapi_server, 300);
+      if (v && !/^https?:\/\//i.test(v)) throw erroHttp(400, 'URL do servidor WBAPI inválida (use https://…).');
+      await gravar('wbapi_server', v);
+    }
+    if (req.body.wbapi_session_id !== undefined) {
+      await gravar('wbapi_session_id', textoLimpo(req.body.wbapi_session_id, 100));
+    }
+    /* Campo em branco = "não mexer", igual ao da plataforma. E o rótulo colado
+       junto sai fora pelo mesmo motivo de lá: já aconteceu de a chave vir como
+       "X-Api-Key j987..." e toda chamada dar 401 sem nada explicando. */
+    if (typeof req.body.wbapi_api_key === 'string' && req.body.wbapi_api_key.trim()) {
+      const chaveLimpa = req.body.wbapi_api_key.trim().replace(/^x-api-key\s*[:=]?\s*/i, '').trim();
+      await gravar('wbapi_api_key', criptografar(chaveLimpa));
+    }
+    /* Apagar é explícito: mandar string vazia no token não serve, porque vazio
+       já quer dizer "não mexer". Sem isto não haveria como tirar um cliente da
+       conexão própria e devolvê-lo à da plataforma. */
+    if (req.body.remover === true) {
+      for (const c of ['wbapi_server', 'wbapi_session_id', 'wbapi_api_key']) await gravar(c, '');
+    }
+    await registrarAuditoria(req, 'tenant.whatsapp', { alvoTipo: 'tenant', alvoId: tenant.id, alvoDesc: tenant.nome });
+    res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
 router.put('/tenants/:id', exigirSuperAdmin, async (req, res, next) => {
   try {
     exigirMaster();

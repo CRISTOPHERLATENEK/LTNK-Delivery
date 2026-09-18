@@ -2,9 +2,9 @@
  * Gestão de TENANTS (clientes do SaaS) — só super admin do painel principal.
  * Cada tenant tem seu próprio banco (.db) e domínio (multi-tenant SILO).
  */
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Boxes, Trash2, Handshake, Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward, Link2 } from 'lucide-react';
+import { Boxes, Trash2, Handshake, Building2, Plus, Globe, Power, Store, Wand2, ExternalLink, Database, Download, Loader2, LogIn, MapPin, Palette, FileText, Check, ArrowRight, ArrowLeft, SkipForward, Link2 , MessageCircle } from 'lucide-react';
 import { AdminLayout } from './layout';
 import {
   Cabecalho, Tabela, TabelaCabecalho, TabelaLinha, TabelaRodape,
@@ -969,6 +969,8 @@ function TenantCard({ t, onToggle, onSalvarDominio, revendedores, onSalvarRevend
           </div>
         )}
 
+        {!master && <WhatsAppDoCliente tenantId={t.id} />}
+
         {/* Domínio */}
         <div className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2">
           <Globe className="size-4 text-muted-foreground shrink-0" />
@@ -999,5 +1001,107 @@ function TenantCard({ t, onToggle, onSalvarDominio, revendedores, onSalvarRevend
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * A CONEXÃO DE WHATSAPP DESTE CLIENTE.
+ *
+ * Mora no cadastro do cliente, e não numa tela à parte, pela mesma razão do
+ * revendedor logo acima: quem acabou de contratar o token sabe naquele momento
+ * de quem ele é — depois ninguém volta para preencher.
+ *
+ * O TOKEN SÓ ENTRA, NUNCA SAI. A resposta do servidor diz apenas se existe um;
+ * o campo em branco significa "não mexer". É credencial paga, e o lojista pareia
+ * o número dele pelo QR sem nunca precisar vê-la.
+ *
+ * Cliente sem nada aqui continua usando a conexão da plataforma — é o que
+ * mantém todo mundo enviando enquanto os tokens são provisionados um a um.
+ */
+function WhatsAppDoCliente({ tenantId }: { tenantId: number }) {
+  const { mostrar } = useToast();
+  const [aberto, setAberto] = useState(false);
+  const [form, setForm] = useState({ wbapi_server: '', wbapi_session_id: '', wbapi_api_key: '' });
+  const [temToken, setTemToken] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    if (!aberto) return;
+    let vivo = true;
+    api<{ wbapi_server: string; wbapi_session_id: string; tem_token: boolean }>(
+      'GET', `/api/admin/tenants/${tenantId}/whatsapp`,
+    ).then(r => {
+      if (!vivo) return;
+      setForm({ wbapi_server: r.wbapi_server, wbapi_session_id: r.wbapi_session_id, wbapi_api_key: '' });
+      setTemToken(r.tem_token);
+    }).catch(() => { /* cliente sem nada cadastrado é o caso comum, não é erro */ });
+    return () => { vivo = false; };
+  }, [aberto, tenantId]);
+
+  async function salvar(remover = false) {
+    setSalvando(true);
+    try {
+      await api('PUT', `/api/admin/tenants/${tenantId}/whatsapp`, remover ? { remover: true } : form);
+      setTemToken(remover ? false : temToken || !!form.wbapi_api_key.trim());
+      setForm(f => ({ ...f, wbapi_api_key: '', ...(remover ? { wbapi_server: '', wbapi_session_id: '' } : {}) }));
+      mostrar({
+        tipo: 'sucesso',
+        titulo: remover ? 'Conexão removida — volta a usar a da plataforma.' : 'Conexão do cliente salva.',
+      });
+    } catch (e) {
+      if (e instanceof ApiError) mostrar({ tipo: 'erro', titulo: e.message });
+    } finally { setSalvando(false); }
+  }
+
+  if (!aberto) {
+    return (
+      <button
+        type="button"
+        onClick={() => setAberto(true)}
+        className="flex w-full items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-left text-sm text-muted-foreground hover:bg-muted"
+      >
+        <MessageCircle className="size-4 shrink-0" />
+        WhatsApp próprio deste cliente
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg bg-muted/50 px-3 py-2.5">
+      <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+        <MessageCircle className="size-3.5" /> WhatsApp próprio deste cliente
+        {temToken && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-primary">token cadastrado</span>}
+      </div>
+      <Input
+        value={form.wbapi_server}
+        onChange={e => setForm(f => ({ ...f, wbapi_server: e.target.value }))}
+        placeholder="https://servidor-do-provedor" className="h-8 text-sm"
+      />
+      <Input
+        value={form.wbapi_session_id}
+        onChange={e => setForm(f => ({ ...f, wbapi_session_id: e.target.value }))}
+        placeholder="session_id da conta dele" className="h-8 font-mono text-sm"
+      />
+      <Input
+        type="password" autoComplete="off"
+        value={form.wbapi_api_key}
+        onChange={e => setForm(f => ({ ...f, wbapi_api_key: e.target.value }))}
+        placeholder={temToken ? 'token salvo — preencha só para trocar' : 'token da API'}
+        className="h-8 font-mono text-sm"
+      />
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" onClick={() => salvar()} disabled={salvando}>Salvar</Button>
+        <Button size="sm" variant="ghost" onClick={() => setAberto(false)}>Fechar</Button>
+        {temToken && (
+          <Button size="sm" variant="ghost" className="text-destructive" onClick={() => salvar(true)} disabled={salvando}>
+            Remover
+          </Button>
+        )}
+      </div>
+      <p className="text-[11px] leading-snug text-muted-foreground">
+        Depois de salvar, o QR code aparece no painel do lojista (Integrações → WhatsApp) e é ele quem escaneia.
+        Sem token aqui, este cliente continua usando a conexão da plataforma.
+      </p>
+    </div>
   );
 }

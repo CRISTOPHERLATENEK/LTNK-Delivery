@@ -11,7 +11,7 @@ import fs from 'fs';
 import db, { comTransacao, bancoTenantAtual } from '../db-mysql';
 import { tenantPorDbNome } from '../tenants-mysql';
 import { autenticar, exigirPerfil } from '../auth';
-import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, proximaAberturaISO, emailValido, normalizarBairro, dataBrasilia, filtroOrigemDelivery } from '../util';
+import { agoraUTC, inicioDoDiaBR, textoLimpo, inteiroPositivo, reaisParaCentavos, erroHttp, lojaAbertaPorAgenda, proximaAberturaISO, emailValido, normalizarBairro, dataBrasilia, filtroOrigemDelivery, telefoneDigitos, telefoneValido } from '../util';
 import { precoVigente } from '../preco-produto';
 import { SQL_GRUPOS_DO_PRODUTO, SQL_GRUPOS_DO_PRODUTO_COM_USOS, SQL_GRUPOS_DA_LOJA, SQL_OPCOES_DA_LOJA } from '../grupos-sql';
 import { validarOpcoesDoItem } from '../opcoes-item';
@@ -65,7 +65,11 @@ import { cashInDisponivel, registrarWebhookCashIn, consultarWebhookCashIn } from
 // Sem ciclo: pagamentos.ts não importa lojista.ts.
 import { credenciaisOnzDaLoja } from './pagamentos';
 import { testarCredenciaisOficial } from '../whatsapp';
-import { wbapiConfigurado, statusSessaoPlataforma } from '../whatsapp-nao-oficial';
+import {
+  wbapiConfigurado, statusSessaoPlataforma, clienteTemConexaoPropria,
+  statusSessaoDoCliente, garantirSessaoDoCliente, obterQrDoCliente,
+  solicitarCodigoDoCliente, desconectarDoCliente,
+} from '../whatsapp-nao-oficial';
 import { geocodificarTexto, buscarLocais } from '../geo';
 import { resolverFrete } from '../frete';
 import { distanciaKm } from '../geometria';
@@ -8085,14 +8089,26 @@ router.get('/comandas-historico', async (req, res, next) => {
 
 /**
  * Lê a config de WhatsApp da loja (sem devolver o token — só se está preenchido).
- * O "não-oficial" é UMA sessão compartilhada de toda a plataforma (não por loja —
- * o plano contratado só permite uma sessão), então aqui é só leitura do status;
- * quem conecta/desconecta é o super admin.
+ *
+ * O "não-oficial" tem DOIS mundos possíveis, e o painel precisa saber em qual
+ * esta loja está:
+ *
+ *   com conexão própria .... o super admin cadastrou um token pra este cliente,
+ *                            e é o lojista quem pareia o número dele — o QR
+ *                            aparece na tela de Integrações
+ *   sem conexão própria .... continua usando a sessão compartilhada da
+ *                            plataforma, que só o super admin conecta
+ *
+ * `conexao_propria` é o que distingue os dois na tela. O status segue a mesma
+ * divisão: com token próprio, é o número DELE que está conectado ou não.
  */
 router.get('/whatsapp', async (req, res, next) => {
   try {
     const loja = await minhaLoja(req) as any;
-    const naoOficial = loja.whatsapp_permite_nao_oficial ? await statusSessaoPlataforma() : { conectado: false };
+    const propria = await clienteTemConexaoPropria();
+    const naoOficial = loja.whatsapp_permite_nao_oficial
+      ? (propria ? await statusSessaoDoCliente() : await statusSessaoPlataforma())
+      : { conectado: false };
     res.json({
       permite_oficial: !!loja.whatsapp_permite_oficial,
       permite_nao_oficial: !!loja.whatsapp_permite_nao_oficial,
@@ -8107,9 +8123,70 @@ router.get('/whatsapp', async (req, res, next) => {
       },
       nao_oficial: {
         status: naoOficial.conectado ? 'conectado' : 'desconectado',
+        numero: naoOficial.numero || '',
         disponivel: await wbapiConfigurado(),
+        /* É isto que faz o QR aparecer (ou não) no painel do lojista. */
+        conexao_propria: propria,
       },
     });
+  } catch (e) { next(e); }
+});
+
+/*
+ * ───────── PAREAMENTO DO NÚMERO DA LOJA (só com conexão própria) ─────────
+ *
+ * As três rotas abaixo falam SEMPRE com `*DoCliente`, que não tem reserva: sem
+ * token próprio cadastrado, elas recusam. É de propósito e é a regra de
+ * segurança do desenho — se caíssem na conexão da plataforma, um lojista
+ * clicando "conectar" parearia o número COMPARTILHADO no celular dele e
+ * desconectaria o de todos os outros clientes junto.
+ */
+function exigirConexaoPropria(loja: any, propria: boolean): void {
+  if (!loja.whatsapp_permite_nao_oficial) {
+    throw erroHttp(403, 'O WhatsApp não-oficial não está liberado pra esta loja. Fale com o suporte da plataforma.');
+  }
+  if (!propria) {
+    throw erroHttp(400, 'Esta loja ainda não tem uma conexão própria de WhatsApp. Fale com o suporte para liberar.');
+  }
+}
+
+/** Prepara a sessão e devolve o QR code pra escanear. */
+router.post('/whatsapp/nao-oficial/conectar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req) as any;
+    exigirConexaoPropria(loja, await clienteTemConexaoPropria());
+    /* A base entra aqui pra registrar o webhook DESTA sessão apontando pro
+       cliente certo — ver `registrarWebhook`. */
+    const base = `${(req.headers['x-forwarded-proto'] as string) || req.protocol}://${req.headers.host}`;
+    await garantirSessaoDoCliente(base);
+    const qr = await obterQrDoCliente();
+    if (!qr.ok) throw erroHttp(502, qr.erro || 'Não consegui gerar o QR code agora.');
+    res.json({ qr: qr.qr });
+  } catch (e) { next(e); }
+});
+
+/** Alternativa ao QR: código de pareamento digitado no próprio WhatsApp. */
+router.post('/whatsapp/nao-oficial/codigo', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req) as any;
+    exigirConexaoPropria(loja, await clienteTemConexaoPropria());
+    const telefone = telefoneDigitos(req.body.telefone);
+    if (!telefoneValido(telefone)) throw erroHttp(400, 'Telefone inválido.');
+    const base = `${(req.headers['x-forwarded-proto'] as string) || req.protocol}://${req.headers.host}`;
+    await garantirSessaoDoCliente(base);
+    const r = await solicitarCodigoDoCliente(telefone);
+    if (!r.ok) throw erroHttp(502, r.erro || 'Não consegui gerar o código agora.');
+    res.json({ codigo: r.codigo });
+  } catch (e) { next(e); }
+});
+
+router.post('/whatsapp/nao-oficial/desconectar', async (req, res, next) => {
+  try {
+    const loja = await minhaLoja(req) as any;
+    exigirConexaoPropria(loja, await clienteTemConexaoPropria());
+    const r = await desconectarDoCliente();
+    if (!r.ok) throw erroHttp(502, r.erro || 'Não consegui desconectar agora.');
+    res.json({ ok: true });
   } catch (e) { next(e); }
 });
 
