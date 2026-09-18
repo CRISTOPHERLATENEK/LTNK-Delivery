@@ -221,3 +221,33 @@ describe('clicar de novo desmarca, em escolha única', () => {
     expect(MODAL).toContain("if (g.papel === 'sabores') limpo[chaveEscolha(slot, g.id)] = [];");
   });
 });
+
+describe('o produto abre com a folha em branco', () => {
+  /*
+   * "a coca quando abre vem selecionado automático."
+   *
+   * Havia um efeito que marcava sozinho todo grupo OBRIGATÓRIO com UMA opção
+   * só. O argumento era "grupo de um item não é escolha, é informação". Duas
+   * coisas pesaram contra:
+   *
+   *   - conversava mal com o desmarcar que acabou de entrar: quem desmarcava a
+   *     Coca ficava com o obrigatório pendente e ela NÃO voltava, porque o
+   *     efeito só rodava na abertura;
+   *   - marcar sozinho é o app decidindo por quem paga. "Já veio marcado" e "eu
+   *     escolhi" são a mesma tela e resultados diferentes na reclamação.
+   */
+  it('nenhum grupo é marcado sozinho ao abrir', () => {
+    expect(MODAL).not.toContain('p.grupo.obrigatorio && p.grupo.opcoes.length === 1');
+    expect(MODAL).not.toContain('novo[k] = [g.opcoes[0].id]');
+  });
+
+  /*
+   * E A TELA CONTINUA DIZENDO O QUE FALTA. Sem o auto-marcar, o grupo de uma
+   * opção só volta a contar como pendente — se o rodapé também sumisse, o
+   * cliente ficaria com o botão travado sem saber por quê, que é pior que o
+   * problema original.
+   */
+  it('o rodapé continua apontando o obrigatório que falta', () => {
+    expect(MODAL).toContain("paresSlotGrupo.filter(p => p.grupo.obrigatorio && (p.grupo.opcoes ?? []).length > 0)");
+  });
+});

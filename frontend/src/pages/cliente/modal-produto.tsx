@@ -176,29 +176,26 @@ export function ModalProduto({ produto, loja, aberto, onFechar }: Props) {
   }, [escolhidas, slots, precoBase]);
 
   /*
-   * GRUPO OBRIGATÓRIO COM UMA OPÇÃO SÓ NÃO É ESCOLHA — É INFORMAÇÃO.
+   * NADA VEM MARCADO. O PRODUTO ABRE COM A FOLHA EM BRANCO.
    *
-   * Ele contava como pendente, então o botão ficava travado esperando o cliente
-   * "escolher" numa lista sem alternativa. Marcar sozinho é o que destrava, e é o
-   * que o cliente faria de qualquer forma.
+   * Havia aqui um efeito que marcava sozinho todo grupo OBRIGATÓRIO com UMA
+   * opção só — o argumento era que "grupo de um item não é escolha, é
+   * informação", e que sem isso o botão ficava travado esperando o cliente
+   * escolher numa lista sem alternativa.
    *
-   * Roda quando os grupos chegam (e ao trocar de produto), não a cada mudança de
-   * seleção: se rodasse sempre, desmarcar viraria impossível em grupo de
-   * múltipla escolha com um item só.
+   * O lojista viu em produção e recusou: "a coca quando abre vem selecionado
+   * automático". Duas coisas pesaram contra o efeito:
+   *
+   *   - ele conversava mal com o desmarcar (clicar de novo em escolha única):
+   *     quem desmarcava a Coca ficava com o obrigatório pendente e ela NÃO
+   *     voltava, porque o efeito só rodava na abertura;
+   *   - marcar sozinho é o app decidindo por quem paga. Num grupo de bebida,
+   *     "já veio marcado" e "eu escolhi" são a mesma tela e resultados
+   *     diferentes na hora da reclamação.
+   *
+   * O custo é conhecido e foi aceito: o rodapé mostra "Escolha o refrigerante"
+   * com uma lista de um item só até o cliente tocar nele.
    */
-  useEffect(() => {
-    const unicas = paresSlotGrupo.filter(p => p.grupo.obrigatorio && p.grupo.opcoes.length === 1);
-    if (unicas.length === 0) return;
-    setEscolhidas(antigo => {
-      let mudou = false;
-      const novo = { ...antigo };
-      for (const { slot, grupo: g } of unicas) {
-        const k = chaveEscolha(slot, g.id);
-        if ((novo[k] || []).length === 0) { novo[k] = [g.opcoes[0].id]; mudou = true; }
-      }
-      return mudou ? novo : antigo;
-    });
-  }, [paresSlotGrupo]);
 
   /**
    * Sabores liberados pelo tamanho escolhido, POR SLOT.
